@@ -523,6 +523,11 @@ export interface MessageTemplateApi {
      * @nullable
      */
     readonly change_prompt_context: string | null
+    /**
+     * Names of the `{{ variables.<name> }}` the published subject, preheader and HTML use, in order of first use, as `change_prompt_context` lists them. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_variables: readonly string[] | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -614,6 +619,11 @@ export interface PatchedMessageTemplateUpdateApi {
      * @nullable
      */
     readonly change_prompt_context?: string | null
+    /**
+     * Names of the `{{ variables.<name> }}` the published subject, preheader and HTML use, in order of first use, as `change_prompt_context` lists them. Null unless `managed_by` is `code`.
+     * @nullable
+     */
+    readonly change_prompt_variables?: readonly string[] | null
 }
 
 /**

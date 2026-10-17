@@ -154,10 +154,12 @@ class TemplateSource:
 @frozen
 class TemplateChangePrompt:
     """What a person hands their coding agent to change a template managed by code: the start of the sentence that
-    asks for the change, and the "About this file" block that follows it after a blank line."""
+    asks for the change, the "About this file" block that follows it after a blank line, and the variables that block
+    names."""
 
     starter: str
     context: str
+    variables: tuple[str, ...]
 
 
 @frozen

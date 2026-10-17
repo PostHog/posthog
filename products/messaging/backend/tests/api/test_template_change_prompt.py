@@ -74,6 +74,7 @@ class TestTemplateChangePrompt(APIBaseTest):
         )
 
         assert template["change_prompt_starter"] == WITH_PATH
+        assert template["change_prompt_variables"] == ["first_name", "reset_url"]
         assert template["change_prompt_context"] == "\n".join(
             [
                 "About this file:",
@@ -177,4 +178,8 @@ class TestTemplateChangePrompt(APIBaseTest):
         template = self._retrieve(uploaded["id"])
 
         assert (template["key"], template["managed_by"]) == ("welcome", "gui")
-        assert (template["change_prompt_starter"], template["change_prompt_context"]) == (None, None)
+        assert (
+            template["change_prompt_starter"],
+            template["change_prompt_context"],
+            template["change_prompt_variables"],
+        ) == (None, None, None)
