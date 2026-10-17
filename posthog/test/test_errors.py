@@ -10,9 +10,11 @@ from posthog.errors import (
     ExposedCHQueryError,
     InternalCHQueryError,
     QueryErrorCategory,
+    classify_query_error,
     look_up_clickhouse_error_code_meta,
     wrap_clickhouse_query_error,
 )
+from posthog.exceptions import ClickHouseQueryTimeOut
 
 
 class TestWrapClickhouseQueryError:
@@ -202,6 +204,7 @@ class TestWrapClickhouseQueryError:
             (497, "ACCESS_DENIED"),
             (499, "S3_ERROR"),
             (516, "AUTHENTICATION_FAILED"),
+            (754, "UDF_EXECUTION_FAILED"),
             (1000, "POCO_EXCEPTION"),
             (1001, "STD_EXCEPTION"),
             (9999, "FUTURE_ERROR"),
@@ -214,3 +217,19 @@ class TestWrapClickhouseQueryError:
 
         assert isinstance(wrapped, InternalCHQueryError)
         assert not isinstance(wrapped, ExposedCHQueryError)
+
+    @parameterized.expand(
+        [
+            (
+                "pipe_read_timeout",
+                "Code: 754. DB::Exception: UDF execution failed: Code: 159. DB::Exception: "
+                "Pipe read timeout exceeded 10000 milliseconds. (TIMEOUT_EXCEEDED)",
+            ),
+            ("inner_code_only", "Code: 754. DB::Exception: UDF execution failed: Code: 159. DB::Exception: Timeout"),
+        ]
+    )
+    def test_udf_timeout_wraps_as_query_timeout(self, _name: str, message: str) -> None:
+        err = ServerException(message, code=754)
+
+        assert isinstance(wrap_clickhouse_query_error(err), ClickHouseQueryTimeOut)
+        assert classify_query_error(err) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
