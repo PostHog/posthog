@@ -329,11 +329,15 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                         </div>
                                         <ul className="list-disc pl-4">
                                             <li>
-                                                First touchpoint: the first property value seen in any of the steps is
-                                                chosen.
+                                                First touchpoint: each person gets one value, the earliest value seen on
+                                                any of their step events in the date range. This value applies to all of
+                                                their funnel attempts, including attempts from before the value was
+                                                first seen.
                                             </li>
                                             <li>
-                                                Last touchpoint: the last property value seen from all steps is chosen.
+                                                Last touchpoint: each person gets one value, the latest value seen on
+                                                any of their step events in the date range. This value applies to all of
+                                                their funnel attempts, including earlier attempts.
                                             </li>
                                             <li>
                                                 All steps: the property value must be seen in all steps to be considered
@@ -344,6 +348,11 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                                 chosen.
                                             </li>
                                         </ul>
+                                        <div>
+                                            With first and last touchpoint, events without the property are skipped. To
+                                            use the value from each funnel attempt, choose a specific step. You can also
+                                            start the date range when the property first appears.
+                                        </div>
                                         <div>
                                             Read more in the{' '}
                                             <Link to="https://posthog.com/docs/product-analytics/funnels#attribution-types">
