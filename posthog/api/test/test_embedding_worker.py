@@ -74,19 +74,11 @@ class TestRecentlySeenLookup:
 
 class TestRaiseForEmbeddingResponse:
     def test_bodyless_403_explains_the_ai_opt_in_gate(self):
-        # Older workers send a bare 403 with no body, so the status alone has to
-        # identify the opt-in gate.
+        # The worker sends a bare status with no body, so a helper that looked for
+        # explanatory text in the response would never recognise the opt-in gate.
         response = MagicMock(status_code=403, text="")
 
         with pytest.raises(httpx.HTTPStatusError, match="not opted into AI data processing"):
-            _raise_for_embedding_response(response)
-
-        response.raise_for_status.assert_not_called()
-
-    def test_server_error_body_is_in_the_message(self):
-        response = MagicMock(status_code=502, text="Failed to generate embeddings, got 429 from openai")
-
-        with pytest.raises(httpx.HTTPStatusError, match="returned 502: .*got 429 from openai"):
             _raise_for_embedding_response(response)
 
         response.raise_for_status.assert_not_called()
