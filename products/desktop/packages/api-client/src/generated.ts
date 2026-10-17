@@ -51,6 +51,7 @@ export namespace Schemas {
         | "in"
         | "not_in"
         | "is_cleaned_path_exact"
+        | "is_cleaned_path_not_exact"
         | "flag_evaluates_to"
         | "semver_eq"
         | "semver_neq"
@@ -2219,6 +2220,7 @@ export namespace Schemas {
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
+        customColor: string | null;
         hidden: boolean | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
@@ -4880,6 +4882,7 @@ export namespace Schemas {
         xScale: XScale | null;
         xStartAtZero: boolean | null;
     }>;
+    export type ValueLabelPosition = "end" | "center";
     export type Settings = Partial<{
         display: ChartSettingsDisplay | null;
         formatting: ChartSettingsFormatting | null;
@@ -4889,6 +4892,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
         goalLines: Array<GoalLine> | null;
@@ -4911,8 +4915,14 @@ export namespace Schemas {
         showXAxisTicks: boolean | null;
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
+        valueLabelBackground: boolean | null;
+        valueLabelFontSize: number | null;
+        valueLabelPosition: ValueLabelPosition | null;
+        valueLabelRotation: number | null;
         xAxis: ChartAxis | null;
+        xAxisDateFormat: string | null;
         xAxisLabel: string | null;
+        xAxisTickRotation: number | null;
         yAxis: Array<ChartAxis> | null;
         yAxisAtZero: boolean | null;
     }>;
@@ -11091,6 +11101,7 @@ export namespace Schemas {
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -12479,6 +12490,7 @@ export namespace Schemas {
         | "CosmosDB"
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
+        | "Plane"
         | "SapHana"
         | "Rippling"
         | "HiBob"
@@ -13875,6 +13887,7 @@ export namespace Schemas {
          * * `CosmosDB` - CosmosDB
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
+         * * `Plane` - Plane
          * * `SapHana` - SapHana
          * * `Rippling` - Rippling
          * * `HiBob` - HiBob

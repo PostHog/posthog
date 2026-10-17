@@ -285,6 +285,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         query.kind === NodeKind.BIVisualizationNode &&
         (xData?.column.type.name === 'DATE' || xData?.column.type.name === 'DATETIME') &&
         dateBucket !== 'year' &&
+        !chartSettings.xAxisDateFormat &&
         effectiveVisualizationType !== ChartDisplayType.ActionsBarValue &&
         chartSettings.showXAxisTicks !== false
     const dateAxis = useMemo(
@@ -667,7 +668,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                             <AddVariableButton buttonProps={{ size: controlSize }} />
 
                             {sourceFeatures.has(QueryFeature.dateRangePicker) &&
-                                !(query.kind === NodeKind.BIVisualizationNode && query.config.querySnapshot) &&
+                                query.kind !== NodeKind.BIVisualizationNode &&
                                 !router.values.location.pathname.includes(urls.sqlEditor()) && ( // decouple this component from insights tab and datawarehouse scene
                                     <DateRange
                                         key="date-range"

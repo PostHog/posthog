@@ -462,13 +462,13 @@ describe('PropertyFilters recent selections', () => {
 
         await openNewFilter()
 
-        await switchToTab('taxonomic-tab-recent_filters')
+        await switchToTab('taxonomic-tab-suggested_filters')
 
         await searchFor('pricing')
 
         await waitFor(() => {
-            expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
-            expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent(/pricing/i)
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toHaveTextContent(/pricing/i)
         })
     })
 

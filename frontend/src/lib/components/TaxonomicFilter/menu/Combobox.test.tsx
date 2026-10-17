@@ -9,6 +9,7 @@ import { useState } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import * as featureFlagLogicModule from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
@@ -74,6 +75,7 @@ function renderAll(options: {
     searchQuery?: string
     onCommit?: any
     eventNames?: string[]
+    drillTo?: TaxonomicFilterGroupType
 }): ReturnType<typeof render> {
     return render(
         <Provider>
@@ -84,7 +86,7 @@ function renderAll(options: {
                 eventNames={options.eventNames}
             >
                 <MenuFilterCombobox
-                    drillTo="all"
+                    drillTo={options.drillTo ?? 'all'}
                     recentEntries={options.recentEntries}
                     pinnedEntries={options.pinnedEntries}
                     onCommit={options.onCommit ?? jest.fn()}
@@ -952,7 +954,7 @@ describe('MenuFilterCombobox', () => {
     })
 
     it.each(['Recent', 'Pinned'])(
-        'filters the %s category by the query, endpoint-backed rows included',
+        'filters %s rows in All by the query, endpoint-backed rows included',
         async (label) => {
             const user = userEvent.setup()
             apiGet.mockResolvedValue({ results: [], count: 0 })
@@ -971,7 +973,7 @@ describe('MenuFilterCombobox', () => {
             })
 
             await user.click(screen.getByLabelText('Filter category'))
-            await user.click(await within(await openedCategoryPopup()).findByText(label))
+            await user.click(await within(await openedCategoryPopup()).findByText('All'))
 
             await waitFor(() => expect(rowTexts().some((t) => t.includes('browser_opened'))).toBe(true))
             expect(rowTexts().some((t) => t.includes('checkout_started'))).toBe(false)
@@ -1042,20 +1044,39 @@ describe('MenuFilterCombobox', () => {
         expect(rowTexts()[0]).toContain('signup')
     })
 
-    it('exposes Recent and Pinned as category options in the dropdown', async () => {
+    it.each([
+        [TaxonomicFilterGroupType.EmailAddresses, 'Search for an email address or domain.'],
+        [TaxonomicFilterGroupType.PageviewUrls, 'Search for a URL, domain, or path.'],
+        [TaxonomicFilterGroupType.PageviewEvents, 'Search for a URL, domain, or path.'],
+    ])('explains a skipped value search in %s', async (groupType, hint) => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: true })
+        renderAll({ groupTypes: [groupType], searchQuery: 'sample', drillTo: groupType })
+        expect(await screen.findByText(hint)).toBeInTheDocument()
+        expect(
+            apiGet.mock.calls.filter(
+                ([url]: string[]) => url.includes('/events/values') || url.includes('/persons/values')
+            )
+        ).toHaveLength(0)
+        expect(captureMock).not.toHaveBeenCalledWith('taxonomic filter empty result', expect.anything())
+    })
+
+    it('keeps recents and pins in All without separate category options', async () => {
         const user = userEvent.setup()
         apiGet.mockResolvedValue({ results: [], count: 0 })
 
         renderAll({
             groupTypes: [TaxonomicFilterGroupType.Events],
-            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'r', 'Events')],
-            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'p', 'Event properties')],
+            recentEntries: [makeEntry(TaxonomicFilterGroupType.Events, 'recent_choice', 'Events')],
+            pinnedEntries: [makeEntry(TaxonomicFilterGroupType.EventProperties, 'pinned_choice', 'Event properties')],
         })
 
         await user.click(screen.getByLabelText('Filter category'))
         const popup = await openedCategoryPopup()
-        expect(await within(popup).findByText('Recent')).toBeInTheDocument()
-        expect(within(popup).getByText('Pinned')).toBeInTheDocument()
+        expect(within(popup).queryByText('Recent')).not.toBeInTheDocument()
+        expect(within(popup).queryByText('Pinned')).not.toBeInTheDocument()
+        expect(rowTexts().some((text) => text.includes('recent_choice'))).toBe(true)
+        expect(rowTexts().some((text) => text.includes('pinned_choice'))).toBe(true)
     })
 
     it('forwards row selection context on commit and does not emit the legacy event itself', async () => {
@@ -1151,7 +1172,7 @@ describe('MenuFilterCombobox', () => {
         await waitFor(() =>
             expect(captureMock).toHaveBeenCalledWith(
                 'taxonomic filter empty result',
-                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+                expect.objectContaining({ searchQuery: 'zzz_no_match', scope: 'all' })
             )
         )
     })
@@ -1392,7 +1413,7 @@ describe('MenuFilterCombobox', () => {
             expect(screen.queryByTestId('menu-filter-loading')).not.toBeInTheDocument()
         })
 
-        it.each(['Recent', 'Pinned'])('never hides %s behind skeletons when switched to mid-search', async (label) => {
+        it.each(['Recent', 'Pinned'])('keeps %s available in All without skeletons during a search', async (label) => {
             const user = userEvent.setup()
             apiGet.mockResolvedValue({ results: [{ id: 1, name: 'browser_opened' }], count: 1 })
             const resolvedEntry = makeEntry(TaxonomicFilterGroupType.Events, `browser_${label.toLowerCase()}`, 'Events')
@@ -1423,7 +1444,7 @@ describe('MenuFilterCombobox', () => {
             observer.observe(document.body, { childList: true, subtree: true })
             try {
                 await user.click(screen.getByLabelText('Filter category'))
-                await user.click(await within(await openedCategoryPopup()).findByText(label))
+                await user.click(await within(await openedCategoryPopup()).findByText('All'))
                 await waitFor(() => expect(rowTexts().some((text) => text.includes(resolvedEntry.name))).toBe(true))
             } finally {
                 observer.disconnect()

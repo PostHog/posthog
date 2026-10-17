@@ -15,6 +15,7 @@ from .enums import (
     FigureText,
     HighlightInterval,
     HighlightLabel,
+    HighlightMetricReason,
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
@@ -165,6 +166,13 @@ class HighlightValueFormat:
 
 
 @dataclass(frozen=True)
+class HighlightMover:
+    label: str
+    value: float
+    change_pct: float | None
+
+
+@dataclass(frozen=True)
 class HighlightMetric:
     key: str
     name: str
@@ -176,6 +184,12 @@ class HighlightMetric:
     url: str | None = None
     value_format: HighlightValueFormat | None = None
     period_starts: list[date] = field(default_factory=list)
+    reason: HighlightMetricReason | None = None
+    dashboard_name: str | None = None
+    opened_days: int | None = None
+    last_opened: date | None = None
+    movers: list[HighlightMover] = field(default_factory=list)
+    previous_value: float | None = None
 
 
 @dataclass(frozen=True)
