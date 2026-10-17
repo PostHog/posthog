@@ -75,7 +75,7 @@ class SmartsheetSource(ResumableSource[SmartsheetSourceConfig, SmartsheetResumeC
             label="Smartsheet",
             caption="""Enter your Smartsheet API access token to pull your Smartsheet data into the PostHog Data warehouse.
 
-You can generate a personal access token under **Personal Settings → API Access** in your [Smartsheet account](https://app.smartsheet.com). The token inherits your account's read access; the `users` table additionally requires a system administrator account.""",
+You can generate a personal access token under **Personal Settings → API Access** in your [Smartsheet account](https://app.smartsheet.com). The token inherits your account's read access. The `users` and `events` tables require a system administrator account, and the `events` table also requires the Event Reporting add-on.""",
             iconPath="/static/services/smartsheet.png",
             docsUrl="https://posthog.com/docs/cdp/sources/smartsheet",
             releaseStatus=ReleaseStatus.ALPHA,
@@ -132,5 +132,6 @@ You can generate a personal access token under **Personal Settings → API Acces
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Smartsheet endpoint is full refresh
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
