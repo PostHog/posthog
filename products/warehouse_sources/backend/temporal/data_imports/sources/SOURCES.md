@@ -110,6 +110,7 @@ the row lists both.
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
+| aws_athena                       | HTTP                        | requests + botocore (SigV4 signing, model-driven serializer)    | ✅                          |
 | aws_batch                        | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
 | aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
@@ -1028,7 +1029,6 @@ doesn't conflict with concurrent PRs.
 - audiogo
 - autodesk_construction_cloud
 - automox
-- aws_athena
 - aws_cloudformation
 - aws_connect
 - aws_cost_and_usage_report
