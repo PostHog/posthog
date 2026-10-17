@@ -139,6 +139,8 @@ export const dashboardsCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateBodyGroupsCollapsedDefault = false
 export const dashboardsCreateBodyGroupsTintDefault = true
+export const dashboardsCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = /* @__PURE__ */ zod
@@ -258,6 +260,12 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -281,6 +289,8 @@ export const dashboardsUpdateBodyGroupsTitleMax = 200
 
 export const dashboardsUpdateBodyGroupsCollapsedDefault = false
 export const dashboardsUpdateBodyGroupsTintDefault = true
+export const dashboardsUpdateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsUpdateBodyDeleteInsightsDefault = false
 
 export const DashboardsUpdateBody = /* @__PURE__ */ zod
@@ -400,6 +410,12 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -412,6 +428,8 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
         _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
@@ -501,6 +519,12 @@ export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
 
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsPartialUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
+            ),
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
@@ -2673,6 +2697,8 @@ export const dashboardsCreateFromTemplateJsonCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateFromTemplateJsonCreateBodyGroupsCollapsedDefault = false
 export const dashboardsCreateFromTemplateJsonCreateBodyGroupsTintDefault = true
+export const dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
@@ -2793,6 +2819,12 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -2820,6 +2852,8 @@ export const dashboardsCreateUnlistedDashboardCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateUnlistedDashboardCreateBodyGroupsCollapsedDefault = false
 export const dashboardsCreateUnlistedDashboardCreateBodyGroupsTintDefault = true
+export const dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
@@ -2939,6 +2973,12 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
+            ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
             ),
         use_template: zod
             .string()

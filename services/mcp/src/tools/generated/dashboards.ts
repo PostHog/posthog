@@ -71,6 +71,9 @@ const dashboardCreate = (): ToolBase<
         if (params.groups !== undefined) {
             body['groups'] = params.groups
         }
+        if (params.group_titles !== undefined) {
+            body['group_titles'] = params.group_titles
+        }
         if (params.use_template !== undefined) {
             body['use_template'] = params.use_template
         }
@@ -591,6 +594,9 @@ const dashboardUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.group_titles !== undefined) {
+            body['group_titles'] = params.group_titles
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }

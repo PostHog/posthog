@@ -120,6 +120,8 @@ export const dashboardsCreateBodyGroupsTitleMax = 200
 
 export const dashboardsCreateBodyGroupsCollapsedDefault = false
 export const dashboardsCreateBodyGroupsTintDefault = true
+export const dashboardsCreateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = () => zod
@@ -237,6 +239,12 @@ export const DashboardsCreateBody = () => zod
             .describe(
                 "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
             ),
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsCreateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
+            ),
         use_template: zod
             .string()
             .optional()
@@ -298,6 +306,8 @@ export const DashboardsPartialUpdateQueryParams = () => zod.object({
             'Opt in to receiving the deprecated `dashboards` field in insight payloads. Once opt-in enforcement is enabled, API-token callers stop receiving it by default; use `dashboard_tiles` instead.'
         ),
 })
+
+export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsPartialUpdateBodyNameMax = 400
 
@@ -385,6 +395,12 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
 export const DashboardsPartialUpdateBody = () => zod
     .object({
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsPartialUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
+            ),
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
