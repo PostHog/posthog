@@ -486,7 +486,7 @@ class CTETableAliasType(BaseTableType):
         return self.cte_table_type.resolve_column_constant_type(name, context)
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class SelectQueryAliasType(Type):
     alias: str
     select_query_type: SelectQueryType | SelectSetQueryType
@@ -497,7 +497,7 @@ class SelectQueryAliasType(Type):
         if self.select_query_type.has_child(name, context):
             return FieldType(name=name, table_type=self)
 
-        raise ResolutionError(f"Field {name} not found on query with alias {self.alias}")
+        raise QueryError(f"Field {name} not found on query with alias {self.alias}")
 
     def has_child(self, name: str, context: HogQLContext) -> bool:
         return self.select_query_type.has_child(name, context)
