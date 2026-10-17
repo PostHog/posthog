@@ -309,6 +309,7 @@ ALWAYS invoke the matching skill **first** — do not skip it, and do not attemp
 - `/writing-dataclasses` — adding or changing a Python dataclass, replacing a tuple or `dict[str, Any]` payload, or passing a dataclass or facade contract through internal layers
 - `/announcing-behavior-changes` — shipping a fix that changes what an existing user sees (a metric moves, a count drops, a range resolves differently), or adding, reviewing, or removing an in-app change notice
 - `/merging-prs` — merging a PR, or babysitting one through the Trunk merge queue
+- `/resolving-review-findings` — replying to or resolving review threads on a PR, above all PostHog Review findings, which each get a 👍 or 👎 verdict reaction
 - `/stacking-prs` — creating, restacking, adopting, or landing a stack of PRs (`gh stack`)
 - `/implementing-mcp-tools` — adding/modifying endpoints or `tools.yaml`
 - `/modifying-taxonomic-filter` — any TaxonomicFilter change
