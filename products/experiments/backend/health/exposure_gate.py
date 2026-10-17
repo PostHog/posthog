@@ -1,6 +1,7 @@
 """
-Loads the changes of a running experiment's flag since launch that can move exposed people: the split and the
-settings that decide the variant draw. Then asks ClickHouse whether anyone was exposed before each change. A change before the first exposure moved nobody, so it does not count.
+Loads the changes of a running experiment's flag since launch that can move exposed people: the split, the
+settings that decide the variant draw, and the release conditions. Then asks ClickHouse whether anyone was exposed
+before each change. A change before the first exposure moved nobody, so it does not count.
 
 The answer for a past window does not change, so it is cached per window and shared by every reader. A slow
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
@@ -50,9 +51,15 @@ from products.experiments.backend.health.bucketing_changes import (
     bucketing_net_effect,
     changes_that_apply,
 )
+from products.experiments.backend.health.condition_changes import (
+    ConditionsChangeShape,
+    conditions_change_from_activity,
+    conditions_net_effect,
+)
 from products.experiments.backend.health.context import (
     BucketingChange,
     BucketingSetting,
+    ConditionsChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
@@ -274,6 +281,7 @@ def _load_flag_history(
             team_timezone=team_timezone,
             split_changes=(),
             bucketing_changes=(),
+            conditions_changes=(),
         )
 
     changes = _flag_changes_since(team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at)
@@ -292,10 +300,12 @@ def _load_flag_history(
         team_timezone=team_timezone,
         split_changes=changes.split,
         bucketing_changes=changes.bucketing,
+        conditions_changes=changes.conditions,
         counted_since=None,
         exposed_before_first=False,
         split_exposed_between=None,
         bucketing_exposed_between=None,
+        conditions_exposed_between=None,
     )
     if not changes.times:
         return history
@@ -307,6 +317,7 @@ def _load_flag_history(
             team_timezone=team_timezone,
             split_changes=changes.split,
             bucketing_changes=changes.bucketing,
+            conditions_changes=changes.conditions,
         )
 
     timeline = _Timeline(
@@ -327,6 +338,7 @@ def _load_flag_history(
 
     split = history.counted_split_changes
     bucketing = bucketing_net_effect(history.counted_bucketing_changes)
+    conditions = conditions_net_effect(history.counted_conditions_changes)
     return replace(
         history,
         split_exposed_between=(
@@ -337,6 +349,11 @@ def _load_flag_history(
         bucketing_exposed_between=(
             _exposed_between(gate, timeline, start=bucketing.first.changed_at, end=bucketing.last.changed_at)
             if bucketing and bucketing.shape == BucketingChangeShape.REVERTED
+            else None
+        ),
+        conditions_exposed_between=(
+            _exposed_between(gate, timeline, start=conditions.first.changed_at, end=conditions.last.changed_at)
+            if conditions and conditions.shape == ConditionsChangeShape.REVERTED
             else None
         ),
     )
@@ -364,12 +381,17 @@ def _not_checked_reason(
 class _FlagChanges:
     split: tuple[SplitChange, ...]
     bucketing: tuple[BucketingChange, ...]
+    conditions: tuple[ConditionsChange, ...]
 
     @property
     def times(self) -> tuple[datetime, ...]:
         # One save can change several things, so it is one point in time.
         return tuple(
-            sorted({change.changed_at for change in self.split} | {change.changed_at for change in self.bucketing})
+            sorted(
+                {change.changed_at for change in self.split}
+                | {change.changed_at for change in self.bucketing}
+                | {change.changed_at for change in self.conditions}
+            )
         )
 
 
@@ -425,6 +447,8 @@ def _exposed_between(gate: _ExposureGate, timeline: _Timeline, *, start: datetim
 _PROJECTED = (
     "before_variants",
     "after_variants",
+    "before_groups",
+    "after_groups",
     "before_aggregation",
     "after_aggregation",
     *(f"{side}_{setting}" for side in ("before", "after") for setting in _SETTING_FIELDS),
@@ -446,6 +470,8 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
             job_type=KT("detail__trigger__job_type"),
             before_variants=_changed(_FILTERS, "before.multivariate.variants"),
             after_variants=_changed(_FILTERS, "after.multivariate.variants"),
+            before_groups=_changed(_FILTERS, "before.groups"),
+            after_groups=_changed(_FILTERS, "after.groups"),
             before_aggregation=_changed(_FILTERS, "before.aggregation_group_type_index"),
             after_aggregation=_changed(_FILTERS, "after.aggregation_group_type_index"),
             **{f"before_{setting}": _changed(field, "before") for setting, field in _SETTING_FIELDS.items()},
@@ -455,6 +481,7 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
     )
     split: list[SplitChange] = []
     bucketing: list[BucketingChange] = []
+    conditions: list[ConditionsChange] = []
     for row in rows:
         changed_at = row["created_at"]
         split_change = split_change_from_activity(
@@ -473,7 +500,15 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
                 after=_settings(row, "after"),
             )
         )
-    return _FlagChanges(split=tuple(split), bucketing=tuple(bucketing))
+        conditions_change = conditions_change_from_activity(
+            changed_at=changed_at,
+            job_type=row["job_type"],
+            before_groups=row["before_groups"],
+            after_groups=row["after_groups"],
+        )
+        if conditions_change is not None:
+            conditions.append(conditions_change)
+    return _FlagChanges(split=tuple(split), bucketing=tuple(bucketing), conditions=tuple(conditions))
 
 
 def _settings(row: dict[str, object], side: str) -> dict[BucketingSetting, object]:

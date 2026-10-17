@@ -104,7 +104,8 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 
 def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
-    # This finding speaks for the bucketing check too, because neither can read the history for this reason.
+    # This finding speaks for the bucketing and release-condition checks too, because none of them can read the
+    # history for this reason.
     if history.reason == FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS:
         return ExperimentHealthFinding(
             code=ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
@@ -112,9 +113,9 @@ def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentH
             severity=ExperimentHealthFindingSeverity.INFO,
             title=_HISTORY_NOT_CHECKED_TITLE,
             detail=(
-                "This check can't see whether the flag's variant split, key or bucketing changed after launch, "
-                f"because {not_checked_because(history.reason)}. Viewing the history needs viewer access to the "
-                "flag and, with an API key, the activity_log:read scope."
+                "This check can't see whether the flag's variant split, key, bucketing or release conditions "
+                f"changed after launch, because {not_checked_because(history.reason)}. Viewing the history needs "
+                "viewer access to the flag and, with an API key, the activity_log:read scope."
             ),
             evidence={"reason": history.reason.value},
             # The flag history is the page this caller can't open.

@@ -68,10 +68,12 @@ def _context(
             team_timezone="Europe/Berlin",
             split_changes=(),
             bucketing_changes=bucketing,
+            conditions_changes=(),
             counted_since=bucketing[0].changed_at if bucketing else None,
             exposed_before_first=exposed_before_first,
             split_exposed_between=None,
             bucketing_exposed_between=exposed_between,
+            conditions_exposed_between=None,
         )
         if not_checked is None
         else FlagHistoryNotChecked(
@@ -80,6 +82,7 @@ def _context(
             team_timezone="Europe/Berlin",
             split_changes=(),
             bucketing_changes=bucketing,
+            conditions_changes=(),
         ),
         condition_set_traffic=None,
         excluded_variant_keys=frozenset(),
