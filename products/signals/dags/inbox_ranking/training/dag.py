@@ -4,7 +4,7 @@ Three assets on the same daily partition as the dataset dag, each writing under 
 
     inbox_ranking_training_examples/v1/<set>/dt=D/    examples over the trailing snapshots, per feature set
     inbox_ranking_models/v1/<name>/dt=D/<head>.ubj    one booster per head + metadata.json (the candidate)
-    inbox_ranking_models/v1/<name>/champion.json      pointer to the version the scoring sweep loads
+    inbox_ranking_models/v1/served.json               pointer to the model key the scoring sweep serves
     inbox_ranking_served_scores/v1/dt=D/              the scoring sweep's scores of the reports born that day
 
 A fifth asset publishes what the scoring sweep serves. The dataset bucket holds the training
@@ -15,20 +15,20 @@ which models a pass scores, and which of them the inbox would order on.
 
 Partition dt=D trains on the report-state/labels snapshots dt=D-lookback..D (issue 13's
 scoring-moment join, `training/examples.py`), grades each head on the last `holdout_days` of
-reports, and refits on everything. The champion asset applies `promotion.decide_promotion`; it
-rewrites the pointer only when `INBOX_RANKING_AUTO_PROMOTE` is on, otherwise it logs the decision
-so the daily candidate series doubles as monitoring. Every candidate is kept under `models/v1/<model_name>/dt=D/`; a re-run of a partition replaces
-that prefix in full (stale head files are removed), and `champion.json` carries the `run_id` it
-was promoted from so a loader can tell a re-run apart from the version it pinned. The champion is
-graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-only fit), so the
-promotion rule compares both models on one set of reports. Every model object sits under its
-family's `model_name`, and promotion stays inside a family: a richer family is a second candidate
-graded on the same rows, not a competitor for another family's pointer.
+reports, and refits on everything. The champion asset applies `promotion.decide_promotion` and
+records the decision, so the daily candidate series doubles as monitoring. It never moves a
+pointer: only `inbox_ranking_promote_job` (`training/promote.py`) writes `served.json`, and a
+person runs it. Every candidate is kept under `models/v1/<model_name>/dt=D/`; a re-run of a
+partition replaces that prefix in full (stale head files are removed). The incumbent is the served
+model when it has the candidate's `model_name`, and it is graded on the candidate's holdout through
+its `<head>.holdout.ubj` (the train-only fit), so the rule compares both models on one set of
+reports. The `<name>/champion.json` objects that the retired automatic promotion wrote stay in
+place, and the manifest still reads them for the cross-family role.
 
 Both the candidate and the champion asset walk `families_trained_in(MAIN_LOCATION)`, so each family trains on the
-examples of the feature set it declares and decides against its own pointer. A family whose
+examples of the feature set it declares and is graded against the served model of its own name. A family whose
 examples or metadata are missing that day is logged and skipped: its own series has a gap, and
-every other family still trains, promotes and gets graded.
+every other family still trains and gets graded.
 The `nn` family is trained by the `signals_ml` location (`nn/dag.py`) and never here.
 
 Two further assets grade the served models on data no example covers. `inbox_ranking_served_scores`
@@ -65,7 +65,7 @@ from products.signals.backend.ranking.features import (
     FeatureSet,
 )
 from products.signals.backend.ranking.model_contract import model_feature_set, model_mismatch, trained_head_files
-from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
+from products.signals.backend.ranking.overrides import read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import (
     DEFAULT_MODEL_KIND,
     ServingManifest,
@@ -76,6 +76,7 @@ from products.signals.dags.inbox_ranking.common import (
     DATASET_VERSION,
     PARQUET_PART_NAME,
     S3_BUCKET_ENV,
+    RunContext,
     dataset_bucket,
     dataset_unconfigured,
     owner_tags,
@@ -115,8 +116,8 @@ from products.signals.dags.inbox_ranking.training.heads import (
     HEADS_BY_HORIZON,
     HEADS_BY_NAME,
 )
-from products.signals.dags.inbox_ranking.training.promotion import apply_promotion_override, decide_promotion
-from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
+from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
+from products.signals.dags.inbox_ranking.training.serving import FamilyModels, ManifestDecision, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
     HeadExampleCounts,
     candidate_events,
@@ -160,6 +161,7 @@ if TYPE_CHECKING:
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
 MODELS_TABLE = "inbox_ranking_models"
 CHAMPION_FILE = "champion.json"
+SERVED_FILE = "served.json"
 METADATA_FILE = "metadata.json"
 
 # Label columns the heads read (plus the provenance inputs); everything else stays on disk.
@@ -213,6 +215,11 @@ def champion_object_key(prefix: str, model_name: str) -> str:
     return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/{CHAMPION_FILE}"
 
 
+def served_object_key(prefix: str) -> str:
+    """The one served pointer. It sits above the family folders because it can name any family."""
+    return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{SERVED_FILE}"
+
+
 def _read_bytes_if_exists(client, bucket: str, key: str) -> bytes | None:
     try:
         return client.get_object(Bucket=bucket, Key=key)["Body"].read()
@@ -244,6 +251,11 @@ def _put_json(client, bucket: str, key: str, payload: dict[str, Any]) -> None:
     client.put_object(
         Bucket=bucket, Key=key, Body=json.dumps(payload, indent=2).encode(), ContentType="application/json"
     )
+
+
+def read_served_pointer(client, bucket: str, prefix: str) -> dict[str, Any] | None:
+    """The `served.json` record, or None before the first promotion."""
+    return _read_json_if_exists(client, bucket, served_object_key(prefix))
 
 
 def snapshot_dates(partition_key: str, lookback_days: int) -> list[datetime.date]:
@@ -721,11 +733,10 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
     partition_key = context.partition_key
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
-    overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     metadata: dict[str, dagster.MetadataValue] = {}
     decided = 0
     for family in families_trained_in(MAIN_LOCATION):
-        family_metadata = _decide_champion(context, client, bucket, prefix, partition_key, family, overrides)
+        family_metadata = _decide_champion(context, client, bucket, prefix, partition_key, family)
         if family_metadata is None:
             continue
         decided += 1
@@ -744,10 +755,9 @@ def _decide_champion(
     prefix: str,
     partition_key: str,
     family: ModelFamily,
-    overrides: RankingOverrides,
 ) -> dict[str, dagster.MetadataValue] | None:
-    """One per-head XGBoost family's promotion decision against its own pointer, or None when the
-    family has no candidate for the partition."""
+    """One per-head XGBoost family's promotion decision against the served model of its name, or
+    None when the family has no candidate for the partition."""
 
     def grade_champion(champion: Mapping[str, Any]) -> dict[str, HoldoutGrade]:
         champion_feature_set = model_feature_set(champion)
@@ -778,8 +788,18 @@ def _decide_champion(
             holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
         )
 
-    return decide_family_champion(
-        context, client, bucket, prefix, partition_key, family, overrides, grade_champion=grade_champion
+    return decide_family_champion(context, client, bucket, prefix, partition_key, family, grade_champion=grade_champion)
+
+
+def served_incumbent(client, bucket: str, prefix: str, model_name: str) -> dict[str, Any] | None:
+    """The metadata of the served model when it has `model_name`, else None. A candidate is graded
+    only against a model of its own name: two names read different features, so a paired grade
+    across them means nothing."""
+    pointer = read_served_pointer(client, bucket, prefix)
+    if pointer is None or pointer.get("model_name") != model_name:
+        return None
+    return _read_json_if_exists(
+        client, bucket, model_object_key(prefix, model_name, pointer["model_version"], METADATA_FILE)
     )
 
 
@@ -790,16 +810,15 @@ def decide_family_champion(
     prefix: str,
     partition_key: str,
     family: ModelFamily,
-    overrides: RankingOverrides,
     *,
     grade_champion: Callable[[Mapping[str, Any]], dict[str, HoldoutGrade]],
 ) -> dict[str, dagster.MetadataValue] | None:
-    """One family's promotion decision against its own pointer, or None when the family has no
-    candidate for the partition.
+    """One family's promotion decision against the served model of its name, or None when the
+    family has no candidate for the partition. The decision is recorded and never written to a
+    pointer.
 
     `grade_champion` grades the incumbent's train-only fit on the candidate's holdout, in the
-    family's own learner. Every family shares the rest, so one rule, one override and one
-    `INBOX_RANKING_AUTO_PROMOTE` gate decide every pointer.
+    family's own learner. Every family shares the rest, so one rule decides every family.
     """
     candidate = _read_json_if_exists(
         client, bucket, model_object_key(prefix, family.name, partition_key, METADATA_FILE)
@@ -807,8 +826,7 @@ def decide_family_champion(
     if candidate is None:
         context.log.warning(f"no {family.name} candidate metadata for dt={partition_key}; nothing to decide")
         return None
-    champion_key = champion_object_key(prefix, family.name)
-    champion = _read_json_if_exists(client, bucket, champion_key)
+    champion = served_incumbent(client, bucket, prefix, family.name)
     champion_grades: dict[str, HoldoutGrade] = {}
     champion_aucs: dict[str, float] = {}
     champion_eces: dict[str, float] = {}
@@ -822,45 +840,21 @@ def decide_family_champion(
         }
         if champion_grades:
             context.log.info(
-                f"{family.name} champion {champion['model_version']} on this holdout: "
+                f"{family.name} served model {champion['model_version']} on this holdout: "
                 f"AUC {champion_aucs}, ECE {champion_eces}"
             )
-    promotion_override = overrides.promotion_for(family.name)
     decision = decide_promotion(
         candidate,
         champion,
-        now=datetime.datetime.now(datetime.UTC),
-        min_days_between=settings.INBOX_RANKING_PROMOTION_MIN_DAYS,
         champion_grades=champion_grades,
         min_holdout_positives={name: head.min_holdout_positives for name, head in HEADS_BY_NAME.items()},
-        skip_gates=promotion_override.skip_gates,
     )
-    outcome = apply_promotion_override(decision, candidate, champion, promotion_override)
     context.log.info(
-        f"{family.name} promotion decision for dt={partition_key}: promote={decision.promote} ({decision.reason}), "
-        f"override={outcome.override}, outcome promote={outcome.promote}"
+        f"{family.name} promotion decision for dt={partition_key}: would promote={decision.promote} "
+        f"({decision.reason}); run inbox_ranking_promote_job to serve it"
     )
 
-    promoted = False
-    if outcome.promote and settings.INBOX_RANKING_AUTO_PROMOTE:
-        _put_json(
-            client,
-            bucket,
-            champion_key,
-            {
-                **candidate,
-                "promoted_at": datetime.datetime.now(datetime.UTC).isoformat(),
-                "metadata_key": model_object_key(prefix, family.name, partition_key, METADATA_FILE),
-            },
-        )
-        promoted = True
-    elif outcome.promote:
-        context.log.info(f"INBOX_RANKING_AUTO_PROMOTE is off; the {family.name} candidate would have been promoted")
-
-    # The paired AUCs belong to the incumbent: after a promotion `champion_version` names the
-    # candidate, so the incumbent is recorded alongside to keep the scores attributable.
     incumbent_champion_version = (champion or {}).get("model_version", "none")
-    champion_version = partition_key if promoted else incumbent_champion_version
     capture_training_events(
         context,
         partition_key,
@@ -870,22 +864,16 @@ def decide_family_champion(
                 run_id=context.run_id,
                 model_name=family.name,
                 decision=decision,
-                outcome=outcome,
-                promoted=promoted,
-                champion_version=champion_version,
                 incumbent_champion_version=incumbent_champion_version,
                 champion_aucs=champion_aucs,
                 champion_eces=champion_eces,
-                skipped_gates=promotion_override.skip_gates,
             )
         ],
     )
     return {
         f"{family.name}_would_promote": dagster.MetadataValue.bool(decision.promote),
         f"{family.name}_gates_passed": dagster.MetadataValue.bool(decision.gates_passed),
-        f"{family.name}_promoted": dagster.MetadataValue.bool(promoted),
         f"{family.name}_reason": dagster.MetadataValue.text(decision.reason),
-        f"{family.name}_override": dagster.MetadataValue.text(outcome.override or "none"),
         f"{family.name}_skipped_heads": dagster.MetadataValue.json(list(decision.skipped_heads)),
         **{
             f"{family.name}_champion_{head}_auc_on_this_holdout": dagster.MetadataValue.float(auc)
@@ -896,7 +884,6 @@ def decide_family_champion(
             for head, ece in champion_eces.items()
         },
         f"{family.name}_incumbent_champion_version": dagster.MetadataValue.text(incumbent_champion_version),
-        f"{family.name}_champion_version": dagster.MetadataValue.text(champion_version),
     }
 
 
@@ -938,11 +925,10 @@ def inbox_ranking_serving_manifest(context: dagster.AssetExecutionContext) -> No
     context.add_output_metadata(_publish_manifest(context, context.partition_key, context.run.run_id))
 
 
-def _publish_manifest(
-    context: dagster.AssetExecutionContext, partition_key: str, run_id: str
-) -> dict[str, dagster.MetadataValue]:
+def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> dict[str, dagster.MetadataValue]:
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
-    served_family = settings.INBOX_RANKING_SERVED_FAMILY
+    served, served_reason = _served_model(client, bucket, prefix)
+    served_family = served["model_name"] if served is not None else "none"
     overrides = read_ranking_overrides(datetime.datetime.now(datetime.UTC))
     pinned, dropped_pins = _pinned_models(client, bucket, prefix, overrides.pin)
     for key, reason in dropped_pins.items():
@@ -959,8 +945,10 @@ def _publish_manifest(
         for family in MODEL_FAMILIES
     ]
     decision = compose_manifest(
-        families, served_family=served_family, prefix=prefix, now=datetime.datetime.now(datetime.UTC), pinned=pinned
+        families, served=served, prefix=prefix, now=datetime.datetime.now(datetime.UTC), pinned=pinned
     )
+    if served_reason is not None:
+        decision = ManifestDecision(manifest=None, reason=served_reason)
     manifest_keys = {entry.key for entry in decision.manifest.models} if decision.manifest else set()
     if decision.manifest is not None:
         for key in overrides.pin:
@@ -1046,6 +1034,25 @@ def _object_exists(client, bucket: str, key: str) -> bool:
     return True
 
 
+def _served_model(client, bucket: str, prefix: str) -> tuple[dict[str, Any] | None, str | None]:
+    """The metadata of the model `served.json` names, or None and the reason nothing is published.
+
+    The served model passes the same check as a pin. A pointer to a model that cannot be served
+    publishes nothing, so the previous manifest keeps serving.
+    """
+    pointer = read_served_pointer(client, bucket, prefix)
+    if pointer is None:
+        return None, f"no {SERVED_FILE}; run inbox_ranking_promote_job to choose the served model"
+    key = str(pointer.get("model_key"))
+    try:
+        metadata, reason = _pin_metadata(client, bucket, prefix, key)
+    except (ClientError, ValueError) as error:
+        metadata, reason = None, f"could not read the model: {error!r}"
+    if metadata is None:
+        return None, f"served model {key} cannot be served: {reason}"
+    return metadata, None
+
+
 def _pinned_models(
     client, bucket: str, prefix: str, keys: Sequence[str]
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
@@ -1092,9 +1099,7 @@ def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str,
     return metadata, None
 
 
-def _publish_mirror(
-    context: dagster.AssetExecutionContext, client, bucket: str, prefix: str, manifest: ServingManifest
-) -> bool | None:
+def _publish_mirror(context: RunContext, client, bucket: str, prefix: str, manifest: ServingManifest) -> bool | None:
     """Copy the same publish into the mirror store, if one is set. Returns None when no mirror is
     set, otherwise whether the mirror now serves this manifest.
 
@@ -1136,7 +1141,7 @@ class _ModelPublication:
 
 
 def publish_serving_models(
-    context: dagster.AssetExecutionContext,
+    context: RunContext,
     client,
     bucket: str,
     prefix: str,
@@ -1182,7 +1187,7 @@ def publish_serving_models(
 
 
 def _publish_project_vectors(
-    context: dagster.AssetExecutionContext,
+    context: RunContext,
     client,
     bucket: str,
     source: str | None,
