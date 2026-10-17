@@ -5,7 +5,6 @@ import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboar
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ScreenShotEditor } from 'lib/components/TakeScreenshot/ScreenShotEditor'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { INSIGHT_SCREENSHOT_KEY } from 'scenes/insights/insightImageCapture'
@@ -100,8 +99,7 @@ function InsightAlertsModals({ insightLogicProps }: { insightLogicProps: Insight
     const { query } = useValues(insightDataLogic(insightProps))
     const { push } = useActions(router)
 
-    const metricsAlertsEnabled = useFeatureFlag('METRICS')
-    const canCreateAlertForInsight = areAlertsSupportedForInsight(query, { metricsAlertsEnabled })
+    const canCreateAlertForInsight = areAlertsSupportedForInsight(query)
 
     return (
         <>
