@@ -50,6 +50,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
     AlertDestinationValidationError,
     DestinationType,
+    InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
     PlatformAlertHistory,
@@ -92,6 +93,7 @@ from products.logs.backend.facade.api import (
     logs_state_of_platform,
     next_allowed_check_at,
 )
+from products.logs.backend.facade.platform_ownership import on_created, on_deleted, on_updated
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 MAX_ALERTS_PER_TEAM = 20
@@ -818,7 +820,14 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     instance.clear_next_check()
 
             updated = super().update(instance, validated_data)
-            if enabled_change is True:
+            if updated.platform_owned:
+                try:
+                    on_updated(
+                        team_id=updated.team_id, alert_id=updated.id, snooze_changed=snooze_data is not _SENTINEL
+                    )
+                except InvalidPlatformAlertEdit as error:
+                    raise ValidationError({error.field_name: str(error)}) from error
+            elif enabled_change is True:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
                 )
@@ -850,7 +859,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     schedule_restriction=schedule_restriction,
                 )
             created = super().create(validated_data)
-            if created.enabled:
+            if on_created(team_id=created.team_id, alert_id=created.id, at=timezone.now()):
+                created.refresh_from_db(fields=["owner", "owner_changed_at"])
+            elif created.enabled:
                 transaction.on_commit(
                     lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
                 )
@@ -1635,5 +1646,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 alert_id=str(locked_instance.id),
                 allowed_event_ids=LOGS_ALERT_EVENT_IDS,
             )
+            if locked_instance.platform_owned:
+                on_deleted(team_id=locked_instance.team_id, alert_id=locked_instance.id)
             super().perform_destroy(locked_instance)
             transaction.on_commit(lambda: self._track("deleted", locked_instance), robust=True)

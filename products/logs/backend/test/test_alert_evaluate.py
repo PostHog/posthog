@@ -617,6 +617,18 @@ class TestLogsAlertEvaluation(APIBaseTest):
         # History and messages read the stored copy, so it has to state what the check evaluated.
         assert copy.source_config["condition"]["threshold_count"] == stored_threshold
 
+    def test_a_copy_the_platform_owns_runs_as_stored_whatever_its_logs_row_says(self) -> None:
+        configuration = self._configuration(owner="platform")
+        # Stored as "above 10", which 500 logs breach. The logs row now says otherwise, and is off.
+        LogsAlertConfiguration.objects.filter(id=self._legacy_ids[configuration.id]).update(
+            threshold_count=1000, enabled=False
+        )
+
+        evaluation, query = self._run(configuration)
+
+        assert [g.kind for o in evaluation.outcomes for g in o.groups] == [AlertEventKind.FIRING]
+        assert query.called
+
     def test_a_redispatched_batch_does_not_share_the_slot_its_earlier_run_still_holds(self) -> None:
         configuration = self._configuration()
         # The earlier execution of this same batch, whose query outlived its activity.

@@ -148,3 +148,28 @@ def update_configuration(
     return platform_writes.update_configuration(
         team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
     )
+
+
+def update_owned_copy(
+    *,
+    team_id: int,
+    legacy_configuration_id: UUID,
+    change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+    snooze_until: datetime | None = None,
+    snooze_changed: bool = False,
+) -> None:
+    """Applies an edit a source made to its own row onto the copy the platform owns.
+
+    Raises `InvalidPlatformAlertEdit` for an edit the source kind's schema rejects.
+    """
+    platform_writes.update_owned_copy(
+        team_id=team_id,
+        legacy_configuration_id=legacy_configuration_id,
+        change=change,
+        snooze_until=snooze_until,
+        snooze_changed=snooze_changed,
+    )
+
+
+def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
+    platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)

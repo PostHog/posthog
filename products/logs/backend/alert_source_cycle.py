@@ -98,7 +98,7 @@ from products.logs.backend.alert_error_classifier import classify as classify_al
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.models import LogsAlertConfiguration
-from products.logs.backend.platform_alert_backfill import platform_upsert_of
+from products.logs.backend.platform_alert_backfill import SETTINGS_FIELDS, platform_upsert_of
 from products.logs.backend.platform_source_config import filters_of
 
 # Private to the production activity. Reimplementing either would let this path drift from
@@ -184,18 +184,8 @@ class _QuerySubject:
         return cls(id=check.id, team_id=check.team_id, filters=filters_of(check.source_config))
 
 
-# The copy's settings a check takes from the logs alert as it is now. The schedule stays the
-# platform's own once the copy exists.
-_SETTINGS_FIELDS: Final = (
-    "name",
-    "source_config",
-    "evaluation_periods",
-    "datapoints_to_alarm",
-    "cooldown_minutes",
-    "schedule_restriction",
-)
 # The snooze lives on the alert row rather than the copy, and no history row states it.
-_LIVE_FIELDS: Final = (*_SETTINGS_FIELDS, "snooze_until")
+_LIVE_FIELDS: Final = (*SETTINGS_FIELDS, "snooze_until")
 
 
 def _broken_condition(check: PlatformAlertCheckInput) -> str | None:
@@ -672,10 +662,15 @@ def _as_configured_now(
 
     A copy whose logs alert is gone or disabled stops: the logs stack runs no check for it, so it
     switches itself off, and the next backfill turns it back on if the alert is enabled again.
+
+    A copy the platform owns is not a seed: every edit reaches it directly, from the logs API or the
+    platform's, so it is evaluated as stored.
     """
+    owned = [check for check in checks if check.owned_by_platform]
+    checks = [check for check in checks if not check.owned_by_platform]
     legacy_ids = [check.legacy_configuration_id for check in checks]
     alerts = {alert.id: alert for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=legacy_ids)}
-    current: list[PlatformAlertCheckInput] = []
+    current: list[PlatformAlertCheckInput] = list(owned)
     stopped: list[Decision] = []
     for check in checks:
         alert = alerts.get(check.legacy_configuration_id)
@@ -695,7 +690,7 @@ def _as_configured_now(
             )
             continue
         upsert = platform_upsert_of(alert)
-        if any(getattr(check, field) != getattr(upsert, field) for field in _SETTINGS_FIELDS):
+        if any(getattr(check, field) != getattr(upsert, field) for field in SETTINGS_FIELDS):
             try:
                 refresh_settings(team_id, check.id, upsert)
             except Exception:

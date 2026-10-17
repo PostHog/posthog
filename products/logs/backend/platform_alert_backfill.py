@@ -36,6 +36,20 @@ class BackfillCounts:
     failed: int
 
 
+# The settings a logs alert shares with its platform copy. The schedule stays the platform's own once
+# the copy exists, and `enabled` follows its own rules on each side.
+SETTINGS_FIELDS: Final = (
+    "name",
+    "source_config",
+    "evaluation_periods",
+    "datapoints_to_alarm",
+    "cooldown_minutes",
+    "schedule_restriction",
+)
+# The logs alert's columns that make up `source_config["condition"]` on the copy.
+CONDITION_FIELDS: Final = ("threshold_count", "threshold_operator", "window_minutes")
+
+
 def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
     """The platform copy of a logs alert, which the backfill writes and every check reads again.
 
@@ -48,14 +62,7 @@ def platform_upsert_of(alert: LogsAlertConfiguration) -> PlatformAlertUpsert:
         name=alert.name,
         enabled=alert.enabled,
         source_kind=SourceKind.LOGS,
-        source_config=logs_source_config(
-            alert.filters,
-            {
-                "threshold_count": alert.threshold_count,
-                "threshold_operator": alert.threshold_operator,
-                "window_minutes": alert.window_minutes,
-            },
-        ),
+        source_config=logs_source_config(alert.filters, {field: getattr(alert, field) for field in CONDITION_FIELDS}),
         check_interval_minutes=alert.check_interval_minutes,
         evaluation_periods=alert.evaluation_periods,
         datapoints_to_alarm=alert.datapoints_to_alarm,
