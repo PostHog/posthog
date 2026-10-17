@@ -17,19 +17,18 @@ from typing import Any
 from django.core.cache import caches
 from django.utils.connection import ConnectionProxy
 
+import re2
+
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_select
-from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.models import Team
 
-from products.metrics.backend.metric_query_runner import _QUERY_SETTINGS, MAX_QUERY_SPAN
+from products.metrics.backend.metric_query_runner import MAX_QUERY_SPAN
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
 from products.metrics.backend.sql_mode import run_metrics_sql_values
 from products.metrics.backend.variables import (
@@ -46,12 +45,6 @@ MAX_VARIABLE_OPTIONS = 1000
 MAX_EXPANDED_VARIABLES = 50
 _FUNCTION = re.compile(r"^\s*(?P<name>label_values|label_names|metrics|query_result)\s*\((?P<args>.*)\)\s*$", re.DOTALL)
 _LABEL_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-_REGEX_QUERY = "SELECT arrayDistinct(arrayFilter(x -> match(x, {pattern}), {options}))"
-# An option whose group does not take part in the match has no value, as in the dashboard selects.
-_REGEX_WITH_GROUP_QUERY = (
-    "SELECT arrayDistinct(arrayFilter(x -> x != '', "
-    "arrayMap(x -> extract(x, {pattern}), arrayFilter(x -> match(x, {pattern}), {options}))))"
-)
 _OPTIONS_CACHE_SECONDS = 60
 # Tiles of one dashboard run at the same time. One of them loads the options and holds a lock while it runs.
 # The lock outlasts the slowest query, a 60 second Snuffle or ClickHouse query, so a slow query runs only once.
@@ -157,29 +150,6 @@ def _promql_options(team: Team, query: str, date_from: dt.datetime, date_to: dt.
     return list(islice((line for line in lines if line is not None), MAX_VARIABLE_OPTIONS))
 
 
-def _has_capture_group(regex: str) -> bool:
-    """Whether the pattern has a capturing group: an unescaped `(` outside a class, not followed by `?`."""
-    in_class = False
-    index = 0
-    while index < len(regex):
-        char = regex[index]
-        if char == "\\":
-            index += 2
-            continue
-        if in_class:
-            in_class = char != "]"
-        elif char == "[":
-            in_class = True
-        elif char == "(" and (
-            not regex.startswith("?", index + 1)
-            or regex.startswith("?P<", index + 1)
-            or (regex.startswith("?<", index + 1) and not regex.startswith(("?<=", "?<!"), index + 1))
-        ):
-            return True
-        index += 1
-    return False
-
-
 def re2_pattern(regex: str | None) -> str:
     """The RE2 pattern of a variable regex. Grafana writes `/pattern/flags`, and RE2 takes the flags inline."""
     pattern = (regex or "").strip()
@@ -190,29 +160,29 @@ def re2_pattern(regex: str | None) -> str:
     return f"(?{flags}){body}" if flags and body else body
 
 
-def apply_regex(team: Team, options: list[str], regex: str | None) -> list[str]:
+def apply_regex(options: list[str], regex: str | None) -> list[str]:
     """Keep the options that match the variable's regex. With a capture group, the option is the first group.
 
-    ClickHouse runs the pattern with RE2, so a user pattern cannot backtrack without end.
+    RE2 runs the pattern in linear time, so a user pattern cannot backtrack without end. A dot matches a newline,
+    as in the ClickHouse functions that SQL queries use.
     """
     pattern = re2_pattern(regex)
     if not pattern or not options:
         return options
-    query = parse_select(
-        _REGEX_WITH_GROUP_QUERY if _has_capture_group(pattern) else _REGEX_QUERY,
-        placeholders={
-            "pattern": ast.Constant(value=pattern),
-            "options": ast.Array(exprs=[ast.Constant(value=option) for option in options]),
-        },
-    )
     try:
-        response = execute_hogql_query(
-            query_type="MetricsVariableRegex", query=query, team=team, workload=Workload.LOGS, settings=_QUERY_SETTINGS
-        )
-    except (ExposedHogQLError, ExposedCHQueryError) as exc:
+        compiled = re2.compile(f"(?s){pattern}")
+    except re2.error as exc:
         raise ValueError(f"The variable regex cannot be used: {exc}") from exc
-    rows = response.results or []
-    return [str(option) for option in rows[0][0]] if rows else []
+    matched: list[str] = []
+    for option in options:
+        match = compiled.search(option)
+        if match is None:
+            continue
+        # An option whose group does not take part in the match has no value, as in the dashboard selects.
+        value = (match.group(1) or "") if compiled.groups else option
+        if value or not compiled.groups:
+            matched.append(value)
+    return list(dict.fromkeys(matched))
 
 
 def check_options_window(date_from: dt.datetime, date_to: dt.datetime) -> None:
@@ -407,7 +377,7 @@ def list_variable_options(
             raise ValueError(unresolved_message(substitution.unresolved))
         key = _query_cache_key(team, source, substitution.text, {}, date_from, date_to, regex)
         options = _shared_options(
-            key, lambda: apply_regex(team, _promql_options(team, substitution.text, date_from, date_to), regex), slot
+            key, lambda: apply_regex(_promql_options(team, substitution.text, date_from, date_to), regex), slot
         )
     else:
         if definitions:
@@ -431,7 +401,6 @@ def list_variable_options(
             options = _shared_options(
                 key,
                 lambda: apply_regex(
-                    team,
                     run_metrics_sql_values(team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders),
                     regex,
                 ),

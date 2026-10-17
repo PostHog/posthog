@@ -343,7 +343,7 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         assert response.json() == {"results": ["api"]}
 
     def test_a_regex_group_that_does_not_match_gives_no_option(self) -> None:
-        assert apply_regex(self.team, ["web", "api-web"], "^(api-)?web$") == ["api-"]
+        assert apply_regex(["web", "api-web"], "^(api-)?web$") == ["api-"]
 
     def test_a_load_that_outlives_its_lock_keeps_the_new_lock(self) -> None:
         def slow_load() -> list[str]:
