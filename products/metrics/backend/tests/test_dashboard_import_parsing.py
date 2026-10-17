@@ -323,8 +323,12 @@ def _comparable(raw: dict[str, Any]) -> list[tuple[Any, ...]]:
 def test_reads_a_v2_resource_like_the_same_classic_dashboard(alpha: bool) -> None:
     v2 = _v2_dashboard(alpha=alpha)
 
-    assert GrafanaDashboardParser(v2).parse().date_from == "-6h"
+    spec = GrafanaDashboardParser(v2).parse()
+    assert spec.date_from == "-6h"
     assert _comparable(v2) == _comparable(DASHBOARD)
+    assert {variable["name"]: variable.get("query") for variable in spec.metric_variables}["instance"] == (
+        "label_values(instance)"
+    )
 
 
 def test_places_v2_auto_grid_panels_in_columns_under_each_tab() -> None:
