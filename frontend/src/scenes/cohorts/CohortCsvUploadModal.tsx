@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { COHORT_CSV_HELP, CohortCsvDropzone } from './CohortCsvDropzone'
 import { CohortLogicProps, cohortEditLogic } from './cohortEditLogic'
 
 export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
     const logic = cohortEditLogic({ id })
-    const { cohort, cohortLoading, csvUploadModalOpen } = useValues(logic)
+    const { cohort, cohortErrors, cohortLoading, csvUploadModalOpen } = useValues(logic)
     const { setCohortValue, setCsvUploadModalOpen, submitCohort } = useActions(logic)
 
     const onClose = (): void => {
@@ -44,6 +44,7 @@ export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
                 </>
             }
         >
+            {cohortErrors.name && <LemonBanner type="error">{cohortErrors.name}</LemonBanner>}
             <div className="ph-ignore-input">
                 <CohortCsvDropzone
                     value={cohort.csv ?? null}

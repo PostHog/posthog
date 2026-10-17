@@ -17,6 +17,7 @@ import { initKeaTests } from '~/test/init'
 import { mockCohort } from '~/test/mocks'
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator, InsightShortId } from '~/types'
 
+import { CohortCsvUploadModal } from './CohortCsvUploadModal'
 import { CohortEdit } from './CohortEdit'
 
 describe('cohortEditLogic', () => {
@@ -99,6 +100,33 @@ describe('cohortEditLogic', () => {
                 .toMatchValues({
                     cohortErrors: {},
                 })
+        })
+    })
+
+    describe('CSV upload modal', () => {
+        afterEach(() => {
+            cleanup()
+        })
+
+        it('shows cohort name validation errors in the modal', async () => {
+            logic = cohortEditLogic({ id: 'new' })
+            logic.mount()
+            render(<CohortCsvUploadModal id="new" />)
+
+            act(() => {
+                logic.actions.setCohort({
+                    ...NEW_COHORT,
+                    id: 'new',
+                    name: '',
+                    is_static: true,
+                    csv: new File(['person@example.com'], 'people.csv', { type: 'text/csv' }),
+                })
+                logic.actions.setCsvUploadModalOpen(true)
+            })
+
+            await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+            expect(await screen.findByText('Cohort name cannot be empty')).toBeVisible()
         })
     })
 
