@@ -1813,6 +1813,37 @@ class TestEmailInboundContent(MailgunWebhookTestMixin, BaseTest):
         assert item_context["has_full_email_content"] is False
         assert mapping.full_body_plain is None
 
+    @parameterized.expand(
+        [
+            ("plain", "Jane Doe <jane@customer.com>", "jane@customer.com", "Jane Doe"),
+            ("quoted_comma", '"Doe, Jane" <jane@customer.com>', "jane@customer.com", "Doe, Jane"),
+            # Mailgun decodes "=?iso-8859-1?Q?Doe=2C_J=E9r=F4me?=" without re-quoting the display name
+            ("decoded_comma", "Doe, Jérôme <jerome@customer.com>", "jerome@customer.com", "Doe, Jérôme"),
+            ("decoded_semicolon", "Jane Doe; Sales <jane@customer.com>", "jane@customer.com", "Jane Doe; Sales"),
+        ]
+    )
+    def test_sender_is_read_from_the_from_header(
+        self, _name: str, from_header: str, expected_email: str, expected_name: str
+    ) -> None:
+        response = post_mailgun(
+            self.client,
+            "/api/conversations/v1/email/inbound",
+            {
+                "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",
+                "from": from_header,
+                # The envelope sender a forwarder rewrote with SRS must not replace the customer
+                "sender": "support+SRS=lkgvd=h6=customer.com=jane@forwarder.com",
+                "Message-Id": f"<sender-{_name}@test.com>",
+                "subject": "Help",
+                "stripped-text": "Hello",
+            },
+        )
+        assert response.status_code == 202
+
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.email_from == expected_email
+        assert ticket.anonymous_traits == {"name": expected_name, "email": expected_email}
+
     def test_reply_strips_quoted_thread(self):
         base = {
             "recipient": "team-cc00dd11ee2233ff@mg.posthog.com",

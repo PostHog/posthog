@@ -72,6 +72,7 @@ INBOUND_TOKEN_PATTERN = re.compile(r"^team-([a-f0-9]+)@")
 OUTBOUND_CAPTURE_LOCAL_PART = "sent"
 _VIA_SUFFIX_RE = re.compile(r"\s+via\s+.+$", re.IGNORECASE)
 _BASIC_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_SINGLE_ANGLE_ADDRESS_RE = re.compile(r"^(?P<name>[^<>@]*)<(?P<email>[^<>@\s]+@[^<>@\s]+)>$")
 _MESSAGE_ID_RE = re.compile(r"<[^<>\s]+>")
 _FORWARDING_CHALLENGE_RE = re.compile(rf"{re.escape(FORWARDING_CHALLENGE_MARKER)}(?P<token>[A-Za-z0-9_.:-]{{1,1000}})")
 _DKIM_DOMAIN_RE = re.compile(r"(?:^|;)\s*d\s*=\s*([^;\s]+)", re.IGNORECASE)
@@ -364,8 +365,24 @@ def _outbound_sender_authenticated(request: MailgunRequest, sender_email: str) -
     return envelope_sender.strip().lower() == sender_email.lower() and _sender_authenticated(request, sender_email)
 
 
+def _parse_from_header(value: str) -> tuple[str, str]:
+    """Parse a From header that Mailgun has already decoded.
+
+    An RFC 2047 display name such as "=?iso-8859-1?Q?Doe=2C_J=E9r=F4me?=" arrives decoded and
+    unquoted, so parseaddr reads its comma as an address separator and returns nothing. A header
+    that holds exactly one angle-bracketed address is still unambiguous, so fall back to that.
+    """
+    name, email = parseaddr(value)
+    if email:
+        return name, email
+    match = _SINGLE_ANGLE_ADDRESS_RE.match(value.strip())
+    if match is None:
+        return "", ""
+    return match["name"].strip(), match["email"]
+
+
 def _outbound_sender_email(request: MailgunRequest) -> str:
-    _, sender_email = parseaddr(request.POST.get("from", ""))
+    _, sender_email = _parse_from_header(request.POST.get("from", ""))
     if not sender_email:
         sender_email = request.POST.get("sender", "")
     return sender_email.strip().lower()[:400]
@@ -582,8 +599,7 @@ def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> Parse
     if not message_ids:
         return None
 
-    from_header = request.POST.get("from", "")
-    sender_name, sender_email = parseaddr(from_header)
+    sender_name, sender_email = _parse_from_header(request.POST.get("from", ""))
     if not sender_email:
         sender_email = request.POST.get("sender", "")
     sender_email = sender_email.strip().lower()[:400]
