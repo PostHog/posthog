@@ -2174,12 +2174,15 @@ describe('sessionRecordingsPlaylistLogic', () => {
             // outlived the failure and covered a list that had since loaded.
             const listSpy = jest
                 .spyOn(api.recordings, 'list')
-                .mockRejectedValueOnce(Object.assign(new Error('Request failed'), { status: 500 }))
+                .mockRejectedValueOnce(
+                    Object.assign(new Error('Request failed'), { status: 500, detail: 'Try a shorter date range.' })
+                )
 
             const erroring = sessionRecordingsPlaylistLogic({ logicKey: 'error-then-success' })
             erroring.mount()
             await expectLogic(erroring).toDispatchActions(['loadSessionRecordingsFailure'])
             expect(erroring.values.sessionRecordingsAPIErrored).toBe(true)
+            expect(erroring.values.sessionRecordingsAPIErrorDetail).toBe('Try a shorter date range.')
 
             listSpy.mockResolvedValueOnce({ results: [aRecording], has_next: false } as Awaited<
                 ReturnType<typeof api.recordings.list>
@@ -2188,6 +2191,7 @@ describe('sessionRecordingsPlaylistLogic', () => {
             await expectLogic(erroring).toDispatchActions(['loadSessionRecordingsSuccess'])
 
             expect(erroring.values.sessionRecordingsAPIErrored).toBe(false)
+            expect(erroring.values.sessionRecordingsAPIErrorDetail).toBeNull()
             erroring.unmount()
         })
 
