@@ -1519,6 +1519,41 @@ export interface FeatureFlagTestEvaluationResponseApi {
     conditions: FeatureFlagConditionAnalysisApi[]
 }
 
+/**
+ * Groups for feature flag evaluation.
+ */
+export type FeatureFlagHistoricalBatchRequestApiGroups = { [key: string]: unknown }
+
+export interface FeatureFlagHistoricalBatchRequestApi {
+    /**
+     * Distinct IDs belonging to the same person. Duplicate IDs are evaluated once, in request order.
+     * @minItems 1
+     * @maxItems 1000
+     */
+    distinct_ids: string[]
+    /** Point in time for both person properties and flag conditions. */
+    timestamp: string
+    /** Groups for feature flag evaluation. */
+    groups?: FeatureFlagHistoricalBatchRequestApiGroups
+}
+
+export interface FeatureFlagHistoricalBatchResultApi {
+    /** The supplied distinct ID used for bucketing. */
+    distinct_id: string
+    /** Evaluation result, when available. */
+    result: FeatureFlagTestEvaluationResponseApi | null
+    /**
+     * Why this ID could not be evaluated.
+     * @nullable
+     */
+    error: string | null
+}
+
+export interface FeatureFlagHistoricalBatchResponseApi {
+    /** Results in request order. */
+    results: FeatureFlagHistoricalBatchResultApi[]
+}
+
 export type FeatureFlagVersionResponseApiFilters = { [key: string]: unknown }
 
 /**

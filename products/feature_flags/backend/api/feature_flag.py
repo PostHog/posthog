@@ -4,13 +4,17 @@ import re
 import copy
 import json
 import math
+import time
 import logging
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from contextlib import nullcontext
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager, nullcontext
+from contextvars import copy_context
 from dataclasses import asdict
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, NoReturn, Optional, cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
@@ -62,6 +66,7 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
 )
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import FlagRequestType
 from posthog.dataclasses import frozen
@@ -3315,6 +3320,20 @@ class FeatureFlagTestEvaluationRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class FeatureFlagHistoricalBatchRequestSerializer(serializers.Serializer):
+    distinct_ids = serializers.ListField(
+        child=serializers.CharField(allow_blank=False),
+        min_length=1,
+        max_length=1000,
+        help_text="Distinct IDs belonging to the same person. Duplicate IDs are evaluated once, in request order.",
+    )
+    timestamp = serializers.DateTimeField(help_text="Point in time for both person properties and flag conditions.")
+    groups = serializers.DictField(required=False, default=dict, help_text="Groups for feature flag evaluation.")
+
+    def validate_distinct_ids(self, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(value))
+
+
 class FeatureFlagConditionPropertyAnalysisSerializer(serializers.Serializer):
     key = serializers.CharField(help_text="Property key")
     operator = serializers.CharField(help_text="Comparison operator")
@@ -3388,6 +3407,68 @@ class FeatureFlagTestEvaluationResponseSerializer(serializers.Serializer):
     conditions = FeatureFlagConditionAnalysisSerializer(
         many=True, help_text="Detailed analysis of each condition in the feature flag"
     )
+
+
+class FeatureFlagHistoricalBatchResultSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(help_text="The supplied distinct ID used for bucketing.")
+    result = FeatureFlagTestEvaluationResponseSerializer(
+        allow_null=True, help_text="Evaluation result, when available."
+    )
+    error = serializers.CharField(allow_null=True, help_text="Why this ID could not be evaluated.")
+
+
+class FeatureFlagHistoricalBatchResponseSerializer(serializers.Serializer):
+    results = FeatureFlagHistoricalBatchResultSerializer(many=True, help_text="Results in request order.")
+
+
+@frozen
+class PreparedFlagTestEvaluation:
+    """Request-scoped inputs shared read-only by per-identity evaluations."""
+
+    team_token: str
+    distinct_ids: list[str]
+    timestamp: datetime | None
+    person_properties: dict[str, Any]
+    evaluation_filters: dict[str, Any]
+    reconstructed_flag_data: dict[str, Any] | None
+
+
+# Stop admitting work after 15 seconds; at most six existing service calls finish afterwards.
+HISTORICAL_BATCH_EVALUATION_BUDGET_SECONDS = 15
+HISTORICAL_BATCH_CONCURRENCY = 6
+
+# One admitted batch bounds a team's total fan-out, including session-authenticated callers.
+# 120s gives headroom over the default 5s person lookup, 30s scan, 15s admission budget
+# and two 3s flag-service attempts. A dead worker's slot eventually expires.
+_historical_test_batch_limiter = RateLimit(
+    max_concurrency=1,
+    limit_name="historical_flag_test_per_team",
+    get_task_name=lambda **kwargs: "flags:historical-test:per-team",
+    get_task_key=lambda **kwargs: f"flags:historical-test:per-team:{kwargs['team_id']}",
+    get_task_id=lambda **kwargs: kwargs["task_id"],
+    ttl=120,
+    apply_clickhouse_kill_switch=False,
+    allow_team_bypass=False,
+)
+
+
+@contextmanager
+def _historical_test_batch_slot(team_id: int) -> Iterator[bool]:
+    slot: ConcurrencySlot | None = None
+    try:
+        slot = _historical_test_batch_limiter.use(team_id=team_id, task_id=str(uuid4()))
+    except ConcurrencyLimitExceeded:
+        pass
+    except Exception:
+        logger.warning("Historical flag test admission unavailable", exc_info=True)
+    try:
+        yield slot is not None
+    finally:
+        if slot is not None:
+            try:
+                _historical_test_batch_limiter.release(slot)
+            except Exception:
+                logger.warning("Historical flag test slot release failed", exc_info=True)
 
 
 class FeatureFlagVersionResponseSerializer(serializers.ModelSerializer):
@@ -5572,6 +5653,71 @@ class FeatureFlagViewSet(
         timestamp = request.validated_data.get("timestamp")
         groups = request.validated_data.get("groups") or {}
 
+        prepared = self._prepare_test_evaluation(feature_flag, distinct_id, person_id, timestamp)
+        if isinstance(prepared, Response):
+            return prepared
+        return self._evaluate_test_evaluation(feature_flag, prepared, distinct_id, person_id, groups)
+
+    @validated_request(
+        request_serializer=FeatureFlagHistoricalBatchRequestSerializer,
+        responses={200: OpenApiResponse(response=FeatureFlagHistoricalBatchResponseSerializer)},
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        # Same-person validation reveals whether the supplied identities are linked.
+        required_scopes=["feature_flag:read", "person:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def test_evaluation_batch(self, request: request.Request, **kwargs: Any) -> Response:
+        feature_flag = self.get_object()
+        with _historical_test_batch_slot(self.team_id) as admitted:
+            if not admitted:
+                return Response(
+                    {"error": "Historical testing is busy. Please retry shortly."},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS,
+                    headers={"Retry-After": "1"},
+                )
+            return self._run_historical_test_batch(feature_flag, request.validated_data)
+
+    def _run_historical_test_batch(self, feature_flag: FeatureFlag, data: dict[str, Any]) -> Response:
+        distinct_ids = data["distinct_ids"]
+        prepared = self._prepare_test_evaluation(
+            feature_flag, distinct_ids[0], None, data["timestamp"], batch_distinct_ids=distinct_ids
+        )
+        if isinstance(prepared, Response):
+            return prepared
+
+        deadline = time.monotonic() + HISTORICAL_BATCH_EVALUATION_BUDGET_SECONDS
+        groups = data["groups"]
+
+        def evaluate(distinct_id: str) -> dict[str, Any]:
+            if time.monotonic() >= deadline:
+                return {"distinct_id": distinct_id, "result": None, "error": "Batch evaluation time limit reached."}
+            response = self._evaluate_test_evaluation(feature_flag, prepared, distinct_id, None, groups)
+            return {
+                "distinct_id": distinct_id,
+                "result": response.data if response.status_code == status.HTTP_200_OK else None,
+                "error": response.data.get("error", "Evaluation unavailable.")
+                if response.status_code != status.HTTP_200_OK
+                else None,
+            }
+
+        # Retain individual bucketing and failures without repeating the shared historical scan.
+        with ThreadPoolExecutor(max_workers=HISTORICAL_BATCH_CONCURRENCY) as executor:
+            futures = [executor.submit(copy_context().run, evaluate, distinct_id) for distinct_id in distinct_ids]
+            results = [future.result() for future in futures]
+        return Response({"results": results})
+
+    def _prepare_test_evaluation(
+        self,
+        feature_flag: FeatureFlag,
+        distinct_id: str | None,
+        person_id: str | None,
+        timestamp: datetime | None,
+        *,
+        batch_distinct_ids: Sequence[str] | None = None,
+    ) -> PreparedFlagTestEvaluation | Response:
         # The identifier we were asked to resolve. Logged on every failure path below so a
         # personhog RPC outage, a genuinely missing person, and bad input can be told apart
         # instead of collapsing into one opaque 500 (which left this endpoint's failures
@@ -5608,6 +5754,12 @@ class FeatureFlagViewSet(
             capture_exception(e)
             return Response({"error": "Failed to resolve person"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+        if batch_distinct_ids is not None and (not person or not set(batch_distinct_ids).issubset(distinct_ids)):
+            return Response(
+                {"error": "All distinct IDs must belong to the same person in this project."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         if not person or not distinct_ids:
             # A person may legitimately not exist yet. Server-to-server and webhook
             # automations commonly evaluate with a synthetic distinct_id plus the
@@ -5625,11 +5777,6 @@ class FeatureFlagViewSet(
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
-        # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
-        # since rollout/variant assignment can depend on the exact distinct_id used.
-        # If person_id was provided, pick the lexicographically smallest distinct_id so the
-        # choice is stable across calls — proto_person_to_model / the ORM don't guarantee order.
-        evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else sorted(distinct_ids)[0]
         person_properties: dict[str, Any] = {}
 
         # Build person properties at timestamp if provided
@@ -5706,10 +5853,43 @@ class FeatureFlagViewSet(
                     status=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 )
 
+        return PreparedFlagTestEvaluation(
+            team_token=self.team.api_token,
+            distinct_ids=distinct_ids,
+            timestamp=timestamp,
+            person_properties=person_properties,
+            evaluation_filters=evaluation_filters,
+            reconstructed_flag_data=reconstructed_flag_data,
+        )
+
+    def _evaluate_test_evaluation(
+        self,
+        feature_flag: FeatureFlag,
+        prepared: PreparedFlagTestEvaluation,
+        distinct_id: str | None,
+        person_id: str | None,
+        groups: dict[str, Any],
+    ) -> Response:
+        distinct_ids = prepared.distinct_ids
+        timestamp = prepared.timestamp
+        person_properties = prepared.person_properties
+        evaluation_filters = prepared.evaluation_filters
+        reconstructed_flag_data = prepared.reconstructed_flag_data
+        log_context = {
+            "team_id": self.team_id,
+            "feature_flag_id": feature_flag.id,
+            "identifier_type": "person_id" if person_id else "distinct_id",
+            "identifier_value": person_id or distinct_id,
+        }
+        # Prefer the caller-provided distinct_id for evaluation when it resolves to this person,
+        # since rollout/variant assignment can depend on the exact distinct_id used.
+        # If person_id was provided, pick the lexicographically smallest distinct_id so the
+        # choice is stable across calls — proto_person_to_model / the ORM don't guarantee order.
+        evaluation_distinct_id = distinct_id if distinct_id and distinct_id in distinct_ids else sorted(distinct_ids)[0]
         # Evaluate the flag
         try:
             # Get team API token for Rust service
-            team_token = self.team.api_token
+            team_token = prepared.team_token
 
             # If we reconstructed a historical version, ship the reconstructed
             # field set as the override payload. Building straight from

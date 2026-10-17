@@ -14346,6 +14346,313 @@ class TestFeatureFlagVersions(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
 
+class TestFeatureFlagHistoricalBatch(APIBaseTest):
+    @parameterized.expand([("single", False, 3), ("batch", True, 1)])
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_reuses_properties_and_preserves_bucketing(
+        self, _name, batch, expected_scans, mock_flags, mock_query
+    ):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=["alpha", "beta", "gamma"])
+        mock_query.return_value.results = [("{}", "{}", "$set")]
+
+        def evaluate(**kwargs):
+            if kwargs["distinct_id"] == "beta":
+                raise requests.ConnectionError("unavailable")
+            return {
+                "flags": {
+                    flag.key: {
+                        "enabled": True,
+                        "variant": kwargs["distinct_id"],
+                        "conditions": [],
+                        "reason": {"code": "condition_match"},
+                        "metadata": {},
+                    }
+                }
+            }
+
+        mock_flags.side_effect = evaluate
+        timestamp = now().isoformat()
+        if batch:
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+                {"distinct_ids": ["gamma", "beta", "alpha", "gamma"], "timestamp": timestamp},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+            rows = response.json()["results"]
+        else:
+            rows = []
+            for distinct_id in ["gamma", "beta", "alpha"]:
+                response = self.client.post(
+                    f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation/",
+                    {"distinct_id": distinct_id, "timestamp": timestamp},
+                    format="json",
+                )
+                rows.append(
+                    {
+                        "distinct_id": distinct_id,
+                        "result": response.json() if response.status_code == 200 else None,
+                        "error": response.json().get("error"),
+                    }
+                )
+        assert [row["distinct_id"] for row in rows] == ["gamma", "beta", "alpha"]
+        assert [row["result"]["result"] if row["result"] else None for row in rows] == ["gamma", None, "alpha"]
+        assert rows[1]["error"]
+        assert [row["result"]["evaluation_distinct_id"] for row in (rows[0], rows[2])] == ["gamma", "alpha"]
+        assert mock_query.call_count == expected_scans
+        assert mock_flags.call_count == 3
+
+    @parameterized.expand([2, 200])
+    @patch("posthog.api.services.flags_service._FLAGS_SERVICE_SESSION.post")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_shares_read_only_nested_snapshot(self, count, mock_build, mock_post):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="batch-test",
+            filters={"groups": [{"properties": [{"key": "profile", "type": "person", "operator": "is_set"}]}]},
+        )
+        ids = [f"user-{i}" for i in range(count)]
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=ids)
+        nested = [{"key": f"property-{i}", "value": "x" * 256} for i in range(128)]
+        snapshot = {"profile": nested, "unreferenced": "hidden"}
+        before = json.dumps(snapshot)
+        mock_build.return_value = snapshot
+
+        def respond(*args, **kwargs):
+            response = MagicMock()
+            response.json.return_value = {
+                "flags": {flag.key: {"enabled": True, "variant": kwargs["json"]["distinct_id"], "conditions": []}}
+            }
+            return response
+
+        mock_post.side_effect = respond
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+            {"distinct_ids": ids, "timestamp": now().isoformat(), "groups": {"company": "acme"}},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        rows = response.data["results"]
+        assert [row["result"]["result"] for row in rows] == ids
+        assert all(row["result"]["person_properties"]["profile"] is nested for row in rows)
+        assert all("unreferenced" not in row["result"]["person_properties"] for row in rows)
+        assert mock_post.call_count == count
+        payloads = [call.kwargs["json"] for call in mock_post.call_args_list]
+        assert all(payload["person_properties"] is snapshot for payload in payloads)
+        assert all(payload["groups"] is payloads[0]["groups"] for payload in payloads)
+        assert payloads[0]["groups"] == {"company": "acme"}
+        assert json.dumps(snapshot) == before
+
+    @parameterized.expand(
+        [
+            ("feature_flag_read", ["feature_flag:read"], 403),
+            ("person_read", ["person:read"], 403),
+            ("both_scopes", ["feature_flag:read", "person:read"], 200),
+            ("session", None, 200),
+            ("single_id_unchanged", ["feature_flag:read"], 200),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_requires_person_and_flag_access(
+        self, name, scopes, expected_status, mock_person, mock_build, mock_flags
+    ):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        with mute_selected_signals():
+            person = create_person(team=self.team, distinct_ids=["alpha", "beta"])
+        mock_person.return_value = (person, ["alpha", "beta"])
+        mock_flags.return_value = {"flags": {flag.key: {"enabled": True, "conditions": []}}}
+        if scopes is not None:
+            token = self.create_personal_api_key_with_scopes(scopes)
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        single = name == "single_id_unchanged"
+        endpoint = "test_evaluation" if single else "test_evaluation_batch"
+        identities = {"distinct_id": "alpha"} if single else {"distinct_ids": ["alpha", "beta"]}
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/{endpoint}/",
+            {**identities, "timestamp": now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.content
+        assert mock_person.call_count == (1 if expected_status == 200 else 0)
+        assert mock_build.call_count == (1 if expected_status == 200 else 0)
+        assert mock_flags.call_count == ((1 if single else 2) if expected_status == 200 else 0)
+
+    @parameterized.expand([("success", False, False), ("history_failure", True, False), ("other_team", False, True)])
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_limits_overlapping_requests_and_releases_slot(
+        self, _name, fail_history, other_team, mock_build, mock_flags
+    ):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=["alpha"])
+        mock_flags.return_value = {"flags": {flag.key: {"enabled": True, "conditions": []}}}
+        url = f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/"
+        payload = {"distinct_ids": ["alpha"], "timestamp": now().isoformat()}
+        nested_url = url
+        if other_team:
+            team = Team.objects.create(organization=self.organization)
+            other_flag = FeatureFlag.objects.create(team=team, key=flag.key)
+            with mute_selected_signals():
+                create_person(team=team, distinct_ids=["alpha"])
+            nested_url = f"/api/projects/{team.pk}/feature_flags/{other_flag.id}/test_evaluation_batch/"
+        payload["timestamp"] = now().isoformat()
+        nested_responses: list[Response | None] = []
+
+        def prepare(**kwargs):
+            if not nested_responses:
+                nested_responses.append(None)
+                nested_responses[0] = self.client.post(nested_url, payload, format="json")
+            if fail_history:
+                raise RuntimeError("History unavailable")
+            return {}
+
+        mock_build.side_effect = prepare
+        with patch("posthog.rate_limit.team_is_allowed_to_bypass_throttle", return_value=True):
+            response = self.client.post(url, payload, format="json")
+        assert response.status_code == (500 if fail_history else 200), response.content
+        assert nested_responses[0] is not None
+        assert nested_responses[0].status_code == (200 if other_team else 429), nested_responses[0].content
+        assert mock_build.call_count == (2 if other_team else 1)
+        mock_build.side_effect = None
+        mock_build.return_value = {}
+        assert self.client.post(url, payload, format="json").status_code == 200
+
+    @patch("posthog.clickhouse.client.limit.RateLimit.use", side_effect=RuntimeError("Redis unavailable"))
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    def test_historical_batch_fails_closed_when_admission_unavailable(self, mock_build, _mock_limit):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+            {"distinct_ids": ["alpha"], "timestamp": now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == 429, response.content
+        mock_build.assert_not_called()
+
+    @parameterized.expand([("history_failure", ["alpha", "beta"], 500), ("different_person", ["alpha", "other"], 400)])
+    @patch("posthog.models.person.point_in_time_properties.execute_hogql_query")
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_historical_batch_stops_before_evaluating_invalid_shared_context(
+        self, _name, ids, expected_status, mock_flags, mock_query
+    ):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=["alpha", "beta"])
+            create_person(team=self.team, distinct_ids=["other"])
+        mock_query.side_effect = Exception("Query timed out")
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+            {"distinct_ids": ids, "timestamp": now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.content
+        assert mock_query.call_count == (1 if expected_status == 500 else 0)
+        mock_flags.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_ids", {"distinct_ids": []}),
+            ("too_many_ids", {"distinct_ids": [str(i) for i in range(1001)]}),
+            ("missing_timestamp", {"distinct_ids": ["alpha"]}),
+            ("null_timestamp", {"distinct_ids": ["alpha"], "timestamp": None}),
+            ("invalid_groups", {"distinct_ids": ["alpha"], "groups": []}),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    def test_historical_batch_rejects_invalid_input(self, name, payload, mock_build):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        if name != "missing_timestamp" and "timestamp" not in payload:
+            payload = {**payload, "timestamp": now().isoformat()}
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/", payload, format="json"
+        )
+        assert response.status_code == 400, response.content
+        mock_build.assert_not_called()
+
+    @parameterized.expand([("foreign_identity", False, 400), ("foreign_flag", True, 404)])
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    def test_historical_batch_rejects_other_project(self, name, foreign_flag, expected_status, mock_build):
+        other_team = Team.objects.create(organization=self.organization)
+        flag = FeatureFlag.objects.create(team=other_team if foreign_flag else self.team, key="batch-test")
+        with mute_selected_signals():
+            create_person(team=other_team, distinct_ids=["alpha", "beta"])
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+            {"distinct_ids": ["alpha", "beta"], "timestamp": now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == expected_status, response.content
+        mock_build.assert_not_called()
+
+    @patch("products.feature_flags.backend.api.feature_flag.HISTORICAL_BATCH_CONCURRENCY", 1)
+    @patch("products.feature_flags.backend.api.feature_flag.time.monotonic", return_value=0)
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time", return_value={})
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_preserves_completed_result_at_deadline(self, mock_build, mock_flags, mock_clock):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=["alpha", "beta", "gamma"])
+
+        def evaluate(**kwargs):
+            mock_clock.return_value = 16
+            return {"flags": {flag.key: {"enabled": True, "conditions": []}}}
+
+        mock_flags.side_effect = evaluate
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+            {"distinct_ids": ["alpha", "beta", "gamma"], "timestamp": now().isoformat()},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        rows = response.json()["results"]
+        assert rows[0]["result"]["result"] is True
+        assert rows[0]["error"] is None
+        assert [row["distinct_id"] for row in rows[1:]] == ["beta", "gamma"]
+        assert all(row["result"] is None and row["error"] == "Batch evaluation time limit reached." for row in rows[1:])
+        mock_flags.assert_called_once()
+        mock_build.assert_called_once()
+
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    @patch("products.feature_flags.backend.api.feature_flag.build_person_properties_at_time")
+    @override_settings(INTERNAL_REQUEST_TOKEN="test-token")
+    def test_historical_batch_does_not_reuse_properties_between_requests(self, mock_build, mock_flags):
+        flag = FeatureFlag.objects.create(team=self.team, key="batch-test")
+        with mute_selected_signals():
+            create_person(team=self.team, distinct_ids=["alpha", "beta"])
+        mock_flags.return_value = {"flags": {flag.key: {"enabled": True, "conditions": []}}}
+        first_timestamp = now()
+        timestamps = [first_timestamp, first_timestamp + timedelta(seconds=1)]
+        mock_build.side_effect = [{"plan": "before"}, {"plan": "after"}]
+        for timestamp in timestamps:
+            response = self.client.post(
+                f"/api/projects/{self.team.pk}/feature_flags/{flag.id}/test_evaluation_batch/",
+                {"distinct_ids": ["alpha", "beta"], "timestamp": timestamp.isoformat()},
+                format="json",
+            )
+            assert response.status_code == 200, response.content
+        assert [call.kwargs["timestamp"] for call in mock_build.call_args_list] == timestamps
+        assert [call.kwargs["team"].id for call in mock_build.call_args_list] == [self.team.id, self.team.id]
+        assert [call.kwargs["person_properties"] for call in mock_flags.call_args_list] == [
+            {"plan": "before"},
+            {"plan": "before"},
+            {"plan": "after"},
+            {"plan": "after"},
+        ]
+
+
 class TestFeatureFlagTestEvaluation(APIBaseTest, ClickhouseTestMixin):
     @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
     @patch("products.feature_flags.backend.api.feature_flag.get_person_and_distinct_ids_for_identifier")

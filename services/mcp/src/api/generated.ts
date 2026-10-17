@@ -51902,6 +51902,76 @@ export namespace Schemas {
     }
 
     /**
+     * Groups for feature flag evaluation.
+     */
+    export type FeatureFlagHistoricalBatchRequestGroups = { [key: string]: unknown };
+
+    export interface FeatureFlagHistoricalBatchRequest {
+      /**
+         * Distinct IDs belonging to the same person. Duplicate IDs are evaluated once, in request order.
+         * @minItems 1
+         * @maxItems 1000
+         */
+      distinct_ids: string[];
+      /** Point in time for both person properties and flag conditions. */
+      timestamp: string;
+      /** Groups for feature flag evaluation. */
+      groups?: FeatureFlagHistoricalBatchRequestGroups;
+    }
+
+    /**
+     * Person properties at the time of evaluation (for historical evaluations)
+     */
+    export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
+
+    export interface FeatureFlagTestEvaluationResponse {
+      /** Feature flag key */
+      flag_key: string;
+      /** The evaluated value of the feature flag (boolean or variant key string) */
+      result: unknown;
+      /** The reason for the evaluation result */
+      reason: string;
+      /**
+         * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
+         * @nullable
+         */
+      reason_description?: string | null;
+      /**
+         * The index of the condition that matched, if applicable
+         * @nullable
+         */
+      condition_index: number | null;
+      /** Payload associated with the flag result, if any */
+      payload: unknown;
+      /** Person properties at the time of evaluation (for historical evaluations) */
+      person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
+      /**
+         * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
+         * @nullable
+         */
+      evaluation_distinct_id: string | null;
+      /** Detailed analysis of each condition in the feature flag */
+      conditions: FeatureFlagConditionAnalysis[];
+    }
+
+    export interface FeatureFlagHistoricalBatchResult {
+      /** The supplied distinct ID used for bucketing. */
+      distinct_id: string;
+      /** Evaluation result, when available. */
+      result: FeatureFlagTestEvaluationResponse | null;
+      /**
+         * Why this ID could not be evaluated.
+         * @nullable
+         */
+      error: string | null;
+    }
+
+    export interface FeatureFlagHistoricalBatchResponse {
+      /** Results in request order. */
+      results: FeatureFlagHistoricalBatchResult[];
+    }
+
+    /**
      * * `remote_evaluation` - remote_evaluation
      * * `local_evaluation` - local_evaluation
      */
@@ -52005,41 +52075,6 @@ export namespace Schemas {
       timestamp?: string | null;
       /** Groups for feature flag evaluation (JSON object, defaults to empty dict) */
       groups?: unknown;
-    }
-
-    /**
-     * Person properties at the time of evaluation (for historical evaluations)
-     */
-    export type FeatureFlagTestEvaluationResponsePersonProperties = { [key: string]: unknown };
-
-    export interface FeatureFlagTestEvaluationResponse {
-      /** Feature flag key */
-      flag_key: string;
-      /** The evaluated value of the feature flag (boolean or variant key string) */
-      result: unknown;
-      /** The reason for the evaluation result */
-      reason: string;
-      /**
-         * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
-         * @nullable
-         */
-      reason_description?: string | null;
-      /**
-         * The index of the condition that matched, if applicable
-         * @nullable
-         */
-      condition_index: number | null;
-      /** Payload associated with the flag result, if any */
-      payload: unknown;
-      /** Person properties at the time of evaluation (for historical evaluations) */
-      person_properties: FeatureFlagTestEvaluationResponsePersonProperties;
-      /**
-         * The distinct_id used for rollout/variant bucketing. Echoes the caller-provided distinct_id when one was sent; null on the person_id path so the endpoint doesn't leak the person's other distinct_ids to a feature_flag:read-only token.
-         * @nullable
-         */
-      evaluation_distinct_id: string | null;
-      /** Detailed analysis of each condition in the feature flag */
-      conditions: FeatureFlagConditionAnalysis[];
     }
 
     export type FeatureFlagVersionResponseFilters = { [key: string]: unknown };

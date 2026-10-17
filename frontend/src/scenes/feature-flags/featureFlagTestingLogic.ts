@@ -8,7 +8,10 @@ import { projectLogic } from 'scenes/projectLogic'
 
 import { PersonType } from '~/types'
 
-import { featureFlagsTestEvaluationCreate } from 'products/feature_flags/frontend/generated/api'
+import {
+    featureFlagsTestEvaluationBatchCreate,
+    featureFlagsTestEvaluationCreate,
+} from 'products/feature_flags/frontend/generated/api'
 import type {
     FeatureFlagConditionAnalysisApi,
     FeatureFlagTestEvaluationRequestApi,
@@ -37,6 +40,8 @@ export interface PerDistinctIdEvaluation {
 
 const EMPTY_FORM: TestFormData = { distinct_id: '', timestamp: '', groups: '' }
 
+const HISTORICAL_EVALUATION_BATCH_SIZE = 1000
+
 // Caps how many merged distinct IDs are evaluated concurrently. test_evaluation is
 // ClickHouse-backed and throttle-gated, so a person with many merged IDs shouldn't
 // turn one button click into an unbounded burst of concurrent requests.
@@ -47,15 +52,18 @@ const testEvaluationConcurrencyController = new ConcurrencyController(TEST_EVALU
 // batch paths so groups/timestamp are parsed and validated identically. Throws on
 // invalid groups or timestamp. submitTestEvaluation checks the form with
 // testFormValidationError first, so this throw does not reach the loaders.
-function buildEvaluationRequest(formData: TestFormData, distinctId: string): FeatureFlagTestEvaluationRequestApi {
-    const data: FeatureFlagTestEvaluationRequestApi = {}
+function buildEvaluationRequest(
+    formData: TestFormData,
+    distinctId: string
+): FeatureFlagTestEvaluationRequestApi & { groups: Record<string, unknown> } {
+    const data: FeatureFlagTestEvaluationRequestApi & { groups: Record<string, unknown> } = {
+        groups: validateAndParseGroups(formData.groups || ''),
+    }
 
     const trimmedDistinctId = distinctId.trim()
     if (trimmedDistinctId) {
         data.distinct_id = trimmedDistinctId
     }
-
-    data.groups = validateAndParseGroups(formData.groups || '')
 
     if (formData.timestamp?.trim()) {
         data.timestamp = formData.timestamp.trim()
@@ -104,7 +112,7 @@ function evaluationErrorMessage(error: string, errorObject?: unknown): string {
     return message || 'An unexpected error occurred while testing the feature flag'
 }
 
-function validateAndParseGroups(groups: string): Record<string, any> {
+function validateAndParseGroups(groups: string): Record<string, unknown> {
     const trimmed = groups.trim()
     if (!trimmed) {
         return {}
@@ -444,6 +452,41 @@ export const featureFlagTestingLogic = kea<featureFlagTestingLogicType>([
                 }) => {
                     // Parse groups/timestamp once up front, not once per distinct ID.
                     const baseData = buildEvaluationRequest(formData, '')
+                    if (baseData.timestamp) {
+                        const projectId = String(values.currentProjectId)
+                        const ids = [...new Set(distinctIds)]
+                        const rows: PerDistinctIdEvaluation[] = []
+                        for (let offset = 0; offset < ids.length; offset += HISTORICAL_EVALUATION_BATCH_SIZE) {
+                            try {
+                                const response = await featureFlagsTestEvaluationBatchCreate(projectId, flagId, {
+                                    distinct_ids: ids.slice(offset, offset + HISTORICAL_EVALUATION_BATCH_SIZE),
+                                    timestamp: baseData.timestamp,
+                                    groups: baseData.groups,
+                                })
+                                rows.push(
+                                    ...response.results.map(({ distinct_id, result, error }) => ({
+                                        distinctId: distinct_id,
+                                        result,
+                                        error,
+                                    }))
+                                )
+                            } catch (error) {
+                                if (rows.length === 0) {
+                                    throw error
+                                }
+                                // Keep completed results, but don't repeat a failed shared lookup for later batches.
+                                rows.push(
+                                    ...ids.slice(offset).map((distinctId) => ({
+                                        distinctId,
+                                        result: null,
+                                        error: evaluationErrorMessage('', error),
+                                    }))
+                                )
+                                break
+                            }
+                        }
+                        return rows
+                    }
 
                     return await Promise.all(
                         distinctIds.map(async (distinctId): Promise<PerDistinctIdEvaluation> => {
