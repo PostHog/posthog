@@ -1,12 +1,14 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { MockSignature } from '~/mocks/utils'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { PEOPLE_LIST_DEFAULT_QUERY, isPeopleListDefaultQuery, personsSceneLogic } from './personsSceneLogic'
@@ -81,6 +83,31 @@ describe('personsSceneLogic', () => {
                     }),
                 }),
             })
+        })
+    })
+
+    describe('URL sync', () => {
+        it.each<[string, DataTableNode]>([
+            ['the default query', PEOPLE_LIST_DEFAULT_QUERY],
+            [
+                'a custom query with an undefined key',
+                {
+                    ...PEOPLE_LIST_DEFAULT_QUERY,
+                    source: {
+                        ...(PEOPLE_LIST_DEFAULT_QUERY.source as ActorsQuery),
+                        select: ['person'],
+                        orderBy: undefined,
+                    },
+                },
+            ],
+        ])('dispatches setQuery once and not again on an unrelated URL change for %s', async (_label, query) => {
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(query)
+            }).toDispatchActions(['setQuery'])
+
+            await expectLogic(logic, () => {
+                router.actions.replace(urls.persons(), { unrelated: 'value' }, router.values.hashParams)
+            }).toNotHaveDispatchedActions(['setQuery'])
         })
     })
 
