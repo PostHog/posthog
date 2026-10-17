@@ -308,6 +308,15 @@ describe('sceneLogic', () => {
         }
     )
 
+    it.each(['/pipeline/overview', '/pipeline/legacy-sources'])(
+        'sends the removed pipelines tab %s to sources instead of a 404',
+        async (path) => {
+            router.actions.push(path)
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.sources())
+        }
+    )
+
     it('sends a tab-less data warehouse source path to the source instead of a 404', async () => {
         router.actions.push('/data-management/sources/src-1')
         await expectLogic(logic).delay(1)

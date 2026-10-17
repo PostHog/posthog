@@ -718,6 +718,9 @@ export const redirects: Record<
     '/pipeline/sources': urls.sources(),
     '/pipeline/transformations': urls.transformations(),
     '/pipeline/data-import': urls.sources(),
+    // Tabs of the removed pipelines UI that have no equivalent scene
+    '/pipeline/overview': urls.sources(),
+    '/pipeline/legacy-sources': urls.sources(),
     // There is no /project/new scene; send typed URLs and old bookmarks to the create-project flow
     '/project/new': urls.projectCreateFirst(),
     '/project/settings': urls.settings('project'),
