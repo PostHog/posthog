@@ -66,6 +66,15 @@ def test_is_stale(team, date_to, interval, last_refresh, expected):
             datetime(2024, 12, 31, 23, 0, 0, tzinfo=UTC),
             True,
         ),
+        # date_to before last_refresh -> not stale, even with target_age in the past
+        (
+            team_a,
+            datetime(2024, 12, 31, 0, 0, 0, tzinfo=UTC),
+            "day",
+            datetime(2024, 12, 31, 22, 0, 0, tzinfo=UTC),
+            datetime(2024, 12, 31, 23, 0, 0, tzinfo=UTC),
+            False,
+        ),
         # target_age exactly at current time -> not stale (boundary case)
         (
             team_a,

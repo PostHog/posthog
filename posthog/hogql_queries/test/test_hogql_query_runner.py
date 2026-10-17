@@ -1,8 +1,18 @@
-from datetime import UTC, datetime
-from typing import cast
+from datetime import UTC, datetime, timedelta
+from typing import Optional, cast
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+import time_machine
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    flush_persons_and_events,
+)
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
@@ -21,12 +31,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import HOGQL_PERSONAL_API_KEY_OFFSET_ALLOWED_FLAG, OFFSET_NOT_ALLOWED_MESSAGE
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner, finest_time_bucket
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.utils import UUIDT
 
@@ -572,3 +583,71 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = runner.calculate()
         self.assertEqual(len(response.results), 5)
+
+
+class TestFinestTimeBucket(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_bucket", "select count() from events", None),
+            (
+                "relative_window_is_not_a_bucket",
+                "select count() from events where timestamp > now() - interval 1 hour",
+                None,
+            ),
+            ("hour", "select toStartOfHour(timestamp) as h, count() from events group by h", "hour"),
+            ("month", "select toStartOfMonth(timestamp) as m, count() from events group by m", "month"),
+            ("to_date", "select toDate(timestamp) as d, count() from events group by d", "day"),
+            ("date_trunc", "select date_trunc('hour', timestamp) as h, count() from events group by h", "hour"),
+            (
+                "date_trunc_camel_case",
+                "select dateTrunc('week', timestamp) as w, count() from events group by w",
+                "week",
+            ),
+            (
+                "start_of_interval",
+                "select toStartOfInterval(timestamp, interval 15 minute) as b, count() from events group by b",
+                "minute",
+            ),
+            ("second_rounds_up_to_minute", "select toStartOfSecond(now64()) as s", "minute"),
+            (
+                "finest_wins",
+                "select toStartOfMonth(timestamp) as m, toStartOfHour(timestamp) as h, count() from events group by m, h",
+                "hour",
+            ),
+            (
+                "inside_cte",
+                "with d as (select toStartOfDay(timestamp) as day from events) select day, count() from d group by day",
+                "day",
+            ),
+        ]
+    )
+    def test_finest_time_bucket(self, _name: str, sql: str, expected: Optional[str]) -> None:
+        assert finest_time_bucket(parse_select(sql)) == expected
+
+
+class TestHogQLQueryRunnerStaleness(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_bucket_fresh_after_ten_minutes", "select count() from events", timedelta(minutes=10), False),
+            ("no_bucket_stale_after_seven_hours", "select count() from events", timedelta(hours=7), True),
+            (
+                "hourly_stale_after_an_hour",
+                "select toStartOfHour(timestamp) as h, count() from events group by h",
+                timedelta(minutes=61),
+                True,
+            ),
+            (
+                "monthly_fresh_after_seven_hours",
+                "select toStartOfMonth(timestamp) as m, count() from events group by m",
+                timedelta(hours=7),
+                False,
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 10, 14, 12, 0, tzinfo=UTC), tick=False)
+    def test_is_stale_follows_the_finest_time_bucket(
+        self, _name: str, sql: str, age: timedelta, expected_stale: bool
+    ) -> None:
+        runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query=sql))
+
+        assert runner._is_stale(datetime.now(UTC) - age) == expected_stale

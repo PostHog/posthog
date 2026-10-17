@@ -3377,7 +3377,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         date_to = query_date_range.date_to() if query_date_range else None
         interval = query_date_range.interval_name if query_date_range else "minute"
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
-        return is_stale(self.team, date_to=date_to, interval=interval, last_refresh=last_refresh, mode=mode)
+        return is_stale(
+            self.team,
+            date_to=date_to,
+            interval=interval,
+            last_refresh=last_refresh,
+            mode=mode,
+            target_age=self.cache_target_age(last_refresh, lazy=lazy),
+        )
 
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)

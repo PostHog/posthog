@@ -29,9 +29,10 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import validate_user_query
 from posthog.hogql.variables import replace_variables
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog import settings as app_settings
-from posthog.caching.utils import ThresholdMode, staleness_threshold_map
+from posthog.caching.utils import ThresholdMode, cache_target_age
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
@@ -48,6 +49,54 @@ from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLM
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
 _ACTIVITY_LOGS_TABLE = "system.activity_logs"
+
+_TIME_BUCKETS_FINEST_FIRST = ("minute", "hour", "day", "week", "month", "quarter", "year")
+# Staleness has no rule finer than a minute, so a second bucket counts as a minute bucket.
+_TIME_UNIT_BUCKETS = {"second": "minute", **{bucket: bucket for bucket in _TIME_BUCKETS_FINEST_FIRST}}
+_BUCKET_FUNCTIONS = {
+    "tostartofsecond": "minute",
+    "tostartofminute": "minute",
+    "tostartoffiveminute": "minute",
+    "tostartoffiveminutes": "minute",
+    "tostartoftenminutes": "minute",
+    "tostartoffifteenminutes": "minute",
+    "tostartofhour": "hour",
+    "tostartofday": "day",
+    "todate": "day",
+    "tostartofweek": "week",
+    "tomonday": "week",
+    "tostartofmonth": "month",
+    "tostartofquarter": "quarter",
+    "tostartofyear": "year",
+}
+
+
+class TimeBucketCollector(TraversingVisitor):
+    def __init__(self) -> None:
+        self.buckets: set[str] = set()
+
+    def visit_call(self, node: ast.Call) -> None:
+        bucket = self._bucket_of(node)
+        if bucket:
+            self.buckets.add(bucket)
+        super().visit_call(node)
+
+    @staticmethod
+    def _bucket_of(node: ast.Call) -> Optional[str]:
+        name = node.name.lower()
+        if name in _BUCKET_FUNCTIONS:
+            return _BUCKET_FUNCTIONS[name]
+        if name in ("datetrunc", "date_trunc") and node.args and isinstance(node.args[0], ast.Constant):
+            return _TIME_UNIT_BUCKETS.get(str(node.args[0].value).lower())
+        if name == "tostartofinterval" and len(node.args) > 1 and isinstance(node.args[1], ast.Call):
+            return _TIME_UNIT_BUCKETS.get(node.args[1].name.lower().removeprefix("tointerval"))
+        return None
+
+
+def finest_time_bucket(select_query: ast.SelectQuery | ast.SelectSetQuery) -> Optional[str]:
+    collector = TimeBucketCollector()
+    collector.visit(select_query)
+    return min(collector.buckets, key=_TIME_BUCKETS_FINEST_FIRST.index, default=None)
 
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
@@ -71,11 +120,20 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if self.query.connectionId and self.modifiers.useNewEventsCluster:
             raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
 
-    # Treat SQL query caching like day insight
+    # A SQL query has no interval field, so the finest time bucket in its text stands in for one.
+    # A query without a time bucket uses the no-interval rule.
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
         if last_refresh is None:
             return None
-        return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
+        mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
+        return cache_target_age(self._finest_time_bucket, last_refresh=last_refresh, mode=mode)
+
+    @cached_property
+    def _finest_time_bucket(self) -> Optional[str]:
+        try:
+            return finest_time_bucket(parse_select(self.query.query))
+        except Exception:
+            return None
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
         if not force and self._direct_connection_validated:
