@@ -468,9 +468,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     return null
                 }
 
-                if (internetConnectionIssue) {
-                    return 'internet_connection_issue'
-                } else if (
+                if (
                     effectiveBillingAlert &&
                     !(effectiveBillingAlert.pathName && currentLocation.pathname !== effectiveBillingAlert.pathName) &&
                     !(
@@ -479,6 +477,9 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     )
                 ) {
                     return 'billing_alert'
+                } else if (internetConnectionIssue && !hasEventIngestionRestriction) {
+                    // The connection notice clears by itself, so it must not hide a notice that needs action.
+                    return 'internet_connection_issue'
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
                     // If the project is a demo one, show a project-level warning
                     // Don't show this project-level warning in the PostHog demo environemnt though,
@@ -711,7 +712,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                     case 'internet_connection_issue':
                         return {
                             message:
-                                'PostHog is having trouble connecting to the server. Please check your connection.',
+                                "PostHog can't reach the server right now. This notice goes away when the connection comes back.",
                             type: 'warning',
                             action: {
                                 'data-attr': 'reload-page',

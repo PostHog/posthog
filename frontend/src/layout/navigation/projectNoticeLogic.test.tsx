@@ -408,6 +408,24 @@ describe('projectNoticeLogic', () => {
             billingLogic.unmount()
         })
 
+        it('keeps the billing alert visible during a connection issue', () => {
+            billingLogic.mount()
+            const logic = projectNoticeLogic()
+            logic.mount()
+
+            billingLogic.actions.setBillingAlert({
+                status: 'error',
+                title: 'Usage limit reached',
+                message: 'You have reached the usage limit.',
+            })
+            apiStatusLogic.actions.setInternetConnectionIssue(true)
+
+            expect(logic.values.projectNoticeVariant).toBe('billing_alert')
+
+            logic.unmount()
+            billingLogic.unmount()
+        })
+
         it.each([
             ['billing root', urls.organizationBilling()],
             ['billing overview', urls.organizationBillingSection('overview')],
