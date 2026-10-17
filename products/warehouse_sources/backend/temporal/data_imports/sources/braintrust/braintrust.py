@@ -1,4 +1,4 @@
-from collections.abc import Hashable
+import sqlite3
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -62,23 +62,32 @@ class LatestEventVersionFilter:
     """Keep the first row seen per event id within each parent object.
 
     Fetch pages walk the version history newest-first, so a repeated id is an outdated version.
+    The seen ids live in a private temporary SQLite database, which spills to disk, so a parent with
+    a long history does not hold every id in worker memory.
     """
 
     def __init__(self, parent_key: str) -> None:
         self._parent_key = parent_key
         self._parent: Any = None
-        self._seen: set[Hashable] = set()
+        self._seen: sqlite3.Connection | None = None
+
+    def _reset(self) -> None:
+        if self._seen is not None:
+            self._seen.close()
+        # An empty filename opens a private on-disk database that SQLite deletes on close.
+        self._seen = sqlite3.connect("", isolation_level=None, check_same_thread=False)
+        self._seen.execute("PRAGMA journal_mode = OFF")
+        self._seen.execute("PRAGMA synchronous = OFF")
+        self._seen.execute("CREATE TABLE seen (id TEXT PRIMARY KEY) WITHOUT ROWID")
 
     def __call__(self, row: dict[str, Any]) -> bool:
         parent = row.get(self._parent_key)
-        if parent != self._parent:
+        if self._seen is None or parent != self._parent:
             self._parent = parent
-            self._seen = set()
-        event_id = row.get("id")
-        if event_id in self._seen:
-            return False
-        self._seen.add(event_id)
-        return True
+            self._reset()
+        assert self._seen is not None
+        inserted = self._seen.execute("INSERT OR IGNORE INTO seen (id) VALUES (?)", (str(row.get("id")),))
+        return inserted.rowcount == 1
 
 
 def validated_api_url(api_url: str, team_id: int) -> str:
