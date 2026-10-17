@@ -180,7 +180,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
                   IS_PR: ${{ github.event_name == 'pull_request' }}
                   # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in
-                  # ci-backend.yml, which saves these caches on master pushes.
+                  # .depot/workflows/ci-backend.yml, whose master pushes produce these caches.
                   SCHEMA_CACHE_EPOCH: v2
               run: |
                   if [ "$IS_PR" != "true" ]; then
@@ -218,7 +218,7 @@ jobs:
                   if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
-                  # Must match ci-backend.yml's save-side computation byte for byte or the key never hits.
+                  # Must match .depot/workflows/ci-backend.yml's save-side computation byte for byte or the key never hits.
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$REF" \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
                       | grep -vE '/(clickhouse|async_migrations)/migrations/' \

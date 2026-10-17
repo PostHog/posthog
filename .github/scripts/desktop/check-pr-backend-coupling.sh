@@ -9,7 +9,7 @@ set -euo pipefail
 REPOSITORY="${REPOSITORY:?}"
 PR_NUMBER="${PR_NUMBER:?}"
 
-# Deploy-relevant subset of ci-backend.yml's `backend` filter (paths that ship
+# Deploy-relevant subset of .depot/workflows/ci-backend.yml's `backend` filter (paths that ship
 # in the Django image) plus rust/** (rust services deploy separately and also
 # serve clients). Tooling/test entries (pyproject.toml, uv.lock, conftest.py,
 # docker-compose*, ...) are deliberately excluded so they cannot block an

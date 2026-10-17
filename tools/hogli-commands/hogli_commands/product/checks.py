@@ -1276,9 +1276,9 @@ class OrphanedTestFilesCheck(ProductCheck):
         "dags/",  # ci-dagster.yml: pytest posthog/dags products/**/dags
     )
     # Per-product exemptions — paths that another workflow targets directly
-    # (e.g. ci-backend.yml's Temporal segment) rather than `backend:test`.
+    # (e.g. .depot/workflows/ci-backend.yml's Temporal segment) rather than `backend:test`.
     _PRODUCT_SPECIFIC_EXEMPTIONS = {
-        # ci-backend.yml "Run Temporal tests" step pytest paths:
+        # .depot/workflows/ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
         "warehouse_sources": ("backend/temporal/",),
