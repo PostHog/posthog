@@ -1,12 +1,9 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
 from typing import Any
 
-from django.db import transaction
-
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiParameter,
@@ -15,7 +12,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
-from rest_framework import exceptions, serializers, status, viewsets
+from rest_framework import exceptions, permissions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -24,13 +21,11 @@ from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication
-from posthog.event_usage import groups, report_user_action
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
-from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.facade.api import (
@@ -40,30 +35,51 @@ from products.messaging.backend.facade.api import (
     render_design_html,
     validate_design,
 )
+from products.messaging.backend.facade.contracts import (
+    TEMPLATE_KEY_MAX_LENGTH,
+    ContentHashState,
+    TemplateManagedBy,
+    TemplateManagedByCode,
+    TemplateSource,
+    TemplateUpload,
+    TemplateUploadResult,
+    TemplateWriteIntent,
+    TemplateWriteRefused,
+)
 from products.messaging.backend.facade.templates import (
     MessageCategoryNotInTeam,
     MessageTemplateMissing,
     MessageTemplateRow,
+    UploadedTemplate,
+    adopt_template,
+    change_prompt,
+    check_template_key_write,
+    check_template_write,
     create_template,
-    edit_template_content,
     get_template,
+    is_adoption,
+    is_release,
     list_templates,
+    release_template,
+    save_template_content,
+    save_template_fields,
     team_category_id,
-    update_template,
+    upload_template,
 )
-from products.messaging.backend.facade.transactional_email import (
-    DeliveryUnavailable,
-    TransactionalEmailError,
-    check_transactional_update,
-    lock_transactional_workflow_id,
-    make_transactional,
-    send_transactional_email,
-    sync_transactional_workflow,
-)
+from products.messaging.backend.facade.transactional_email import TransactionalEmailError, make_transactional
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
+from products.messaging.backend.presentation.views.transactional_email_api import (
+    TRANSACTIONAL_EMAIL_THROTTLES,
+    SendTransactionalEmailResponseSerializer,
+    SendTransactionalEmailSerializer,
+    TemplateErrorSerializer,
+    TemplateRefusal,
+    TransactionalEmailRejected,
+    TransactionalEmailViewSetMixin,
+    invalid_request,
+    invalid_template_key,
+)
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
-from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -110,6 +126,11 @@ class EmailTemplateSerializer(serializers.Serializer):
     subject = serializers.CharField(
         required=False,
         help_text="Email subject line. Supports Liquid templating. Required for email-type templates.",
+    )
+    preheader = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Inbox preview text shown after the subject. Supports Liquid templating.",
     )
     text = serializers.CharField(
         required=False,
@@ -205,6 +226,59 @@ class MessageTemplateSerializer(serializers.Serializer):
         help_text="The workflow that sends this template over the transactional email API. Null until the "
         "template is made transactional. Each content save writes a new version of it.",
     )
+    key = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Stable identifier code uses to upload and send this template, unique within the project. Null "
+        "for templates that have no key. Set once, by the first upload or by a PATCH whose only field is `key`.",
+    )
+    managed_by = serializers.ChoiceField(
+        choices=TemplateManagedBy.choices,
+        read_only=True,
+        allow_null=True,
+        help_text="Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and "
+        "the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is "
+        "`managed_by` set to `gui`. `gui` or null when it is edited in PostHog.",
+    )
+    source_repository = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Repository the template was last uploaded from, such as `github.com/example/app`.",
+    )
+    source_path = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Path of the template file in the source repository."
+    )
+    source_ref = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Commit or branch the template was last uploaded from."
+    )
+    content_hash = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Hash of the published subject, preheader, HTML and text, as `v1:` and 64 hex characters. Changes "
+        "with every save that changes them.",
+    )
+    change_prompt_starter = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="The start of a sentence that asks a coding agent to change this template's file, such as "
+        "``In `emails/welcome.html`, change ``. Complete the sentence, then add a blank line and "
+        "`change_prompt_context`. Null unless `managed_by` is `code`.",
+    )
+    change_prompt_context = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="What a coding agent needs to change this template's file, as a block that starts with "
+        "`About this file:`: the key, repository and commit, the file format, the `{{ variables.* }}` the file uses, "
+        "how the change goes live, and a link to the template. An agent that can reach the repository edits the file "
+        "following it. Null unless `managed_by` is `code`.",
+    )
+    change_prompt_variables = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text="Names of the `{{ variables.<name> }}` the published subject, preheader and HTML use, in order of "
+        "first use, as `change_prompt_context` lists them. Null unless `managed_by` is `code`.",
+    )
 
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")
@@ -241,6 +315,22 @@ class MessageTemplateSerializer(serializers.Serializer):
         return data
 
 
+class MessageTemplateUpdateSerializer(MessageTemplateSerializer):
+    key = serializers.CharField(
+        required=False,
+        max_length=TEMPLATE_KEY_MAX_LENGTH,
+        help_text="Give a template that has no key one, so code can take it over: the next upload under this key "
+        "updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, "
+        "digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.",
+    )
+    managed_by = serializers.ChoiceField(
+        choices=[(TemplateManagedBy.GUI.value, TemplateManagedBy.GUI.label)],
+        required=False,
+        help_text="Send `gui` as the only field to stop managing a template in code, so it can be edited in PostHog. "
+        "It keeps its key, so the next upload under that key manages it in code again.",
+    )
+
+
 class DesignPatchSerializer(serializers.Serializer):
     operations = serializers.ListField(
         child=DesignOperationSerializer(),
@@ -261,35 +351,6 @@ TEMPLATE_ID_PARAMETER = OpenApiParameter(
 )
 
 
-TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
-
-
-class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
-    distinct_id = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=400,
-        help_text="Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, "
-        "clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email "
-        "address. The template can't read the person's properties, so pass everything it needs in `message_data`.",
-    )
-
-
-class SendTransactionalEmailSerializer(serializers.Serializer):
-    to = serializers.EmailField(help_text="Email address of the recipient.")
-    identifiers = TransactionalEmailIdentifiersSerializer(
-        required=False, help_text="Who the email is for, used to attribute engagement events."
-    )
-    message_data = serializers.DictField(
-        child=serializers.JSONField(allow_null=True),
-        required=False,
-        default=dict,
-        help_text="Data for the template's Liquid placeholders, available as `variables`. "
-        'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
-    )
-
-
 class MakeTransactionalSerializer(serializers.Serializer):
     from_integration_id = serializers.IntegerField(
         required=False,
@@ -299,58 +360,128 @@ class MakeTransactionalSerializer(serializers.Serializer):
     )
 
 
-class SendTransactionalEmailResponseSerializer(serializers.Serializer):
-    message_id = serializers.CharField(
-        help_text="ID of the queued send. Delivery and engagement are reported against the template asynchronously."
+class TemplateSourceSerializer(serializers.Serializer):
+    repository = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        help_text="Host and path of the repository the file is in, such as `github.com/example/app`.",
+    )
+    path = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        help_text="Path of the template file in the repository, such as `emails/welcome.html`.",
+    )
+    ref = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        help_text="Commit or branch the file was uploaded from.",
     )
 
 
-class TransactionalEmailRejected(exceptions.APIException):
-    STATUS_BY_CODE = {"quota_limited": 429}
-    # The caller has to change the request. Without this the error handler reports a server error.
-    default_type = "invalid_request"
+class UploadTemplateSerializer(serializers.Serializer):
+    # Content is stored byte for byte as sent, so the content hash a client computes matches the stored one.
+    name = serializers.CharField(max_length=400, help_text="Template name shown in the template library.")
+    subject = serializers.CharField(
+        trim_whitespace=False, help_text="Email subject line. Supports Liquid, such as `{{ variables.first_name }}`."
+    )
+    html = serializers.CharField(
+        trim_whitespace=False,
+        help_text="Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.",
+    )
+    text = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one.",
+    )
+    preheader = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="Inbox preview text shown after the subject. Leaving it out removes the stored one.",
+    )
+    source = TemplateSourceSerializer(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        required=False,
+        help_text="Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of "
+        "it, keeps what is stored.",
+    )
+    if_not_superseded = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. "
+        "When newer content already replaced this content, the upload changes nothing and answers `superseded`. "
+        "Leave it out to publish the content in any case, such as to roll back to earlier content.",
+    )
 
-    def __init__(self, error: TransactionalEmailError) -> None:
-        self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
-        super().__init__(detail=str(error), code=error.code)
+
+class UploadTemplateResponseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the template.")
+    key = serializers.CharField(help_text="Key of the template.")
+    result = serializers.ChoiceField(
+        choices=TemplateUploadResult.choices,
+        help_text="`created`: the upload made a new template. `updated`: it published the uploaded content. "
+        "`unchanged`: the template already had this content, so nothing was published. `superseded`: the upload "
+        "set `if_not_superseded` and newer content already replaced this content, so nothing was published.",
+    )
+    content_hash = serializers.CharField(
+        help_text="Hash of the published content, as `v1:` and 64 hex characters. Send it with an email to check "
+        "PostHog holds the content you hold. After `superseded` it is the hash of the newer content."
+    )
+    managed_by = serializers.ChoiceField(
+        choices=TemplateManagedBy.choices,
+        help_text="`code` after every upload except `superseded`, which changes nothing.",
+    )
+    source = TemplateSourceSerializer(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
+        help_text="Where the template file lives, as stored after the upload."
+    )
+    transactional_hog_flow_id = serializers.UUIDField(
+        help_text="The workflow that sends this template. Each upload that changes the content writes a new version "
+        "of it."
+    )
 
 
-class TransactionalEmailUnavailable(exceptions.APIException):
-    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    default_detail = "The email pipeline is unavailable. Try again shortly."
-    default_code = "delivery_unavailable"
+TEMPLATE_KEY_PARAMETER = OpenApiParameter(
+    name="key",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.PATH,
+    description="Key of the template, chosen by you. Letters, digits, hyphens (-) and underscores (_), at most 400 "
+    "characters. The same key names the template in every project.",
+)
 
 
-class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_burst"
-    rate = "600/minute"
-
-
-class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
-    scope = "transactional_email_sustained"
-    rate = "20000/hour"
-
-
-class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    """Per-team aggregate across all of a project's secret API keys."""
-
-    scope = "transactional_email_psak_team_burst"
-    rate = "600/minute"
-
-
-class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
-    scope = "transactional_email_psak_team_sustained"
-    rate = "20000/hour"
+MANAGED_BY_CODE_RESPONSE = OpenApiResponse(
+    response=TemplateErrorSerializer,
+    description="The template is managed by code. `immutable`: change its file and upload it, or release it first",
+)
+TEMPLATE_UPDATE_SCHEMA = extend_schema(
+    parameters=[TEMPLATE_ID_PARAMETER], responses={200: MessageTemplateSerializer, 403: MANAGED_BY_CODE_RESPONSE}
+)
+TEMPLATE_PARTIAL_UPDATE_SCHEMA = extend_schema(
+    parameters=[TEMPLATE_ID_PARAMETER],
+    request=MessageTemplateUpdateSerializer,
+    responses={
+        200: MessageTemplateSerializer,
+        400: OpenApiResponse(
+            response=TemplateErrorSerializer,
+            description="A field is invalid. For `key`: `invalid_template_key`, `key_already_set`, `key_in_use`, or "
+            "`invalid_request` when it is sent with other fields",
+        ),
+        403: MANAGED_BY_CODE_RESPONSE,
+    },
+)
 
 
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
-    update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
-    partial_update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
+    update=TEMPLATE_UPDATE_SCHEMA,
+    partial_update=TEMPLATE_PARTIAL_UPDATE_SCHEMA,
     destroy=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
 )
 class MessageTemplatesViewSet(
-    TeamAndOrgViewSetMixin,
+    TransactionalEmailViewSetMixin,
     ForbidDestroyModel,
     viewsets.ModelViewSet,
 ):
@@ -367,21 +498,17 @@ class MessageTemplatesViewSet(
         "design",
         "send",
         "make_transactional",
+        "upload",
     ]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
-    # A project secret API key can only send. Template CRUD stays session/personal API key/OAuth only.
-    psak_allowed_actions = ["send"]
+    # A project secret API key can only send and upload. Template CRUD stays session/personal API key/OAuth only.
+    psak_allowed_actions = ["send", "upload"]
 
     serializer_class = MessageTemplateSerializer
 
     def get_throttles(self):
-        if self.action == "send":
-            return [
-                TransactionalEmailBurstThrottle(),
-                TransactionalEmailSustainedThrottle(),
-                TransactionalEmailTeamBurstThrottle(),
-                TransactionalEmailTeamSustainedThrottle(),
-            ]
+        if self.action in ("send", "upload"):
+            return [throttle() for throttle in TRANSACTIONAL_EMAIL_THROTTLES]
         return super().get_throttles()
 
     def dangerously_get_object(self) -> MessageTemplateRow:
@@ -394,7 +521,26 @@ class MessageTemplatesViewSet(
         self.check_object_permissions(self.request, template)
         return template
 
-    def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
+    def check_object_permissions(self, request: Request, obj: Any) -> None:
+        super().check_object_permissions(request, obj)
+        if request.method not in permissions.SAFE_METHODS:
+            check_template_write(obj, self._write_intent())
+
+    def _write_intent(self) -> TemplateWriteIntent:
+        payload = self.request.data
+        return TemplateWriteIntent(action=self.action, payload=payload if isinstance(payload, Mapping) else {})
+
+    def handle_exception(self, exc: Exception) -> Response:
+        if isinstance(exc, TemplateWriteRefused):
+            managed_by_code = isinstance(exc, TemplateManagedByCode)
+            refusal = TemplateRefusal(
+                code=exc.code, detail=exc.detail, attr=None if managed_by_code else "key", why=exc.why, fix=exc.fix
+            )
+            refused_status = status.HTTP_403_FORBIDDEN if managed_by_code else status.HTTP_400_BAD_REQUEST
+            return Response(TemplateErrorSerializer(refusal).data, status=refused_status)
+        return super().handle_exception(exc)
+
+    def _serializable(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
         creators = {user.id: user for user in User.objects.filter(id__in=creator_ids)} if creator_ids else {}
         return [
@@ -402,19 +548,28 @@ class MessageTemplatesViewSet(
                 **{field.name: getattr(template, field.name) for field in dataclass_fields(template)},
                 created_by=creators.get(template.created_by_id) if template.created_by_id else None,
                 message_category=template.message_category_id,
+                **self._change_prompt_fields(template),
             )
             for template in templates
         ]
 
+    def _change_prompt_fields(self, template: MessageTemplateRow) -> dict[str, str | list[str] | None]:
+        prompt = change_prompt(self.team_id, template)
+        return {
+            "change_prompt_starter": prompt.starter if prompt else None,
+            "change_prompt_context": prompt.context if prompt else None,
+            "change_prompt_variables": list(prompt.variables) if prompt else None,
+        }
+
     def _serialize(self, template: MessageTemplateRow) -> Any:
-        return self.get_serializer(self._with_creators([template])[0]).data
+        return self.get_serializer(self._serializable([template])[0]).data
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         templates = list_templates(self.team_id)
         page = self.paginate_queryset(templates)
         if page is not None:
-            return self.get_paginated_response(self.get_serializer(self._with_creators(page), many=True).data)
-        return Response(self.get_serializer(self._with_creators(list(templates)), many=True).data)
+            return self.get_paginated_response(self.get_serializer(self._serializable(page), many=True).data)
+        return Response(self.get_serializer(self._serializable(list(templates)), many=True).data)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(self._serialize(self.get_object()))
@@ -423,17 +578,62 @@ class MessageTemplatesViewSet(
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         template = create_template(self.team_id, request.user.id, serializer.validated_data)
-        # report_user_action injects source and MCP-client properties from the request, so a create from the
+        self._report_user_action(
+            "message_template_created",
+            {"template_id": str(template.id), "organization_id": str(self.organization_id)},
+        )
+        data = self._serialize(template)
+        return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        partial = kwargs.pop("partial", False)
+        template = self.get_object()
+        intent = self._write_intent()
+        if is_release(intent):
+            released = release_template(
+                self.team_id, template.id, require_workflow_editor=self._require_workflow_editor
+            )
+            self._emit_resource_edited(released)
+            return Response(self._serialize(released))
+        if is_adoption(intent):
+            return self._adopt(template, intent)
+        check_template_key_write(template, intent)
+        serializer = self.get_serializer(self._serializable([template])[0], data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        try:
+            updated = save_template_fields(
+                self.team_id,
+                template.id,
+                serializer.validated_data,
+                intent=intent,
+                user_id=self._actor_id(),
+                require_workflow_editor=self._require_workflow_editor,
+            )
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
+        self._emit_resource_edited(updated)
+        return Response(self._serialize(updated))
+
+    def _adopt(self, template: MessageTemplateRow, intent: TemplateWriteIntent) -> Response:
+        key = intent.payload["key"]
+        refused = invalid_template_key(key)
+        if refused is not None:
+            return Response(TemplateErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
+        adopted = adopt_template(
+            self.team_id, template.id, key, intent=intent, require_workflow_editor=self._require_workflow_editor
+        )
+        self._emit_resource_edited(adopted)
+        self._report_user_action("message template adopted", {"template_id": str(adopted.id)})
+        return Response(self._serialize(adopted))
+
+    def _report_user_action(self, event: str, properties: dict[str, Any]) -> None:
+        # report_user_action injects source and MCP-client properties from the request, so a change from the
         # visual editor and one from the agent count in the same metric. Capture must never break the request.
         try:
             report_user_action(
                 self.request.user,
-                "message_template_created",
-                {
-                    "template_id": str(template.id),
-                    "team_id": str(self.team_id),
-                    "organization_id": str(self.organization_id),
-                },
+                event,
+                {"team_id": str(self.team_id), **properties},
                 team=self.team,
                 # Without this the event groups by the person's current organization, which can differ
                 # from the route's when they belong to more than one.
@@ -442,57 +642,6 @@ class MessageTemplatesViewSet(
             )
         except Exception as e:
             logger.warning("Failed to capture message template usage event", error=str(e))
-        data = self._serialize(template)
-        return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
-
-    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        partial = kwargs.pop("partial", False)
-        template = self.get_object()
-        serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        # Sends use the workflow's copy, so the template and its new workflow version are saved together,
-        # under a row lock that keeps a concurrent make_transactional from slipping in between.
-        with transaction.atomic():
-            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
-            if hog_flow_id:
-                self._require_workflow_editor(hog_flow_id)
-                try:
-                    check_transactional_update(template.id, self.team_id, serializer.validated_data)
-                except TransactionalEmailError as e:
-                    raise TransactionalEmailRejected(e) from None
-            updated = update_template(self.team_id, template.id, serializer.validated_data)
-            if hog_flow_id and not updated.deleted:
-                self._sync_transactional_workflow(template.id)
-                # The sync unlinks the template when its workflow was deleted.
-                updated = get_template(self.team_id, template.id)
-        self._emit_resource_edited(updated)
-        return Response(self._serialize(updated))
-
-    def _sync_transactional_workflow(self, template_id: Any) -> None:
-        # Raising rolls back the template save, so the template and its workflow never disagree.
-        try:
-            sync_transactional_workflow(self.team_id, template_id, user_id=self._actor_id())
-        except TransactionalEmailError as e:
-            raise TransactionalEmailRejected(e) from None
-
-    def _require_workflow_editor(self, hog_flow_id: Any) -> None:
-        # The template's own access rules don't cover the workflow it sends through, which can carry its own.
-        # A project secret API key has no user to check, and its scope already limits it to sending.
-        if is_authenticated_via_project_secret_api_key(self.request):
-            return
-        try:
-            get_workflow(
-                team_id=self.team_id,
-                workflow_id=str(hog_flow_id),
-                user_access_control=self.user_access_control,
-                required_level="editor",
-            )
-        except WorkflowAccessDenied:
-            raise exceptions.PermissionDenied(
-                "You need editor access to this template's transactional email workflow."
-            ) from None
-        except WorkflowNotFound:
-            return
 
     def _actor_id(self) -> int | None:
         return self.request.user.id if self.request.user.is_authenticated else None
@@ -515,7 +664,9 @@ class MessageTemplatesViewSet(
             logger.warning("Failed to publish message template edited event", error=str(e))
 
     @extend_schema(
-        request=DesignPatchSerializer, responses={200: MessageTemplateSerializer}, parameters=[TEMPLATE_ID_PARAMETER]
+        request=DesignPatchSerializer,
+        responses={200: MessageTemplateSerializer, 403: MANAGED_BY_CODE_RESPONSE},
+        parameters=[TEMPLATE_ID_PARAMETER],
     )
     @action(detail=True, methods=["PATCH"])
     def design(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -523,12 +674,13 @@ class MessageTemplatesViewSet(
         # of re-transmitting the whole design JSON. Reads, applies, validates, re-renders, and saves
         # atomically so a rejected batch leaves the template untouched (and concurrent visual-editor saves
         # can't interleave).
-        op_serializer = DesignPatchSerializer(data=request.data)
-        op_serializer.is_valid(raise_exception=True)
-        operations = op_serializer.validated_data["operations"]
 
         # Authorize + team-scope via the normal lookup, then re-read FOR UPDATE inside the transaction.
         template = self.get_object()
+
+        op_serializer = DesignPatchSerializer(data=request.data)
+        op_serializer.is_valid(raise_exception=True)
+        operations = op_serializer.validated_data["operations"]
 
         def apply_operations(content: dict[str, Any]) -> dict[str, Any]:
             email = content.get("email") or {}
@@ -550,25 +702,24 @@ class MessageTemplatesViewSet(
             email.pop("html", None)
             content["email"] = email
 
-            serializer = self.get_serializer(
-                self._with_creators([template])[0], data={"content": content}, partial=True
-            )
+            serializer = self.get_serializer(self._serializable([template])[0], data={"content": content}, partial=True)
             serializer.is_valid(raise_exception=True)
             return serializer.validated_data["content"]
 
-        with transaction.atomic():
-            # Checked under the row lock, so a template made transactional meanwhile is checked too.
-            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
-            if hog_flow_id:
-                self._require_workflow_editor(hog_flow_id)
-            locked = edit_template_content(self.team_id, template.id, apply_operations)
-            if hog_flow_id:
-                self._sync_transactional_workflow(template.id)
-                # The sync unlinks the template when its workflow was deleted.
-                locked = get_template(self.team_id, template.id)
+        try:
+            saved = save_template_content(
+                self.team_id,
+                template.id,
+                apply_operations,
+                intent=self._write_intent(),
+                user_id=self._actor_id(),
+                require_workflow_editor=self._require_workflow_editor,
+            )
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
 
-        self._emit_resource_edited(locked)
-        return Response(self._serialize(locked))
+        self._emit_resource_edited(saved)
+        return Response(self._serialize(saved))
 
     @validated_request(
         SendTransactionalEmailSerializer,
@@ -593,42 +744,122 @@ class MessageTemplatesViewSet(
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._require_transactional_email_flag()
 
-        template = self.get_object()
-        if template.transactional_hog_flow_id:
-            self._require_workflow_editor(template.transactional_hog_flow_id)
-        data = request.validated_data
-        outcome: dict[str, Any] = {"outcome": "error"}
-        try:
-            queued = send_transactional_email(
-                self.team,
-                template.id,
-                to=data["to"],
-                distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
-                message_data=data["message_data"],
+        queued = self._send_transactional_email(
+            request,
+            self.get_object(),
+            request.validated_data,
+            usage={"addressed_by": "url_id", "hash_state": ContentHashState.NONE},
+        )
+        return Response(SendTransactionalEmailResponseSerializer(queued).data, status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=UploadTemplateSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=UploadTemplateResponseSerializer,
+                description="The template was updated, is unchanged, or newer content superseded the upload",
+            ),
+            201: OpenApiResponse(response=UploadTemplateResponseSerializer, description="The template was created"),
+            400: OpenApiResponse(
+                response=TemplateErrorSerializer,
+                description="The key or a field is invalid, the template can't be sent, or there is no verified "
+                "default sender",
+            ),
+            404: OpenApiResponse(description="The transactional email API is not enabled for this project"),
+            429: OpenApiResponse(description="Rate limited"),
+        },
+        summary="Upload a template by key",
+        description=(
+            "Create or update the email template with this key from HTML, for templates kept as files in a "
+            "repository. The first upload creates the template and makes it transactional with the project's "
+            "default verified sender. A later upload publishes changed content at once, and answers `unchanged` "
+            "when the content is the same. With `if_not_superseded`, an upload of content that newer content "
+            "already replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused "
+            "template back on."
+        ),
+        parameters=[TEMPLATE_KEY_PARAMETER],
+    )
+    @action(detail=False, methods=["PUT"], url_path=r"by_key/(?P<key>[^/]+)", pagination_class=None)
+    def upload(self, request: Request, key: str, *args: Any, **kwargs: Any) -> Response:
+        self._require_transactional_email_flag()
+        refused = invalid_template_key(key)
+        body = UploadTemplateSerializer(data=request.data)
+        if refused is None and not body.is_valid():
+            refused = invalid_request(
+                body.errors, why="An upload needs a name, a subject and HTML, each as a string.", retry="upload again"
             )
-            outcome = {"outcome": "queued"}
+        if refused is not None:
+            self._report_template_upload(request, {"result": "rejected", "error_code": refused.code})
+            return Response(TemplateErrorSerializer(refused).data, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            uploaded = upload_template(
+                self.team_id,
+                self._template_upload(key, body.validated_data),
+                user_id=self._actor_id(),
+                require_workflow_editor=self._require_workflow_editor,
+                require_workflow_create=self._require_workflow_create,
+            )
         except TransactionalEmailError as e:
-            outcome = {"outcome": "rejected", "error_code": e.code}
-            raise TransactionalEmailRejected(e)
-        except DeliveryUnavailable:
-            outcome = {"outcome": "unavailable"}
-            raise TransactionalEmailUnavailable() from None
-        finally:
-            self._report_transactional_email_send(request, template, outcome)
+            self._report_template_upload(request, {"result": "rejected", "error_code": e.code})
+            raise TransactionalEmailRejected(e) from None
+        except exceptions.PermissionDenied:
+            self._report_template_upload(request, {"result": "rejected", "error_code": "permission_denied"})
+            raise
+
+        self._report_template_upload(request, {"result": uploaded.result, "template_id": str(uploaded.template.id)})
+        if uploaded.result in (TemplateUploadResult.CREATED, TemplateUploadResult.UPDATED):
+            self._emit_resource_edited(uploaded.template)
+        created = uploaded.result == TemplateUploadResult.CREATED
         return Response(
-            SendTransactionalEmailResponseSerializer(queued).data,
-            status=status.HTTP_202_ACCEPTED,
+            UploadTemplateResponseSerializer(self._upload_response(uploaded)).data,
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
 
-    def _require_transactional_email_flag(self) -> None:
-        if not posthoganalytics.feature_enabled(
-            TRANSACTIONAL_EMAIL_API_FLAG,
-            str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id)},
-            group_properties={"organization": {"id": str(self.team.organization_id)}},
-            send_feature_flag_events=False,
-        ):
-            raise NotFound()
+    @staticmethod
+    def _template_upload(key: str, data: dict[str, Any]) -> TemplateUpload:
+        source = data.get("source")
+        return TemplateUpload(
+            key=key,
+            name=data["name"],
+            subject=data["subject"],
+            html=data["html"],
+            text=data.get("text", ""),
+            preheader=data.get("preheader", ""),
+            # Wraps the html in one custom HTML block, so the visual editor can open the template.
+            design=build_html_wrap_design(data["html"]),
+            source=TemplateSource(repository=source.get("repository"), path=source.get("path"), ref=source.get("ref"))
+            if source
+            else None,
+            if_not_superseded=data["if_not_superseded"],
+        )
+
+    @staticmethod
+    def _upload_response(uploaded: UploadedTemplate) -> dict[str, Any]:
+        template = uploaded.template
+        return {
+            "id": template.id,
+            "key": template.key,
+            "result": uploaded.result,
+            "content_hash": template.content_hash,
+            "managed_by": template.managed_by,
+            "source": {
+                "repository": template.source_repository,
+                "path": template.source_path,
+                "ref": template.source_ref,
+            },
+            "transactional_hog_flow_id": template.transactional_hog_flow_id,
+        }
+
+    def _require_workflow_create(self) -> None:
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        # Access to one workflow lets a member through the viewset's checks, but an upload can create a new one.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied("You need editor access to workflows to upload a new template.")
+
+    def _report_template_upload(self, request: Any, outcome: dict[str, Any]) -> None:
+        self._report_api_usage(request, "transactional email template uploaded", outcome)
 
     @validated_request(
         MakeTransactionalSerializer,
@@ -666,36 +897,5 @@ class MessageTemplatesViewSet(
         updated = self.get_object()
         if not was_transactional:
             self._emit_resource_edited(updated)
-            try:
-                report_user_action(
-                    self.request.user,
-                    "message template made transactional",
-                    {"template_id": str(template.id), "team_id": str(self.team_id)},
-                    team=self.team,
-                    organization=self.organization,
-                    request=self.request,
-                )
-            except Exception as e:
-                logger.warning("Failed to capture message template usage event", error=str(e))
+            self._report_user_action("message template made transactional", {"template_id": str(template.id)})
         return Response(self._serialize(updated))
-
-    def _report_transactional_email_send(
-        self, request: Any, template: MessageTemplateRow, outcome: dict[str, Any]
-    ) -> None:
-        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
-        try:
-            posthoganalytics.capture(
-                distinct_id=request.user.distinct_id,
-                event="transactional email api send",
-                properties={
-                    "template_id": str(template.id),
-                    "team_id": self.team_id,
-                    "auth_method": "project_secret_api_key"
-                    if is_authenticated_via_project_secret_api_key(request)
-                    else "user",
-                    **outcome,
-                },
-                groups=groups(self.organization, self.team),
-            )
-        except Exception as e:
-            logger.warning("Failed to capture transactional email usage event", error=str(e))
