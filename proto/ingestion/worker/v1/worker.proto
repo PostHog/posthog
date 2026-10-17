@@ -54,6 +54,10 @@ message SubBatch {
   // rebalance legitimately replays uncommitted offsets, so the worker's
   // sentinel rebaselines on a new epoch instead of firing.
   uint64 assignment_epoch = 5;
+  // Milliseconds after which the worker stops starting new work. It never
+  // interrupts a running step, so the ack watchdog stays the hard limit.
+  // 0, or a value above 2^31 - 1, means unlimited.
+  uint64 soft_budget_ms = 6;
 }
 
 // KafkaMessage mirrors `SerializedKafkaMessage` in
@@ -68,6 +72,12 @@ message KafkaMessage {
   optional string key = 5;
   optional string value = 6;
   map<string, string> headers = 7;
+}
+
+// The consumer reads one topic, so a partition and an offset identify a message.
+message MessageRef {
+  int32 partition = 1;
+  int64 offset = 2;
 }
 
 // SubBatchStatus is the outcome of processing one sub-batch.
@@ -87,6 +97,9 @@ enum SubBatchStatus {
   // treats any status it does not recognize the same way, so future non-fatal
   // statuses stay backward compatible.
   SUB_BATCH_STATUS_BUSY = 3;
+  // The budget cut the sub-batch short. Messages not in `SubBatchAck.unfinished`
+  // are done as on OK, and the consumer redelivers exactly the listed ones.
+  SUB_BATCH_STATUS_PARTIAL = 4;
 }
 
 // IngestStreamResponse is one frame on the worker-to-consumer stream.
@@ -111,8 +124,13 @@ message SubBatchAck {
   uint64 seq = 1;
   SubBatchStatus status = 2;
   // Messages accepted into the pipeline. Meaningful only on
-  // SUB_BATCH_STATUS_OK.
+  // SUB_BATCH_STATUS_OK and SUB_BATCH_STATUS_PARTIAL.
   uint32 accepted = 3;
   // Human-readable failure reason. Set only on SUB_BATCH_STATUS_FAILED.
   string error = 4;
+  // Messages with work left when the budget ran out. Set only on PARTIAL,
+  // never empty. Every other message is done, as on OK. The listed messages
+  // are the last of their distinct id, not of their routing key: a message
+  // is done only once every earlier message of its distinct id is done.
+  repeated MessageRef unfinished = 5;
 }

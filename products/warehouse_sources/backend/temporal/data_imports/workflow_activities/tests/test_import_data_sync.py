@@ -20,9 +20,9 @@ from jsonpath_ng.exceptions import JsonPathParserError
 from parameterized import parameterized
 from requests.exceptions import HTTPError, ProxyError
 
-from posthog.integration_secrets.errors import (
-    IntegrationServiceMisconfiguredError,
-    IntegrationServiceUnreachableError,
+from posthog.credentials_service.errors import (
+    CredentialsServiceMisconfiguredError,
+    CredentialsServiceUnreachableError,
     SecretInRecoveryError,
     SecretMissingError,
 )
@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
     UNKNOWN_RESOURCE_PREFIX,
     UnknownResourceError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.util import (
     NonRetryableException,
     PostHogInternalDatabaseError,
@@ -1506,7 +1507,7 @@ async def test_probe_never_runs_when_not_eligible_or_resetting(overrides: dict[s
     source.source_for_pipeline.assert_called_once()
 
 
-# Credentials the integration service holds are PostHog's own — the OAuth app secrets and API keys
+# Credentials the credentials service holds are PostHog's own — the OAuth app secrets and API keys
 # we own, not anything a customer configured. Every failure state it has is therefore ours, and
 # every one of them ends on its own (a key in recovery is re-provisioned, a missing key is added, an
 # unreachable service comes back). The classification has to reflect both facts: retry, and never
@@ -1520,11 +1521,11 @@ async def test_probe_never_runs_when_not_eligible_or_resetting(overrides: dict[s
         (SecretInRecoveryError("HUBSPOT_APP_CLIENT_SECRET"), False),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET"), True),
         (SecretMissingError("HUBSPOT_APP_CLIENT_SECRET", disabled_reason="unconfigured"), True),
-        (IntegrationServiceMisconfiguredError("INTEGRATION_SERVICE_URL"), True),
-        (IntegrationServiceUnreachableError("connection refused"), False),
+        (CredentialsServiceMisconfiguredError("CREDENTIALS_SERVICE_URL"), True),
+        (CredentialsServiceUnreachableError("connection refused"), False),
     ],
 )
-async def test_integration_secret_failure_retries_without_disabling_the_schema(error, reported):
+async def test_credentials_service_failure_retries_without_disabling_the_schema(error, reported):
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -1549,7 +1550,7 @@ async def test_integration_secret_failure_retries_without_disabling_the_schema(e
     # The customer reads a message that names no internal credential and asks nothing of them.
     assert str(exc_info.value) == module.INTEGRATION_CREDENTIAL_UNAVAILABLE_MESSAGE
     assert "HUBSPOT_APP_CLIENT_SECRET" not in str(exc_info.value)
-    assert "INTEGRATION_SERVICE_URL" not in str(exc_info.value)
+    assert "CREDENTIALS_SERVICE_URL" not in str(exc_info.value)
 
     # Reported only when a person has to act. NonReportableError already keeps the activity
     # interceptor from capturing on escape, so an explicit capture is the only way these reach
@@ -1564,12 +1565,12 @@ async def test_integration_secret_failure_retries_without_disabling_the_schema(e
 
 
 # The bare-404 rule below this branch reads a 404 as "the customer's configured endpoint is gone"
-# and stops the sync for good. A misrouted INTEGRATION_SERVICE_URL answers 404 too, so ordering
+# and stops the sync for good. A misrouted CREDENTIALS_SERVICE_URL answers 404 too, so ordering
 # decides whether our own deploy error is charged to the customer. The client wraps its transport
 # failures precisely so the two can't collide; this pins the ordering that keeps it true anyway.
 @pytest.mark.asyncio
 async def test_integration_failure_is_classified_before_the_bare_404_rule():
-    error = IntegrationServiceUnreachableError("404 Client Error: Not Found for url: http://integration-service")
+    error = CredentialsServiceUnreachableError("404 Client Error: Not Found for url: http://credentials-service")
     source = mock.MagicMock(spec=SimpleSource)
     source.get_non_retryable_errors.return_value = {}
     source.get_retryable_errors.return_value = set()
@@ -1694,6 +1695,44 @@ def test_a_scheduled_full_refresh_resets_only_while_the_schema_is_due(
         assert (
             _resolve_reset_pipeline(inputs, schema, job_created_at=datetime(2026, 9, 22, 1, 30, tzinfo=UTC)) is expected
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run_reset,destination_reset_required,reset_handed_over,expected",
+    [
+        pytest.param(True, False, False, True, id="run_asked_for_a_reset"),
+        pytest.param(False, True, False, True, id="source_asked_for_a_reset"),
+        pytest.param(True, True, True, False, id="source_handed_the_reset_over"),
+    ],
+)
+async def test_the_pipeline_deletes_the_table_only_for_a_reset_the_source_kept(
+    run_reset: bool, destination_reset_required: bool, reset_handed_over: bool, expected: bool
+) -> None:
+    source_response = SourceResponse(
+        name="users",
+        items=lambda: iter(()),
+        primary_keys=["id"],
+        destination_reset_required=destination_reset_required,
+        reset_handed_over=reset_handed_over,
+    )
+    pipeline_cls = mock.MagicMock()
+    pipeline_cls.return_value.run = mock.AsyncMock()
+
+    with (
+        mock.patch.object(module, "_get_models", new=mock.AsyncMock()),
+        mock.patch.object(module, "v3_pipeline_class", return_value=pipeline_cls),
+    ):
+        await module._run(
+            mock.MagicMock(),
+            source_response,
+            mock.AsyncMock(),
+            reset_pipeline=run_reset,
+            shutdown_monitor=mock.MagicMock(),
+            resumable_source_manager=None,
+        )
+
+    assert pipeline_cls.call_args.args[3] is expected
 
 
 _STORED_WATERMARK = datetime(2026, 6, 14, 15, 33, 31, 802833)

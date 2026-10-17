@@ -42,6 +42,15 @@ from .search_conversion_query_runner import SearchConversionQueryRunner
 
 
 class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.feature_enabled_or_false",
+            return_value=True,
+        )
+        self.search_conversions_flag = flag.start()
+        self.addCleanup(flag.stop)
+
     def _table(self, name: str, columns: dict[str, str], csv: str) -> str:
         with TemporaryDirectory() as directory:
             path = Path(directory) / f"{name}.csv"
@@ -825,8 +834,28 @@ class TestMarketingAnalyticsSearchQueryRunner(ClickhouseTestMixin, BaseTest):
 
 
 class TestMarketingSearchConversionBudget(BaseTest):
-    @parameterized.expand([(3, 3), (6, 5)])
-    def test_bounds_goal_queries_and_reports_excluded_goals(self, goal_count: int, expected_count: int) -> None:
+    def setUp(self) -> None:
+        super().setUp()
+        flag = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.feature_enabled_or_false",
+            return_value=True,
+        )
+        self.search_conversions_flag = flag.start()
+        self.addCleanup(flag.stop)
+
+    @parameterized.expand(
+        [
+            (3, 3, True, Breakdown1.PAGE),
+            (6, 5, True, Breakdown1.PAGE),
+            (3, 0, False, Breakdown1.PAGE),
+            (3, 3, True, Breakdown1.KEYWORD),
+            (3, 0, False, Breakdown1.KEYWORD),
+        ]
+    )
+    def test_bounds_goal_queries_and_reports_excluded_goals(
+        self, goal_count: int, expected_count: int, enabled: bool, breakdown: Breakdown1
+    ) -> None:
+        self.search_conversions_flag.return_value = enabled
         config = self.team.marketing_analytics_config
         goals = [
             ConversionGoalFilter1(
@@ -854,8 +883,9 @@ class TestMarketingSearchConversionBudget(BaseTest):
         config.save()
         metrics = MarketingAnalyticsSearchMetrics(clicks=1, impressions=10).model_dump()
         warehouse_row = {
-            "page": "https://example.com/pricing",
-            "platform": "GoogleSearchConsole",
+            "page": "https://example.com/pricing" if breakdown == Breakdown1.PAGE else None,
+            "keyword": "analytics" if breakdown == Breakdown1.KEYWORD else None,
+            "platform": "GoogleSearchConsole" if breakdown == Breakdown1.PAGE else "GoogleAds",
             "attribution_row_count": 1,
             **metrics,
             **{f"previous_{key}": value for key, value in metrics.items()},
@@ -873,8 +903,14 @@ class TestMarketingSearchConversionBudget(BaseTest):
         ):
             result = MarketingAnalyticsSearchQueryRunner(
                 query=MarketingAnalyticsSearchQuery(
-                    sources=[MarketingAnalyticsSearchSource(sourceType="GoogleSearchConsole", statsTable="pages")],
-                    breakdown="page",
+                    sources=[
+                        MarketingAnalyticsSearchSource(
+                            sourceType="GoogleSearchConsole" if breakdown == Breakdown1.PAGE else "GoogleAds",
+                            statsTable="stats",
+                            keywordTable="keywords" if breakdown == Breakdown1.KEYWORD else None,
+                        )
+                    ],
+                    breakdown=breakdown,
                     includePostHogConversions=True,
                     compareFilter=CompareFilter(compare=True),
                     dateRange=DateRange(date_from="2023-01-01", date_to="2023-01-31"),
@@ -884,6 +920,11 @@ class TestMarketingSearchConversionBudget(BaseTest):
             ).calculate()
         assert execute_attribution.call_count == expected_count * 2
         assert create_database.call_count == 1
+        if not enabled:
+            assert result.posthogConversionGoals is None
+            assert result.results[0].posthogConversions is None
+            assert result.results[0].clicks == 1
+            return
         assert result.posthogConversionGoals is not None
         assert [goal.id for goal in result.posthogConversionGoals] == [
             f"goal-{index}" for index in range(1, expected_count + 1)
@@ -909,15 +950,28 @@ class TestMarketingSearchCacheAccessControl(BaseTest):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
         self.addCleanup(cache.clear)
+        flag = patch(
+            "products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner.feature_enabled_or_false",
+            return_value=True,
+        )
+        self.search_conversions_flag = flag.start()
+        self.addCleanup(flag.stop)
 
-    @parameterized.expand([True, False])
-    def test_live_resolution_rollout_partitions_search_conversion_cache(self, include_conversions: bool) -> None:
+    @parameterized.expand([(True, False), (False, False), (True, True), (False, True)])
+    def test_rollout_partitions_search_conversion_cache(
+        self, include_conversions: bool, toggle_conversion_flag: bool
+    ) -> None:
         query = MarketingAnalyticsSearchQuery(
             sources=[], breakdown="page", includePostHogConversions=include_conversions
         )
         keys = []
         for enabled in (False, True, False):
-            self.team._ma_precompute_flags = {"conversion": False, "costs": False, "live_sessions": enabled}  # type: ignore[attr-defined]
+            self.search_conversions_flag.return_value = enabled if toggle_conversion_flag else True
+            self.team._ma_precompute_flags = {  # type: ignore[attr-defined]
+                "conversion": False,
+                "costs": False,
+                "live_sessions": enabled if not toggle_conversion_flag else False,
+            }
             keys.append(
                 MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
             )

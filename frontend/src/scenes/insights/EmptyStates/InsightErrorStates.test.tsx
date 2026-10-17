@@ -66,21 +66,38 @@ describe('insight error states', () => {
         })
     })
 
-    it('labels a memory failure as unfinished rather than invalid', () => {
-        render(
-            <InsightValidationError
-                detail={CLUSTER_MEMORY_DETAIL}
-                validationErrorCode="clickhouse_memory_limit_exceeded"
-                query={{ kind: 'InsightVizNode' }}
-            />
-        )
+    it.each([
+        {
+            code: 'clickhouse_memory_limit_exceeded',
+            detail: CLUSTER_MEMORY_DETAIL,
+            expectedTitle: "This query couldn't finish",
+            expectedNextStep: CLUSTER_MEMORY_DETAIL,
+            aiDebug: true,
+            queryDebugger: true,
+        },
+        {
+            code: 'table_access_denied',
+            detail: "You don't have access to table `events`.",
+            expectedTitle: "You don't have access to table `events`.",
+            expectedNextStep: 'Ask a project admin to grant you access to this table.',
+            aiDebug: false,
+            queryDebugger: false,
+        },
+    ])(
+        'does not label a $code failure as an invalid query',
+        ({ code, detail, expectedTitle, expectedNextStep, aiDebug, queryDebugger }) => {
+            render(
+                <InsightValidationError detail={detail} validationErrorCode={code} query={{ kind: 'InsightVizNode' }} />
+            )
 
-        expect(screen.getByText("This query couldn't finish")).toBeTruthy()
-        expect(screen.queryByText("We couldn't run this query")).toBeNull()
-        expect(screen.getByText(CLUSTER_MEMORY_DETAIL)).toBeTruthy()
-        expect(screen.queryByText('Open the query debugger and correct the query.')).toBeNull()
-        expect(screen.getByText('Debug with PostHog AI')).toBeTruthy()
-    })
+            expect(screen.getByText(expectedTitle)).toBeTruthy()
+            expect(screen.getByText(expectedNextStep)).toBeTruthy()
+            expect(screen.queryByText("We couldn't run this query")).toBeNull()
+            expect(screen.queryByText('Open the query debugger and correct the query.')).toBeNull()
+            expect(screen.queryByText('Debug with PostHog AI') !== null).toBe(aiDebug)
+            expect(screen.queryByText('Open in query debugger') !== null).toBe(queryDebugger)
+        }
+    )
 
     it('replaces generic invalid-query detail with a next step', () => {
         render(

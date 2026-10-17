@@ -1,6 +1,7 @@
 import { Counter, Gauge, Histogram, Registry } from 'prom-client'
 
 import { type UndecodableImageReason } from './image-input.ts'
+import { type PlanLimits } from './scale-plan.ts'
 import { type StageTimings } from './scrub.ts'
 
 export const register = new Registry()
@@ -169,6 +170,25 @@ const workerRestartFailures = new Counter({
     help: 'Replacement attempts that failed to become ready and were themselves retried',
     registers: [register],
 })
+// Which sizing a pod runs, so scrub latency and CPU can be split by it while a stored-side change rolls out.
+const planInfo = new Gauge({
+    name: 'ml_mirror_image_scrub_plan_info',
+    help: 'The scale plan this process runs with, as labels; the value is always 1',
+    labelNames: ['stored_max_side', 'face_input_side', 'frame_pixels', 'text_canvas_pixels'],
+    registers: [register],
+})
+
+export function recordPlanInfo(limits: PlanLimits): void {
+    planInfo
+        .labels(
+            String(limits.storedMaxSide),
+            String(limits.faceInputSide),
+            String(limits.framePixels),
+            String(limits.textCanvasPixels)
+        )
+        .set(1)
+}
+
 interface PoolProbe {
     usableWorkers(): number
     queueDepth(): number

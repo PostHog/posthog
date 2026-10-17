@@ -186,6 +186,7 @@ Convex not-checkable:schemas
 Copper fail:stall-budget
 Coralogix fail:stall-budget
 Cortex fail:stall-budget
+CosmosDB not-checkable:schemas
 Coupa fail:rate-limit-budget,stall-budget
 Courier fail:stall-budget
 Coveralls not-checkable:no-request
@@ -627,7 +628,7 @@ Salesflare fail:stall-budget
 Salesforce not-checkable:database
 SavvyCal fail:stall-budget
 ScaleAI fail:stall-budget
-Scaleway fail:rate-limit-budget,safe-point
+Scaleway fail:rate-limit-budget
 Scrunch fail:stall-budget
 Secoda fail:stall-budget
 Secureframe fail:stall-budget
@@ -758,7 +759,7 @@ Ubidots fail:rate-limit-budget,safe-point,stall-budget
 UkCompaniesHouse fail:stall-budget
 Unleash fail:safe-point,stall-budget
 Unstructured fail:rate-limit-budget,stall-budget
-UpPromote not-checkable:database
+UpPromote fail:stall-budget
 Upstash fail:stall-budget
 Uptimerobot fail:stall-budget
 UsBea fail:rate-limit-budget,stall-budget

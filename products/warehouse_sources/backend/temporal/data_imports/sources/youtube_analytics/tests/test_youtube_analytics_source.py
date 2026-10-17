@@ -23,9 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
     CHANNEL_DAILY,
     DEMOGRAPHICS,
-    ENDPOINTS,
+    FULL_REFRESH_PRIMARY_KEYS,
     REVISION_LOOKBACK_SECONDS,
     TOP_VIDEOS,
+    TRAFFIC_SOURCE_DETAILS,
+    YOUTUBE_ANALYTICS_REPORTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
     YouTubeAnalyticsSource,
@@ -82,7 +84,7 @@ class TestYouTubeAnalyticsSource:
         assert self.source.default_version == "v2"
         assert (self.source.api_docs_url or "").startswith("https://")
 
-    @parameterized.expand([(name,) for name in ENDPOINTS])
+    @parameterized.expand([(name,) for name in YOUTUBE_ANALYTICS_REPORTS])
     def test_every_report_is_incremental_on_day(self, endpoint: str) -> None:
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
 
@@ -92,11 +94,20 @@ class TestYouTubeAnalyticsSource:
         # YouTube restates recent days, so incremental runs must re-read a trailing window.
         assert schema.default_incremental_lookback_seconds == REVISION_LOOKBACK_SECONDS
 
+    @parameterized.expand([(name,) for name in FULL_REFRESH_PRIMARY_KEYS])
+    def test_tables_without_a_day_grain_only_full_refresh(self, endpoint: str) -> None:
+        # Their rows carry no `day`, so an incremental sync on it would have no cursor to read.
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+
+        assert schema.supports_incremental is False
+        assert schema.incremental_fields == []
+
     @parameterized.expand(
         [
             (CHANNEL_DAILY, ["day"]),
             (TOP_VIDEOS, ["day", "video"]),
             (DEMOGRAPHICS, ["day", "ageGroup", "gender"]),
+            (TRAFFIC_SOURCE_DETAILS, ["day", "insightTrafficSourceType", "insightTrafficSourceDetail"]),
         ]
     )
     def test_primary_keys_include_every_breakdown_dimension(self, endpoint: str, expected: list[str]) -> None:

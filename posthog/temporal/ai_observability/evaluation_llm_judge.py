@@ -44,6 +44,7 @@ from posthog.temporal.ai_observability.metrics import (
     increment_user_errors,
 )
 from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
@@ -72,6 +73,8 @@ from products.ai_observability.backend.llm.errors import (
     UnsupportedModelError,
     provider_error_detail,
 )
+from products.ai_observability.backend.llm.providers.openai import OPENAI_DECISIONS_BASE_URL
+from products.ai_observability.backend.llm.providers.openai_decisions import OpenAIDecisionAdapter
 from products.ai_observability.backend.llm.providers.openrouter import OPENROUTER_DECISIONS_BASE_URL, decision_model_ids
 from products.ai_observability.backend.llm.types import CompletionResponse
 from products.ai_observability.backend.models.evaluation_configs import (
@@ -79,14 +82,11 @@ from products.ai_observability.backend.models.evaluation_configs import (
     NumericOutputConfig,
     NumericScoreOutOfBounds,
 )
-from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
+from products.ai_observability.backend.text_repr.formatters import EVENT_TEXT_MAX_CHARS, truncate_by_line_sampling
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
-
-# Same cap as the trace-level judge (JUDGE_TRACE_MAX_CHARS).
-JUDGE_EVENT_MAX_CHARS = 150_000
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -95,14 +95,34 @@ LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     backoff_coefficient=2.0,
 )
 
+BACKFILL_ACTIVITY_TIMEOUT = timedelta(minutes=10)
+BACKFILL_ACTIVITY_RETRY_POLICY = RetryPolicy(
+    maximum_attempts=5,
+    initial_interval=timedelta(seconds=10),
+    maximum_interval=timedelta(seconds=60),
+    backoff_coefficient=2.0,
+)
+
+
+def backfill_timeout(recover_backfill: bool, live: timedelta | None) -> timedelta | None:
+    if not recover_backfill:
+        return live
+    return max(live, BACKFILL_ACTIVITY_TIMEOUT) if live else BACKFILL_ACTIVITY_TIMEOUT
+
+
+def backfill_retry_policy(recover_backfill: bool, live: RetryPolicy) -> RetryPolicy:
+    return BACKFILL_ACTIVITY_RETRY_POLICY if recover_backfill else live
+
 
 # A retry can fix these client errors, so they stay on the retry policy like a 5xx.
 # 499 is a cancellation, which Gemini already maps to the transport lane.
 _RETRYABLE_CLIENT_ERROR_STATUSES = frozenset({408, 409, 429, 499})
 
 
-def _is_last_judge_attempt() -> bool:
-    if not temporalio.activity.in_activity():
+def _is_last_judge_attempt(backfill: bool = False) -> bool:
+    # A backfill run never treats an attempt as its last: running out of retries fails the run, and
+    # the backfill decides whether to pause or stop. Only a live run gives up for good.
+    if backfill or not temporalio.activity.in_activity():
         return False
     return temporalio.activity.info().attempt >= (LLM_JUDGE_RETRY_POLICY.maximum_attempts or 0)
 
@@ -271,10 +291,11 @@ def build_system_prompt(
 {config.instructions}"""
 
 
-@dataclass
+@dataclass(frozen=False)
 class ExecuteLLMJudgeInputs:
     evaluation: dict[str, Any]
     event_data: dict[str, Any]
+    backfill_id: str | None = None
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -520,18 +541,14 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     sections.append(f"Output: {output_data}")
     user_prompt = "\n\n".join(sections)
-    if len(user_prompt) > JUDGE_EVENT_MAX_CHARS:
-        # Line-number first so the sampler's "gaps indicate omitted content" header is truthful,
-        # then hard-truncate to guarantee the cap for low-newline payloads the sampler leaves whole.
-        user_prompt = add_line_numbers(user_prompt)
-        user_prompt, _ = reduce_by_uniform_sampling(user_prompt, JUDGE_EVENT_MAX_CHARS)
-        user_prompt = user_prompt[:JUDGE_EVENT_MAX_CHARS]
+    user_prompt = truncate_by_line_sampling(user_prompt, EVENT_TEXT_MAX_CHARS)
 
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         allows_na=allows_na,
+        backfill=inputs.backfill_id is not None,
     )
 
 
@@ -555,6 +572,7 @@ def call_llm_judge(
     system_prompt: str,
     user_prompt: str,
     allows_na: bool,
+    backfill: bool = False,
 ) -> EvaluationActivityResult:
     """Resolve the judge model/key for `evaluation` and run a single judge completion.
 
@@ -599,9 +617,16 @@ def call_llm_judge(
         openrouter_enabled = provider == "openrouter" and decision_evaluations_enabled(
             team_id, base_url=OPENROUTER_DECISIONS_BASE_URL
         )
-        uses_decisions = is_decision_model(provider, model, openrouter_enabled=openrouter_enabled)
-        if provider == "openrouter" and not openrouter_enabled:
-            uses_decisions = model in (decision_model_ids(refresh=False) or ())
+        judge_method = evaluation["evaluation_config"].get("judge_method")
+        # Explicit selection takes precedence for models that support both methods.
+        # Models gaining decisions must not move existing chat evaluations onto a different API.
+        uses_decisions = (
+            judge_method == "decision"
+            if judge_method is not None
+            else is_decision_model(provider, model, openrouter_enabled=openrouter_enabled, decision_only=True)
+        )
+        if judge_method is None and provider == "openrouter" and not openrouter_enabled:
+            uses_decisions = model in (decision_model_ids(refresh=False, decision_only=True) or ())
         if uses_decisions:
             if output_type not in ("boolean", "categorical", "numeric"):
                 return build_skipped_evaluation_result(
@@ -613,12 +638,14 @@ def call_llm_judge(
             base_url = (
                 OPENROUTER_DECISIONS_BASE_URL
                 if provider == "openrouter"
+                else OPENAI_DECISIONS_BASE_URL
+                if provider == "openai"
                 else provider_key.encrypted_config.get("base_url", "")
                 if provider_key
                 else ""
             )
             if (provider == "openrouter" and not openrouter_enabled) or (
-                provider == "system_one" and not decision_evaluations_enabled(team_id, base_url=base_url)
+                provider in ("system_one", "openai") and not decision_evaluations_enabled(team_id, base_url=base_url)
             ):
                 return build_skipped_evaluation_result(
                     output_type=output_type,
@@ -678,19 +705,26 @@ def call_llm_judge(
             if allows_na:
                 questions["applicable"] = NoulQuestion(
                     instructions=(
-                        "Do these evaluation criteria apply to this input? Answer true when the criteria can be "
-                        "evaluated, even if they are not met. Answer false only when they are not relevant.\n\n"
-                        + prompt
+                        "Can this input be evaluated according to the evaluation instructions below? Answer false "
+                        "when those instructions require N/A, when essential context or evidence is missing, or "
+                        "when the criteria are irrelevant. Answer true when enough information is present to "
+                        "evaluate them, even if the result would be a fail. Do not invent missing facts.\n\n" + prompt
                     )
                 )
-            decision_result = DecisionClient.evaluate(
-                api_key=provider_key.encrypted_config.get("api_key", "") if provider_key else "",
-                base_url=base_url,
-                path="decisions" if provider == "openrouter" else "systemone",
-                model=model,
-                state=user_prompt,
-                questions=questions,
-            )
+            api_key = provider_key.encrypted_config.get("api_key", "") if provider_key else ""
+            if provider == "openai":
+                decision_result = OpenAIDecisionAdapter().evaluate(
+                    api_key=api_key, model=model, state=user_prompt, questions=questions
+                )
+            else:
+                decision_result = DecisionClient.evaluate(
+                    api_key=api_key,
+                    base_url=base_url,
+                    path="decisions" if provider == "openrouter" else "systemone",
+                    model=model,
+                    state=user_prompt,
+                    questions=questions,
+                )
             applicable = True
             if allows_na:
                 applicability_answer = decision_result.answers["applicable"]
@@ -787,12 +821,14 @@ def call_llm_judge(
         )
     except RetryableRateLimitError as e:
         increment_errors("rate_limit", provider=provider)
+        retry_delay = timedelta(seconds=e.retry_after) if e.retry_after is not None else None
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
-        error_class = ApplicationError if _is_last_judge_attempt() else NonReportableApplicationError
+        last = is_last_attempt(retry_delay) if backfill else _is_last_judge_attempt()
+        error_class = ApplicationError if last else NonReportableApplicationError
         raise error_class(
             str(e),
             {"error_type": "provider_unavailable", "provider": provider},
-            next_retry_delay=timedelta(seconds=e.retry_after) if e.retry_after is not None else None,
+            next_retry_delay=retry_delay,
         ) from e
     except AuthenticationError:
         if is_byok:
@@ -875,7 +911,11 @@ def call_llm_judge(
         )
     except UnsupportedModelError:
         # A failed chat call can populate a cold catalogue; a disabled flag must not disable the evaluation.
-        if provider == "openrouter" and not openrouter_enabled and model in (decision_model_ids(refresh=False) or ()):
+        if (
+            provider == "openrouter"
+            and not openrouter_enabled
+            and model in (decision_model_ids(refresh=False, decision_only=True) or ())
+        ):
             return build_skipped_evaluation_result(
                 output_type=output_type,
                 allows_na=allows_na,
@@ -950,7 +990,7 @@ def call_llm_judge(
         )
 
     except ProviderHostUnresolvedError as e:
-        if not _is_last_judge_attempt():
+        if not _is_last_judge_attempt(backfill):
             increment_errors("connection_error", provider=provider)
             raise TransientJudgeError(str(e)) from e
         # The host did not resolve on any attempt, so the base URL is probably wrong. A failed

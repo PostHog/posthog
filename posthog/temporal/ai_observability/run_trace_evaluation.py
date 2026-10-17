@@ -176,6 +176,7 @@ class ExecuteTraceEvaluationInputs:
     # Upper bound of the fetch, ISO. Unset on a live run, which reads up to now; a backfilled run
     # sets it so an old unit is graded over the same span the live path would have covered.
     window_end: str | None = None
+    backfill_id: str | None = None
 
     @property
     def window_end_datetime(self) -> datetime | None:
@@ -216,6 +217,7 @@ def _count_trace_events(
         team=team,
         user=user,
         query_type="TraceEvaluationEventCount",
+        posthog_tables_only=True,
         fall_back_to_events=True,
     )
     if not result.results:
@@ -246,6 +248,7 @@ def _sum_trace_payload_bytes(
         team=team,
         user=user,
         query_type="TraceEvaluationPayloadBytes",
+        posthog_tables_only=True,
         fall_back_to_events=False,
     )
     if not result.results:
@@ -311,6 +314,7 @@ def _fetch_trace(
         # latency from them. The runner applies the upper bound only. A lower bound would cut off the
         # early events of the trace, which live runs do grade.
         bound_events_to_date_range=bound_to_date_to,
+        posthog_tables_only=True,
     )
     response = runner.calculate()
     if not response.results:
@@ -700,6 +704,7 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
         ),
         user_prompt=format_trace_for_judge(outcome.trace),
         allows_na=allows_na,
+        backfill=inputs.backfill_id is not None,
     )
 
 

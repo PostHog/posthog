@@ -991,6 +991,11 @@ class TestWriteAccessPromptSection(SimpleTestCase):
         assert "never create one" not in granted
         assert "never create one" in _prompt(write_scopes=["canvas:write"])
 
+        # A scout that holds only the default grant still has to be told it may write notebooks.
+        notebooks_only = _prompt(write_scopes=["notebook:write"])
+        assert "# Write access" in notebooks_only
+        assert "write access to notebooks in this project" in notebooks_only
+
         ungranted = _prompt(write_scopes=[])
         assert "# Write access" not in ungranted
 
@@ -2162,16 +2167,23 @@ async def test_run_clones_the_scouts_pinned_repositories_when_a_token_can_be_min
         pytest.param(
             True,
             True,
-            ["dashboard:write"],
-            {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write"]},
+            ["dashboard:write", "notebook:write"],
+            {"preset": "signals_scout", "extra_write_scopes": ["dashboard:write", "notebook:write"]},
             id="live_run_holds_the_grant",
         ),
         # Dry run is how a person previews a scout before trusting it, so a dry run that could
         # edit dashboards would do the thing they wanted to look at first.
         pytest.param(False, True, [], "signals_scout", id="dry_run_holds_no_grant"),
         # The grant was approved for the person the runs act as. When that identity no longer
-        # resolves, the team fallback is a member who never approved it and cannot revoke it.
-        pytest.param(True, False, [], "signals_scout", id="team_fallback_holds_no_grant"),
+        # resolves, the team fallback is a member who never approved it and cannot revoke it. The
+        # default notebook scope was granted by the fleet rather than a person, so it stays.
+        pytest.param(
+            True,
+            False,
+            ["notebook:write"],
+            {"preset": "signals_scout", "extra_write_scopes": ["notebook:write"]},
+            id="team_fallback_holds_only_the_default_grant",
+        ),
     ],
 )
 async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_run(
@@ -2188,7 +2200,7 @@ async def test_run_mints_the_scouts_granted_write_scopes_and_stamps_them_on_the_
             team_id=ateam.id,
             skill_name="signals-scout-errors",
             emit=emit,
-            write_scopes=["dashboard:write", "feature_flag:write"],
+            write_scopes=["dashboard:write", "feature_flag:write", "notebook:write"],
         )
 
     await database_sync_to_async(_seed_config, thread_sensitive=False)()
@@ -4156,3 +4168,24 @@ async def test_workflow_sleeps_its_start_delay_and_skips_a_config_disabled_meanw
         assert result == output
     else:
         assert result.skip_reason == "config_disabled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "activity_function,expected",
+    [
+        (check_signals_scout_config_runnable_activity, False),
+        (evaluate_signals_scout_precheck_activity, EvaluateScoutPrecheckOutput(should_run=False)),
+    ],
+)
+async def test_a_deleted_team_does_not_run(activity_function, expected):
+    missing_team_id = await database_sync_to_async(
+        lambda: (Team.objects.order_by("-id").values_list("id", flat=True).first() or 0) + 1000
+    )()
+
+    result = await ActivityEnvironment().run(
+        activity_function, RunSignalsScoutInput(team_id=missing_team_id, skill_name="s")
+    )
+
+    assert result == expected

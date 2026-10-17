@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,34 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_SAGEMAKER|AWSSAGEMAKER)_", "^SAGEMAKER_"),
+        npm=("@aws-sdk/client-sagemaker",),
+        pypi=("sagemaker",),
+        cargo=("aws-sdk-sagemaker",),
+        go=("github.com/aws/aws-sdk-go-v2/service/sagemaker",),
+        maven=(
+            "software.amazon.awssdk:sagemaker",
+            "com.amazonaws:aws-java-sdk-sagemaker",
+            "com.amazonaws:aws-android-sdk-sagemaker-runtime",
+            "com.amazonaws:aws-java-sdk-sagemakerfeaturestoreruntime",
+            "com.amazonaws:aws-java-sdk-sagemakergeospatial",
+            "com.amazonaws:aws-java-sdk-sagemakermetrics",
+            "com.amazonaws:aws-java-sdk-sagemakerruntime",
+            "com.amazonaws:sagemaker-spark_2.11",
+            "software.amazon.awssdk:sagemakera2iruntime",
+            "software.amazon.awssdk:sagemakeredge",
+            "software.amazon.awssdk:sagemakerfeaturestoreruntime",
+            "software.amazon.awssdk:sagemakergeospatial",
+            "software.amazon.awssdk:sagemakerjobruntime",
+            "software.amazon.awssdk:sagemakermetrics",
+            "software.amazon.awssdk:sagemakerruntime",
+            "software.amazon.awssdk:sagemakerruntimehttp2",
+            "software.amazon.awssdk:sagemakertrainingsessionruntime",
+        ),
+        rubygems=("aws-sdk-sagemaker",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (SAGEMAKER_API_VERSION,)
     default_version = SAGEMAKER_API_VERSION
@@ -106,9 +135,13 @@ class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerR
                 "`sagemaker:ListTrainingJobs`, `sagemaker:DescribeTrainingJob`, "
                 "`sagemaker:ListProcessingJobs`, `sagemaker:DescribeProcessingJob`, "
                 "`sagemaker:ListEndpoints`, `sagemaker:DescribeEndpoint`, "
-                "`sagemaker:ListModels`, and `sagemaker:DescribeModel`. "
-                "Jobs and endpoints use full refresh to capture status changes. "
-                "Models also support incremental sync by creation time."
+                "`sagemaker:ListModels`, `sagemaker:DescribeModel`, "
+                "`sagemaker:ListEndpointConfigs`, `sagemaker:DescribeEndpointConfig`, "
+                "`sagemaker:ListModelPackages`, `sagemaker:DescribeModelPackage`, "
+                "`sagemaker:ListHyperParameterTuningJobs`, `sagemaker:DescribeHyperParameterTuningJob`, "
+                "`sagemaker:ListAutoMLJobs`, and `sagemaker:DescribeAutoMLJobV2`. "
+                "Jobs, endpoints, and model packages use full refresh to capture status changes. "
+                "Models and endpoint configurations also support incremental sync by creation time."
             ),
             iconPath="/static/services/aws_sagemaker.png",
             releaseStatus=ReleaseStatus.ALPHA,

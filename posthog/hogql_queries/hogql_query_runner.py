@@ -8,6 +8,7 @@ from posthog.schema import (
     CacheMissResponse,
     DashboardFilter,
     DateRange,
+    ExecutionTarget,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryModifiers,
@@ -19,6 +20,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
+from posthog.hogql.direct_sql import get_adapter_for_source
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.metadata import get_table_names
@@ -38,6 +40,10 @@ from posthog.models import User
 from posthog.models.activity_logging.retention import get_activity_log_lookback_restriction
 
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
+from products.managed_warehouse.backend.facade.query_execution import (
+    execute_managed_trino_query,
+    validate_managed_trino_query,
+)
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 _INFORMATION_SCHEMA_PREFIX = "system.information_schema."
@@ -62,6 +68,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         self._direct_engine: str | None = None
         self._managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         super().__init__(*args, **kwargs)
+        if self.query.connectionId and self.modifiers.useNewEventsCluster:
+            raise ExposedHogQLError("Native events cluster queries cannot use a warehouse connection.")
 
     # Treat SQL query caching like day insight
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:
@@ -70,8 +78,10 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return last_refresh + staleness_threshold_map[ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT]["day"]
 
     def _validate_direct_connection(self, *, user: Optional[User] = None, force: bool = False) -> None:
-        if self._direct_connection_validated and not force:
+        if not force and self._direct_connection_validated:
             return
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            validate_managed_trino_query(self.query, self.team, user if user is not None else self.user)
         managed_warehouse_sql_mode: ManagedWarehouseSQLMode | None = None
         direct_engine: str | None = None
         if self.query.connectionId:
@@ -87,6 +97,9 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 managed_warehouse_sql_mode = source.managed_warehouse_sql_mode
                 if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
                     raise ExposedHogQLError(INVALID_CONNECTION_ID_ERROR)
+                if managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
+                    adapter = get_adapter_for_source(source, team=self.team)
+                    direct_engine = adapter.engine if adapter is not None else None
         self._managed_warehouse_sql_mode = managed_warehouse_sql_mode
         self._direct_engine = direct_engine
         self._direct_connection_validated = True
@@ -96,6 +109,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         payload = super().get_cache_payload()
         if self._managed_warehouse_sql_mode == ManagedWarehouseSQLMode.BUILT_IN:
             payload["managed_warehouse_sql_mode"] = self._managed_warehouse_sql_mode.value
+            if self._direct_engine == "trino":
+                payload["managed_warehouse_engine"] = "trino"
         if self._modifiers_override_provided and self.query.modifiers is not None:
             # Old workers preferred query modifiers while new workers prefer the constructor override.
             # Keep their cached results apart during a rolling deploy.
@@ -250,6 +265,19 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
 
         self._validate_direct_connection()
 
+        if self.query.executionTarget == ExecutionTarget.MANAGED_TRINO:
+            if self.is_query_service:
+                validate_user_query(self._parse_query()[0], team=self.team)
+            return execute_managed_trino_query(
+                self.query.model_copy(update={"modifiers": self.modifiers}),
+                team=self.team,
+                user=self.user,
+                user_access_control=self.user_access_control,
+                settings=self.settings or HogQLGlobalSettings(),
+                timings=self.timings,
+                limit_context=self.limit_context,
+            )
+
         if self.query.sendRawQuery and self.query.connectionId:
             return execute_hogql_query(
                 query_type="HogQLQuery",
@@ -267,6 +295,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                 ch_user=self.ch_user,
                 settings=self.settings,
                 send_raw_query=True,
+                expected_direct_engine=self._direct_engine,
             )
 
         query = self._parse_query()[0] if self._direct_engine == "trino" else self.to_query()
@@ -310,6 +339,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             workload=self.workload,
             ch_user=self.ch_user,
             settings=self.settings,
+            expected_direct_engine=self._direct_engine,
             **context_kwargs,
         )
         if paginator:

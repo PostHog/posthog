@@ -1205,8 +1205,17 @@ function ValueSnacks<T = string>({
         })
     )
 
+    const optionsByKey = useMemo(() => {
+        const indexed = new Map<string, LemonInputSelectOption<T>>()
+        for (const option of options) {
+            if (!indexed.has(option.key)) {
+                indexed.set(option.key, option)
+            }
+        }
+        return indexed
+    }, [options])
     const content = values.map((value) => {
-        const option: LemonInputSelectOption<T> = options.find((option) => option.key === value) ?? {
+        const option: LemonInputSelectOption<T> = optionsByKey.get(value) ?? {
             key: value,
             label: value,
             labelComponent: null,

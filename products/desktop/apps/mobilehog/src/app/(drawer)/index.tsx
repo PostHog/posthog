@@ -12,6 +12,7 @@ import { DrawerScene } from "@/components/DrawerScene";
 import { Logomark } from "@/components/Icons";
 import type { Photo } from "@/lib/attachments";
 import { sessionIdentity, useAuth } from "@/lib/auth";
+import { moveDraft, NEW_CHAT_DRAFT } from "@/lib/cache";
 import {
   createAndRunTask,
   useDefaultRepository,
@@ -59,6 +60,7 @@ export default function NewChatScreen() {
       });
       if (sessionIdentity() !== identity) return;
       adopt(tempId, task);
+      moveDraft(tempId, task.id);
       invalidateTasks();
       router.replace({
         pathname: "/(drawer)/task/[id]",
@@ -67,6 +69,9 @@ export default function NewChatScreen() {
     } catch (err) {
       if (sessionIdentity() !== identity) return;
       failPending(tempId, err instanceof Error ? err.message : String(err));
+      // The placeholder chat cannot resend, so give the message back to the
+      // new-chat composer.
+      throw err;
     }
   };
 
@@ -86,6 +91,7 @@ export default function NewChatScreen() {
             repository={repository.data ?? null}
             onSend={send}
             autoFocus
+            draftKey={NEW_CHAT_DRAFT}
           />
         </View>
       </KeyboardStickyView>

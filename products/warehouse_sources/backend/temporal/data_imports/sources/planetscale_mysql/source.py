@@ -3,6 +3,7 @@ from typing import Optional, cast
 
 from posthog.exceptions_capture import capture_exception
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -104,6 +105,11 @@ class PlanetScaleMySQLSource(MySQLSource):
     SSH tunnel to configure. PlanetScale's Postgres databases are a separate product on a
     different wire protocol — see `planetscale_postgres`.
     """
+
+    codebase_detection = detect(
+        env=("^PLANETSCALE_", "^PLANETSCALE_SERVICE_TOKEN$", "^PLANETSCALE_SERVICE_TOKEN_ID$", "^PLANETSCALE_ORG$"),
+        npm=("@planetscale/database",),
+    )
 
     api_docs_url = "https://planetscale.com/docs"
 

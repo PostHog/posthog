@@ -44,7 +44,13 @@ from products.metrics.backend.facade.contracts import (
     PanelQueryCheckResult,
     SuggestedDashboard,
 )
-from products.metrics.backend.facade.enums import DashboardTemplateStatus, FilterOp, MetricAggregation, MetricType
+from products.metrics.backend.facade.enums import (
+    DashboardTemplateStatus,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+)
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
 from products.metrics.backend.investigation import investigate as _investigate
@@ -117,15 +123,31 @@ def _units_by_fingerprint(team: Team, metric_names: set[str]) -> dict[int, str]:
 
 
 def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[int, str]) -> str | None:
-    """The unit of one output series, resolved from the physical series it
+    """The ingested unit shared by the physical series one output series
     aggregated. The unit only applies when every contributing series carries
-    the same one — a disagreement, or a series with no unit at all, means the
-    merge has no correct single unit, so it carries none."""
-    units = {units_by_fingerprint.get(fp) for fp in fingerprints}
+    the same one. A disagreement, or a mix of unit and no unit, means the
+    merge has no correct single unit, so it returns None. Series that all
+    carry no unit return "", which `_output_unit` needs to tell a unitless
+    counter (whose rate is still per second) apart from a disagreement."""
+    units = {units_by_fingerprint.get(fp, "") for fp in fingerprints}
     if len(units) != 1:
         return None
     (unit,) = units
     return unit
+
+
+def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
+    """The unit of the values a clause returns, which differs from the
+    ingested unit when the clause transforms the values. COUNT returns a
+    number of series, so it has no unit, even after a range function. RATE
+    divides by the bucket length in seconds, so it returns the ingested unit
+    per second, as a UCUM string the frontend formatter reads. Every other
+    aggregation keeps the ingested unit."""
+    if ingested is None or clause.aggregation is MetricAggregation.COUNT:
+        return None
+    if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
+        return f"{ingested or '1'}/s"
+    return ingested or None
 
 
 # Hard cap on series returned per clause; the largest series (by summed
@@ -137,8 +159,7 @@ MAX_SERIES_PER_CLAUSE = MAX_RAW_SERIES
 def _assemble_series(
     rows: list[dict[str, Any]],
     *,
-    metric_name: str,
-    clause_name: str,
+    clause: MetricQueryClause,
     grid: list[str],
     units_by_fingerprint: dict[int, str],
 ) -> list[MetricSeries]:
@@ -166,9 +187,9 @@ def _assemble_series(
         MetricSeries(
             labels=dict(key[0]),
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
-            metric_name=metric_name,
-            clause=clause_name,
-            unit=_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint),
+            metric_name=clause.metric_name,
+            clause=clause.name,
+            unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -357,8 +378,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     series_by_clause = {
         clause.name: _assemble_series(
             rows_by_clause[clause.name],
-            metric_name=clause.metric_name,
-            clause_name=clause.name,
+            clause=clause,
             grid=grid,
             units_by_fingerprint=units_by_fingerprint,
         )

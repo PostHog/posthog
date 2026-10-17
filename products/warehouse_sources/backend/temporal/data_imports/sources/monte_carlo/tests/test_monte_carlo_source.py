@@ -22,8 +22,13 @@ class TestMonteCarloSource:
     @parameterized.expand(
         [
             ("alerts", True),
+            ("dbt_runs", False),
+            ("dbt_test_results", True),
             ("domains", False),
             ("events", True),
+            ("fh_events", True),
+            ("job_executions", True),
+            ("job_schedules", False),
             ("monitors", False),
             ("tables", False),
             ("users", False),
