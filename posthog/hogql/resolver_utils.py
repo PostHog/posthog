@@ -269,7 +269,7 @@ def get_long_table_name(select: ast.SelectQueryType, type: ast.Type) -> str:
         case ast.TableType():
             return select.get_alias_for_table_type(type) or ""
         case ast.LazyTableType(table=table):
-            return table.to_printed_hogql()
+            return select.get_alias_for_table_type(type) or table.to_printed_hogql()
         case (
             ast.TableAliasType(alias=alias)
             | ast.ColumnAliasedTableType(alias=alias)

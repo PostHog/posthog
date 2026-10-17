@@ -113,6 +113,9 @@ Pass the printed SQL and `HogQLContext.values` together to the database driver.
 
 ## Database schema and features
 
+Built-in tables also accept the `posthog` namespace, such as `SELECT id FROM posthog.persons` and `SELECT count() FROM posthog.groups`.
+Explicit aliases work with these names, for example `SELECT p.id FROM posthog.persons AS p`.
+
 The HogQL database schema is in flux. You will soon be able to explore it in the [PostHog app itself](https://github.com/PostHog/posthog/pull/14591).
 
 The most up to date resource is [hogql/database.py](https://github.com/PostHog/posthog/blob/master/posthog/hogql/database.py) on Github. At the time of writing, these tables were available:
