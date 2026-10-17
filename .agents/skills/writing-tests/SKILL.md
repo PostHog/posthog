@@ -49,6 +49,12 @@ That sets the limit too: fold in variations of the same behavior, and don't bolt
 Search before you write.
 If you haven't looked for the nearest existing test, you can't answer this question.
 
+A new test file also needs a team owner, because ownership routes its failures and flakes.
+Put it next to the code it tests, inside `products/<name>/` when one product owns that behavior, so it inherits that owner.
+Check with `hogli owners:who <path>`.
+If no team owns it, name the team responsible for the behavior it checks in the nearest `owners.yaml`, not the team of a helper it imports.
+`hogli ci:preflight` warns about each changed test file without a team owner.
+
 ## Don't write it — the five no's
 
 Most low-value tests fall into one of these. Recognize and skip them.

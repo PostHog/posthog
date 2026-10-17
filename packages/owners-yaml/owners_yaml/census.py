@@ -12,6 +12,13 @@ UNOWNED_TEAM = "unowned"
 
 _PYTEST_FILE = re.compile(r"(^|/)test_[^/]*\.py$|_test\.py$")
 _JEST_FILE = re.compile(r"\.(test|spec)\.[jt]sx?$")
+# The same two patterns as fnmatch globs, where `*` spans `/`. Keep them in step with the regexes.
+TEST_FILE_GLOBS = (
+    "test_*.py",
+    "*/test_*.py",
+    "*_test.py",
+    *(f"*.{kind}.{ext}" for kind in ("test", "spec") for ext in ("js", "jsx", "ts", "tsx")),
+)
 
 
 def first_team_owner(owners: list[str] | None) -> str:
