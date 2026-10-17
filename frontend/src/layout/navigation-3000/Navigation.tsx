@@ -17,6 +17,7 @@ import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/Pr
 import { TodayContextPanelFloating } from '~/layout/today/TodayContextPanelFloating'
 import { TodayShell } from '~/layout/today/TodayShell'
 import { TODAY_RAIL_WIDTH, todayShellLogic } from '~/layout/today/todayShellLogic'
+import { TodaySidePanel } from '~/layout/today/TodaySidePanel'
 import { TodayTopBar } from '~/layout/today/TodayTopBar'
 
 import { navigationLogic } from '../navigation/navigationLogic'
@@ -334,7 +335,7 @@ export function Navigation({
                         )}
                         {todayFramed && !todayOnAiPage && <TodayContextPanelFloating />}
                     </div>
-                    {todayFramed && <SidePanel className="TodayAppLayout__side-panel" />}
+                    {todayFramed && <TodaySidePanel />}
                 </ProjectDragAndDropProvider>
             </div>
         </>

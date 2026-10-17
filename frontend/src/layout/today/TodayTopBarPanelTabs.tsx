@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { ComponentType } from 'react'
 
 import { IconPulse, IconSparkles } from '@posthog/icons'
 import { Button, Kbd, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
@@ -9,6 +10,12 @@ import { SidePanelTab } from '~/types'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
+// The top bar's own icons where the side panel's would read wrong at this size.
+const TODAY_TAB_ICONS: Partial<Record<SidePanelTab, ComponentType>> = {
+    [SidePanelTab.Max]: IconSparkles,
+    [SidePanelTab.Activity]: IconPulse,
+}
+
 export function TodayTopBarPanelTabs(): JSX.Element {
     const { panelTabs, activeTab, docked, floatingOpen } = useValues(todayContextPanelLogic)
     const { togglePanelTab } = useActions(todayContextPanelLogic)
@@ -18,7 +25,8 @@ export function TodayTopBarPanelTabs(): JSX.Element {
     return (
         <div className="flex items-center gap-0.5">
             {panelTabs.map((tab) => {
-                const { label: tabLabel, Icon } = SIDE_PANEL_TABS[tab]
+                const { label: tabLabel } = SIDE_PANEL_TABS[tab]
+                const Icon = TODAY_TAB_ICONS[tab] ?? SIDE_PANEL_TABS[tab].Icon
                 const pressed = panelOpen && activeTab === tab
                 const label = pressed ? `Close ${tabLabel}` : tabLabel
                 const unread = tab === SidePanelTab.Activity ? unreadCount : 0
@@ -44,13 +52,7 @@ export function TodayTopBarPanelTabs(): JSX.Element {
                                     />
                                 }
                             >
-                                {tab === SidePanelTab.Max ? (
-                                    <IconSparkles />
-                                ) : tab === SidePanelTab.Activity ? (
-                                    <IconPulse />
-                                ) : (
-                                    <Icon />
-                                )}
+                                <Icon />
                             </TooltipTrigger>
                             <TooltipContent side="bottom" align="end">
                                 {label}

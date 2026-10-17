@@ -34,7 +34,7 @@ import { AccessControlLevel } from '~/types'
 
 import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 import { accessControlLogic } from '../accessControlLogic'
-import { QuillObjectAccessLevelSelect } from './QuillObjectAccessLevelSelect'
+import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 
 export interface AddAccessOption {
     key: string
@@ -119,11 +119,7 @@ export function QuillAddAccessDialog(props: QuillAddAccessDialogProps): JSX.Elem
                         <Field>
                             <FieldTitle>Access level</FieldTitle>
                             <div>
-                                <QuillObjectAccessLevelSelect
-                                    levels={availableLevels}
-                                    level={level}
-                                    onChange={setLevel}
-                                />
+                                <QuillAccessLevelSelect levels={availableLevels} level={level} onChange={setLevel} />
                             </div>
                         </Field>
                     </FieldGroup>

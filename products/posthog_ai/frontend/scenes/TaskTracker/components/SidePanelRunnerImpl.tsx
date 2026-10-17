@@ -1,9 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { ReactNode, useRef } from 'react'
 
-import { IconArrowLeft } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill-primitives'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -16,7 +14,7 @@ import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContex
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { StartupRunChat } from './StartupRunChat'
 import { TaskComposer } from './TaskComposer'
-import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
+import { TaskHistoryPanel, TaskHistoryPreview } from './TaskHistory'
 import { TaskRunChat } from './TaskRunChat'
 
 export interface SidePanelRunnerImplProps {
@@ -70,9 +68,10 @@ function SidePanelRunnerContent({
         historyExpanded,
         effectiveComposerOverride: composerOverride,
     } = useValues(taskTrackerSceneLogic)
-    const { toggleHistory, updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
+    const { updateActiveCreationRun, setStartupDraft } = useActions(taskTrackerSceneLogic)
     const startupFocusedRef = useRef(false)
-    const quill = useThreadSkin() === 'quill'
+    // The quill host draws its own frame and header divider, and its thread carries no outer margin.
+    const lemonChrome = useThreadSkin() === 'lemon'
 
     // This compact surface renders only in Max's side panel, so the run it shows is a foreground
     // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
@@ -88,30 +87,7 @@ function SidePanelRunnerContent({
     // panel state is shared across hosts — so an expanded history left behind by another one must not
     // take the place of that composer.
     if (!activeCreation && historyExpanded && !composer) {
-        return (
-            <div className="flex flex-col h-full min-h-0">
-                <div
-                    className={cn(
-                        'flex items-center shrink-0 border-b px-2 py-1',
-                        quill ? 'border-border' : 'border-primary'
-                    )}
-                >
-                    {quill ? (
-                        <Button onClick={() => toggleHistory()} data-attr="task-history-back">
-                            <IconArrowLeft />
-                            Back
-                        </Button>
-                    ) : (
-                        <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => toggleHistory()}>
-                            Back
-                        </LemonButton>
-                    )}
-                </div>
-                <div className={cn('flex-1 min-h-0 overflow-y-auto py-2', quill ? 'px-2' : 'px-4')}>
-                    <TaskHistoryList />
-                </div>
-            </div>
-        )
+        return <TaskHistoryPanel />
     }
 
     if (!activeCreation) {
@@ -134,14 +110,12 @@ function SidePanelRunnerContent({
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            {/* The quill host draws its own header divider above the run. */}
-            {!quill && <LemonDivider className="my-0" />}
+            {lemonChrome && <LemonDivider className="my-0" />}
             {activeCreation.taskId && activeCreation.runId ? (
                 // `TaskRunChat`'s inner container compensates for the `/tasks` scene's own horizontal margin
                 // with `-mx-4`; a `px-4` wrapper here neutralizes that bleed instead of editing the shared
                 // component, so it renders flush with the panel edge like the composer and pending states.
-                // The quill skin drops that margin, so it needs no wrapper padding.
-                <div className={cn('flex-1 min-h-0', !quill && 'px-4')}>
+                <div className={cn('flex-1 min-h-0', lemonChrome && 'px-4')}>
                     <TaskRunChat
                         taskId={activeCreation.taskId}
                         runId={activeCreation.runId}

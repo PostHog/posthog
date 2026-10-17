@@ -1,3 +1,5 @@
+import { useValues } from 'kea'
+
 import {
     Select,
     SelectContent,
@@ -14,7 +16,7 @@ import {
 
 import { AccessControlLevel } from '~/types'
 
-import type { InheritedAccess } from '../accessControlLogic'
+import { InheritedAccess, accessControlLogic } from '../accessControlLogic'
 import { humanizeAccessControlLevel } from '../ResourceAccessControlsV2/helpers'
 
 export interface QuillAccessLevelSelectProps {
@@ -22,12 +24,12 @@ export interface QuillAccessLevelSelectProps {
     level: AccessControlLevel | null
     levels: AccessControlLevel[]
     onChange: (newValue: AccessControlLevel | null) => void
+    disabled?: boolean
     disabledReason?: string
-    /** Levels below this are offered but disabled. */
-    minimumLevel?: AccessControlLevel | null
     /**
      * What applies when there is no rule. Passing it offers "No override" as a way back,
      * rendered as `No override · <level>` with the reason in the tooltip and menu entry.
+     * Only the object default sets it. Member and role rows are removed with their own button.
      */
     inherited?: InheritedAccess | null
 }
@@ -38,10 +40,14 @@ export function QuillAccessLevelSelect({
     level,
     levels,
     onChange,
-    disabledReason,
-    minimumLevel,
+    disabled,
+    disabledReason: reasonFromCaller,
     inherited,
 }: QuillAccessLevelSelectProps): JSX.Element {
+    const { canEditAccessControls, minimumAccessLevel: minimumLevel } = useValues(accessControlLogic)
+    // The permission gate wins over any caller-supplied reason, so a reason passed for
+    // some other purpose can never re-enable the control for someone who cannot edit
+    const disabledReason = !canEditAccessControls || disabled ? 'You cannot edit this' : reasonFromCaller
     const minimumIndex = minimumLevel ? levels.indexOf(minimumLevel) : -1
     const items: LevelItem[] = [
         ...(inherited ? [{ value: null, label: 'No override' }] : []),

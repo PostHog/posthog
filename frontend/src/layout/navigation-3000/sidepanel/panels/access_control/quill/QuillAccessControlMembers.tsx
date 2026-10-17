@@ -1,9 +1,7 @@
 import { useAsyncActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
 
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { fullName } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
@@ -18,25 +16,15 @@ import {
 import { QuillPeopleAvatars } from '../../../components/QuillPeopleAvatars'
 import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 import { accessControlLogic } from '../accessControlLogic'
+import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 import { QuillAccessSection } from './QuillAccessSection'
-import { QuillAddAccessDialog } from './QuillAddAccessDialog'
-import { QuillObjectAccessLevelSelect } from './QuillObjectAccessLevelSelect'
 import { QuillRemoveAccessButton } from './QuillRemoveAccessButton'
 
 export function QuillAccessControlMembers(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const {
-        resource,
-        membersById,
-        addableMembers,
-        accessControlMembers,
-        accessControlsLoading,
-        availableLevels,
-        canEditAccessControls,
-    } = useValues(accessControlLogic)
+    const { resource, membersById, addableMembers, accessControlMembers, availableLevels } =
+        useValues(accessControlLogic)
     const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const [dialogOpen, setDialogOpen] = useState(false)
 
     if (!user) {
         return null
@@ -65,7 +53,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
                     </ItemContent>
                     <ItemActions>
                         {/* Shown as disabled for visibility */}
-                        <QuillObjectAccessLevelSelect
+                        <QuillAccessLevelSelect
                             level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
                             disabled
                             levels={availableLevels}
@@ -91,7 +79,7 @@ export function QuillAccessControlMembers(): JSX.Element | null {
                     <ItemDescription className="truncate">{member?.user.email}</ItemDescription>
                 </ItemContent>
                 <ItemActions>
-                    <QuillObjectAccessLevelSelect
+                    <QuillAccessLevelSelect
                         level={memberAc.access_level}
                         levels={availableLevels}
                         onChange={(level) =>
@@ -112,36 +100,22 @@ export function QuillAccessControlMembers(): JSX.Element | null {
     })
 
     return (
-        <>
-            <QuillAccessSection
-                title="Members"
-                subject="member"
-                onAddClick={() => setDialogOpen(true)}
-                addDisabledReason={!canEditAccessControls ? 'You cannot edit this' : undefined}
-                loading={accessControlsLoading}
-                emptyText="No members have their own access rule yet."
-            >
-                {rows}
-            </QuillAccessSection>
-            <QuillAddAccessDialog
-                open={dialogOpen}
-                onOpenChange={setDialogOpen}
-                pickerLabel="Members"
-                placeholder="Search for team members to add…"
-                emptyText="No members left to add."
-                onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
-                        await updateAccessControlMembers(newValues.map((member) => ({ member, level })))
-                        setDialogOpen(false)
-                    }
-                }}
-                options={addableMembers.map((member: OrganizationMemberType) => ({
-                    key: member.id,
-                    searchLabel: `${fullName(member.user)} ${member.user.email}`,
-                    name: fullName(member.user),
-                    email: member.user.email,
-                }))}
-            />
-        </>
+        <QuillAccessSection
+            title="Members"
+            subject="member"
+            emptyText="No members have their own access rule yet."
+            feature={AvailableFeature.ACCESS_CONTROL}
+            placeholder="Search for team members to add…"
+            nothingToAddText="No members left to add."
+            onAdd={(keys, level) => updateAccessControlMembers(keys.map((member) => ({ member, level })))}
+            options={addableMembers.map((member: OrganizationMemberType) => ({
+                key: member.id,
+                searchLabel: `${fullName(member.user)} ${member.user.email}`,
+                name: fullName(member.user),
+                email: member.user.email,
+            }))}
+        >
+            {rows}
+        </QuillAccessSection>
     )
 }

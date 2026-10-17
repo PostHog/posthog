@@ -1,26 +1,48 @@
+import { useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconPlus } from '@posthog/icons'
 import { Button, Heading, ItemGroup, Skeleton, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+
+import { AccessControlLevel, AvailableFeature } from '~/types'
+
+import { accessControlLogic } from '../accessControlLogic'
+import { AddAccessOption, QuillAddAccessDialog } from './QuillAddAccessDialog'
+
 interface QuillAccessSectionProps {
     title: string
-    onAddClick: () => void
-    addDisabledReason?: string
     /** Feeds the add button's data-attr, e.g. "member" → `access-control-add-member`. */
     subject: 'member' | 'role'
-    loading: boolean
     emptyText: string
     children: React.ReactNode[]
+    /** The plan feature that adding a rule here needs. */
+    feature: AvailableFeature
+    placeholder: string
+    /** Shown in the picker when nothing is left to add. */
+    nothingToAddText: string
+    options: AddAccessOption[]
+    onAdd: (keys: string[], level: AccessControlLevel) => Promise<void>
 }
 
 export function QuillAccessSection({
     title,
-    onAddClick,
-    addDisabledReason,
     subject,
-    loading,
     emptyText,
     children,
+    feature,
+    placeholder,
+    nothingToAddText,
+    options,
+    onAdd,
 }: QuillAccessSectionProps): JSX.Element {
+    const { canEditAccessControls, accessControlsLoading: loading } = useValues(accessControlLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const [dialogOpen, setDialogOpen] = useState(false)
+    const addDisabledReason = canEditAccessControls ? undefined : 'You cannot edit this'
+    const onAddClick = (): void => setDialogOpen(true)
+
     return (
         <section className="flex flex-col gap-1">
             <div className="flex items-center justify-between gap-2">
@@ -56,6 +78,20 @@ export function QuillAccessSection({
             ) : (
                 <ItemGroup combined>{children}</ItemGroup>
             )}
+            <QuillAddAccessDialog
+                open={dialogOpen}
+                onOpenChange={setDialogOpen}
+                pickerLabel={title}
+                placeholder={placeholder}
+                emptyText={nothingToAddText}
+                options={options}
+                onAdd={async (keys, level) => {
+                    if (guardAvailableFeature(feature)) {
+                        await onAdd(keys, level)
+                        setDialogOpen(false)
+                    }
+                }}
+            />
         </section>
     )
 }

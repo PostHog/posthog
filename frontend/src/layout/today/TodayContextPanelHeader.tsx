@@ -8,6 +8,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
 import { SidePanelTab } from '~/types'
 
+import { todayAiChatLogic } from './todayAiChatLogic'
 import { TodayAiChatTitleMenu } from './TodayAiChatTitleMenu'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
@@ -54,7 +55,8 @@ function HeaderIconButton({
 
 export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPanelHeaderProps): JSX.Element {
     const { activeTab, fullScreenUrl } = useValues(todayContextPanelLogic)
-    const { startNewChat, dock, undock, close, openFullScreen } = useActions(todayContextPanelLogic)
+    const { dock, undock, close, openFullScreen } = useActions(todayContextPanelLogic)
+    const { startNewChat } = useActions(todayAiChatLogic)
 
     return (
         <CardHeader

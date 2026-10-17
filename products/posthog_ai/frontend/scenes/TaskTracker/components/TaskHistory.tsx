@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArchive } from '@posthog/icons'
+import { IconArchive, IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
 import { QuillTaskHistoryList } from '../../../components/quill/QuillTaskHistoryList'
+import { QuillTaskHistoryPanel } from '../../../components/quill/QuillTaskHistoryPanel'
 import { QuillTaskHistoryPreview } from '../../../components/quill/QuillTaskHistoryPreview'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { taskHistoryLogic } from '../../../logics/taskHistoryLogic'
@@ -155,6 +156,28 @@ function TaskHistoryCard({ task, onOpen }: TaskHistoryRowProps): JSX.Element {
                         deleteTask({ taskId: task.id })
                     }}
                 />
+            </div>
+        </div>
+    )
+}
+
+/** The full task history with a way back to the composer. */
+export function TaskHistoryPanel(): JSX.Element {
+    return useThreadSkin() === 'quill' ? <QuillTaskHistoryPanel /> : <LemonTaskHistoryPanel />
+}
+
+function LemonTaskHistoryPanel(): JSX.Element {
+    const { toggleHistory } = useActions(taskTrackerSceneLogic)
+
+    return (
+        <div className="flex flex-col h-full min-h-0">
+            <div className="flex items-center shrink-0 border-b border-primary px-2 py-1">
+                <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => toggleHistory()}>
+                    Back
+                </LemonButton>
+            </div>
+            <div className="flex-1 min-h-0 overflow-y-auto px-4 py-2">
+                <LemonTaskHistoryList />
             </div>
         </div>
     )

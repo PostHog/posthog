@@ -13,12 +13,12 @@ import {
     cn,
 } from '@posthog/quill'
 
-import { todayContextPanelLogic } from './todayContextPanelLogic'
+import { todayAiChatLogic } from './todayAiChatLogic'
 import { TodaySessionIcon } from './TodaySessionIcon'
 
 export function TodayAiChatTitleMenu(): JSX.Element {
-    const { chatTitle, recentGroups, recentLoading, activeItemId, unreadSessionIds } = useValues(todayContextPanelLogic)
-    const { openRecentItem } = useActions(todayContextPanelLogic)
+    const { chatTitle, recentGroups, recentLoading, activeItemId, unreadSessionIds } = useValues(todayAiChatLogic)
+    const { openRecentItem } = useActions(todayAiChatLogic)
 
     return (
         <DropdownMenu>

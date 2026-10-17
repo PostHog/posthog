@@ -7,7 +7,7 @@ import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic
 import { AvailableFeature } from '~/types'
 
 import { accessControlLogic } from '../accessControlLogic'
-import { QuillObjectAccessLevelSelect } from './QuillObjectAccessLevelSelect'
+import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 
 export function QuillAccessControlDefaults(): JSX.Element {
     const { accessControlDefault, accessControls, accessControlsLoading, availableLevelsWithNone, inheritedAccess } =
@@ -21,7 +21,7 @@ export function QuillAccessControlDefaults(): JSX.Element {
     }
 
     return (
-        <QuillObjectAccessLevelSelect
+        <QuillAccessLevelSelect
             // A null level renders as the "No override" option, which only exists when there is
             // an inherited tier. With nothing to inherit (project/organization), a missing row
             // means the built-in default applies, so show that rather than an empty selection.

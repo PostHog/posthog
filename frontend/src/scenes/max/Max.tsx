@@ -256,78 +256,75 @@ export const MaxInstance = React.memo(function MaxInstance({
             </BindLogic>
         </BindLogic>
     )
-    const header =
-        headerOverride !== undefined ? (
-            headerOverride
-        ) : (
-            <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
-                <div className="flex flex-1 min-w-0 overflow-hidden">
-                    <div className="flex items-center flex-1 min-w-0">
-                        <AnimatedBackButton in={isTaskView ? panelCanGoBack : !backButtonDisabled}>
-                            <ButtonPrimitive
-                                iconOnly
-                                onClick={() => (isTaskView ? panelGoBack() : goBack())}
-                                tooltip="Go back"
-                                tooltipPlacement="bottom-end"
-                                disabledReasons={headerBackDisabled ? { 'You are already at home': true } : undefined}
-                            >
-                                <IconChevronLeft className="text-tertiary size-3 group-hover:text-primary z-10" />
-                            </ButtonPrimitive>
-                        </AnimatedBackButton>
-
-                        <Tooltip title={headerTitle} placement="bottom">
-                            <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{headerTitle}</h3>
-                        </Tooltip>
-                    </div>
-                    {!isEntityChat && conversationId && !conversationHistoryVisible && !threadVisible && (
-                        <LemonButton
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={() => startNewConversation()}
-                            data-attr="max-new-chat"
-                            tooltip="Start a new chat"
-                            tooltipPlacement="bottom"
-                        />
-                    )}
-                    {!isEntityChat && conversationId && (
+    const header = (
+        <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
+            <div className="flex flex-1 min-w-0 overflow-hidden">
+                <div className="flex items-center flex-1 min-w-0">
+                    <AnimatedBackButton in={isTaskView ? panelCanGoBack : !backButtonDisabled}>
                         <ButtonPrimitive
-                            onClick={() => {
-                                copyToClipboard(
-                                    urls.absolute(urls.currentProject(urls.ai(conversationId))),
-                                    'conversation sharing link'
-                                )
-                            }}
-                            tooltip="Copy link to chat"
-                            tooltipPlacement="bottom-end"
                             iconOnly
+                            onClick={() => (isTaskView ? panelGoBack() : goBack())}
+                            tooltip="Go back"
+                            tooltipPlacement="bottom-end"
+                            disabledReasons={headerBackDisabled ? { 'You are already at home': true } : undefined}
                         >
-                            <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
+                            <IconChevronLeft className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
-                    )}
-                    {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
-                    sandbox conversation, so the menu stays hidden on LangGraph threads. */}
-                    {(isTaskView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
-                    {/* Report and scout modes render the runner whichever view is selected, so in it the toggle would
-                    only flip the persisted default for the user's next PostHog AI session. */}
-                    {!isEntityChat && <PhaiViewToggle variant="primitive" />}
-                    <Link
-                        buttonProps={{
-                            iconOnly: true,
-                        }}
-                        to={openAsMainFocusUrl ?? undefined}
-                        disabledReason={openAsMainFocusUrl ? undefined : 'This chat is still starting'}
-                        onClick={() => {
-                            closeSidePanel()
-                        }}
-                        target="_blank"
-                        tooltip="Open as main focus"
-                        tooltipPlacement="bottom-end"
-                    >
-                        <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
-                    </Link>
+                    </AnimatedBackButton>
+
+                    <Tooltip title={headerTitle} placement="bottom">
+                        <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{headerTitle}</h3>
+                    </Tooltip>
                 </div>
-            </SidePanelPaneHeader>
-        )
+                {!isEntityChat && conversationId && !conversationHistoryVisible && !threadVisible && (
+                    <LemonButton
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={() => startNewConversation()}
+                        data-attr="max-new-chat"
+                        tooltip="Start a new chat"
+                        tooltipPlacement="bottom"
+                    />
+                )}
+                {!isEntityChat && conversationId && (
+                    <ButtonPrimitive
+                        onClick={() => {
+                            copyToClipboard(
+                                urls.absolute(urls.currentProject(urls.ai(conversationId))),
+                                'conversation sharing link'
+                            )
+                        }}
+                        tooltip="Copy link to chat"
+                        tooltipPlacement="bottom-end"
+                        iconOnly
+                    >
+                        <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
+                    </ButtonPrimitive>
+                )}
+                {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
+                    sandbox conversation, so the menu stays hidden on LangGraph threads. */}
+                {(isTaskView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
+                {/* Report and scout modes render the runner whichever view is selected, so in it the toggle would
+                    only flip the persisted default for the user's next PostHog AI session. */}
+                {!isEntityChat && <PhaiViewToggle variant="primitive" />}
+                <Link
+                    buttonProps={{
+                        iconOnly: true,
+                    }}
+                    to={openAsMainFocusUrl ?? undefined}
+                    disabledReason={openAsMainFocusUrl ? undefined : 'This chat is still starting'}
+                    onClick={() => {
+                        closeSidePanel()
+                    }}
+                    target="_blank"
+                    tooltip="Open as main focus"
+                    tooltipPlacement="bottom-end"
+                >
+                    <IconExpand45 className="text-tertiary size-3 group-hover:text-primary z-10" />
+                </Link>
+            </div>
+        </SidePanelPaneHeader>
+    )
 
     return sidePanel ? (
         <>
@@ -340,7 +337,7 @@ export const MaxInstance = React.memo(function MaxInstance({
                 className={cn(headerOverride !== undefined && 'focus-within:ring-0')}
                 contentClassName={cn('flex flex-col flex-1', isTaskView && 'min-h-0')}
             >
-                {header}
+                {headerOverride !== undefined ? headerOverride : header}
                 {content}
             </SidePanelContentContainer>
         </>

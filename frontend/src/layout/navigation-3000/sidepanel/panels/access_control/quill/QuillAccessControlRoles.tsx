@@ -1,9 +1,7 @@
 import { useAsyncActions, useValues } from 'kea'
-import { useState } from 'react'
 
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from '@posthog/quill'
 
-import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
@@ -12,23 +10,13 @@ import { AvailableFeature, RoleMemberType, RoleType } from '~/types'
 
 import { QuillPeopleAvatars } from '../../../components/QuillPeopleAvatars'
 import { accessControlLogic } from '../accessControlLogic'
+import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 import { QuillAccessSection } from './QuillAccessSection'
-import { QuillAddAccessDialog } from './QuillAddAccessDialog'
-import { QuillObjectAccessLevelSelect } from './QuillObjectAccessLevelSelect'
 import { QuillRemoveAccessButton } from './QuillRemoveAccessButton'
 
 export function QuillAccessControlRoles(): JSX.Element {
-    const {
-        accessControlRoles,
-        accessControlsLoading,
-        addableRoles,
-        rolesById,
-        availableLevels,
-        canEditAccessControls,
-    } = useValues(accessControlLogic)
+    const { accessControlRoles, addableRoles, rolesById, availableLevels } = useValues(accessControlLogic)
     const { updateAccessControlRoles } = useAsyncActions(accessControlLogic)
-    const { guardAvailableFeature } = useValues(upgradeModalLogic)
-    const [dialogOpen, setDialogOpen] = useState(false)
 
     const rows = accessControlRoles.map(({ role, access_level }) => {
         const members: RoleMemberType[] = rolesById[role]?.members ?? []
@@ -55,7 +43,7 @@ export function QuillAccessControlRoles(): JSX.Element {
                     )}
                 </ItemContent>
                 <ItemActions>
-                    <QuillObjectAccessLevelSelect
+                    <QuillAccessLevelSelect
                         level={access_level}
                         levels={availableLevels}
                         onChange={(level) => void updateAccessControlRoles([{ role, level }])}
@@ -70,35 +58,21 @@ export function QuillAccessControlRoles(): JSX.Element {
     })
 
     return (
-        <>
-            <QuillAccessSection
-                title="Roles"
-                subject="role"
-                onAddClick={() => setDialogOpen(true)}
-                addDisabledReason={!canEditAccessControls ? 'You cannot edit this' : undefined}
-                loading={accessControlsLoading}
-                emptyText="No roles have their own access rule yet."
-            >
-                {rows}
-            </QuillAccessSection>
-            <QuillAddAccessDialog
-                open={dialogOpen}
-                onOpenChange={setDialogOpen}
-                pickerLabel="Roles"
-                placeholder="Search for roles to add…"
-                emptyText="No roles left to add. Create roles in organization settings."
-                onAdd={async (newValues, level) => {
-                    if (guardAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS)) {
-                        await updateAccessControlRoles(newValues.map((role) => ({ role, level })))
-                        setDialogOpen(false)
-                    }
-                }}
-                options={addableRoles.map((role: RoleType) => ({
-                    key: role.id,
-                    searchLabel: role.name,
-                    name: role.name,
-                }))}
-            />
-        </>
+        <QuillAccessSection
+            title="Roles"
+            subject="role"
+            emptyText="No roles have their own access rule yet."
+            feature={AvailableFeature.ROLE_BASED_ACCESS}
+            placeholder="Search for roles to add…"
+            nothingToAddText="No roles left to add. Create roles in organization settings."
+            onAdd={(keys, level) => updateAccessControlRoles(keys.map((role) => ({ role, level })))}
+            options={addableRoles.map((role: RoleType) => ({
+                key: role.id,
+                searchLabel: role.name,
+                name: role.name,
+            }))}
+        >
+            {rows}
+        </QuillAccessSection>
     )
 }
