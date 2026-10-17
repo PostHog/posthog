@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Club Hoguin</title>
+        <link rel="stylesheet" href="/style.css" />
+        <script type="module" src="/main.js"></script>
+    </head>
+    <body>
+        <header class="masthead">
+            <h1>Club Hoguin</h1>
+            <p>Hang out in Hog Town with other hedgehogs while your agent works.</p>
+        </header>
+        <main id="stage" class="stage">
+            <canvas id="world" aria-label="Hog Town, the Club Hoguin town square"></canvas>
+            <div id="labels" class="labels"></div>
+            <div class="hud">
+                <div class="brand">🦔 Club Hoguin</div>
+                <div id="online" class="chip" role="status"></div>
+            </div>
+            <section class="log">
+                <button id="log-toggle" class="chip chip-button" type="button" aria-expanded="true">Town log</button>
+                <ol id="feed" class="feed" aria-live="polite"></ol>
+            </section>
+            <p id="notice" class="notice" role="status" hidden></p>
+            <p id="hint" class="hint" hidden></p>
+            <div id="phrases" class="popover" hidden></div>
+            <div id="help" class="popover help-popover" hidden>
+                <h2>How to play</h2>
+                <ul>
+                    <li><b>Walk:</b> click the snow, or use the arrow keys.</li>
+                    <li><b>Use something:</b> click a building, or stand next to it and press E.</li>
+                    <li><b>Chat:</b> press 1 to 9, or open Say.</li>
+                    <li><b>Night-mode:</b> the lighthouse lever flips it for everyone.</li>
+                </ul>
+            </div>
+            <nav class="toolbar" aria-label="Actions">
+                <button id="say-toggle" class="tool tool-primary" type="button" aria-expanded="false">💬 Say</button>
+                <div id="emotes" class="emotes"></div>
+                <button id="me-toggle" class="tool" type="button">🦔 Change hog</button>
+                <button
+                    id="help-toggle"
+                    class="tool tool-round"
+                    type="button"
+                    aria-label="How to play"
+                    aria-expanded="false"
+                >
+                    ?
+                </button>
+            </nav>
+            <div id="card" class="card" hidden>
+                <div class="card-body">
+                    <button id="card-close" class="card-close" type="button" aria-label="Close" hidden>✕</button>
+                    <h2>Welcome to Hog Town</h2>
+                    <p>Pick your hedgehog, then waddle in.</p>
+                    <div id="skins" class="skins"></div>
+                    <button id="enter" class="tool tool-primary tool-big" type="button">Waddle in</button>
+                </div>
+            </div>
+            <p id="loading" class="loading">Waddling in…</p>
+        </main>
+        <footer class="footnote">
+            Click to walk. Click a building to use it. Chat is preset phrases only, so the club stays friendly.
+        </footer>
+    </body>
+</html>
