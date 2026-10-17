@@ -368,7 +368,10 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
+        try:
+            attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
+        except Exception as e:
+            raise serializers.ValidationError({"hash": f"Invalid template: {str(e)}"})
 
         return super().validate(attrs)
 

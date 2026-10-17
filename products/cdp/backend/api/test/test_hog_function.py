@@ -1768,6 +1768,26 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "email", 32, "properties", 32, "person", 1, 3],
         }
 
+    @parameterized.expand(
+        [
+            ("save", "/api/projects/{team_id}/hog_functions/", False),
+            ("test_invocation", "/api/projects/{team_id}/hog_functions/new/invocations/", True),
+        ]
+    )
+    def test_rejects_invalid_masking_hash_template(self, _name, url, wrap_in_configuration):
+        payload = {**EXAMPLE_FULL, "masking": {"ttl": 60, "hash": "{person.properties.email"}}
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            response = self.client.post(
+                url.format(team_id=self.team.id),
+                data={"configuration": payload} if wrap_in_configuration else payload,
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Invalid template: expected `}` to close template expression" in json.dumps(response.json())
+        mock_create_hog_invocation_test.assert_not_called()
+
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get:
