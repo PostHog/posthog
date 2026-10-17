@@ -275,12 +275,8 @@ class TestEvaluationBackfillWorkflow:
                         assert result["skip_reason"] == "host_unresolved"
                     history = await handle.fetch_history()
 
-        if persistent:
-            assert len(attempts) > 4
-            assert emitted == []
-        else:
-            assert attempts == ([1, 2, 3, 4, 5] if recovers else [1, 2, 3])
-            assert len(emitted) == int(recovers or failure_kind == "dns")
+        assert attempts == ([1, 2, 3, 4, 5] if recovers else [1, 2, 3])
+        assert len(emitted) == int(not persistent and (recovers or failure_kind == "dns"))
         await Replayer(
             workflows=[RunEvaluationWorkflow, RunAggregateEvaluationWorkflow],
             workflow_runner=UnsandboxedWorkflowRunner(),
