@@ -227,6 +227,7 @@ export const InsightsRetrieveParams = () => zod.object({
 })
 
 export const insightsRetrieveQueryRefreshDefault = `force_cache`
+export const insightsRetrieveQueryStrictErrorsDefault = false
 
 export const InsightsRetrieveQueryParams = () => zod.object({
     filters_override: zod
@@ -261,6 +262,12 @@ export const InsightsRetrieveQueryParams = () => zod.object({
         .default(insightsRetrieveQueryRefreshDefault)
         .describe(
             "\nWhether to refresh the insight, how aggresively, and if sync or async:\n- `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates\n- `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache\n- `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously, even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if fresh results are already cached\nBackground calculation can be tracked using the `query_status` response field."
+        ),
+    strict_errors: zod
+        .boolean()
+        .default(insightsRetrieveQueryStrictErrorsDefault)
+        .describe(
+            'Return HTTP 400 for exposed query errors, 429 for capacity limits, and 500 for internal or unclassified calculation errors, keeping the insight response body. Requires blocking or force_blocking, a full response, and project authentication. Defaults to false.'
         ),
     variables_override: zod
         .string()

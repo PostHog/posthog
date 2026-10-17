@@ -407,7 +407,14 @@ const InsightGetSchema = () => {
     return z.preprocess(
         normalizeParamAliases({ id: ['insightId', 'insight_id', 'short_id', 'shortId'] }),
         InsightsRetrieveParams.omit({ project_id: true })
-            .extend(InsightsRetrieveQueryParams.omit({ format: true, from_dashboard: true, refresh: true }).shape)
+            .extend(
+                InsightsRetrieveQueryParams.omit({
+                    format: true,
+                    from_dashboard: true,
+                    refresh: true,
+                    strict_errors: true,
+                }).shape
+            )
             .extend({
                 filters_override: z
                     .union([z.string(), z.record(z.string(), z.unknown())])

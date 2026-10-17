@@ -48,6 +48,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog import settings
@@ -55,7 +56,7 @@ from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
-from posthog.errors import wrap_clickhouse_query_error
+from posthog.errors import ExposedCHQueryError, wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryTimeOut
 from posthog.hogql_queries.query_runner import SHARED_FORCE_BLOCKING_STALENESS_WINDOW, ExecutionMode
 from posthog.models import OrganizationMembership, SharingConfiguration, Team, User
@@ -4279,6 +4280,175 @@ class TestInsightErrorHandling(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(query_status["error"])
         self.assertEqual(query_status["error_code"], "rate_limited")
         self.assertEqual(query_status["error_message"], expected_message)
+
+
+class TestInsightStrictErrors(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        )
+        self.url = f"/api/projects/{self.team.id}/insights/{self.insight.id}/"
+
+    @parameterized.expand(
+        [
+            ("query", ExposedCHQueryError("Invalid query"), 400, "query_error", "Invalid query", "blocking", False),
+            (
+                "hogql",
+                ExposedHogQLError("Invalid syntax"),
+                400,
+                "hogql_error",
+                "Invalid syntax",
+                "force_blocking",
+                True,
+            ),
+            (
+                "capacity",
+                ClickHouseAtCapacity(),
+                429,
+                "rate_limited",
+                ClickHouseAtCapacity.default_detail,
+                "blocking",
+                True,
+            ),
+            (
+                "concurrency",
+                ConcurrencyLimitExceeded("private limiter key"),
+                429,
+                "rate_limited",
+                "concurrency_limit_exceeded",
+                "force_blocking",
+                False,
+            ),
+            (
+                "internal",
+                RuntimeError("private failure details"),
+                500,
+                "internal_error",
+                "Could not calculate the insight. Retry the request.",
+                "force_blocking",
+                True,
+            ),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_strict_calculation_failure(
+        self,
+        _name: str,
+        error: Exception,
+        expected_status: int,
+        expected_code: str,
+        expected_message: str,
+        refresh: str,
+        from_dashboard: bool,
+        mock_calculate: mock.MagicMock,
+    ) -> None:
+        mock_calculate.side_effect = error
+        params: dict[str, str | int] = {"refresh": refresh, "strict_errors": "true"}
+        if from_dashboard:
+            dashboard = Dashboard.objects.create(team=self.team, filters={"date_from": "-7d"})
+            DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
+            params["from_dashboard"] = dashboard.id
+
+        response = self.client.get(self.url, params)
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        body = response.json()
+        self.assertEqual(body["id"], self.insight.id)
+        self.assertIsNone(body["result"])
+        self.assertTrue(body["query_status"]["error"])
+        self.assertEqual(body["query_status"]["error_code"], expected_code)
+        self.assertEqual(body["query_status"]["error_message"], expected_message)
+        self.assertEqual(mock_calculate.call_count, 1)
+        if from_dashboard:
+            self.assertEqual(body["query_status"]["dashboard_id"], dashboard.id)
+            self.assertEqual(mock_calculate.call_args.kwargs["dashboard"], dashboard)
+
+    @parameterized.expand(
+        [
+            ("empty_success", [], None, 200),
+            (
+                "returned_error",
+                None,
+                {"error": True, "complete": False, "error_message": "private runner details"},
+                500,
+            ),
+            ("cached_error", None, {"error": True, "complete": True, "error_message": "private cached details"}, 500),
+            ("returned_capacity", None, {"error": True, "complete": False, "error_code": "rate_limited"}, 429),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_strict_returned_result(
+        self,
+        name: str,
+        result: list[object] | None,
+        query_status: dict[str, object] | None,
+        expected_status: int,
+        mock_calculate: mock.MagicMock,
+    ) -> None:
+        mock_calculate.return_value = InsightResult(
+            result=result,
+            last_refresh=None,
+            cache_key=None,
+            is_cached=name == "cached_error",
+            timezone="UTC",
+            query_status=query_status,
+        )
+
+        response = self.client.get(self.url, {"refresh": "force_blocking", "strict_errors": "true"})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(response.json()["result"], result)
+        self.assertEqual(mock_calculate.call_count, 1)
+        if expected_status == 500:
+            self.assertEqual(response.json()["query_status"]["error_code"], "internal_error")
+            self.assertNotIn("private", response.json()["query_status"]["error_message"])
+            self.assertIsNotNone(query_status)
+            assert query_status is not None
+            self.assertIn("private", str(query_status["error_message"]))
+
+    @parameterized.expand(
+        [
+            ("invalid_boolean", {"refresh": "force_blocking", "strict_errors": "invalid"}),
+            ("async", {"refresh": "force_async", "strict_errors": "true"}),
+            ("cache_only", {"strict_errors": "true"}),
+            ("basic", {"refresh": "force_blocking", "strict_errors": "true", "basic": "true"}),
+        ]
+    )
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_strict_options_reject_unsupported_requests(
+        self, _name: str, params: dict[str, str], mock_calculate: mock.MagicMock
+    ) -> None:
+        response = self.client.get(self.url, params)
+
+        self.assertEqual(response.status_code, 400, response.json())
+        mock_calculate.assert_not_called()
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_shared_authentication_rejects_strict_errors(self, mock_calculate: mock.MagicMock) -> None:
+        sharing = SharingConfiguration.objects.create(team=self.team, insight=self.insight, enabled=True)
+        self.client.logout()
+
+        response = self.client.get(
+            self.url,
+            {"refresh": "force_blocking", "strict_errors": "true", "sharing_access_token": sharing.access_token},
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        mock_calculate.assert_not_called()
+
+    @parameterized.expand([("absent", {}), ("false", {"strict_errors": "false"})])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_preserves_legacy_error_response(
+        self, _name: str, options: dict[str, str], mock_calculate: mock.MagicMock
+    ) -> None:
+        mock_calculate.side_effect = RuntimeError("Calculation failure")
+
+        response = self.client.get(self.url, {"refresh": "force_blocking", **options})
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["query_status"]["error_message"], "Calculation failure")
 
 
 class TestInsightQueryScan(APIBaseTest):

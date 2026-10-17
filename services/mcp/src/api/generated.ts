@@ -127147,6 +127147,10 @@ export namespace Schemas {
      */
     refresh?: InsightsRetrieveRefresh;
     /**
+     * Return HTTP 400 for exposed query errors, 429 for capacity limits, and 500 for internal or unclassified calculation errors, keeping the insight response body. Requires blocking or force_blocking, a full response, and project authentication. Defaults to false.
+     */
+    strict_errors?: boolean;
+    /**
      * Object (or pre-encoded JSON string) to override the insight's HogQL variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `insight-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.
      */
     variables_override?: string;

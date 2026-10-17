@@ -216,3 +216,35 @@ A good test should:
 We default to open but when adding a new feature we should consider if it should be MIT licensed or Enterprise edition licensed. Everything in the `ee` folder is covered by [a different license](https://github.com/PostHog/posthog/blob/master/ee/LICENSE). It's easy to move things from `ee` to open, but not the other way.
 
 All the open source code is copied to [the posthog-foss repo](https://github.com/posthog/posthog-foss) with the `ee` code stripped out. You need to consider whether your code will work if imports to `ee` are unavailable.
+
+### Insight API calculation errors
+
+A detail read of an insight returns HTTP 200 by default even when its calculation fails.
+Check `query_status.error` before reading `result` or polling for completion.
+A failed calculation can have `result: null`, `complete: false`, and no usable query ID.
+An empty result is not itself an error.
+
+For integrations that use HTTP status codes to detect calculation failures, opt in with:
+
+```http
+GET /api/projects/:project_id/insights/:id/?refresh=force_blocking&strict_errors=true
+```
+
+`strict_errors=true` requires `refresh=blocking` or `refresh=force_blocking`, project authentication, and a full response (`basic` must not be enabled).
+It supports `from_dashboard` and preserves the dashboard's filters and variables.
+Unsupported combinations and invalid boolean values return HTTP 400.
+Shared reads, list reads, and existing clients retain their calculation-error behavior.
+
+The strict response keeps the insight body and its `query_status`:
+
+| Calculation outcome                | HTTP status |
+| ---------------------------------- | ----------- |
+| Success, including an empty result | 200         |
+| Exposed query error                | 400         |
+| Capacity or concurrency limit      | 429         |
+| Internal or unclassified error     | 500         |
+
+Unclassified errors returned by the query runner use 500 even if their message might describe an input problem.
+Internal and unclassified errors have a generic message and `internal_error` code.
+Retry capacity failures with bounded backoff; inspect and correct exposed query errors before retrying.
+The default contract remains unchanged when `strict_errors` is absent or false.

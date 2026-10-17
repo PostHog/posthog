@@ -191,6 +191,7 @@ tools:
         exclude_params:
             - format
             - refresh
+            - strict_errors
             - from_dashboard
         param_overrides:
             id:

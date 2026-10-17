@@ -1443,6 +1443,7 @@ class InsightSerializer(InsightBasicSerializer):
                     error=e,
                     error_message=str(e),
                     error_code=getattr(e, "code_name", None),
+                    error_http_status=status.HTTP_400_BAD_REQUEST,
                     last_refresh=None,
                 )
             except Exception as e:
@@ -1471,8 +1472,33 @@ class InsightSerializer(InsightBasicSerializer):
                     error=e,
                     error_message=error_message,
                     error_code=QueryErrorCategory.RATE_LIMITED if is_rate_limited else None,
+                    error_http_status=status.HTTP_429_TOO_MANY_REQUESTS
+                    if is_rate_limited
+                    else status.HTTP_500_INTERNAL_SERVER_ERROR,
                     last_refresh=now() if is_rate_limited else None,
                 )
+
+    def strict_response(self, insight: Insight, data: dict[str, Any]) -> Response:
+        query_status = data.get("query_status")
+        if not isinstance(query_status, dict) or not query_status.get("error"):
+            return Response(data)
+
+        insight_result = self.insight_result(insight)
+        response_status = insight_result.error_http_status or (
+            status.HTTP_429_TOO_MANY_REQUESTS
+            if query_status.get("error_code") in {"rate_limited", "concurrency_limit_exceeded"}
+            else status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+        query_status = dict(query_status)
+        if response_status == status.HTTP_500_INTERNAL_SERVER_ERROR:
+            query_status["error_message"] = "Could not calculate the insight. Retry the request."
+            query_status["error_code"] = "internal_error"
+        elif response_status == status.HTTP_429_TOO_MANY_REQUESTS and insight_result.error_http_status is None:
+            query_status["error_message"] = ClickHouseAtCapacity.default_detail
+        elif not query_status.get("error_code"):
+            query_status["error_code"] = "query_error"
+        data["query_status"] = query_status
+        return Response(data, status=response_status)
 
     def _degraded_insight_result(
         self,
@@ -1482,6 +1508,7 @@ class InsightSerializer(InsightBasicSerializer):
         error: Exception,
         error_message: str,
         error_code: str | None,
+        error_http_status: int,
         last_refresh: datetime | None,
     ) -> InsightResult:
         """A 200 response carrying the failure on query_status, so a failing insight degrades in
@@ -1493,6 +1520,7 @@ class InsightSerializer(InsightBasicSerializer):
         query_scan = getattr(error, "query_scan", None)
         return InsightResult(
             result=None,
+            error_http_status=error_http_status,
             last_refresh=last_refresh,
             is_cached=False,
             query_status=dict(
@@ -1693,6 +1721,13 @@ class InsightBulkRestoreResponseSerializer(serializers.Serializer):
 
 
 INSIGHT_BULK_TEST_ACCOUNT_FILTER_BATCH_SIZE = 500
+
+
+class InsightRetrieveOptionsSerializer(serializers.Serializer):
+    strict_errors = serializers.BooleanField(
+        default=False,
+        help_text="Return HTTP errors for failed synchronous calculations. Only supported for authenticated detail reads.",
+    )
 
 
 class InsightBulkSetTestAccountFilterRequestSerializer(serializers.Serializer):
@@ -2405,6 +2440,16 @@ Whether to refresh the insight, how aggresively, and if sync or async:
 Background calculation can be tracked using the `query_status` response field.""",
             ),
             OpenApiParameter(
+                name="strict_errors",
+                type=OpenApiTypes.BOOL,
+                default=False,
+                description=(
+                    "Return HTTP 400 for exposed query errors, 429 for capacity limits, and 500 for internal or "
+                    "unclassified calculation errors, keeping the insight response body. Requires blocking or "
+                    "force_blocking, a full response, and project authentication. Defaults to false."
+                ),
+            ),
+            OpenApiParameter(
                 name="from_dashboard",
                 type=OpenApiTypes.INT,
                 description="""
@@ -2414,11 +2459,30 @@ When set, the specified dashboard's filters and date range override will be appl
             make_variables_override_param(subject_label="the insight's HogQL", tool_name="insight-get"),
             make_filters_override_param(subject_label="the insight's"),
         ],
+        responses={
+            200: InsightSerializer,
+            400: OpenApiResponse(response=InsightSerializer, description="Exposed calculation error in strict mode."),
+            429: OpenApiResponse(response=InsightSerializer, description="Calculation capacity limit in strict mode."),
+            500: OpenApiResponse(
+                response=InsightSerializer, description="Internal or unclassified calculation error in strict mode."
+            ),
+        },
     )
     @monitor(feature=Feature.INSIGHT, endpoint="insight", method="GET")
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
         serializer_context = self.get_serializer_context()
+        options = InsightRetrieveOptionsSerializer(data=request.query_params)
+        options.is_valid(raise_exception=True)
+        strict_errors = options.validated_data["strict_errors"]
+        if strict_errors and (
+            serializer_context["is_shared"]
+            or self._is_basic_request()
+            or request.query_params.get("refresh") not in {"blocking", "force_blocking"}
+        ):
+            raise ValidationError(
+                {"strict_errors": "Use blocking or force_blocking with a full, authenticated insight response."}
+            )
 
         dashboard_tile: Any = None
         dashboard_id = request.query_params.get("from_dashboard", None)
@@ -2453,7 +2517,8 @@ When set, the specified dashboard's filters and date range override will be appl
             )
 
         try:
-            serialized_data = self.get_serializer(instance, context=serializer_context).data
+            serializer = self.get_serializer(instance, context=serializer_context)
+            serialized_data = serializer.data
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
 
@@ -2466,7 +2531,11 @@ When set, the specified dashboard's filters and date range override will be appl
 
             serialized_data["layouts"] = layouts
 
-        response = Response(serialized_data)
+        response = (
+            cast(InsightSerializer, serializer).strict_response(instance, serialized_data)
+            if strict_errors
+            else Response(serialized_data)
+        )
 
         # Track non-web reads (API/MCP/wizard/…) as a distinct event so programmatic
         # reads are measurable without inflating the web-only `insight viewed` metric.

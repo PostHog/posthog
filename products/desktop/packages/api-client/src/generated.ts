@@ -22473,11 +22473,17 @@ export namespace Endpoints {
                     | "force_blocking"
                     | "force_cache"
                     | "lazy_async";
+                strict_errors: boolean;
                 variables_override: string;
             }>;
             path: { id: number | string; project_id: string };
         };
-        responses: { 200: Schemas.Insight };
+        responses: {
+            200: Schemas.Insight;
+            400: Schemas.Insight;
+            429: Schemas.Insight;
+            500: Schemas.Insight;
+        };
     };
     export type put_Insights_update = {
         method: "PUT";
