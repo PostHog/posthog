@@ -42,6 +42,8 @@ export function DashboardMetricVariables(): JSX.Element | null {
     })
     const { options, loadingNames, errors, pendingVariables } = useValues(logic)
     const { retry, select, stage } = useActions(logic)
+    // Applied definitions stay staged while their options load, and the selects and the editor show them.
+    const shown = pendingVariables ?? variables
 
     if (!dashboard) {
         return null
@@ -49,7 +51,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
 
     return (
         <div className="flex items-end gap-2 flex-wrap">
-            {(pendingVariables ?? variables).map((variable) => (
+            {shown.map((variable) => (
                 <MetricVariableSelect
                     key={variable.name}
                     variable={variable}
@@ -64,23 +66,23 @@ export function DashboardMetricVariables(): JSX.Element | null {
                 size="small"
                 type="tertiary"
                 icon={<IconGear />}
-                tooltip={variables.length ? 'Edit variables' : undefined}
+                tooltip={shown.length ? 'Edit variables' : undefined}
                 onClick={() => setEditorOpen(true)}
                 data-attr="dashboard-metric-variables-edit"
             >
-                {variables.length ? null : 'Add variable'}
+                {shown.length ? null : 'Add variable'}
             </LemonButton>
             {editorOpen && (
                 <MetricVariablesModal
                     dashboardId={dashboard.id}
-                    variables={variables}
+                    variables={shown}
                     options={options}
                     dateFrom={effectiveEditBarFilters.date_from}
                     dateTo={effectiveEditBarFilters.date_to}
                     onClose={() => setEditorOpen(false)}
                     onSave={(next) => {
                         setEditorOpen(false)
-                        stage(next, variablesToReload(variables, next))
+                        stage(next, variablesToReload(shown, next))
                     }}
                 />
             )}

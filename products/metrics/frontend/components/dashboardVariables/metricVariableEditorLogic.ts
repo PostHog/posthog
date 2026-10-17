@@ -409,6 +409,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
         apply: async ({ onSave }, breakpoint) => {
             // A failed check can be a timeout or a rate limit, so each Apply checks the patterns again.
             actions.clearRegexErrors()
+            const checked = values.draft
             const firstError = (): number => values.draft.findIndex((variable) => ownValue(values.errors, variable.name))
             if (firstError() === -1) {
                 // The server checks a regex without running a query, so a pattern it rejects is never saved.
@@ -441,8 +442,11 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                 } finally {
                     actions.setApplying(false)
                 }
-                // Closing the editor while the check runs cancels the Apply.
+                // Closing the editor or editing it while the check runs cancels the Apply.
                 breakpoint()
+                if (values.draft !== checked) {
+                    return
+                }
             }
             const index = firstError()
             if (index === -1) {
