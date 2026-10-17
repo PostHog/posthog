@@ -1645,14 +1645,26 @@ describe('sourceWizardLogic', () => {
             }
         })
 
+        const sentrySource = buildSourceConfig({ name: 'Sentry' })
+        const rejectProbe = (d: Deferred): void => d.reject({ status: 400, data: { message: 'Bad key.' } })
+        const resolveProbe = (d: Deferred): void => d.resolve([{ table: 'charges' } as ExternalDataSourceSyncSchema])
+
         it.each([
-            { outcome: 'rejects', settle: (d: Deferred) => d.reject({ status: 400, data: { message: 'Bad key.' } }) },
+            { outcome: 'rejects', picked: 'another source', switchTo: [sentrySource], settle: rejectProbe },
+            { outcome: 'resolves', picked: 'another source', switchTo: [sentrySource], settle: resolveProbe },
+            {
+                outcome: 'rejects',
+                picked: 'the same source again',
+                switchTo: [sentrySource, stripeSource],
+                settle: rejectProbe,
+            },
             {
                 outcome: 'resolves',
-                settle: (d: Deferred) => d.resolve([{ table: 'charges' } as ExternalDataSourceSyncSchema]),
+                picked: 'the same source again',
+                switchTo: [sentrySource, stripeSource],
+                settle: resolveProbe,
             },
-        ])('ignores a probe that $outcome after another source is picked', async ({ settle }) => {
-            const sentrySource = buildSourceConfig({ name: 'Sentry' })
+        ])('ignores a probe that $outcome after $picked is picked', async ({ switchTo, settle }) => {
             const deferred = {} as Deferred
             jest.spyOn(api.externalDataSources, 'database_schema').mockReturnValue(
                 new Promise<ExternalDataSourceSyncSchema[]>((resolve, reject) =>
@@ -1668,7 +1680,10 @@ describe('sourceWizardLogic', () => {
                 logic.actions.selectConnector(stripeSource)
                 logic.actions.setStep(2)
                 logic.actions.getDatabaseSchemas()
-                logic.actions.selectConnector(sentrySource)
+                for (const source of switchTo) {
+                    logic.actions.selectConnector(source)
+                }
+                expect(logic.values.isLoading).toBe(false)
                 settle(deferred)
                 await expectLogic(logic).toFinishAllListeners()
 

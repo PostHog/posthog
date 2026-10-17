@@ -460,6 +460,7 @@ export interface sourceWizardLogicValues {
     cdcSelfManagedVerifyResultLoading: boolean
     configuredSchemaName: string | null
     connectError: string | null
+    connectorSelectionCount: number
     connectors: SourceConfigResponseApi[]
     currentStep: number
     currentSyncMethodModalSchema: ExternalDataSourceSyncSchema | null
@@ -1354,6 +1355,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             {
                 onNext: () => false,
                 setIsLoading: (_, { isLoading }) => isLoading,
+                selectConnector: () => false,
+            },
+        ],
+        // Counts selections rather than comparing connector objects, so picking the same source
+        // again (A, then B, then A) still marks an earlier in-flight probe as stale.
+        connectorSelectionCount: [
+            0,
+            {
+                selectConnector: (count) => count + 1,
             },
         ],
         // The toast that also carries this message is gone in a few seconds, so people retry the
@@ -2427,11 +2437,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(true)
 
-            const connector = values.selectedConnector
-            const sourceType = connector.name
+            const sourceType = values.selectedConnector.name
             // The logic is not keyed per connector, so a slow probe can finish after the user picks
             // another source. Its result then belongs to no visible form and must not reach the UI.
-            const connectorChanged = (): boolean => values.selectedConnector !== connector
+            const selection = values.connectorSelectionCount
+            const connectorChanged = (): boolean => values.connectorSelectionCount !== selection
             const startedAt = performance.now()
             const captureSchemasLoaded = (success: boolean, schemaCount: number | null): void => {
                 posthog.capture('source wizard schemas loaded', {
@@ -2451,7 +2461,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     })
                 captureSchemasLoaded(true, schemas.length)
                 if (connectorChanged()) {
-                    actions.setIsLoading(false)
                     return
                 }
 
@@ -2590,7 +2599,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.onNext()
             } catch (e: any) {
                 if (connectorChanged()) {
-                    actions.setIsLoading(false)
                     return
                 }
                 const apiMessage = e.data?.message ?? e.detail
