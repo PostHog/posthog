@@ -35,6 +35,10 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
+STORED_LOGS_SETTINGS = {"retention_days": 30, "retention_last_updated": "2025-01-01T00:00:00+00:00"}
+CHANGED_LOGS_SETTINGS = {"retention_days": 14, "retention_last_updated": "2025-01-03T00:00:01+00:00"}
+RESENT_LOGS_SETTINGS = {**STORED_LOGS_SETTINGS, "json_parse_logs_attribute_key": "changed"}
+
 
 class TestProjectAPI(team_api_test_factory()):  # type: ignore
     """
@@ -1060,6 +1064,96 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             for change in (log.detail or {}).get("changes") or []
         ]
         self.assertNotIn("conversations_enabled", logged_fields)
+
+    @parameterized.expand(
+        [
+            ("team", TeamSerializer, {}, False, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            ("project", ProjectBackwardCompatSerializer, {}, False, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            ("team_first_settings", TeamSerializer, {}, False, None, CHANGED_LOGS_SETTINGS),
+            ("project_cleared", ProjectBackwardCompatSerializer, {}, False, STORED_LOGS_SETTINGS, None),
+            ("team_raced", TeamSerializer, {}, True, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            ("project_raced", ProjectBackwardCompatSerializer, {}, True, STORED_LOGS_SETTINGS, CHANGED_LOGS_SETTINGS),
+            (
+                "team_raced_with_conversations",
+                TeamSerializer,
+                {"conversations_enabled": True},
+                True,
+                STORED_LOGS_SETTINGS,
+                CHANGED_LOGS_SETTINGS,
+            ),
+            (
+                "project_raced_with_conversations",
+                ProjectBackwardCompatSerializer,
+                {"conversations_enabled": True},
+                True,
+                STORED_LOGS_SETTINGS,
+                CHANGED_LOGS_SETTINGS,
+            ),
+            (
+                "project_raced_with_name",
+                ProjectBackwardCompatSerializer,
+                {"name": "New Project Name"},
+                True,
+                STORED_LOGS_SETTINGS,
+                CHANGED_LOGS_SETTINGS,
+            ),
+            ("team_raced_resent_period", TeamSerializer, {}, True, STORED_LOGS_SETTINGS, RESENT_LOGS_SETTINGS),
+            (
+                "project_raced_resent_period",
+                ProjectBackwardCompatSerializer,
+                {},
+                True,
+                STORED_LOGS_SETTINGS,
+                RESENT_LOGS_SETTINGS,
+            ),
+            ("team_raced_first_settings", TeamSerializer, {}, True, None, CHANGED_LOGS_SETTINGS),
+            ("project_raced_from_empty", ProjectBackwardCompatSerializer, {}, True, {}, CHANGED_LOGS_SETTINGS),
+            ("team_raced_clear", TeamSerializer, {}, True, STORED_LOGS_SETTINGS, None),
+        ]
+    )
+    def test_logs_settings_change_is_refused_when_another_write_landed_first(
+        self,
+        _name: str,
+        serializer_class: type,
+        extra_fields: dict[str, Any],
+        raced: bool,
+        stored_settings: dict[str, Any] | None,
+        requested_settings: dict[str, Any] | None,
+    ) -> None:
+        self.team.logs_settings = stored_settings
+        self.team.save()
+        # Validation read this snapshot of the team, and update() must compare against it.
+        project = Project.objects.get(pk=self.project.pk)
+        team = project.passthrough_team
+        original_project_name = project.name
+        original_team_name = team.name
+        concurrent_settings = {"retention_days": 14, "retention_last_updated": "2025-01-03T00:00:00+00:00"}
+        if raced:
+            Team.objects.filter(pk=self.team.pk).update(logs_settings=concurrent_settings)
+
+        payload = {"logs_settings": requested_settings, **extra_fields}
+        request = APIRequestFactory().patch("/", payload, format="json")
+        request.user = self.user
+
+        def update() -> None:
+            if serializer_class is TeamSerializer:
+                TeamSerializer(context={"request": request}).update(team, payload)
+            else:
+                ProjectBackwardCompatSerializer(context={"request": request, "view": None}).update(project, payload)
+
+        if raced:
+            with self.assertRaises(serializers.ValidationError) as refused:
+                update()
+            self.assertIn("logs_settings", refused.exception.detail)
+        else:
+            update()
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.logs_settings, concurrent_settings if raced else requested_settings)
+
+        if "name" in extra_fields:
+            project.refresh_from_db()
+            self.assertEqual((project.name, self.team.name), (original_project_name, original_team_name))
 
     @parameterized.expand(
         [

@@ -1,7 +1,12 @@
 """Validation, feature flag, and access helpers for project settings."""
 
 import json
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
+
+from django.db import transaction
+from django.db.models import Q
 
 import re2
 from pydantic import TypeAdapter
@@ -296,3 +301,30 @@ def validate_team_workflows_config(team: Team | None, value: dict[str, Any] | No
     if not serializer.is_valid():
         raise exceptions.ValidationError(_format_serializer_errors(serializer.errors))
     return serializer.validated_data
+
+
+@contextmanager
+def refuse_stale_logs_settings_change(
+    team: Team, read_settings: dict[str, Any] | None, validated_data: dict[str, Any]
+) -> Iterator[None]:
+    """Wrap the save of a logs_settings change, so that it fails when another write changed logs_settings first.
+
+    Every write is guarded, not only a retention change. A parallel write that sends the old
+    period back, or a first or null value, would otherwise undo a retention change and its timestamp.
+    The conditional update holds the row lock until the save commits, so a concurrent change
+    waits for it and then fails the same check.
+    """
+    if "logs_settings" not in validated_data:
+        yield
+        return
+    # A stored null can be SQL NULL or JSON null, and both read back as None.
+    unchanged = (
+        Q(logs_settings__isnull=True) | Q(logs_settings=None)
+        if read_settings is None
+        else Q(logs_settings=read_settings)
+    )
+    with transaction.atomic():
+        # Compare the whole value: an entitlement reset changes retention_days but not retention_last_updated.
+        if not Team.objects.filter(unchanged, pk=team.pk).update(logs_settings=validated_data["logs_settings"]):
+            raise exceptions.ValidationError({"logs_settings": "Logs settings changed. Reload the settings and retry."})
+        yield

@@ -392,8 +392,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     def validate_logs_settings(self, value: dict | None) -> dict | None:
+        team = (
+            self.instance.passthrough_team
+            if self.instance is not None and hasattr(self.instance, "passthrough_team")
+            else self.instance
+        )
+
+        logs_settings = team.logs_settings if team is not None else None
+
         if value is None:
-            return value
+            # The server owns the timestamp, so a client that clears the settings cannot reset the limit.
+            if logs_settings and "retention_last_updated" in logs_settings:
+                return {"retention_last_updated": logs_settings["retention_last_updated"]}
+            return None
 
         if not isinstance(value, dict):
             raise exceptions.ValidationError("logs_settings must be an object or null.")
@@ -409,13 +420,6 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 )
             value["json_parse_logs_attribute_key"] = attribute_key.strip()
 
-        team = (
-            self.instance.passthrough_team
-            if self.instance is not None and hasattr(self.instance, "passthrough_team")
-            else self.instance
-        )
-
-        logs_settings = team.logs_settings if team is not None else None
         old_retention = logs_settings.get("retention_days") if logs_settings else None
 
         new_retention = value.get("retention_days")
@@ -442,15 +446,17 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     )
 
         # Only validate retention throttling if we have an existing retention setting
-        if self.instance and logs_settings:
-            old_last_updated = logs_settings.get("retention_last_updated")
-
-            # Check if retention_days is being changed
-            if new_retention is not None and old_retention != new_retention:
-                value["retention_last_updated"] = timezone.now().isoformat()
-                throttle_error = retention_update_throttle_error(old_last_updated)
-                if throttle_error:
-                    raise exceptions.ValidationError(throttle_error)
+        # Check if retention_days is being changed
+        if self.instance and logs_settings and new_retention is not None and old_retention != new_retention:
+            value["retention_last_updated"] = timezone.now().isoformat()
+            throttle_error = retention_update_throttle_error(logs_settings.get("retention_last_updated"))
+            if throttle_error:
+                raise exceptions.ValidationError(throttle_error)
+        # The server owns the timestamp, so a client cannot reset the limit by sending an old one.
+        elif logs_settings and "retention_last_updated" in logs_settings:
+            value["retention_last_updated"] = logs_settings["retention_last_updated"]
+        else:
+            value.pop("retention_last_updated", None)
 
         return value
 
@@ -627,17 +633,20 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         for attr in other_team_fields:
             setattr(instance, attr, validated_data[attr])
 
-        # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
-        if conversations_lock_applied:
-            locked_conversations = conversations_settings.merge_conversations_settings_locked(
-                instance, validated_data, patch_conversations_settings, other_team_fields
-            )
-            # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
-            before_update["conversations_settings"] = locked_conversations["conversations_settings"]
-            before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
-        elif other_team_fields:
-            # auto_now fields only refresh when included in update_fields
-            instance.save(update_fields=[*other_team_fields, "updated_at"])
+        with settings_validation.refuse_stale_logs_settings_change(
+            instance, before_update["logs_settings"], validated_data
+        ):
+            # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
+            if conversations_lock_applied:
+                locked_conversations = conversations_settings.merge_conversations_settings_locked(
+                    instance, validated_data, patch_conversations_settings, other_team_fields
+                )
+                # The locked re-read is newer than the snapshot, so a concurrent write is not logged as this user's.
+                before_update["conversations_settings"] = locked_conversations["conversations_settings"]
+                before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
+            elif other_team_fields:
+                # auto_now fields only refresh when included in update_fields
+                instance.save(update_fields=[*other_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         after_update = instance.__dict__.copy()

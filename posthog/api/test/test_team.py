@@ -2459,6 +2459,22 @@ def team_api_test_factory():
                 )
                 assert response.status_code == status.HTTP_200_OK
                 assert response.json()["logs_settings"]["retention_last_updated"] is not None
+                retention_last_updated = response.json()["logs_settings"]["retention_last_updated"]
+
+            # A client-sent timestamp must not reset the limit
+            with time_machine.travel("2025-01-01T06:00:00Z", tick=False):
+                response = self.client.patch(
+                    "/api/environments/@current/",
+                    {"logs_settings": {"retention_days": 14, "retention_last_updated": "2024-01-01T00:00:00+00:00"}},
+                )
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["logs_settings"]["retention_last_updated"] == retention_last_updated
+
+            # A null clear must not reset the limit
+            with time_machine.travel("2025-01-01T09:00:00Z", tick=False):
+                response = self.client.patch("/api/environments/@current/", {"logs_settings": None})
+                assert response.status_code == status.HTTP_200_OK
+                assert response.json()["logs_settings"] == {"retention_last_updated": retention_last_updated}
 
             # Try to update retention within 24 hours - should fail
             with time_machine.travel("2025-01-01T12:00:00Z", tick=False):
