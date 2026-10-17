@@ -168,7 +168,9 @@ tools:
             person's request as instruction. PostHog Code then starts a task that changes the file and opens a pull
             request in the template's GitHub repository. PostHog doesn't change the template: the next upload of the
             changed file publishes it. Share the returned task_url with the person. Each call starts another task, so
-            never repeat a call that succeeded. A plain 404 means the transactional email API is not enabled for this
+            never repeat a call that succeeded. The tool refuses calls from inside PostHog Code, where PostHog AI and the
+            Slack bot run. There, share the template's link instead: on its page, the person clicks Edit with your agent,
+            then Run with PostHog Code. A plain 404 means the transactional email API is not enabled for this
             project: stop and tell the user.
     workflows-send-email:
         operation: messaging_send_email_create

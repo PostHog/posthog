@@ -1,6 +1,6 @@
 ---
 name: designing-email-templates
-description: 'Author, save, and edit email templates in the PostHog workflows library — compose email design JSON with Liquid personalization and create and round-trip-edit templates over MCP. Use when asked to design, build, update, or fix an email template for workflows, broadcasts, or campaigns.'
+description: 'Author, save, and edit email templates in the PostHog workflows library — compose email design JSON with Liquid personalization and create and round-trip-edit templates over MCP. Use when asked to design, build, update, or fix an email template for workflows, broadcasts, or campaigns, including a template managed by code (`managed_by: code`).'
 ---
 
 # Designing email templates
@@ -14,6 +14,20 @@ You author the **design JSON** (`content.email.design`) and save it with `workfl
 When talking to the user, call it the template's **design** — the design document format is an internal implementation detail. Always share the template's `_posthogUrl` edit link in your reply after creating or updating, so the user can open it in PostHog directly.
 
 Read [references/design-guidelines.md](references/design-guidelines.md) before composing — it covers committing to a design direction, typography, color, and the patterns that make an email look designed rather than generated. For one fragment the block editor can't express, use an `html`-type content block inside the design.
+
+## Code-managed templates
+
+A template whose `managed_by` is `code` is an HTML file in the person's repository. PostHog shows it read-only, and the app's next send or upload of the file replaces it. So before you change any template:
+
+1. Read it with `workflows-get-email-template` and check `managed_by`. Its `source_repository` and `source_path` name the file, and `change_prompt_context` says how to change it.
+2. For `code`, never call `workflows-update-email-template` or `workflows-patch-email-template`. Both answer `403 immutable`.
+3. Change the file where it lives. Take the first case that fits:
+   - **You can reach the repository**: it is in your workspace, or you can check it out. Edit the file at `source_path`, following `change_prompt_context`, which also says how the change goes live. Commit or open a pull request the way the person works.
+   - **You run inside PostHog Code** and the repository is not in your workspace. That is PostHog AI in the PostHog app or in Slack, and every PostHog Code task. Their shell has the `POSTHOG_TASK_RUN_ID` environment variable. Do not call `workflows-request-email-template-change`: it refuses calls from inside PostHog Code. Share the template's link (`_posthogUrl`). On that page the person clicks **Edit with your agent**, describes the change, and clicks **Run with PostHog Code**, which opens a pull request. They can also copy the prompt into their own coding agent.
+   - **Anyone else** without the repository, such as a chat app connected over MCP: call `workflows-request-email-template-change` with the person's request, in their words, as `instruction`. Do not ask for confirmation: the person asked for the change. Share the returned `task_url`. PostHog Code opens a pull request, and the change goes live when it is merged and the app sends or uploads the file. If the tool refuses, tell the person its `detail` and `fix`, and share the template's link.
+4. A `403 immutable` from any write means the same thing. Follow step 3.
+
+Stop managing a template in code (a PATCH whose only field is `managed_by: gui`) only when the person asks to edit it in PostHog instead. The next upload of the file overwrites what they change.
 
 ## Personalization with Liquid
 
@@ -89,7 +103,7 @@ Pass the design directly in the tool call — no scratch files, no pre-validatio
 
 `content` is replaced as a whole on update, never merged — and humans may have edited the design in PostHog's visual editor since you last saw it:
 
-1. `workflows-get-email-template` — always fetch fresh; the returned `design` is the current source of truth.
+1. `workflows-get-email-template` — always fetch fresh; the returned `design` is the current source of truth. If its `managed_by` is `code`, stop and follow [Code-managed templates](#code-managed-templates).
 2. Modify the `design` (keep subject/text alongside it).
 3. `workflows-update-email-template` — send the complete `content` back. The server re-renders the sent email from the edited design.
 4. `workflows-show-email-template` — render the updated template so the user sees the change; its response carries the final rendered html, so read it before describing the result.

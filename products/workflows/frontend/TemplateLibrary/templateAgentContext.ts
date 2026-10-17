@@ -2,6 +2,7 @@ import type { AiFirstSuggestion } from 'scenes/max/aiFirstCreate/AiFirstCreateSc
 
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
+import { isCodeManagedTemplate } from './codeManagedTemplate'
 import { MessageTemplate } from './types'
 
 // Own dismiss groups: a dismissal is global and never resets, so a chip closed on a workflow must not strip this page.
@@ -97,6 +98,68 @@ export function pickedTemplateContextItem(template: MessageTemplate): AttachedCo
         previewHtml: template.content?.email?.html,
         dismissGroup: PICKED_TEMPLATE_DISMISS_GROUP,
     }
+}
+
+const CODE_MANAGED_DISMISS_GROUP = 'code-managed-email-template'
+
+// Static, like the items above: the key and the source come from an upload, so the instruction names the
+// email_template_source item instead of quoting them.
+const CODE_MANAGED_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
+    type: 'instructions',
+    hidden: true,
+    dismissGroup: CODE_MANAGED_DISMISS_GROUP,
+    value:
+        'The user has a PostHog email template open that is managed by code: its content comes from a file in a ' +
+        'repository, and the email_template_source item names its key and file. Load the ' +
+        `${DESIGNING_EMAIL_TEMPLATES_SKILL} skill before your first tool call and follow its "Code-managed ` +
+        'templates" section. Never change this template with workflows-update-email-template or ' +
+        'workflows-patch-email-template. When its repository is not in your workspace, do not call ' +
+        'workflows-request-email-template-change either, because it refuses calls from PostHog AI. Instead, tell ' +
+        'the user to click "Edit with your agent" on this page, describe the change, and click "Run with PostHog ' +
+        'Code", which opens a pull request, or copy the prompt into their own coding agent.',
+}
+
+const CODE_MANAGED_SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
+    ...SKILL_CHIP_CONTEXT_ITEM,
+    dismissGroup: CODE_MANAGED_DISMISS_GROUP,
+    dismissible: true,
+}
+
+function templateSourceSummary(template: MessageTemplate): string {
+    const fields: [string, string | null | undefined][] = [
+        ['managed_by', template.managed_by],
+        ['key', template.key],
+        ['source_repository', template.source_repository],
+        ['source_path', template.source_path],
+        ['source_ref', template.source_ref],
+    ]
+    return fields
+        .filter(([, value]) => !!value)
+        .map(([name, value]) => `${name}: ${value}`)
+        .join('; ')
+}
+
+/** What the agent needs before its first tool call on a template managed by code; null for any other template. */
+export function buildCodeManagedTemplateContext(template: MessageTemplate): AttachedContextItem[] | null {
+    if (!isCodeManagedTemplate(template)) {
+        return null
+    }
+    return [
+        CODE_MANAGED_INSTRUCTIONS_CONTEXT_ITEM,
+        CODE_MANAGED_SKILL_CHIP_CONTEXT_ITEM,
+        {
+            type: 'email_template',
+            key: template.id,
+            label: template.name || 'Unnamed template',
+            dismissGroup: CODE_MANAGED_DISMISS_GROUP,
+        },
+        {
+            type: 'email_template_source',
+            hidden: true,
+            value: templateSourceSummary(template),
+            dismissGroup: CODE_MANAGED_DISMISS_GROUP,
+        },
+    ]
 }
 
 /** Skill pointer plus the draft-first instruction, and the picked template when there is one. */
