@@ -123,7 +123,13 @@ class TestCodeManagedTemplateLock(APIBaseTest):
 
         refusal = self._assert_refused(self._rename(uploaded["id"]))
 
-        assert refusal["fix"].startswith(f"Change {expected_file} and upload it again.")
+        assert refusal["fix"] == (
+            f"When you can reach the repository, edit {expected_file} yourself. The next send uploads it. Otherwise, "
+            "ask PostHog Code to open a pull request with the change: call the "
+            "`workflows-request-email-template-change` tool, or POST an `instruction` to this template's "
+            "`request_change/` route. To edit the template in PostHog instead, stop managing it in code first: send a "
+            "PATCH whose only field is `managed_by` set to `gui`."
+        )
 
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_code_managed_template_still_sends_and_stays_transactional(

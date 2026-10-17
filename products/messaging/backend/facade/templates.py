@@ -8,10 +8,12 @@ from uuid import UUID
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 
 from posthog.dataclasses import frozen
+from posthog.models import Team, User
 
 from products.messaging.backend.facade.contracts import (
     ContentHashState,
     TemplateChangePrompt,
+    TemplateChangeRequested,
     TemplateManagedBy,
     TemplateReference,
     TemplateUpload,
@@ -22,6 +24,7 @@ from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services import (
     message_templates as templates_service,
     template_change_prompt,
+    template_change_requests,
     template_keys,
     template_ownership,
     template_saves,
@@ -204,6 +207,17 @@ def check_template_write(template: MessageTemplateRow, intent: TemplateWriteInte
 def change_prompt(team_id: int, template: MessageTemplateRow) -> TemplateChangePrompt | None:
     """The starter sentence and the "About this file" block for a template managed by code. None for any other."""
     return template_change_prompt.change_prompt(team_id, template)
+
+
+def request_template_change(
+    team: Team, user: User, template: MessageTemplateRow, instruction: str, *, from_sandbox: bool
+) -> TemplateChangeRequested:
+    """Start a PostHog Code task that changes the file of a template managed by code and opens a pull request.
+
+    The template and its workflow stay unchanged. Raises TemplateChangeRefused when PostHog Code can't take the
+    request, such as for a template without a GitHub repository, or when `from_sandbox` says a task asks.
+    """
+    return template_change_requests.request_change(team, user, template, instruction, from_sandbox=from_sandbox)
 
 
 def is_release(intent: TemplateWriteIntent) -> bool:

@@ -683,6 +683,21 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
 })
 
 /**
+ * Start a PostHog Code task that changes the file of a template managed by code, as `instruction` asks, and opens a pull request in the template's GitHub repository. PostHog doesn't change the template: the next upload of the changed file publishes it. Use it only when you can't edit the file yourself. Each call starts another task.
+ * @summary Request a change to a template managed by code
+ */
+export const messagingTemplatesRequestChangeCreateBodyInstructionMax = 2000
+
+export const MessagingTemplatesRequestChangeCreateBody = /* @__PURE__ */ zod.object({
+    instruction: zod
+        .string()
+        .max(messagingTemplatesRequestChangeCreateBodyInstructionMax)
+        .describe(
+            "The change to make, in the person's words, such as ``In `emails\/welcome.html`, change the button color to green.`` Start it with the template's `change_prompt_starter` when you can. At most 2,000 characters."
+        ),
+})
+
+/**
  * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps.
  * @summary Send a transactional email
  */

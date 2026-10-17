@@ -142,6 +142,20 @@ class TemplateKeyRefused(TemplateWriteRefused):
     """The template can't take this key."""
 
 
+class TemplateChangeRefused(TemplateWriteRefused):
+    """PostHog Code can't take a request to change this template's file."""
+
+
+@frozen
+class TemplateChangeRequested:
+    """The PostHog Code task that changes the template's file and opens a pull request."""
+
+    task_id: UUID
+    task_url: str
+    # `owner/name` on GitHub.
+    repository: str
+
+
 @frozen
 class TemplateSource:
     """Where the uploaded file lives. A part that is None leaves the stored part as it is."""

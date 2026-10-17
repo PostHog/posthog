@@ -682,6 +682,23 @@ export interface MakeTransactionalApi {
     from_integration_id?: number | null
 }
 
+export interface RequestTemplateChangeApi {
+    /**
+     * The change to make, in the person's words, such as ``In `emails/welcome.html`, change the button color to green.`` Start it with the template's `change_prompt_starter` when you can. At most 2,000 characters.
+     * @maxLength 2000
+     */
+    instruction: string
+}
+
+export interface TemplateChangeRequestedApi {
+    /** ID of the PostHog Code task that changes the template's file. */
+    task_id: string
+    /** Link to the task in PostHog. Share it with the person: the task opens a pull request when it is done. */
+    task_url: string
+    /** GitHub repository the task changes, as `owner/name`. */
+    repository: string
+}
+
 /**
  * Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.
  */

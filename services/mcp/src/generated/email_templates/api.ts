@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -370,6 +370,30 @@ export const MessagingTemplatesDesignPartialUpdateBody = () => zod.object({
         .optional()
         .describe(
             "Ordered edits applied atomically to a template's Unlayer design: the stored design is read, the ops are applied in order, the result is validated and re-rendered to HTML, and it's saved only if valid — otherwise the template is unchanged. Reference blocks by id so you never resend the whole design."
+        ),
+})
+
+/**
+ * Start a PostHog Code task that changes the file of a template managed by code, as `instruction` asks, and opens a pull request in the template's GitHub repository. PostHog doesn't change the template: the next upload of the changed file publishes it. Use it only when you can't edit the file yourself. Each call starts another task.
+ * @summary Request a change to a template managed by code
+ */
+export const MessagingTemplatesRequestChangeCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this message template.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const messagingTemplatesRequestChangeCreateBodyInstructionMax = 2000
+
+export const MessagingTemplatesRequestChangeCreateBody = () => zod.object({
+    instruction: zod
+        .string()
+        .max(messagingTemplatesRequestChangeCreateBodyInstructionMax)
+        .describe(
+            "The change to make, in the person's words, such as ``In `emails\/welcome.html`, change the button color to green.`` Start it with the template's `change_prompt_starter` when you can. At most 2,000 characters."
         ),
 })
 

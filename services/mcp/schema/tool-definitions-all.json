@@ -15708,7 +15708,7 @@
         }
     },
     "workflows-get-email-template": {
-        "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. To display a template to the user, use workflows-show-email-template instead.",
+        "description": "Get an email template by ID, including content.email (subject, text, design). Use this to fetch before updating — content is replaced as a whole and humans may have edited the design in the visual editor since you last saw it, so build your update payload from this response. Before you change a template, read managed_by and change_prompt_context: a template whose managed_by is code changes in its file, as change_prompt_context describes, never through the update or patch tools. To display a template to the user, use workflows-show-email-template instead.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Get email template",
@@ -15891,7 +15891,7 @@
         }
     },
     "workflows-patch-email-template": {
-        "description": "Surgically edit an email template's design by sending a small, ordered list of operations instead of resending the whole design JSON. Prefer this over workflows-update-email-template for any change to an existing design. Reference blocks by their id (call workflows-get-email-template first to read the current design and its ids). For the common case — tweak one block — use update_content with a deep-merge patch (e.g. {op: update_content, id: '<block-id>', patch: {values: {text: '<p>New copy</p>'}}}); a null leaf deletes that key. Use add_content / remove_content / move_content / add_row / remove_row for structural changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the result. A template whose managed_by is code refuses this with 403 immutable: change its file in the repository and upload it with workflows-upload-email-template instead.",
+        "description": "Surgically edit an email template's design by sending a small, ordered list of operations instead of resending the whole design JSON. Prefer this over workflows-update-email-template for any change to an existing design. Reference blocks by their id (call workflows-get-email-template first to read the current design and its ids). For the common case — tweak one block — use update_content with a deep-merge patch (e.g. {op: update_content, id: '<block-id>', patch: {values: {text: '<p>New copy</p>'}}}); a null leaf deletes that key. Use add_content / remove_content / move_content / add_row / remove_row for structural changes; ids and Unlayer numbering for added blocks are assigned for you. Operations apply atomically — the design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the result. A template whose managed_by is code refuses this with 403 immutable. Change such a template in this order: 1. when you can reach its repository, edit the file at source_path in source_repository yourself, following change_prompt_context; the next send uploads it. 2. Otherwise, call workflows-request-email-template-change.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Patch email template design",
@@ -15931,6 +15931,21 @@
             "openWorldHint": true,
             "readOnlyHint": false
         }
+    },
+    "workflows-request-email-template-change": {
+        "description": "The fallback for agents that can't edit the file of a template whose managed_by is code. An agent that can reach the template's repository, such as a coding agent in the person's workspace, edits the file at source_path itself, following change_prompt_context, and does not call this tool. Otherwise, pass the person's request as instruction. PostHog Code then starts a task that changes the file and opens a pull request in the template's GitHub repository. PostHog doesn't change the template: the next upload of the changed file publishes it. Share the returned task_url with the person. Each call starts another task, so never repeat a call that succeeded. A plain 404 means the transactional email API is not enabled for this project: stop and tell the user.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Request email template change",
+        "title": "Request email template change",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-restore-revision": {
         "description": "Roll a workflow back (or forward) by copying a revision's content into its staged draft — the live config is untouched until you publish. Then run the normal cycle: test with workflows-test-run (use_draft=true), preview with workflows-publish, confirm. The preview shows exactly what the rollback does to people in-flight. A 409 means a draft is already open — publish or discard it, or pass overwrite=true to replace it. Note what a rollback can't undo: runs that already moved on while the newer version was live keep their positions.",
@@ -16061,7 +16076,7 @@
         }
     },
     "workflows-update-email-template": {
-        "description": "Replace an email template's content as a whole. For small edits to an existing design (change a heading, a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link. A template whose managed_by is code refuses every update with 403 immutable: change its file in the repository and upload it with workflows-upload-email-template instead. To move a template made in PostHog into code, send key (such as welcome) as the only field. A key is set once and never changes. The next workflows-upload-email-template with that key updates this template and keeps its id, workflow and sender.",
+        "description": "Replace an email template's content as a whole. For small edits to an existing design (change a heading, a button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send back the complete content.email with your edited design. The server re-renders the sent email from the design on save. After updating, call workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link. A template whose managed_by is code refuses every update with 403 immutable. Change such a template in this order: 1. when you can reach its repository, edit the file at source_path in source_repository yourself, following change_prompt_context; the next send uploads it. 2. Otherwise, call workflows-request-email-template-change. To move a template made in PostHog into code, send key (such as welcome) as the only field. A key is set once and never changes. The next workflows-upload-email-template with that key updates this template and keeps its id, workflow and sender.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Update email template",

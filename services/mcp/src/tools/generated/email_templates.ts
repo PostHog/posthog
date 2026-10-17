@@ -206,6 +206,38 @@ const workflowsUploadEmailTemplate = (): ToolBase<
     },
 })
 
+const WorkflowsRequestEmailTemplateChangeSchema = () => {
+    const MessagingTemplatesRequestChangeCreateBody = orvalSchemas.MessagingTemplatesRequestChangeCreateBody()
+    const MessagingTemplatesRequestChangeCreateParams = orvalSchemas.MessagingTemplatesRequestChangeCreateParams()
+    return MessagingTemplatesRequestChangeCreateParams.omit({ project_id: true }).extend(
+        MessagingTemplatesRequestChangeCreateBody.shape
+    )
+}
+
+const workflowsRequestEmailTemplateChange = (): ToolBase<
+    ReturnType<typeof WorkflowsRequestEmailTemplateChangeSchema>,
+    Schemas.TemplateChangeRequested
+> => ({
+    name: 'workflows-request-email-template-change',
+    schema: WorkflowsRequestEmailTemplateChangeSchema(),
+    handler: async (
+        context: Context,
+        params: z.infer<ReturnType<typeof WorkflowsRequestEmailTemplateChangeSchema>>
+    ) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.instruction !== undefined) {
+            body['instruction'] = params.instruction
+        }
+        const result = await context.api.request<Schemas.TemplateChangeRequested>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/${encodeURIComponent(String(params.id))}/request_change/`,
+            body,
+        })
+        return result
+    },
+})
+
 const WorkflowsSendEmailSchema = () => {
     const MessagingSendEmailCreateBody = orvalSchemas.MessagingSendEmailCreateBody()
     return MessagingSendEmailCreateBody
@@ -293,6 +325,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-email-template': workflowsPatchEmailTemplate,
     'workflows-show-email-template': workflowsShowEmailTemplate,
     'workflows-upload-email-template': workflowsUploadEmailTemplate,
+    'workflows-request-email-template-change': workflowsRequestEmailTemplateChange,
     'workflows-send-email': workflowsSendEmail,
     'workflows-update-email-template': workflowsUpdateEmailTemplate,
 }

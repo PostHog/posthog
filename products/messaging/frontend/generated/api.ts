@@ -33,10 +33,12 @@ import type {
     PatchedMessageTemplateUpdateApi,
     PreferencesLinkApi,
     RemoveOptOutRequestApi,
+    RequestTemplateChangeApi,
     SendEmailApi,
     SendEmailResponseApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
+    TemplateChangeRequestedApi,
     UploadTemplateApi,
     UploadTemplateResponseApi,
     WebhookUrlApi,
@@ -787,6 +789,28 @@ export const messagingTemplatesMakeTransactionalCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(makeTransactionalApi),
+    })
+}
+
+export const getMessagingTemplatesRequestChangeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/messaging_templates/${id}/request_change/`
+}
+
+/**
+ * Start a PostHog Code task that changes the file of a template managed by code, as `instruction` asks, and opens a pull request in the template's GitHub repository. PostHog doesn't change the template: the next upload of the changed file publishes it. Use it only when you can't edit the file yourself. Each call starts another task.
+ * @summary Request a change to a template managed by code
+ */
+export const messagingTemplatesRequestChangeCreate = async (
+    projectId: string,
+    id: string,
+    requestTemplateChangeApi: RequestTemplateChangeApi,
+    options?: RequestInit
+): Promise<TemplateChangeRequestedApi> => {
+    return apiMutator<TemplateChangeRequestedApi>(getMessagingTemplatesRequestChangeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(requestTemplateChangeApi),
     })
 }
 
