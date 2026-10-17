@@ -54,6 +54,11 @@ function IconButton({
     )
 }
 
+// Serializes only when the Raw tab renders, since payloads can be large and most rows stay collapsed.
+function RawPayload({ value }: { value: unknown }): JSX.Element {
+    return <pre>{JSON.stringify(value, null, 2)}</pre>
+}
+
 export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [activeTab, setActiveTab] = useState<ActivityLogTab>(logItem.expandedView ? 'details' : 'diff')
@@ -105,7 +110,7 @@ export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLog
         {
             key: 'raw' as const,
             label: 'Raw',
-            content: <pre>{JSON.stringify(logItem.unprocessed, null, 2)}</pre>,
+            content: <RawPayload value={logItem.unprocessed} />,
         },
     ].filter(Boolean) as { key: ActivityLogTab; label: string; content: React.ReactNode }[]
 
@@ -128,7 +133,8 @@ export function QuillActivityLogRow({ logItem }: { logItem: HumanizedActivityLog
                 ) : (
                     <span className="flex shrink-0 self-start">{avatar}</span>
                 )}
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
+                {/* Long resource names have no spaces to break on, so they wrap anywhere to fit the panel. */}
+                <div className="flex min-w-0 flex-1 flex-col gap-1 [overflow-wrap:anywhere]">
                     {logItem.summary ? (
                         <>
                             {heading}
