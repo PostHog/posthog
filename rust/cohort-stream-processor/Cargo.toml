@@ -31,6 +31,8 @@ common-liveness = { path = "../common/liveness" }
 # hold their per-partition maps behind sharded locks (no global mutex on the hot path).
 dashmap = { workspace = true }
 envconfig = { workspace = true }
+# Opt-in profiling. Every hotpath macro and wrapper is a no-op unless the `hotpath` feature is on.
+hotpath = { version = "0.28", features = ["tokio", "sqlx"] }
 # `join_all` for routing each poll's per-partition sub-batches concurrently, so a full channel on
 # one partition can't head-of-line-block the sends to the others. Same version dedup uses.
 futures = { workspace = true }
@@ -65,6 +67,13 @@ uuid = { workspace = true }
 [target.'cfg(unix)'.dependencies]
 # `statvfs` for the store-filesystem utilization sample (`observability::disk`).
 nix = { version = "0.31", features = ["fs"] }
+
+[features]
+default = []
+hotpath = ["hotpath/hotpath"]
+hotpath-alloc = ["hotpath", "hotpath/hotpath-alloc"]
+hotpath-prometheus = ["hotpath", "hotpath/hotpath-prometheus"]
+hotpath-cloud = ["hotpath/hotpath-cloud"]
 
 [dev-dependencies]
 # Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`

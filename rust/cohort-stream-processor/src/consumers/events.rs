@@ -243,6 +243,7 @@ impl EventDispatcher {
     /// dispatch ceiling only for what lands. Events for a partition in `held` (already paused behind an
     /// older holdover) skip the send and are returned to queue behind it. Returns the un-dispatched
     /// events per partition for the caller to hold and pause.
+    #[hotpath::measure(impl_type = "EventDispatcher")]
     pub fn dispatch_events_nonblocking(
         &self,
         batch: Vec<ConsumedEvent>,
@@ -1403,6 +1404,7 @@ impl CohortStreamEventsConsumer {
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_message_count() as f64);
     }
 
+    #[hotpath::measure(impl_type = "CohortStreamEventsConsumer")]
     async fn consume_batch(&self) -> ConsumeOutcome {
         let mut outcome = ConsumeOutcome {
             events: Vec::with_capacity(self.recv_batch_size),

@@ -1,0 +1,18 @@
+# hotpath Cloud performance regression and budgets config.
+#
+# Docs: https://hotpath.rs/cloud
+
+[functions]
+min_percent_total = 2
+
+[functions.alloc]
+judged = true
+min_percent_change = 20
+metrics = ["avg", "total"]
+min_calls = 1
+
+[functions.timing]
+judged = false
+min_percent_change = 50
+metrics = ["avg", "total"]
+min_calls = 1

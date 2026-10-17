@@ -48,10 +48,13 @@ use cohort_stream_processor::workers::{
     MergeWorkerDeps, PersonSeedDeps, ReconcileBacklog, ReconcileDeps,
 };
 
+// Under `hotpath-alloc`, `#[hotpath::main]` installs its counting allocator around jemalloc instead.
+#[cfg(not(feature = "hotpath-alloc"))]
 common_alloc::used!();
 
 const SERVICE_NAME: &str = "cohort-stream-processor";
 
+#[hotpath::main(allocator = common_alloc::DefaultAllocator)]
 fn main() -> Result<()> {
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
@@ -64,6 +67,7 @@ fn main() -> Result<()> {
     let runtime = runtime_builder
         .build()
         .context("Failed to build tokio runtime")?;
+    hotpath::tokio_runtime!(runtime.handle());
 
     runtime.block_on(async_main(config))
 }
@@ -817,5 +821,10 @@ fn init_tracing() {
             .boxed()
     };
 
-    tracing_subscriber::registry().with(log_layer).init();
+    let subscriber = tracing_subscriber::registry().with(log_layer);
+    // Without `hotpath`, this returns an unfiltered no-op layer. That layer lifts the max level to
+    // TRACE, so every DEBUG/TRACE call site builds its event, sqlx's per-query log included.
+    #[cfg(feature = "hotpath")]
+    let subscriber = subscriber.with(hotpath::sqlx_tracing_layer());
+    subscriber.init();
 }
