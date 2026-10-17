@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio import common, workflow
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.cleanup_property_definitions.activities import (
     delete_property_definitions_from_clickhouse,
@@ -10,7 +11,6 @@ from posthog.temporal.cleanup_property_definitions.activities import (
     preview_property_definitions,
 )
 from posthog.temporal.cleanup_property_definitions.types import (
-    CleanupPropertyDefinitionsError,
     CleanupPropertyDefinitionsInput,
     DeleteClickHousePropertyDefinitionsInput,
     DeletePostgresPropertyDefinitionsInput,
@@ -97,10 +97,12 @@ class CleanupPropertyDefinitionsWorkflow(PostHogWorkflow):
             if batch_deleted < batch_size:
                 break
             if _batch_num == max_batches:
-                raise CleanupPropertyDefinitionsError(
+                raise ApplicationError(
                     f"Postgres delete exceeded {max_batches} batches "
                     f"({total_property_definitions_deleted:,} property definitions deleted). "
-                    f"Re-run the workflow to continue deleting remaining rows."
+                    f"Re-run the workflow to continue deleting remaining rows.",
+                    type="CleanupPropertyDefinitionsError",
+                    non_retryable=True,
                 )
         result["property_definitions_deleted"] = total_property_definitions_deleted
         result["event_properties_deleted"] = total_event_properties_deleted

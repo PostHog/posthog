@@ -3,6 +3,7 @@ from typing import Any
 
 import temporalio.workflow as wf
 from temporalio import common
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
@@ -188,7 +189,8 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             self._phase = "done"
             return result
 
-        assert inputs.exported_asset_id is not None  # one of the two, per RasterizeRecordingInputs
+        if inputs.exported_asset_id is None:  # one of the two, per RasterizeRecordingInputs
+            raise ApplicationError("pass exactly one of exported_asset_id and render_input", non_retryable=True)
         retry_policy = common.RetryPolicy(maximum_attempts=3)
 
         self._phase = "preparing"
@@ -203,7 +205,10 @@ class RasterizeRecordingWorkflow(PostHogWorkflow):
             self._phase = "done"
             return prep.cached_output
 
-        assert prep.activity_input is not None  # tagged-union invariant
+        if prep.activity_input is None:  # tagged-union invariant
+            raise ApplicationError(
+                "build_rasterization_input returned neither a cached output nor an activity input", non_retryable=True
+            )
 
         result = await self._render(inputs, prep.activity_input)
 
