@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic, partial } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError, NetworkError } from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -129,6 +130,53 @@ describe('addSavedInsightsModalLogic', () => {
 
             // page 3, 15 per page → offset 30
             expect(getCapturedUrl()!.searchParams.get('offset')).toBe('30')
+        })
+    })
+
+    describe('search match types', () => {
+        it('reports exact and similar match counts on the search event', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': ({ request }) => {
+                        const url = new URL(request.url)
+                        if (url.searchParams.get('search') !== 'map') {
+                            return [200, { count: 0, results: [] }]
+                        }
+                        return [
+                            200,
+                            {
+                                count: 2,
+                                results: [
+                                    { ...createInsight(1, 'margin'), search_match_type: 'similar' },
+                                    { ...createInsight(2, 'mail'), search_match_type: 'similar' },
+                                ],
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            const captureSpy = jest.spyOn(posthog, 'capture')
+            logic = addSavedInsightsModalLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
+
+            jest.useFakeTimers({ advanceTimers: true })
+            try {
+                logic.actions.setModalFilters({ search: 'map' })
+                await expectLogic(logic).toDispatchActions(['loadInsightsSuccess'])
+                expect(logic.values.searchMatchCounts).toEqual({ exact: 0, similar: 2 })
+
+                await jest.advanceTimersByTimeAsync(1000)
+                expect(captureSpy).toHaveBeenCalledWith('insight dashboard modal searched', {
+                    search_term: 'map',
+                    exact_match_count: 0,
+                    similar_match_count: 2,
+                })
+            } finally {
+                jest.useRealTimers()
+                captureSpy.mockRestore()
+            }
         })
     })
 
