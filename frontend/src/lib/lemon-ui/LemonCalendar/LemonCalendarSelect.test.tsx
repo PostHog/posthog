@@ -120,6 +120,21 @@ describe('LemonCalendarSelect', () => {
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T08:42:00.000Z'))
     })
 
+    test('onSelect receives date and time clicks without Apply', async () => {
+        const onSelect = jest.fn()
+        const { container, onChange } = renderLemonCalendarSelect(null, { granularity: 'hour', onSelect })
+
+        const month = container.querySelector('.LemonCalendar__month') as HTMLElement
+        await userEvent.click(await within(month).findByText('15'))
+        expect(onSelect).toHaveBeenLastCalledWith(dayjs('2023-01-15T17:00:00.000Z'))
+
+        const hour = getTimeElement(container.querySelector('.LemonCalendar__time'), { unit: 'h', value: 8 })
+        await userEvent.click(hour as HTMLElement)
+        expect(onSelect).toHaveBeenLastCalledWith(dayjs('2023-01-15T20:00:00.000Z'))
+
+        expect(onChange).not.toHaveBeenCalled()
+    })
+
     test('only allow upcoming selection', async () => {
         const { onChange, clickOnDate, clickOnTime } = renderLemonCalendarSelect(null, {
             granularity: 'minute',

@@ -77,6 +77,8 @@ function getDateDisabledReason(
 export interface LemonCalendarSelectProps {
     value?: dayjs.Dayjs | null
     onChange?: (date: dayjs.Dayjs) => void
+    /** Called on each date or time click, before Apply. Use it to keep a pick that the user does not apply. */
+    onSelect?: (date: dayjs.Dayjs) => void
     months?: number
     onClose?: () => void
     granularity?: LemonCalendarProps['granularity']
@@ -96,6 +98,7 @@ export interface LemonCalendarSelectProps {
 export function LemonCalendarSelect({
     value,
     onChange,
+    onSelect,
     months,
     onClose,
     granularity = 'day',
@@ -136,6 +139,7 @@ export function LemonCalendarSelect({
                 : date.startOf('hour')
 
             scrollToTime(date, true)
+            onSelect?.(date)
         }
 
         setSelectValue(date)
@@ -151,6 +155,7 @@ export function LemonCalendarSelect({
         const date = proposedDate(selectValue, props, use24HourFormat)
         scrollToTime(date, false)
         setSelectValue(date)
+        onSelect?.(date)
     }
 
     return (
