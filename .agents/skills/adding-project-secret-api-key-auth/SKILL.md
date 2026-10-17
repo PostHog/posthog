@@ -13,18 +13,37 @@ A `ProjectSecretAPIKey` is a project-scoped, user-less service credential (`post
 - Scopes are **project-wide within their resource type** and deliberately ignore object-level access controls (per-resource RBAC).
 - Do not confuse with `TeamSecretTokenAuthentication` — that validates the legacy per-team `Team.secret_api_token` (also `phs_`-prefixed) and is only for feature-flag local evaluation and similar pre-PSAK surfaces. It is pegged for migrating to PSAK at some point.
 
-Keys are managed at `POST /api/environments/:id/project_secret_api_keys` (label + scopes; plaintext value returned once; `roll` action to rotate; max 50 per project; wildcard `*` scope not allowed).
+Keys are managed at `POST /api/projects/:id/project_secret_api_keys` (label + scopes; plaintext value returned once; `roll` action to rotate; max 50 per project; wildcard `*` scope not allowed).
 
 ## Wiring a viewset action — the checklist
 
-The machinery is shipped but nothing is wired to it yet — the first planned consumer is the endpoints (the product) `run` action. Four things, all required:
+Several viewsets already accept PSAKs. Copy the one closest to your case:
+
+| Viewset                                                                                    | Route (under `/api/projects/:id/`)      | Required scopes                                                         | `psak_allowed_actions`                 |
+| ------------------------------------------------------------------------------------------ | --------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------- |
+| Endpoints (`products/endpoints/backend/presentation/views/api.py`)                         | `endpoints/`                            | `endpoint:read`                                                         | `run`                                  |
+| Experiments (`products/experiments/backend/presentation/views.py`)                         | `experiments/`                          | `experiment:read`                                                       | `list`, `retrieve`                     |
+| Feature flags (`products/feature_flags/backend/api/feature_flag.py`)                       | `feature_flags/`                        | `feature_flag:read`                                                     | `remote_config`                        |
+| Loops (`products/tasks/backend/presentation/views/loops.py`)                               | `loops/`                                | `loop:write`, `loop:read`                                               | `trigger`, `runs`                      |
+| Offline experiments (`products/ai_observability/backend/api/offline_experiments.py`)       | `ai_observability/offline_experiments/` | `offline_evaluation_ingestion:write`                                    | `create`, `upload`, `complete`, `fail` |
+| Replay Vision scan requests (`products/replay_vision/backend/api/observation_requests.py`) | `vision/requests/`                      | `replay_scanner:write` **and** `session_recording:read` on every action | `create`, `retrieve`                   |
+
+Customer analytics and conversations external APIs also accept PSAKs (`account:*`, `support_ticket:read`) through their own URL patterns.
+
+The Replay Vision viewset shows how to require two scopes together: it sets `required_scopes` on the viewset, so a key needs both scopes for every action. Both scopes are in the allowlist only for this route. Every other `replay_scanner` and `session_recording` route stays PSAK-denied because it does not list PSAK actions.
+
+Four things, all required:
 
 ### 1. Whitelist the scope/action pair
 
 PSAK-assignable scopes are a global allowlist in `posthog/scopes.py`:
 
 ```python
-PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [("endpoint", "read")]
+PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
+    ("endpoint", "read"),
+    ...
+    ("my_scope_object", "read"),
+]
 ```
 
 If your product isn't listed, key creation rejects the scope before auth is ever attempted. Add your `(scope_object, action)` tuple here first.
@@ -42,7 +61,7 @@ class MyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 `psak_allowed_actions` is **default-deny**: `APIScopePermission` rejects any PSAK request whose action isn't listed ("This action does not support project secret API key access"). List only the programmatic actions — never CRUD that should stay human-driven.
 
-`APIScopePermission` also enforces team binding automatically: a PSAK only works against `view.team == key.team`, so PSAK auth only makes sense on project-scoped (`/api/environments/:id/...`) routes.
+`APIScopePermission` also enforces team binding automatically: a PSAK only works against `view.team == key.team`, so PSAK auth only makes sense on project-scoped routes. Register the viewset on `routers.projects` (`/api/projects/:id/...`). The legacy `/api/environments/:id/...` prefix is deprecated, and middleware serves it through the same project viewsets.
 
 ### 3. Use PSAK-aware throttles
 
@@ -82,11 +101,22 @@ Helpers in `posthog/permissions.py` when you need to branch: `is_authenticated_v
 ## Calling a PSAK-gated endpoint
 
 ```bash
-curl -s https://us.posthog.com/api/environments/<project_id>/<your_action_path>/ \
+curl -s https://us.posthog.com/api/projects/<project_id>/<your_action_path>/ \
   -H "Authorization: Bearer phs_<key>" \
   -H "Content-Type: application/json" \
   -d '{...}'
 ```
+
+For example, to start a Replay Vision scan with a key that has `replay_scanner:write` and `session_recording:read`:
+
+```bash
+curl -s https://us.posthog.com/api/projects/<project_id>/vision/requests/ \
+  -H "Authorization: Bearer phs_<key>" \
+  -H "Content-Type: application/json" \
+  -d '{"session_ids": ["<session_id>"], "scanner_id": "<scanner_uuid>"}'
+```
+
+Read the result back with `GET /api/projects/<project_id>/vision/requests/<request_id>/` and the same key.
 
 ## Testing
 
