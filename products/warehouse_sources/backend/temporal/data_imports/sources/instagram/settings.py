@@ -41,10 +41,25 @@ DEFAULT_INSIGHTS_LOOKBACK_DAYS = 90
 # this returns nothing but would still fan out into thousands of empty 30-day windows.
 MAX_INSIGHTS_LOOKBACK_DAYS = 365 * 2
 
-# Account-level metrics pulled as a daily time series. Meta churns this list per Graph
-# version (`impressions` was retired in v22.0 in favour of `views`), so each metric is
-# requested on its own and an unsupported one is skipped rather than failing the sync.
-ACCOUNT_INSIGHT_METRICS: tuple[str, ...] = ("reach", "views")
+# Account-level metrics. Meta churns this list per Graph version (`impressions` was
+# retired in v22.0 in favour of `views`), so each metric is requested on its own and an
+# unsupported one is skipped rather than failing the sync.
+# `reach` is the only one Meta serves as a daily time series.
+ACCOUNT_INSIGHT_TIME_SERIES_METRICS: tuple[str, ...] = ("reach",)
+# Meta serves these only with `metric_type=total_value`, which sums the whole since/until
+# span into one value. Each one is requested once per day to get a daily row.
+ACCOUNT_INSIGHT_TOTAL_VALUE_METRICS: tuple[str, ...] = (
+    "views",
+    "accounts_engaged",
+    "total_interactions",
+    "likes",
+    "comments",
+    "shares",
+    "saves",
+    "replies",
+    "profile_links_taps",
+    "follows_and_unfollows",
+)
 
 # Per-media metrics, keyed by `media_product_type`. Stories expose a different set from
 # feed posts and reels.
