@@ -3,6 +3,7 @@ import { Form } from 'kea-forms'
 
 import { LemonBanner, LemonButton, LemonDivider, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -21,6 +22,8 @@ import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
+import { CodeManagedSource } from './CodeManagedSource'
+import { CodeManagedTag } from './CodeManagedTag'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
@@ -67,6 +70,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSyncingExternalEdit,
         transactionalHogFlowId,
         transactionalTab,
+        isCodeManaged,
+        templateSource,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
@@ -152,7 +157,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     key: 'api',
                     label: 'API',
                     content: transactionalHogFlowId ? (
-                        <TransactionalEmailApiExample templateId={props.id} />
+                        <TransactionalEmailApiExample templateId={props.id} templateKey={originalTemplate.key} />
                     ) : (
                         <MakeTransactionalPrompt {...props} />
                     ),
@@ -179,11 +184,14 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     nameSuffix={
-                        showTransactional && transactionalHogFlowId ? (
-                            <LemonTag type="success" className="ml-1">
-                                Transactional
-                            </LemonTag>
-                        ) : undefined
+                        <>
+                            {showTransactional && transactionalHogFlowId && (
+                                <LemonTag type="success" className="ml-1">
+                                    Transactional
+                                </LemonTag>
+                            )}
+                            <CodeManagedTag template={originalTemplate} />
+                        </>
                     }
                     actions={
                         <>
@@ -266,6 +274,35 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         </>
                     }
                 />
+
+                {(originalTemplate.key || templateSource) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
+                        {originalTemplate.key && (
+                            <span className="flex items-center gap-1" data-attr="message-template-key">
+                                <span>Key</span>
+                                <CopyToClipboardInline description="template key" className="font-mono">
+                                    {originalTemplate.key}
+                                </CopyToClipboardInline>
+                            </span>
+                        )}
+                        <CodeManagedSource source={templateSource} />
+                    </div>
+                )}
+
+                {isCodeManaged && (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Duplicate',
+                            onClick: duplicateTemplate,
+                            disabledReason: templateChanged ? 'Discard your changes before duplicating' : undefined,
+                            'data-attr': 'message-template-code-managed-duplicate',
+                        }}
+                    >
+                        This template is managed by code, so changes made here can't be saved. To change it, edit the
+                        file and upload it again. To edit it here, duplicate it.
+                    </LemonBanner>
+                )}
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
                 <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />

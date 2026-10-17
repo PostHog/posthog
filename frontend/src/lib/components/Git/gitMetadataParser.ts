@@ -9,6 +9,11 @@ export type ParsedRemoteUrl = {
 }
 
 const GITHUB_SLUG_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/i
+
+function encodePathSegments(value: string): string {
+    return value.split('/').map(encodeURIComponent).join('/')
+}
 
 export class GitMetadataParser {
     static getCommitLink(remote_url?: string, commit_id?: string): string | undefined {
@@ -31,6 +36,28 @@ export class GitMetadataParser {
             return undefined
         }
         return this.buildBranchLink(parsedRemoteUrl, branch)
+    }
+
+    static getRefLink(remote_url?: string, ref?: string): string | undefined {
+        if (!ref) {
+            return undefined
+        }
+        return this.isCommitSha(ref) ? this.getCommitLink(remote_url, ref) : this.getBranchLink(remote_url, ref)
+    }
+
+    static getFileLink(remote_url?: string, ref?: string, path?: string): string | undefined {
+        if (!remote_url || !ref || !path) {
+            return undefined
+        }
+        const parsedRemoteUrl = this.parseRemoteUrl(remote_url)
+        if (!parsedRemoteUrl) {
+            return undefined
+        }
+        return this.buildFileLink(parsedRemoteUrl, ref, path)
+    }
+
+    static isCommitSha(ref: string): boolean {
+        return COMMIT_SHA_PATTERN.test(ref)
     }
 
     static getRepoLink(remote_url?: string): string | undefined {
@@ -57,7 +84,11 @@ export class GitMetadataParser {
     }
 
     static parseRemoteUrl(remoteUrl: string): ParsedRemoteUrl | undefined {
-        return this.parseSshRemoteUrl(remoteUrl) || this.parseHttpsRemoteUrl(remoteUrl)
+        return (
+            this.parseSshRemoteUrl(remoteUrl) ||
+            this.parseHttpsRemoteUrl(remoteUrl) ||
+            this.parseSchemelessRemoteUrl(remoteUrl)
+        )
     }
 
     private static buildRemoteLink(parsedUrl: ParsedRemoteUrl): string | undefined {
@@ -90,6 +121,21 @@ export class GitMetadataParser {
                 return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/commit/${commitSha}`
             case 'gitlab':
                 return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/-/commit/${commitSha}`
+            default:
+                return undefined
+        }
+    }
+
+    private static buildFileLink(parsedUrl: ParsedRemoteUrl, ref: string, path: string): string | undefined {
+        const base = `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}`
+        const refAndPath = `${encodePathSegments(ref)}/${encodePathSegments(path.replace(/^\.?\//, ''))}`
+        switch (parsedUrl.provider) {
+            case 'github':
+                return `${base}/blob/${refAndPath}`
+            case 'gitlab':
+                return `${base}/-/blob/${refAndPath}`
+            case 'bitbucket':
+                return `${base}/src/${refAndPath}`
             default:
                 return undefined
         }
@@ -151,6 +197,14 @@ export class GitMetadataParser {
         const [provider, providerUrl] = this.parseDomain(domain)
 
         return { provider, owner, repository, providerUrl }
+    }
+
+    private static parseSchemelessRemoteUrl(remoteUrl: string): ParsedRemoteUrl | undefined {
+        // github.com/user/repo
+        if (remoteUrl.includes('://') || remoteUrl.includes('@')) {
+            return undefined
+        }
+        return this.parseHttpsRemoteUrl(`https://${remoteUrl}`)
     }
 
     private static parseDomain(domain: string): [GitProvider, string | undefined] {

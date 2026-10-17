@@ -7,12 +7,20 @@ import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-export function TransactionalEmailApiExample({ templateId }: { templateId: string }): JSX.Element {
+export function TransactionalEmailApiExample({
+    templateId,
+    templateKey,
+}: {
+    templateId: string
+    templateKey?: string | null
+}): JSX.Element {
     const { currentTeamIdStrict } = useValues(teamLogic)
-    const snippet = `curl -X POST ${apiHostOrigin()}/api/projects/${currentTeamIdStrict}/messaging_templates/${templateId}/send/ \\
+    const templateReference = templateKey ? `{ "key": "${templateKey}" }` : `{ "id": "${templateId}" }`
+    const snippet = `curl -X POST ${apiHostOrigin()}/api/projects/${currentTeamIdStrict}/messaging/send/email/ \\
   -H "Authorization: Bearer $POSTHOG_PROJECT_SECRET_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
+    "template": ${templateReference},
     "to": "jane@example.com",
     "identifiers": { "distinct_id": "jane-distinct-id" },
     "message_data": { "first_name": "Jane", "reset_link": "https://example.com/reset" }
@@ -29,6 +37,18 @@ export function TransactionalEmailApiExample({ templateId }: { templateId: strin
                     Authenticate with a{' '}
                     <Link to={urls.settings('environment-secret-api-keys')}>project secret API key</Link> that has the{' '}
                     <code>hog_flow:write</code> scope.
+                </li>
+                <li>
+                    {templateKey ? (
+                        <>
+                            <code>template.key</code> names this template. The key is the same in every project that has
+                            the template.
+                        </>
+                    ) : (
+                        <>
+                            <code>template.id</code> names this template in this project.
+                        </>
+                    )}
                 </li>
                 <li>
                     <code>message_data</code> fills the template's <code>{'{{ variables.* }}'}</code> placeholders. The

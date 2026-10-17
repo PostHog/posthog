@@ -80,4 +80,33 @@ describe('GitMetadataParser', () => {
             expect(GitMetadataParser.getGitHubRepositorySlug(remote_url)).toBe(expected)
         })
     })
+
+    describe('getFileLink', () => {
+        it.each([
+            {
+                description: 'a GitHub remote without a scheme',
+                remote_url: 'github.com/example/app',
+                expected: 'https://github.com/example/app/blob/main/emails/welcome.html',
+            },
+            {
+                description: 'a GitLab SSH remote',
+                remote_url: 'git@gitlab.com:example/app.git',
+                expected: 'https://gitlab.com/example/app/-/blob/main/emails/welcome.html',
+            },
+            {
+                description: 'a Bitbucket HTTPS remote',
+                remote_url: 'https://bitbucket.org/example/app',
+                expected: 'https://bitbucket.org/example/app/src/main/emails/welcome.html',
+            },
+            { description: 'an unknown host', remote_url: 'git.example.com/example/app', expected: undefined },
+        ])('links the file for $description', ({ remote_url, expected }) => {
+            expect(GitMetadataParser.getFileLink(remote_url, 'main', './emails/welcome.html')).toBe(expected)
+        })
+
+        it('encodes each part of the ref and the path', () => {
+            expect(GitMetadataParser.getFileLink('github.com/example/app', 'feat/a b', 'emails/a#b.html')).toBe(
+                'https://github.com/example/app/blob/feat/a%20b/emails/a%23b.html'
+            )
+        })
+    })
 })
