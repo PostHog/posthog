@@ -1138,6 +1138,69 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('search-only groups', () => {
+        it.each([
+            {
+                picker: 'property picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.PageviewUrls,
+                    TaxonomicFilterGroupType.EmailAddresses,
+                ],
+                hidden: [TaxonomicFilterGroupType.EmailAddresses],
+                shown: [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.PageviewUrls],
+            },
+            {
+                picker: 'series picker',
+                groupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                hidden: [
+                    TaxonomicFilterGroupType.PageviewEvents,
+                    TaxonomicFilterGroupType.ScreenEvents,
+                    TaxonomicFilterGroupType.AutocaptureEvents,
+                ],
+                shown: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            },
+            {
+                picker: 'picker of a search-only group and a meta group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses, TaxonomicFilterGroupType.HogQLExpression],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+            {
+                picker: 'picker of only a search-only group',
+                groupTypes: [TaxonomicFilterGroupType.EmailAddresses],
+                hidden: [],
+                shown: [TaxonomicFilterGroupType.EmailAddresses],
+            },
+        ])(
+            'keeps search-only groups searched but out of the categories in a $picker',
+            ({ picker, groupTypes, hidden, shown }) => {
+                const testLogic = taxonomicFilterLogic({
+                    taxonomicFilterLogicKey: `testSearchOnly-${picker}`,
+                    taxonomicGroupTypes: groupTypes,
+                })
+                testLogic.mount()
+
+                for (const groupType of hidden) {
+                    expect(testLogic.values.categoryGroupTypes).not.toContain(groupType)
+                    expect(testLogic.values.taxonomicGroupTypes).toContain(groupType)
+                }
+                for (const groupType of shown) {
+                    expect(testLogic.values.categoryGroupTypes).toContain(groupType)
+                }
+
+                testLogic.unmount()
+            }
+        )
+    })
+
     describe('searchPlaceholder', () => {
         it.each([
             { groupTypes: [TaxonomicFilterGroupType.Events], expected: 'events' },
