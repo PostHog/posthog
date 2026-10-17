@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonBanner, LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
@@ -114,15 +115,36 @@ function DiagnosisMessage({
     }
 }
 
-export function HeatmapEmptyState({ lockedWidth }: { lockedWidth?: number }): JSX.Element {
+const CLICKMAP_NOTE =
+    'The click counts on the page come from the clickmap. It uses autocaptured clicks from all screen widths.'
+
+export function HeatmapEmptyState({
+    lockedWidth,
+    clickmapHasClicks = false,
+}: {
+    lockedWidth?: number
+    clickmapHasClicks?: boolean
+}): JSX.Element {
     const { emptyDiagnosis, emptyDiagnosisLoading, hasValidReplayIframeData, recordingUrlMatchMode } =
         useValues(heatmapCoverageLogic)
+    const { reportEmptyStateShown } = useActions(heatmapCoverageLogic)
     const { heatmapFilters, analysisWidth } = useValues(heatmapDataLogic({ context: 'in-app' }))
+
+    const emptyReason = emptyDiagnosis?.reason ?? null
+    useEffect(() => {
+        if (!emptyDiagnosisLoading) {
+            reportEmptyStateShown(clickmapHasClicks)
+        }
+    }, [emptyDiagnosisLoading, emptyReason, clickmapHasClicks, reportEmptyStateShown])
+
+    // Clickmap counts and heatmap data have different sources, so name the heatmap data to avoid a contradiction
+    const interactions = clickmapHasClicks ? 'heatmap interactions' : 'interactions'
+    const noun = interactionNoun(heatmapFilters.type ?? 'click')
 
     if (emptyDiagnosisLoading) {
         return (
             <p className="text-sm text-muted mt-2 mb-0 flex items-center gap-1">
-                <Spinner /> No interactions found. Checking where this page's data is.
+                <Spinner /> No {interactions} found. Checking where this page's data is.
             </p>
         )
     }
@@ -130,19 +152,23 @@ export function HeatmapEmptyState({ lockedWidth }: { lockedWidth?: number }): JS
         return (
             <p className="text-sm text-muted mt-2 mb-0">
                 {lockedWidth
-                    ? 'No interactions found at this screen width. Try a different date range, or adjust your filters in Heatmap settings.'
-                    : 'No interactions found at this screen width. Try another screen width, a different date range, or adjust your filters in Heatmap settings.'}
+                    ? `No ${interactions} found at this screen width. Try a different date range, or adjust your filters in Heatmap settings.`
+                    : `No ${interactions} found at this screen width. Try another screen width, a different date range, or adjust your filters in Heatmap settings.`}
+                {clickmapHasClicks ? ` ${CLICKMAP_NOTE}` : null}
             </p>
         )
     }
     return (
         <LemonBanner type="info" className="mt-2">
-            <DiagnosisMessage
-                diagnosis={emptyDiagnosis}
-                noun={interactionNoun(heatmapFilters.type ?? 'click')}
-                width={analysisWidth}
-                canMatchPage={hasValidReplayIframeData && recordingUrlMatchMode !== 'page'}
-            />
+            <div className="flex flex-col gap-1">
+                <DiagnosisMessage
+                    diagnosis={emptyDiagnosis}
+                    noun={clickmapHasClicks ? `heatmap ${noun}` : noun}
+                    width={analysisWidth}
+                    canMatchPage={hasValidReplayIframeData && recordingUrlMatchMode !== 'page'}
+                />
+                {clickmapHasClicks ? <span>{CLICKMAP_NOTE}</span> : null}
+            </div>
         </LemonBanner>
     )
 }
