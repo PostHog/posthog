@@ -92,7 +92,7 @@ Until that changes:
   Keep anything else in `pattern:` memory.
 - Do not author a follow-up ("still failing", "persists after the fix") as a new report.
   Edit the report that you filed before.
-  Author a new one only when that report is `resolved` or `suppressed`.
+  Author a new one only when that report is `resolved`, `suppressed`, or `failed`, because an edit cannot reopen it.
 - Do not author a single-product finding when a specialist for that product runs on this project.
   Leave it to the specialist.
 
