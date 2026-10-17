@@ -3,9 +3,8 @@ import { SignalReport, SignalReportStatus } from 'products/signals/frontend/inbo
 
 import type { TodayReports } from './todayLogic'
 
-// Sample ids carry this prefix, so a report page knows to read the fixture rather than the API.
+// Sample ids carry this prefix, so Today knows not to link or act on them.
 const SAMPLE_ID_PREFIX = 'sample-'
-export const SAMPLE_REPORT_REASON = 'This is a sample report. Turn off sample reports to act on a real one.'
 const HOUR_MS = 60 * 60 * 1000
 
 export function isSampleReportId(reportId: string): boolean {
@@ -198,9 +197,4 @@ export function sampleTopReports(limit: number, now: number = Date.now()): Today
         results: SAMPLE_SPECS.slice(0, limit).map((spec) => buildSampleReport(spec, now)),
         count: SAMPLE_SPECS.length,
     }
-}
-
-export function findSampleReport(reportId: string, now: number = Date.now()): SignalReport | null {
-    const spec = SAMPLE_SPECS.find((candidate) => candidate.id === reportId)
-    return spec ? buildSampleReport(spec, now) : null
 }

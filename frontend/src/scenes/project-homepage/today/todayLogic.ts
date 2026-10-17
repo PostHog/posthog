@@ -7,43 +7,32 @@ import posthog from 'posthog-js'
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
 
-import { signalsReportsForYouRetrieve, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
+import { signalsReportsForYouRetrieve } from 'products/signals/frontend/generated/api'
 import {
     TodayReportList,
     TodayReportSnapshot,
     captureTodayReportOpened,
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
-import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
 import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
-import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
 import { EXPLORE_ITEMS, type TodayExploreItem } from './todayExploreItems'
-import {
-    VISIBLE_ROWS,
-    forYouRows,
-    reportRows,
-    rowReportId,
-    type TodayForYouRow,
-    type TodayForYouRows,
-} from './todayForYouRows'
+import { VISIBLE_ROWS, forYouRows, reportRows, type TodayForYouRow, type TodayForYouRows } from './todayForYouRows'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { recentObjectsForHome } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
 import type { TodayReportState } from './todayReportState'
-import { isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
+import { parseSampleParam, sampleTopReports } from './todaySampleReports'
 import { todayVerdictLogic } from './todayVerdictLogic'
 
 export const TOP_REPORT_COUNT = 5
@@ -54,9 +43,6 @@ const CLOCK_MS = 30_000
 
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'list' | 'more'
-
-/** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
-export type TodayAskSource = 'walk_through' | 'report_page'
 
 export type TodayList = 'for_you' | 'recents'
 
@@ -73,16 +59,6 @@ export interface TodayMoreReports {
     hasMore: boolean
 }
 
-/** The report a Today report page shows, read from a path such as `/project/1/home/reports/abc`. */
-export function reportIdFromPath(pathname: string): string | null {
-    const match = removeProjectIdIfPresent(pathname).match(/^\/home\/reports\/([^/]+)\/?$/)
-    return match ? decodeURIComponent(match[1]) : null
-}
-
-export function isTodayPath(pathname: string): boolean {
-    return /^\/(home(\/reports\/[^/]+)?\/?)?$/.test(removeProjectIdIfPresent(pathname))
-}
-
 export function greetingForHour(hour: number, name: string | null | undefined): string {
     const suffix = name ? `, ${name}.` : '.'
     if (hour < 5) {
@@ -95,27 +71,6 @@ export function greetingForHour(hour: number, name: string | null | undefined): 
         return `Afternoon${suffix}`
     }
     return `Evening${suffix}`
-}
-
-/**
- * The page shows the report as it was when it loaded, but the action-or-answer framing must follow its current
- * state: somebody can resolve the report or open a PR on it meanwhile. A failed refetch fails closed to answering.
- */
-async function currentReportContext(
-    report: SignalReport,
-    projectId: number | string
-): Promise<{ report: SignalReport; canAct: boolean }> {
-    let current: SignalReport | null = null
-    try {
-        // The generated type is wider than the handwritten SignalReport the Inbox helpers take. See loadTopReports.
-        current = (await signalsReportsRetrieve(String(projectId), report.id)) as unknown as SignalReport
-    } catch {
-        current = null
-    }
-    if (current && isActionCapableReport(report) && !isActionCapableReport(current)) {
-        lemonToast.info('This report can no longer take actions, so PostHog AI will answer instead.')
-    }
-    return { report: current ?? report, canAct: !!current && isActionCapableReport(current) }
 }
 
 function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
@@ -148,7 +103,6 @@ export interface todayLogicValues {
     highlightsWaitOver: boolean // todayHighlightsLogic
     reportStateOverrides: Record<string, TodayReportState> // todayVerdictLogic
     user: UserType | null // userLogic
-    askingAi: boolean
     canLoadMoreReports: boolean
     currentMoreReports: TodayMoreReports | null
     expandedReportRows: Record<string, boolean>
@@ -161,7 +115,6 @@ export interface todayLogicValues {
     forYouRows: TodayForYouRows
     forYouVisibleRows: TodayForYouRow[]
     greeting: string
-    homeScrollTop: number | null
     hour: number
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
@@ -172,12 +125,10 @@ export interface todayLogicValues {
     moreReportsLoading: boolean
     now: number
     recentObjects: FileSystemEntry[]
-    reportId: string | null
     reportPreviews: Record<string, TodayReportPreview>
     reports: SignalReport[]
     reportsBroken: boolean
     reportsFailed: boolean
-    returnFocusReportId: string | null
     shownReportIds: string[]
     topReports: TodayReports | null
     topReportsLoading: boolean
@@ -208,18 +159,6 @@ export interface todayLogicActions {
         url: string
     } // router
     loadHighlights: () => any // todayHighlightsLogic
-    askAi: (
-        prompt: string,
-        source: TodayAskSource,
-        report?: SignalReport
-    ) => {
-        prompt: string
-        report: SignalReport | undefined
-        source: TodayAskSource
-    }
-    askAiFinished: () => {
-        value: true
-    }
     exploreOpened: (
         product: string,
         position: number
@@ -267,18 +206,12 @@ export interface todayLogicActions {
     retryFailedLoads: () => {
         value: true
     }
-    setHomeScrollTop: (top: number | null) => {
-        top: number | null
-    }
     setListExpanded: (
         list: TodayList,
         expanded: boolean
     ) => {
         expanded: boolean
         list: TodayList
-    }
-    setReturnFocusReportId: (reportId: string | null) => {
-        reportId: string | null
     }
     setUseSampleData: (useSampleData: boolean) => {
         useSampleData: boolean
@@ -301,7 +234,6 @@ export interface todayLogicActions {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
-        reportId: (location: { hash: string; pathname: string; search: string }) => string | null
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
         hour: (now: number) => number
@@ -381,14 +313,9 @@ export const todayLogic = kea<todayLogicType>([
         actions: [router, ['locationChanged'], todayHighlightsLogic, ['loadHighlights']],
     })),
     actions({
-        // `report` is the report the person reads. Without it, the context is the report list.
-        askAi: (prompt: string, source: TodayAskSource, report?: SignalReport) => ({ prompt, source, report }),
-        askAiFinished: true,
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
         toggleReportRow: (rowKey: string, reportId: string) => ({ rowKey, reportId }),
         exploreOpened: (product: string, position: number) => ({ product, position }),
-        setHomeScrollTop: (top: number | null) => ({ top }),
-        setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
         showMoreForYou: true,
         retryFailedLoads: true,
@@ -456,8 +383,6 @@ export const todayLogic = kea<todayLogicType>([
     reducers({
         // Turned on with `?sample=1` and kept until `?sample=0`, so the sample survives moving between pages.
         useSampleData: [false, { persist: true }, { setUseSampleData: (_, { useSampleData }) => useSampleData }],
-        // A question about a report waits for the report's current state before PostHog AI opens.
-        askingAi: [false, { askAi: (_, { report }) => !!report, askAiFinished: () => false }],
         expandedReportRows: [
             {} as Record<string, boolean>,
             {
@@ -465,21 +390,6 @@ export const todayLogic = kea<todayLogicType>([
                     const { [rowKey]: open, ...rest } = state
                     return open ? rest : { ...state, [rowKey]: true }
                 },
-            },
-        ],
-        homeScrollTop: [
-            null as number | null,
-            {
-                setHomeScrollTop: (_, { top }) => top,
-                locationChanged: (top, { pathname }) => (isTodayPath(pathname) ? top : null),
-            },
-        ],
-        returnFocusReportId: [
-            null as string | null,
-            {
-                setReturnFocusReportId: (_, { reportId }) => reportId,
-                locationChanged: (reportId, { pathname }) =>
-                    isTodayPath(pathname) ? (reportIdFromPath(pathname) ?? reportId) : null,
             },
         ],
         reportsFailed: [
@@ -504,10 +414,6 @@ export const todayLogic = kea<todayLogicType>([
         ],
     }),
     selectors({
-        reportId: [
-            () => [router.selectors.location],
-            (location: { pathname: string }): string | null => reportIdFromPath(location.pathname),
-        ],
         reports: [
             (s) => [s.topReports],
             (topReports: TodayReports | null): SignalReport[] => topReports?.results ?? [],
@@ -687,27 +593,6 @@ export const todayLogic = kea<todayLogicType>([
             )
         }
         return {
-            askAi: async ({ prompt, source, report }, breakpoint) => {
-                let context: TodayAskContext
-                // Sample reports have ids that do not exist, so PostHog AI gets no context to look up. A real
-                // report can still open while sample mode is on, so a report decides by its own id.
-                if (report) {
-                    context = isSampleReportId(report.id)
-                        ? { kind: 'none' }
-                        : { kind: 'report', ...(await currentReportContext(report, values.currentProjectId)) }
-                    breakpoint()
-                } else {
-                    context = values.useSampleData ? { kind: 'none' } : { kind: 'reports', reports: values.reports }
-                }
-                actions.askAiFinished()
-                router.actions.push(urls.ai(undefined, todayAskPrompt(prompt, context)))
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('today ai asked', {
-                    source,
-                    context: context.kind,
-                    report_id: context.kind === 'report' ? context.report.id : null,
-                })
-            },
             tick: () => {
                 const { now, highlights } = values
                 if (highlights && !values.highlightsLoading && now >= Date.parse(highlights.refresh_at)) {
@@ -761,13 +646,6 @@ export const todayLogic = kea<todayLogicType>([
                 const useSampleData = parseSampleParam(searchParams.sample)
                 if (useSampleData !== null && useSampleData !== values.useSampleData) {
                     actions.setUseSampleData(useSampleData)
-                }
-                const { reportId, listExpanded } = values
-                if (reportId && !listExpanded.for_you) {
-                    const { rows, limit } = values.forYouRows
-                    if (rows.findIndex((row) => rowReportId(row) === reportId) >= limit) {
-                        actions.setListExpanded('for_you', true)
-                    }
                 }
             },
             loadTopReportsSuccess: ({ topReports }) => {

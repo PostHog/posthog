@@ -1,5 +1,5 @@
 import { Collapsible } from '@base-ui/react/collapsible'
-import type { MouseEvent, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
 import { IconArrowRight, IconChevronDown } from '@posthog/icons'
 import { IconStack, IconStackItem } from '@posthog/quill'
@@ -7,7 +7,6 @@ import { IconStack, IconStackItem } from '@posthog/quill'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import type { TodayRowIcon } from './todayRowIcons'
-import { isPlainClick, navigateWithCrossfade } from './todayViewTransition'
 
 function isExternalHref(href: string): boolean {
     return /^https?:\/\//.test(href)
@@ -33,7 +32,6 @@ interface TodayRowProps {
     actions?: ReactNode
     doneActions?: ReactNode
     done?: boolean
-    reportId?: string
     dataAttr: string
 }
 
@@ -49,18 +47,10 @@ export function TodayRow({
     actions,
     doneActions,
     done,
-    reportId,
     dataAttr,
 }: TodayRowProps): JSX.Element {
     const external = !!to && isExternalHref(to)
     const expanded = !!expansion?.expanded
-    const openReport = (event: MouseEvent<HTMLElement>): void => {
-        onOpen?.()
-        if (to && reportId && isPlainClick(event)) {
-            event.preventDefault()
-            navigateWithCrossfade(to)
-        }
-    }
     const content = (
         <>
             <IconStack className="TodayRow__icons">
@@ -70,7 +60,6 @@ export function TodayRow({
                 {expansion ? (
                     <Collapsible.Trigger
                         className="TodayRow__title TodayRow__link TodayRow__toggle"
-                        data-today-report={reportId}
                         data-attr={`${dataAttr}-toggle`}
                     >
                         {title}
@@ -80,8 +69,7 @@ export function TodayRow({
                         to={to}
                         target={external ? '_blank' : undefined}
                         className="TodayRow__title TodayRow__link"
-                        onClick={openReport}
-                        data-today-report={reportId}
+                        onClick={onOpen}
                         data-attr={dataAttr}
                     >
                         {title}

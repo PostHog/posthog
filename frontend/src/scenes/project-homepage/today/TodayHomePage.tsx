@@ -1,13 +1,11 @@
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { useLayoutEffect, useRef } from 'react'
+import { useValues } from 'kea'
 
 import { Skeleton, Text } from '@posthog/quill'
 
 import { TodayExplore } from './TodayExplore'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
-import { reportIdFromPath, todayLogic } from './todayLogic'
+import { todayLogic } from './todayLogic'
 import { TodayPulse } from './TodayPulse'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
@@ -46,37 +44,11 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
-    const { setReturnFocusReportId } = useActions(todayLogic)
+    const { greeting, isNewProject, recentObjects } = useValues(todayLogic)
     const { highlights, highlightsPending } = useValues(todayHighlightsLogic)
-    const rootRef = useRef<HTMLDivElement>(null)
-
-    useLayoutEffect(() => {
-        const scroller = rootRef.current?.closest('main')
-        const savedTop = todayLogic.values.homeScrollTop
-        if (scroller && typeof savedTop === 'number') {
-            scroller.scrollTop = savedTop
-            todayLogic.actions.setHomeScrollTop(null)
-        }
-        return () => {
-            if (scroller && reportIdFromPath(router.values.location.pathname)) {
-                todayLogic.actions.setHomeScrollTop(scroller.scrollTop)
-            }
-        }
-    }, [])
-
-    useLayoutEffect(() => {
-        if (returnFocusReportId === null) {
-            return
-        }
-        rootRef.current
-            ?.querySelector<HTMLElement>(`[data-today-report="${CSS.escape(returnFocusReportId)}"]`)
-            ?.focus({ preventScroll: true })
-        setReturnFocusReportId(null)
-    }, [returnFocusReportId, setReturnFocusReportId])
 
     return (
-        <div ref={rootRef} className="TodayHome Today__page" data-quill>
+        <div className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">

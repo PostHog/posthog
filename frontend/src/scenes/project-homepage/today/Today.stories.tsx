@@ -20,11 +20,10 @@ import { sessionItem } from '~/layout/today/todayWorkItems'
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
-import { makeReport, mockSignals } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
+import { makeReport } from 'products/signals/frontend/inbox/__mocks__/inboxMocks'
 import { reportMetricQueryHandler } from 'products/signals/frontend/inbox/__mocks__/reportMetricMocks'
 import { SignalReportPriority, SignalReportStatus } from 'products/signals/frontend/inbox/types'
 import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
-import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
 const ADA = {
@@ -490,60 +489,6 @@ function clearTodayStorage(
     return <Story />
 }
 
-function mockReportPage(reportId: string): ReportPageApi {
-    const report = ALL_REPORTS.find((candidate) => candidate.id === reportId) ?? REPORTS[0]
-    const signals = mockSignals(reportId, 6).map((signal) => {
-        const firstLine = signal.content.split('\n')[0]
-        return {
-            signal_id: signal.signal_id,
-            content: signal.content,
-            source_product: signal.source_product,
-            source_type: signal.source_type,
-            source_id: signal.source_id,
-            timestamp: signal.timestamp,
-            extra: { ...signal.extra },
-            headline: firstLine,
-            lead: firstLine,
-            meta: '',
-            cited: signal.source_product === 'signals_scout' ? ('code' as const) : null,
-            recording: null,
-            link: null,
-            preview: {
-                hint: 'Show the description',
-                code: [],
-                block: [],
-                text: signal.content,
-                facts: [],
-                link: null,
-                link_label: null,
-            },
-        }
-    })
-    return {
-        lead: report.summary_lead ?? '',
-        proposal: report.suggested_prompts?.[0] ?? '',
-        impact_sentence: '',
-        named_pull_request: null,
-        solution_names_pull_request: false,
-        evidence: signals.slice(0, 3),
-        source_count: signals.length,
-        impact_numbers:
-            report.id === 'report-1'
-                ? [
-                      {
-                          key: 'tickets',
-                          value: '4',
-                          sentence: 'support tickets over 3 days.',
-                          signal: signals[0],
-                          values: [],
-                          working: null,
-                      },
-                  ]
-                : [],
-        last_seen: null,
-    }
-}
-
 const DAILY = (base: number, step: number): number[] =>
     Array.from({ length: 28 }, (_, day) => base + ((day * step) % 23) + (day % 7 >= 5 ? -base * 0.3 : 0))
 
@@ -720,7 +665,6 @@ const meta: Meta = {
                     ALL_REPORTS.find((report) => report.id === req.params.id) ?? REPORTS[0],
                 ],
                 '/api/environments/:team_id/query/:kind/': reportMetricQueryHandler,
-                '/api/projects/:team_id/today/reports/:id/page/': (req) => [200, mockReportPage(String(req.params.id))],
                 '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [], count: 0, next: null },
                 '/api/projects/:team_id/signals/reports/:id/checks/': { results: [], count: 0, next: null },
                 '/api/projects/:team_id/signals/reports/:id/signals/': (req) => [
@@ -845,10 +789,6 @@ export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
 }
 
-export const SampleReportPage: Story = {
-    parameters: { pageUrl: `${urls.todayReport('sample-pr')}?sample=1` },
-}
-
 export const HomeWithReportsOnly: Story = {
     decorators: [
         mswDecorator({
@@ -893,31 +833,6 @@ export const HomeWithoutReportsWhenHighlightsFailToLoad: Story = {
             },
         }),
     ],
-}
-
-export const ReportWithPullRequest: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1') },
-}
-
-export const ReportProposingItsFirstPrompt: Story = {
-    parameters: { pageUrl: urls.todayReport('report-2') },
-}
-
-export const ReportWithAnImpactMetric: Story = {
-    parameters: { pageUrl: urls.todayReport('report-4') },
-}
-
-export const ReportWithTicketsAndEvidenceDetail: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1') },
-}
-
-export const ReportThatFailsToLoad: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1') },
-    decorators: [mswDecorator({ get: { '/api/projects/:team_id/today/reports/:id/page/': () => [500, {}] } })],
-}
-
-export const ReportInANarrowWindow: Story = {
-    parameters: { pageUrl: urls.todayReport('report-1'), testOptions: { viewport: { width: 800, height: 900 } } },
 }
 
 export const ChatsPane: Story = {
