@@ -13,7 +13,7 @@ export interface SkillKept {
 
 function KeptCount({ kept }: { kept: SkillKept | null }): JSX.Element {
     if (kept === null || kept.raised === 0) {
-        return <span className="text-xs text-secondary">No findings in your last 10</span>
+        return <span className="text-xs text-secondary">No recent findings</span>
     }
     return (
         <span className="flex items-center gap-2 text-xs text-secondary">
@@ -46,7 +46,9 @@ export function SkillRow({
         <div className="grid grid-cols-1 items-center gap-2 px-4 py-2 @min-[48rem]:grid-cols-[minmax(0,1fr)_minmax(0,16rem)] @min-[48rem]:gap-3">
             <div className="flex min-w-0 flex-col gap-0.5">
                 <span className="text-sm font-semibold">{prettifySkillName(skillName)}</span>
-                <span className="text-xs text-secondary">{description}</span>
+                <span className="line-clamp-1 text-xs text-secondary" title={description}>
+                    {description}
+                </span>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                     {kept !== undefined && <KeptCount kept={kept} />}
                     <Link
@@ -55,12 +57,12 @@ export function SkillRow({
                         className="inline-flex items-center gap-0.5 text-xs"
                         data-attr="review-hog-edit-skill-text"
                     >
-                        Edit text for the project <IconExternal className="size-3" />
+                        Edit skill <IconExternal className="size-3" />
                     </Link>
                 </div>
             </div>
             <div className="flex min-w-0 flex-wrap items-center gap-1">
-                <span className="text-xs text-secondary @min-[48rem]:hidden">Mine:</span>
+                <span className="text-xs text-secondary @min-[48rem]:hidden">My preference:</span>
                 {mine}
             </div>
         </div>

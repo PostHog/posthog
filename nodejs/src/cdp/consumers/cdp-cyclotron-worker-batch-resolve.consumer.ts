@@ -20,6 +20,7 @@ import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
+import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
 import { invocationToV2JobInit } from '../services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import {
@@ -89,7 +90,10 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         private internalFetchService: InternalFetchService
     ) {
         super(config, deps)
+        this.realtimeCohortAudience = new RealtimeCohortAudienceService(deps.postgres)
     }
+
+    private realtimeCohortAudience: RealtimeCohortAudienceService
 
     public override async start(): Promise<void> {
         await super.start()
@@ -288,16 +292,52 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                     accountGroupType: accountPage.group_type,
                 }
             } else {
-                const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
-                    this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
-                        team,
-                        state.filters,
-                        state.groupTypeIndex,
-                        state.cursor,
-                        state.dedupeKey
+                // An audience of one realtime cohort reads that cohort's members from the realtime
+                // pipeline's Postgres table, which is the source of truth. It skips the email dedupe,
+                // because Postgres holds no emails.
+                const realtimeCohort = state.realtimeCohort
+                if (realtimeCohort && !this.config.BEHAVIORAL_COHORTS_DATABASE_URL) {
+                    // Without its own URL the router reads the main database, which has no
+                    // cohort_membership table, so every retry would fail the same way.
+                    logger.error(
+                        '🔴',
+                        `${this.name} - realtime cohort audience without a behavioral cohorts database`,
+                        {
+                            batchJobId: state.batchJobId,
+                            cohortId: realtimeCohort.id,
+                        }
                     )
-                )
-                page = { ids: personsPage.users_affected, cursor: personsPage.cursor, has_more: personsPage.has_more }
+                    await this.transitionToFailedTerminal(
+                        job,
+                        state,
+                        "Sending to a realtime cohort isn't available here yet. Use a different audience."
+                    )
+                    return
+                }
+                if (realtimeCohort) {
+                    page = await instrumentFn('cdpBatchResolve.getRealtimeCohortMemberPage', () =>
+                        this.realtimeCohortAudience.getMemberPage(
+                            realtimeCohort.teamId,
+                            realtimeCohort.id,
+                            state.cursor
+                        )
+                    )
+                } else {
+                    const personsPage = await instrumentFn('cdpBatchResolve.getBlastRadiusPersons', () =>
+                        this.hogFlowBatchPersonQueryService.getBlastRadiusPersons(
+                            team,
+                            state.filters,
+                            state.groupTypeIndex,
+                            state.cursor,
+                            state.dedupeKey
+                        )
+                    )
+                    page = {
+                        ids: personsPage.users_affected,
+                        cursor: personsPage.cursor,
+                        has_more: personsPage.has_more,
+                    }
+                }
             }
         } catch (err) {
             counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'fetch_failure' }).inc()

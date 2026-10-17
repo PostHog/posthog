@@ -36,8 +36,8 @@ class WizardCatalogToolSerializer(serializers.Serializer):
         allow_null=True,
         help_text="How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.",
     )
-    competes_with = serializers.ListField(
-        child=serializers.CharField(), help_text="PostHog products this tool competes with."
+    alternative_to = serializers.ListField(
+        child=serializers.CharField(), help_text="PostHog products this tool is an alternative to."
     )
     superseded_by = serializers.ListField(
         child=serializers.CharField(),

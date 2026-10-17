@@ -99,6 +99,7 @@ from products.alerts.backend.facade.api import (
     is_llm_detector_config,
 )
 from products.alerts.backend.facade.destinations import count_active_alert_destinations
+from products.alerts.backend.facade.email import alert_email_recipients
 from products.alerts.backend.insight_alert_state_machine import apply_unsnooze
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.notifications.backend.facade.api import (
@@ -1007,7 +1008,7 @@ async def record_failed_evaluation(inputs: RecordFailedEvaluationActivityInputs)
 def dispatch_alert_firing_realtime_notification(
     alert: AlertConfiguration, alert_check: AlertCheck, breaches: list[str]
 ) -> None:
-    """Fan out one realtime in-app notification per subscribed user when an alert fires.
+    """Fan out one realtime in-app notification per subscribed user who can view the insight.
 
     Exceptions are caught and logged internally so a realtime delivery failure does not
     poison the email path or the alert-check transaction.
@@ -1018,7 +1019,7 @@ def dispatch_alert_firing_realtime_notification(
             body += f" (+{len(breaches) - 3} more)"
         title = f"Alert firing: {alert.name}"[:100]
         source_url = f"/project/{alert.team.project_id}/insights/{alert.insight.short_id}#alert={alert.id}"
-        for user_id in alert.subscribed_users.values_list("id", flat=True):
+        for user_id, _ in alert_email_recipients(team_id=alert.team_id, alert_id=alert.id):
             create_notification(
                 NotificationData(
                     team_id=alert.team_id,

@@ -2102,7 +2102,7 @@ class PostgresSource(
                 "writes. Set it to 'consolidated', 'cdc_only' or 'both'."
             )
 
-        def no_op_tick() -> SourceResponse:
+        def no_op_tick(*, reset_handed_over: bool = False) -> SourceResponse:
             # An empty response no-ops this tick and keeps the schedule alive. Nothing is listed and
             # nothing is deleted. An earlier attempt of this same job may have stamped a listing, though, and
             # the workflow completes the job on this response — so the stamp comes off, or a batch
@@ -2117,18 +2117,20 @@ class PostgresSource(
                 cdc_write_mode=first_lane.write_mode,
                 # A change stream carries no seekable key, and `supports_resume` defaults to True.
                 supports_resume=False,
+                reset_handed_over=reset_handed_over,
             )
 
         job = ExternalDataJob.objects.filter(id=inputs.job_id, team_id=inputs.team_id).first()
 
         # A CDC reset must travel through snapshot mode, which re-seeds the table before the buffer
-        # replays over it; every reset writer does that. Merging the buffer into a wiped table
-        # instead would leave only the rows changed since.
+        # replays over it. Merging the buffer into a wiped table instead would leave only the rows
+        # changed since. A reset that reaches a streaming table anyway goes to capture, which puts the
+        # table back into snapshot mode. Refusing it would fail every run of the table until a manual reset.
+        # This run must not delete the table itself: capture waits for queued batches to land first.
         if inputs.reset_pipeline:
-            raise ValueError(
-                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
-                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
-            )
+            inputs.logger.warning("cdc_buffered_reset_handed_to_capture", schema_name=schema.name)
+            hand_reset_to_capture(schema, inputs.logger, start_capture=False)
+            return no_op_tick(reset_handed_over=True)
 
         if has_batches_in_flight(schema):
             # Reading now would stage rows alongside a delivery that is still landing: a previous
@@ -2259,6 +2261,7 @@ class PostgresSource(
                 is_xmin=schema.is_xmin,
                 xmin_cursor=self.get_cursor_manager(inputs) if schema.is_xmin else None,
                 activity_attempt=inputs.activity_attempt,
+                worker_deaths=inputs.worker_deaths,
                 resumable_source_manager=resumable_source_manager,
             )
         except SqlclientUnableToEstablishSqlconnection as e:

@@ -49,7 +49,7 @@ A scheduled run can start with a `<precheck_result>` block. Its one row counts t
 
 Close out empty (after one scratchpad entry) if any of these hold:
 
-- `customer_analytics` is **not** in the profile's `products_in_use`, or `system.accounts` is empty (`SELECT count() FROM system.accounts` is 0) → `not-in-use:customer_analytics:team{team_id}`.
+- The profile's `surfaces["signals-scout-customer-analytics"]` entry reads `in_use: false`, or `system.accounts` is empty (`SELECT count() FROM system.accounts` is 0) → `not-in-use:customer_analytics:team{team_id}`. Do not close out on `products_in_use`: it lists onboarding, not usage.
 - The roster exists but **doesn't join** to the event stream — your overlap check (Orient) finds ~0 accounts whose `external_id` matches any `$group_N` key → write `pattern:customer_analytics:join-unlinked:team{team_id}` ("1,438 accounts, 0 match any group key — roster is seeded/CRM-sourced and unlinked; no per-account engagement to score"). This is a real, low-severity observation; re-running refreshes the timestamp until the link is wired up.
 
 Re-running with the same key idempotently refreshes the timestamp.
