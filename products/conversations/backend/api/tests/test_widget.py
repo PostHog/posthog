@@ -19,6 +19,7 @@ from posthog.rate_limit import WidgetTeamPollThrottle
 from posthog.test.authentication_checks import covers_authentication
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
+from products.conversations.backend.cache import is_typing
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import (
@@ -655,6 +656,70 @@ class TestWidgetAPI(BaseTest):
 
         ticket.refresh_from_db()
         self.assertEqual(ticket.unread_customer_count, 5)
+
+    def test_typing_flags_reach_the_other_side(self):
+        cache.clear()
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        messages_url = (
+            f"/api/conversations/v1/widget/messages/{ticket.id}?widget_session_id={self.widget_session_id}&limit=50"
+        )
+        agent_typing_url = f"/api/projects/{self.team.id}/conversations/tickets/{ticket.id}/typing/"
+        agent_client = APIClient()
+        agent_client.force_login(self.user)
+
+        try:
+            first_poll = self.client.get(messages_url, **self._get_headers())
+            self.assertEqual(first_poll.status_code, status.HTTP_200_OK)
+            self.assertFalse(first_poll.json()["agent_typing"])
+            self.assertFalse(agent_client.get(agent_typing_url).json()["customer_typing"])
+
+            typing = self.client.post(
+                f"/api/conversations/v1/widget/messages/{ticket.id}/typing",
+                {"widget_session_id": self.widget_session_id},
+                **self._get_headers(),
+            )
+            self.assertEqual(typing.status_code, status.HTTP_200_OK)
+            self.assertTrue(agent_client.get(agent_typing_url).json()["customer_typing"])
+
+            self.assertEqual(agent_client.post(agent_typing_url).status_code, status.HTTP_200_OK)
+            # The second poll hits the messages cache, which must not freeze the flag.
+            self.assertTrue(self.client.get(messages_url, **self._get_headers()).json()["agent_typing"])
+
+            with self.captureOnCommitCallbacks(execute=True):
+                Comment.objects.create(
+                    team=self.team,
+                    scope="conversations_ticket",
+                    item_id=str(ticket.id),
+                    content="Hi there",
+                    item_context={"author_type": "customer"},
+                )
+            self.assertFalse(agent_client.get(agent_typing_url).json()["customer_typing"])
+        finally:
+            cache.clear()
+
+    def test_typing_from_another_widget_session_is_forbidden(self):
+        cache.clear()
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        try:
+            response = self.client.post(
+                f"/api/conversations/v1/widget/messages/{ticket.id}/typing",
+                {"widget_session_id": str(uuid.uuid4())},
+                **self._get_headers(),
+            )
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertFalse(is_typing(self.team.id, str(ticket.id), "customer"))
+        finally:
+            cache.clear()
 
     def test_honeypot_rejects_bot(self):
         response = self.client.post(

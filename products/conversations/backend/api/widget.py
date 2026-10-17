@@ -34,7 +34,7 @@ from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
-from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_WRITE_THROTTLES
+from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_TYPING_THROTTLES, WIDGET_WRITE_THROTTLES
 
 from products.conversations.backend.api.serializers import (
     WIDGET_TICKETS_DEFAULT_LIMIT,
@@ -42,6 +42,7 @@ from products.conversations.backend.api.serializers import (
     WidgetMessageSerializer,
     WidgetMessagesQuerySerializer,
     WidgetTicketsQuerySerializer,
+    WidgetTypingSerializer,
     validate_origin,
 )
 from products.conversations.backend.cache import (
@@ -52,6 +53,8 @@ from products.conversations.backend.cache import (
     invalidate_identity_tickets_cache,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
+    is_typing,
+    mark_typing,
     set_cached_messages,
     set_cached_tickets,
 )
@@ -551,6 +554,8 @@ class WidgetMessagesView(APIView):
         if use_cache:
             cached = get_cached_messages(team.id, ticket_id, after_str)
             if cached is not None:
+                # The typing flag changes faster than the cache TTL, so it is never cached.
+                cached["agent_typing"] = is_typing(team.id, ticket_id, "agent")
                 return Response(cached)
 
         # Build query - prefetch created_by to avoid N+1 queries
@@ -615,6 +620,7 @@ class WidgetMessagesView(APIView):
         if use_cache:
             set_cached_messages(team.id, ticket_id, response_data, after_str)
 
+        response_data["agent_typing"] = is_typing(team.id, ticket_id, "agent")
         return Response(response_data)
 
 
@@ -807,3 +813,58 @@ class WidgetMarkReadView(APIView):
                 invalidate_tickets_cache(team.id, cache_invalidation_key)
 
         return Response({"success": True, "unread_count": 0})
+
+
+class WidgetTypingView(APIView):
+    """
+    POST /api/conversations/v1/widget/messages/<ticket_id>/typing
+    Signal that the customer is typing. The flag expires after a few seconds,
+    so the widget sends this again while the customer keeps typing.
+    """
+
+    authentication_classes = [WidgetAuthentication]
+    permission_classes = [AllowAny]
+    throttle_classes = WIDGET_TYPING_THROTTLES
+
+    def post(self, request: Request, ticket_id: str) -> Response:
+        team: Team | None = request.auth  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+        if not team:
+            return Response({"error": "Authentication required"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            ticket_id = str(serializers.UUIDField().to_internal_value(ticket_id))
+        except ValidationError:
+            return Response({"error": "Invalid ticket_id format"}, status=status.HTTP_400_BAD_REQUEST)
+
+        body_serializer = WidgetTypingSerializer(data=request.data)
+        if not body_serializer.is_valid():
+            return Response(
+                {"error": "Invalid request data", "details": body_serializer.errors}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            ticket = Ticket.objects.get(id=ticket_id, team=team)
+        except Ticket.DoesNotExist:
+            return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Verify ownership: identity mode uses distinct_id, legacy uses widget_session_id
+        try:
+            identity_secrets = _request_identity_secrets(body_serializer.validated_data, team)
+            verified_distinct_id = _verify_identity(body_serializer.validated_data, team, identity_secrets)
+        except IdentityVerificationFailed as e:
+            return Response({"error": e.public_error}, status=status.HTTP_403_FORBIDDEN)
+
+        if verified_distinct_id is not None:
+            verified_email = _verify_identity_claim(
+                body_serializer.validated_data, team, verified_distinct_id, secrets=identity_secrets
+            )
+            if _viewer_ticket_match(team, verified_distinct_id, ticket, verified_email) is None:
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        elif "widget_session_id" in body_serializer.validated_data:
+            if ticket.widget_session_id != str(body_serializer.validated_data["widget_session_id"]):
+                return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        else:
+            return Response({"error": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+
+        mark_typing(team.id, ticket_id, "customer")
+        return Response({"success": True, "agent_typing": is_typing(team.id, ticket_id, "agent")})

@@ -112848,6 +112848,11 @@ export namespace Schemas {
       rich_content?: unknown;
     }
 
+    export interface TicketTypingResponse {
+      /** True while the customer types in the widget. The flag expires a few seconds after the last keystroke. */
+      customer_typing: boolean;
+    }
+
     export interface TicketUnreadCountResponse {
       /**
          * Unread messages across the non-resolved tickets the caller can see.

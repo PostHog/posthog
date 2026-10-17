@@ -83,6 +83,8 @@ from products.conversations.backend.cache import (
     invalidate_messages_cache,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
+    is_typing,
+    mark_typing,
     set_cached_unread_count,
 )
 from products.conversations.backend.events import (
@@ -625,6 +627,12 @@ class TicketUnreadCountResponseSerializer(serializers.Serializer):
     )
 
 
+class TicketTypingResponseSerializer(serializers.Serializer):
+    customer_typing = serializers.BooleanField(
+        help_text="True while the customer types in the widget. The flag expires a few seconds after the last keystroke."
+    )
+
+
 TICKET_ID_PARAM = OpenApiParameter(
     name="id",
     type=OpenApiTypes.STR,
@@ -758,7 +766,7 @@ class _TicketUpdateDiff:
 )
 class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "ticket"
-    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages", "full_email"]
+    scope_object_read_actions = ["list", "retrieve", "unread_count", "messages", "full_email", "typing_status"]
     # "create" stays listed so a ticket:write token reaches the create() override below and
     # gets a clear 405 (pointing to the SDK), rather than a misleading "not supported" 403.
     scope_object_write_actions = [
@@ -770,6 +778,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
         "reply",
         "ai_feedback",
         "ai_human_outcome",
+        "mark_agent_typing",
         "note",
         "delete_note",
         "create_note",
@@ -1906,6 +1915,35 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, AccessContro
             locked.save(update_fields=["deleted"])
 
         return Response(status=drf_status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        responses={200: TicketTypingResponseSerializer},
+    )
+    @action(detail=True, methods=["get"], url_path="typing")
+    def typing_status(self, request, *args, **kwargs):
+        """Return whether the customer is typing in the widget right now."""
+        ticket = self.get_object()
+        return Response(
+            TicketTypingResponseSerializer(
+                {"customer_typing": is_typing(self.team_id, str(ticket.id), "customer")}
+            ).data
+        )
+
+    @extend_schema(
+        parameters=[TICKET_ID_PARAM],
+        request=None,
+        responses={200: TicketTypingResponseSerializer},
+    )
+    @typing_status.mapping.post
+    def mark_agent_typing(self, request, *args, **kwargs):
+        """Signal that a team member is typing a reply, so the widget can show it to the customer."""
+        ticket = self.get_object()
+        ticket_id = str(ticket.id)
+        mark_typing(self.team_id, ticket_id, "agent")
+        return Response(
+            TicketTypingResponseSerializer({"customer_typing": is_typing(self.team_id, ticket_id, "customer")}).data
+        )
 
     @extend_schema(
         parameters=[TICKET_ID_PARAM],

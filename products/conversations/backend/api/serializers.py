@@ -211,6 +211,12 @@ class WidgetMarkReadSerializer(WidgetAuthSerializer):
     pass
 
 
+class WidgetTypingSerializer(WidgetAuthSerializer):
+    """Serializer for signaling that the customer is typing in a ticket."""
+
+    pass
+
+
 def validate_origin(request, team: Team) -> bool:
     """
     Validate request origin to prevent token reuse on unauthorized domains.

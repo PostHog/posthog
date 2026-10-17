@@ -565,6 +565,11 @@ export interface TicketReplyRequestApi {
     rich_content?: unknown
 }
 
+export interface TicketTypingResponseApi {
+    /** True while the customer types in the widget. The flag expires a few seconds after the last keystroke. */
+    customer_typing: boolean
+}
+
 export interface BulkUpdateStatusRequestApi {
     /**
      * List of ticket UUIDs to update.
