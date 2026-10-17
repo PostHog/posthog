@@ -13,7 +13,11 @@ import { SurveyQuestionDescriptionContentType } from '~/types'
 const lowlight = createLowlight(common)
 lowlight.register({ xml })
 
+// The highlighted overlay and the textarea below it must use the same font, line height and padding, because a
+// difference moves the caret and the selection away from the characters that the user sees.
 const CODE_FONT_FAMILY = 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace'
+const CODE_LINE_HEIGHT = '1.5'
+const CODE_PADDING = 'p-[10px_12px]'
 
 function HighlightedTextArea({
     value,
@@ -37,10 +41,13 @@ function HighlightedTextArea({
 
     const displayValue = value || ''
     const showPlaceholder = !displayValue && placeholder
+    // A pre element does not add a line box for a trailing newline, but a textarea does. The overlay adds the newline
+    // back, because the missing line box moves the highlighted text away from the caret at the bottom of the editor.
+    const overlayValue = displayValue.endsWith('\n') ? `${displayValue}\n` : displayValue
     const highlighted = useMemo(
         () =>
-            lowlight.registered('xml') ? lowlight.highlight('xml', displayValue) : lowlight.highlightAuto(displayValue),
-        [displayValue]
+            lowlight.registered('xml') ? lowlight.highlight('xml', overlayValue) : lowlight.highlightAuto(overlayValue),
+        [overlayValue]
     )
 
     return (
@@ -53,8 +60,8 @@ function HighlightedTextArea({
         >
             {showPlaceholder ? (
                 <div
-                    className="absolute inset-0 p-[10px_12px] text-muted pointer-events-none"
-                    style={{ fontFamily: CODE_FONT_FAMILY, lineHeight: '1.5' }}
+                    className={clsx('absolute inset-0 text-muted pointer-events-none', CODE_PADDING)}
+                    style={{ fontFamily: CODE_FONT_FAMILY, lineHeight: CODE_LINE_HEIGHT }}
                 >
                     {placeholder}
                 </div>
@@ -62,21 +69,22 @@ function HighlightedTextArea({
                 <pre
                     ref={preRef}
                     className={clsx(
-                        'm-0 overflow-auto pointer-events-none bg-transparent h-full whitespace-pre-wrap',
-                        'border-none leading-6'
+                        'm-0 overflow-auto pointer-events-none bg-transparent h-full whitespace-pre-wrap border-none',
+                        CODE_PADDING
                     )}
                     style={{
-                        padding: '10px 12px',
                         wordWrap: 'break-word',
-                        fontFamily: 'inherit',
+                        fontFamily: CODE_FONT_FAMILY,
                         fontSize: 'inherit',
+                        lineHeight: CODE_LINE_HEIGHT,
                     }}
                 >
                     <code
-                        className={clsx('hljs leading-6', isDarkModeOn && 'hljs-dark')}
+                        className={clsx('hljs', isDarkModeOn && 'hljs-dark')}
                         style={{
                             fontFamily: CODE_FONT_FAMILY,
                             fontSize: 'inherit',
+                            lineHeight: CODE_LINE_HEIGHT,
                         }}
                         dangerouslySetInnerHTML={{ __html: toHtml(highlighted) }}
                     />
@@ -93,14 +101,15 @@ function HighlightedTextArea({
                 autoCapitalize="off"
                 className={clsx(
                     'absolute inset-0 w-full h-full resize-none bg-transparent',
-                    'p-[10px_12px] text-transparent selection:bg-primary-highlight',
+                    CODE_PADDING,
+                    'text-transparent selection:bg-primary-highlight',
                     'focus:outline-none focus:ring-1 focus:ring-primary',
                     isDarkModeOn ? 'caret-white' : 'caret-black'
                 )}
                 style={{
                     fontFamily: CODE_FONT_FAMILY,
                     fontSize: 'inherit',
-                    lineHeight: '1.5',
+                    lineHeight: CODE_LINE_HEIGHT,
                 }}
             />
         </div>
