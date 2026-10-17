@@ -301,6 +301,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 listing_tags["replay_event_filter_count"] = plan.filter_count
                 listing_tags["replay_event_query_property_filter_count"] = plan.property_filter_count
                 listing_tags["replay_combined_event_query_eligible"] = plan.combined_eligible
+                listing_tags["replay_unsessioned_event_filter_count"] = plan.unsessioned_filter_count
                 listing_tags["replay_event_query_operand"] = self._query.operand
                 listing_tags["replay_event_query_range_days"] = (
                     self.query_date_range.date_to() - self.query_date_range.date_from()
