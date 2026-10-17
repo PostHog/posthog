@@ -435,6 +435,67 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @time_machine.travel("2021-01-02 00:00:00.000Z", tick=False)
+    def test_funnel_person_recordings_when_step_event_has_no_session_id(self):
+        p1 = _create_person(distinct_ids=["user_1"], team=self.team)
+        _create_event(
+            event="step one",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            properties={"$session_id": "s1", "$window_id": "w1"},
+            event_uuid="11111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="step two",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            event_uuid="21111111-1111-1111-1111-111111111111",
+        )
+        _create_event(
+            event="unrelated",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp=(timezone.now() + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            properties={"$session_id": "s_other", "$window_id": "w_other"},
+        )
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s1",
+            distinct_id="user_1",
+            first_timestamp=timezone.now(),
+        )
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id="s_other",
+            distinct_id="user_1",
+            first_timestamp=timezone.now() + timedelta(minutes=30),
+        )
+
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two"), EventsNode(event="step three")],
+            dateRange=DateRange(date_from="2021-01-01", date_to="2021-01-08"),
+            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
+        )
+        expected_recordings = [
+            {
+                "session_id": "s1",
+                "events": [
+                    {
+                        "uuid": UUID("11111111-1111-1111-1111-111111111111"),
+                        "timestamp": timezone.now(),
+                        "window_id": "w1",
+                    }
+                ],
+            }
+        ]
+
+        for funnel_step in (2, -3):
+            results = get_actors(query, self.team, funnel_step=funnel_step, include_recordings=True)
+            self.assertEqual(results[0][0], p1.uuid)
+            self.assertEqual(list(results[0][2]), expected_recordings)
+
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(
             distinct_ids=["person1"],

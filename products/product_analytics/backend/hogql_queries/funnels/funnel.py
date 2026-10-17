@@ -86,13 +86,23 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
     def matched_event_arrays_selects(self):
         # We use matched events to get timestamps for the funnel as well as recordings
         if self._include_matched_events() or self.context.includePrecedingTimestamp or self.context.includeTimestamp:
-            return """
+            return f"""
             af_tuple.4 as matched_event_uuids_array_array,
             groupArray(tuple(timestamp, uuid, $session_id, $window_id)) as user_events,
             mapFromArrays(arrayMap(x -> x.2, user_events), user_events) as user_events_map,
             arrayMap(matched_event_uuids_array -> arrayMap(event_uuid -> user_events_map[event_uuid], arrayDistinct(matched_event_uuids_array)), matched_event_uuids_array_array) as matched_events_array,
+            {self._session_step_events_select()}
             """
         return ""
+
+    def _session_step_events_select(self) -> str:
+        if not self._include_matched_events():
+            return ""
+        is_step_event = " OR ".join(f"step_{i} = 1" for i in range(self.context.max_steps))
+        return f"""arraySort(e -> e.1, groupArrayIf(
+                tuple(timestamp, uuid, $session_id, $window_id),
+                ({is_step_event}) AND $session_id != ''
+            )) as session_step_events,"""
 
     # This is a simple heuristic to reduce the number of events we look at in UDF funnels (thus are serialized and sent over)
     # We remove an event if it matches one or zero steps and there was already the same type of event before and after it (that don't have the same timestamp)
@@ -394,13 +404,24 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         ):
             if self.context.includeFinalMatchingEvents:
                 # Always returns the user's final step of the funnel, 1 indexed
-                return [parse_expr("matched_events_array[step_reached + 1] as matching_events")]
+                return [self._matching_events_with_session_fallback("matched_events_array[step_reached + 1]")]
 
             absolute_actors_step = self._absolute_actors_step
             if absolute_actors_step is None:
                 raise ValueError("Missing funnelStep actors query property")
-            return [parse_expr(f"matched_events_array[{absolute_actors_step + 1}] as matching_events")]
+            return [self._matching_events_with_session_fallback(f"matched_events_array[{absolute_actors_step + 1}]")]
         return []
+
+    def _matching_events_with_session_fallback(self, step_events: str) -> ast.Expr:
+        # Server-side step events have no $session_id, so they match no recording.
+        # In that case, use the latest earlier step event that has a $session_id.
+        return parse_expr(
+            f"""if(
+                empty({step_events}) OR notEmpty(arrayFilter(e -> e.3 != '', {step_events})),
+                {step_events},
+                arraySlice(arrayFilter(e -> e.1 <= arrayMax(arrayMap(e -> e.1, {step_events})), session_step_events), -1)
+            ) as matching_events"""
+        )
 
     def _get_timestamp_outer_select(self) -> list[ast.Expr]:
         """
