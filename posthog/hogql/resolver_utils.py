@@ -187,16 +187,9 @@ def suggested_field_fix(node: ast.Field, suggestion: str) -> Optional[str]:
         return None
 
 
-def lookup_table_by_name(
-    scope: ast.SelectQueryType, ctes: dict[str, ast.CTE], node: ast.Field
-) -> Optional[ast.TableOrSelectType]:
+def lookup_table_by_name(scope: ast.SelectQueryType, node: ast.Field) -> Optional[ast.TableOrSelectType]:
     if len(node.chain) > 1 and str(node.chain[0]) in scope.tables:
         return scope.tables[str(node.chain[0])]
-
-    if len(node.chain) > 1 and str(node.chain[0]) in ctes:
-        cte = ctes[str(node.chain[0])]
-        if isinstance(cte.type, ast.CTETableType):
-            return cte.type.select_query_type
 
     # Some external engines resolve unquoted identifiers case-insensitively, so a qualifier may
     # spell such a table differently than the FROM clause did. Accept a unique folded match.
