@@ -1,77 +1,61 @@
-import { BaseEdge, Edge, EdgeLabelRenderer, EdgeProps, useEdges } from '@xyflow/react'
+import { BaseEdge, EdgeLabelRenderer, EdgeProps } from '@xyflow/react'
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import { HogFlowEdge } from '../types'
+import { HogFlowActionEdge, HogFlowEdge } from '../types'
 import { MINIMUM_EDGE_SPACING } from './constants'
 
+// Spreads edges that share a source evenly around the source handle: branches first by index, then continue.
+// Runs once per edges change in O(E log E), so each edge does not scan the whole edge list on render.
+export function getEdgeHorizontalOffsets(
+    edges: HogFlowEdge[],
+    getId: (edge: HogFlowEdge) => string
+): Map<string, number> {
+    const edgesBySource = new Map<string, HogFlowEdge[]>()
+    for (const edge of edges) {
+        const siblings = edgesBySource.get(edge.from)
+        if (siblings) {
+            siblings.push(edge)
+        } else {
+            edgesBySource.set(edge.from, [edge])
+        }
+    }
+
+    const offsets = new Map<string, number>()
+    for (const siblings of edgesBySource.values()) {
+        const sortedEdges = [...siblings].sort((a, b) => {
+            if (a.type === 'branch' && b.type === 'branch') {
+                return (a.index || 0) - (b.index || 0)
+            }
+            return a.type === 'continue' ? 1 : -1
+        })
+        const centerIndex = (sortedEdges.length - 1) / 2
+        sortedEdges.forEach((edge, edgeIndex) => {
+            offsets.set(getId(edge), (edgeIndex - centerIndex) * MINIMUM_EDGE_SPACING)
+        })
+    }
+    return offsets
+}
+
 // Programmatic function to get smart step path with horizontal branching
-// Handles both edge-to-edge spacing and edge-to-node collision avoidance
 export function getSmartStepPath({
     sourceX,
     sourceY,
     targetX,
     targetY,
-    edges,
-    currentEdgeId,
+    horizontalOffset = 0,
     borderRadius = 5,
 }: {
     sourceX: number
     sourceY: number
     targetX: number
     targetY: number
-    edges: Edge[]
-    currentEdgeId: string
+    horizontalOffset?: number
     borderRadius?: number
 }): [string, number, number, number, number] {
-    // Calculate smart horizontal offset for this edge
-    const calculateHorizontalOffset = (): number => {
-        if (!currentEdgeId || edges.length === 0) {
-            return 0
-        }
-
-        // Find the current edge if it exists
-        const currentEdge = edges.find((edge) => edge.id === currentEdgeId)
-        if (!currentEdge) {
-            return 0
-        }
-
-        // Find edges that share the same source, including the current edge
-        const conflictingEdges = edges.filter((edge) => edge.source === currentEdge.source)
-
-        // Initialize offset based on edge conflicts
-        let horizontalOffset = 0
-
-        if (conflictingEdges.length > 0) {
-            // Sort edges by source handle position to ensure consistent ordering
-            const sortedEdges = conflictingEdges.sort((a, b) => {
-                const aEdgeData = a.data!.edge as HogFlowEdge
-                const bEdgeData = b.data!.edge as HogFlowEdge
-
-                if (aEdgeData.type === 'branch' && bEdgeData.type === 'branch') {
-                    return (aEdgeData.index || 0) - (bEdgeData.index || 0)
-                }
-
-                return aEdgeData.type === 'continue' ? 1 : -1
-            })
-            const edgeIndex = sortedEdges.findIndex((edge) => edge.id === currentEdgeId)
-            const totalEdges = sortedEdges.length
-
-            // Calculate horizontal offset to distribute edges evenly
-            // Center the group around zero offset
-            const centerIndex = (totalEdges - 1) / 2
-            const offsetMultiplier = edgeIndex - centerIndex
-            horizontalOffset = offsetMultiplier * MINIMUM_EDGE_SPACING
-        }
-
-        return horizontalOffset
-    }
-
-    const horizontalOffset = calculateHorizontalOffset()
-
     // Define key points for the 5-segment path
     // Ensure adequate spacing between segments, especially for vertically close nodes
     const verticalDistance = targetY - sourceY
@@ -167,54 +151,26 @@ function EdgeLabel({ transform, label }: { transform: string; label: string }): 
     )
 }
 
-function findXAtY(path: SVGPathElement, targetY: number, totalLength: number): number | null {
-    const tolerance = 1 // Y tolerance for finding intersection
-    const step = totalLength / 1000 // Sample the path at 1000 points
+// Returns the first point where the path crosses targetY. The path only holds M, L and Q commands, and each
+// Q only rounds a corner of borderRadius, so straight lines between command end points are close enough.
+// This avoids a temporary DOM SVG, which forces a browser layout on every edge render.
+export function getPointAtYValue(pathString: string, targetY: number): { x: number; y: number } {
+    const points: [number, number][] = []
+    for (const command of pathString.match(/[MLQ][^MLQ]*/g) ?? []) {
+        const numbers = command.slice(1).trim().split(/\s+/).map(Number)
+        points.push([numbers[numbers.length - 2], numbers[numbers.length - 1]])
+    }
 
-    for (let distance = 0; distance <= totalLength; distance += step) {
-        const point = path.getPointAtLength(distance)
-        if (Math.abs(point.y - targetY) <= tolerance) {
-            return point.x
+    for (let i = 1; i < points.length; i++) {
+        const [x1, y1] = points[i - 1]
+        const [x2, y2] = points[i]
+        if ((targetY - y1) * (targetY - y2) <= 0) {
+            const x = y1 === y2 ? x1 : x1 + ((targetY - y1) / (y2 - y1)) * (x2 - x1)
+            return { x, y: targetY }
         }
     }
 
-    return null
-}
-
-function getPointAtYValue(pathString: string, distance: number, targetY?: number): { x: number; y: number } {
-    // Create a temporary SVG path element to calculate the point
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-    path.setAttribute('d', pathString)
-    svg.appendChild(path)
-    document.body.appendChild(svg)
-
-    try {
-        const totalLength = path.getTotalLength()
-
-        // Calculate the Y value to use
-        let yValue: number
-        if (targetY !== undefined) {
-            yValue = targetY
-        } else {
-            // Calculate Y based on distance along path (25% minimum)
-            const percentageDistance = totalLength * 0.25
-            const effectiveDistance = Math.max(distance, percentageDistance)
-            const clampedDistance = Math.min(effectiveDistance, totalLength)
-            const point = path.getPointAtLength(clampedDistance)
-            yValue = point.y
-        }
-
-        // Find the X coordinate at the Y value
-        const xAtY = findXAtY(path, yValue, totalLength)
-
-        return {
-            x: xAtY !== null ? xAtY : 0, // Fallback to 0 if no intersection found
-            y: yValue,
-        }
-    } finally {
-        document.body.removeChild(svg)
-    }
+    return { x: points[0]?.[0] ?? 0, y: targetY }
 }
 
 const ANIMATION_DURATION_S = 1.5
@@ -234,7 +190,6 @@ export function SmartEdge({
     data,
     ...props
 }: EdgeProps): JSX.Element {
-    const edges = useEdges()
     const { animatingEdgePair, mode } = useValues(hogFlowEditorLogic)
 
     const isAnimating = mode === 'test' && animatingEdgePair === `${source}->${target}`
@@ -246,8 +201,7 @@ export function SmartEdge({
         sourceY,
         targetX,
         targetY,
-        edges,
-        currentEdgeId: id,
+        horizontalOffset: (data as HogFlowActionEdge['data'])?.horizontalOffset,
     })
 
     useEffect(() => {
@@ -265,7 +219,7 @@ export function SmartEdge({
         return () => animation?.cancel()
     }, [isAnimating, edgePath])
 
-    const labelPoint = getPointAtYValue(edgePath, 20, sourceY + 20)
+    const labelPoint = getPointAtYValue(edgePath, sourceY + 20)
 
     return (
         <>
