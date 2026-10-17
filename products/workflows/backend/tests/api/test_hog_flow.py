@@ -4501,6 +4501,32 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
 
+    @parameterized.expand(
+        [
+            ("user_blast_radius", "get_audience_size", {"filters": {"properties": []}}),
+            ("user_blast_radius_persons", "get_audience_person_page", {"filters": {"properties": []}}),
+            ("account_audience", "get_account_audience_ids_page", {"filters": {"audience_type": "accounts"}}),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_audience_endpoints_report_unexpected_errors(self, endpoint, query_function, body):
+        error = RuntimeError("query failed")
+        with (
+            self._account_audience_provider(),
+            patch(f"products.workflows.backend.presentation.views.hog_flow.{query_function}", side_effect=error),
+            patch("products.workflows.backend.presentation.views.hog_flow.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/internal/hog_flows/{endpoint}",
+                body,
+                format="json",
+                headers={"x-internal-api-secret": "test-secret-123"},
+            )
+
+        assert response.status_code == 500
+        assert response.json() == {"error": "Internal server error"}
+        mock_capture.assert_called_once_with(error, {"endpoint": f"internal_{endpoint}", "team_id": self.team.id})
+
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_unsupported_dedupe_key(self):
         response = self.client.post(
