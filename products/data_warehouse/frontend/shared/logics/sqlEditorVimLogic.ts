@@ -2,7 +2,7 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 import posthog from 'posthog-js'
 
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { VIMRC_MAX_LENGTH, VimrcError, parseVimrc } from 'lib/monaco/vimrc'
+import { VIMRC_MAX_LENGTH, VimrcError, mapsRunCommand, parseVimrc } from 'lib/monaco/vimrc'
 
 import { UI_CONFIGURATION_VERSION, uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import { SQLEditorConfiguration, UserUIConfiguration } from '~/queries/schema/schema-general'
@@ -183,9 +183,11 @@ export const sqlEditorVimLogic = kea<sqlEditorVimLogicType>([
                 () => {
                     actions.closeVimrcModal()
                     // Counts only. The vimrc text is free text the user typed, so it never leaves the browser in an event.
+                    const { commands } = parseVimrc(vimrc)
                     posthog.capture('sql editor vimrc saved', {
                         line_count: vimrc.split('\n').length,
-                        command_count: parseVimrc(vimrc).commands.length,
+                        command_count: commands.length,
+                        maps_run_command: commands.some(mapsRunCommand),
                     })
                 },
                 actions.saveVimrcFailure
