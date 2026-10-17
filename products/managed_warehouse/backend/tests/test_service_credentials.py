@@ -14,6 +14,7 @@ from products.managed_warehouse.backend.service_credentials import (
     ServiceCredentialUnavailable,
     mint_service_credential,
     refresh_service_credential,
+    renew_service_credential,
 )
 
 # Never a real secret: test payloads use this sentinel so assertion failures
@@ -310,3 +311,27 @@ class TestRefreshServiceCredential:
             message = str(exc_info.value)
             assert _FAKE_SECRET not in message
             assert "<redacted>" in message
+
+
+class TestRenewServiceCredential:
+    @pytest.mark.parametrize(
+        "status_code,data",
+        [
+            (status.HTTP_503_SERVICE_UNAVAILABLE, {"error": "boom", "credential_secret": _FAKE_SECRET}),
+            (status.HTTP_200_OK, ["unexpected", "list"]),
+        ],
+    )
+    def test_failure_names_status_and_redacted_body(self, status_code, data):
+        with mock.patch("products.managed_warehouse.backend.presentation.views._request") as mock_request:
+            resp = mock.MagicMock()
+            resp.status_code = status_code
+            resp.data = data
+            mock_request.return_value = resp
+
+            with pytest.raises(ServiceCredentialUnavailable) as exc_info:
+                renew_service_credential("org-1", "svc_x", credential_secret=_FAKE_SECRET)
+
+            message = str(exc_info.value)
+            assert f"HTTP {status_code}" in message
+            assert "svc_x" in message
+            assert _FAKE_SECRET not in message
