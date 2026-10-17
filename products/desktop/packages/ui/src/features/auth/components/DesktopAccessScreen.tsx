@@ -2,6 +2,7 @@ import {
   ArrowClockwise,
   CaretDown,
   Coins,
+  LockSimple,
   RocketLaunch,
   SignOut,
   WarningCircle,
@@ -119,9 +120,9 @@ export function DesktopAccessScreen({
   const blockedContent = access.reason
     ? BLOCKED_CONTENT[access.reason]
     : {
-        icon: <WarningCircle />,
-        title: "Desktop isn't available for this organization",
-        description: "Select another organization or project to continue.",
+        icon: <LockSimple />,
+        title: "Desktop is invite-only right now",
+        description: "This account hasn't been invited yet.",
       };
   const isTechnicalError = access.status === "error";
   const icon = isTechnicalError ? <WarningCircle /> : blockedContent?.icon;
