@@ -7,6 +7,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { keepSubmenuOpenOnRepeatPress } from 'lib/ui/Menus/keepSubmenuOpenOnRepeatPress'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { useSubmenuSafeTriangle } from 'lib/ui/Menus/useSubmenuSafeTriangle'
 import { urls } from 'scenes/urls'
@@ -25,7 +26,7 @@ export function ThemeMenu(): JSX.Element {
     }
 
     return (
-        <Menu.SubmenuRoot>
+        <Menu.SubmenuRoot onOpenChange={keepSubmenuOpenOnRepeatPress}>
             <Menu.SubmenuTrigger
                 openOnHover={false}
                 ref={themeSubmenu.triggerRef}
