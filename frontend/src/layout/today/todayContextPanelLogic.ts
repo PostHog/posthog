@@ -4,9 +4,11 @@ import posthog from 'posthog-js'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { CANVAS_SIDE_PANEL_TABS, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+
+import { todayShellLogic } from './todayShellLogic'
 
 export interface TodayContextPanelOffset {
     x: number
@@ -30,7 +32,9 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
+    onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
+    canUndock: boolean
     dockHint: boolean
     docked: boolean
     floatingActiveTab: SidePanelTab
@@ -87,7 +91,8 @@ export interface todayContextPanelLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         docked: (sidePanelOpen: boolean) => boolean
         panelTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
-        floatingActiveTab: (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]) => SidePanelTab
+        floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
+        canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
         fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string) => string | null
     }
@@ -114,6 +119,8 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             ['enabledTabs'],
             notebookPanelLogic,
             ['selectedNotebook'],
+            todayShellLogic,
+            ['onAiPage'],
         ],
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
@@ -169,11 +176,25 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 ...(enabledTabs.includes(SidePanelTab.Max) ? [SidePanelTab.Max] : []),
             ],
         ],
-        /** A tab the scene no longer offers falls back to PostHog AI, like the docked panel closing on navigation. */
+        /**
+         * A tab the scene no longer offers falls back to PostHog AI, like the docked panel closing on navigation.
+         * Checked against every enabled tab, so an undocked tab the top bar leaves out stays open.
+         */
         floatingActiveTab: [
-            (s) => [s.floatingTab, s.panelTabs],
-            (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]): SidePanelTab =>
-                panelTabs.includes(floatingTab) ? floatingTab : SidePanelTab.Max,
+            (s) => [s.floatingTab, s.enabledTabs],
+            (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]): SidePanelTab =>
+                enabledTabs.includes(floatingTab) && !CANVAS_SIDE_PANEL_TABS.includes(floatingTab)
+                    ? floatingTab
+                    : SidePanelTab.Max,
+        ],
+        /**
+         * Canvas tabs read their body from the docked panel's selected tab, so they only dock. The AI page has no
+         * floating panel to undock into.
+         */
+        canUndock: [
+            (s) => [s.activeTab, s.onAiPage],
+            (activeTab: SidePanelTab, onAiPage: boolean): boolean =>
+                !onAiPage && !CANVAS_SIDE_PANEL_TABS.includes(activeTab),
         ],
         activeTab: [
             (s) => [s.docked, s.selectedTab, s.floatingActiveTab],
@@ -212,7 +233,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             posthog.capture('today context panel tab toggled', { tab, docked: values.docked, open })
             if (open && values.activeTab === tab) {
                 actions.close()
-            } else if (values.floatingOpen) {
+            } else if (values.floatingOpen && !CANVAS_SIDE_PANEL_TABS.includes(tab)) {
                 actions.setFloatingTab(tab)
             } else {
                 actions.openSidePanel(tab)

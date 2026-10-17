@@ -51,7 +51,7 @@ function HeaderIconButton({
 }
 
 export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPanelHeaderProps): JSX.Element {
-    const { activeTab, fullScreenUrl } = useValues(todayContextPanelLogic)
+    const { activeTab, fullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
     const { dock, undock, close, openFullScreen } = useActions(todayContextPanelLogic)
 
     return (
@@ -77,9 +77,11 @@ export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPan
                     </HeaderIconButton>
                 )}
                 {docked ? (
-                    <HeaderIconButton label="Undock" onClick={undock} dataAttr="today-context-panel-undock">
-                        <IconExternal />
-                    </HeaderIconButton>
+                    canUndock && (
+                        <HeaderIconButton label="Undock" onClick={undock} dataAttr="today-context-panel-undock">
+                            <IconExternal />
+                        </HeaderIconButton>
+                    )
                 ) : (
                     <HeaderIconButton label="Dock to the right" onClick={dock} dataAttr="today-context-panel-dock">
                         <IconSidePanel />
