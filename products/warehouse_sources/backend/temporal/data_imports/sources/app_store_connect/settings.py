@@ -28,7 +28,7 @@ MAX_PAGE_SIZE = 200
 
 # Daily sales/subscription reports are only retained for about a year, so a first sync walks back this
 # far rather than to the App Store's launch. Each day is one request, so this also bounds the backfill.
-SALES_REPORT_LOOKBACK_DAYS = 365
+SALES_REPORT_LOOKBACK_DAYS = 363
 
 # Days of reports fetched in a single run. A run that hits the cap resumes from its bookmark next time,
 # which keeps a cold-start backfill inside the hourly request budget (~3,500 requests per key).
