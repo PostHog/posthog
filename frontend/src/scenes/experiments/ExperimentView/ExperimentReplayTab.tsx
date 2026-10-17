@@ -225,6 +225,7 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
         sessionBucketLoading,
         sessionBucketError,
         sessionBucketRequest,
+        sessionBucketUnavailableReason,
         listUnavailableReason,
         listLoadError,
     } = useValues(logic)
@@ -449,6 +450,10 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </span>
                 ) : !sessionBucketRequest ? (
                     <span>{unappliedModeReason(metricFilterMode)}</span>
+                ) : sessionBucketUnavailableReason !== null ? (
+                    <span data-attr="experiment-recordings-bucket-unavailable-caption">
+                        {sessionBucketUnavailableReason}
+                    </span>
                 ) : sessionBucketError !== null ? (
                     <>
                         <span>Couldn't work out which sessions match this filter: {sessionBucketError}</span>

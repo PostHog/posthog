@@ -40,6 +40,7 @@ import { viewRecordingsLinkabilityLogic } from '../viewRecordingsLinkabilityLogi
 import {
     type ExperimentRecordingsNarrowingAction,
     type ExperimentReplayRecording,
+    EXPOSURE_UNMATCHABLE_REASON,
     ExperimentReplayListEmptyReason,
     experimentReplayTabLogic,
 } from './experimentReplayTabLogic'
@@ -1859,6 +1860,52 @@ describe('experimentReplayTabLogic', () => {
         expect(logic.values.sessionBucketError).toBe('boom')
         expect(logic.values.recordingsFilters.session_ids).toEqual([])
     })
+
+    it.each([
+        {
+            name: 'a custom exposure event captured only server-side',
+            exposureEvent: 'server_exposure',
+            expectedReason: EXPOSURE_UNMATCHABLE_REASON,
+        },
+        // The default event falls back to the stamped flag property, so the endpoint still answers.
+        { name: 'the default exposure event', exposureEvent: '$feature_flag_called', expectedReason: null },
+    ])(
+        'sends no bucket request the endpoint will refuse, for $name never seen with a session id',
+        async ({ exposureEvent, expectedReason }) => {
+            seenTogetherSpy.mockResolvedValue({ ...ALL_LINKABLE, [exposureEvent]: false })
+            const unlinkable = experimentReplayTabLogic({
+                experiment: {
+                    ...EXPERIMENT,
+                    id: 114,
+                    start_date: daysAgo(10),
+                    end_date: null,
+                    exposure_criteria: {
+                        exposure_config: {
+                            kind: 'ExperimentEventExposureConfig',
+                            event: exposureEvent,
+                            properties: [],
+                        },
+                    },
+                } as unknown as Experiment,
+            })
+            unlinkable.mount()
+            await expectLogic(unlinkable).toFinishAllListeners()
+            ;(experimentsSessionBucketsCreate as jest.Mock).mockClear()
+
+            await expectLogic(unlinkable, () => {
+                unlinkable.actions.setMetricSelected('metric-purchase', true)
+                unlinkable.actions.setMetricFilterMode('no_metric_activity')
+            }).toFinishAllListeners()
+
+            expect(unlinkable.values.sessionBucketUnavailableReason).toBe(expectedReason)
+            expect(experimentsSessionBucketsCreate).toHaveBeenCalledTimes(expectedReason === null ? 1 : 0)
+            // The stated refusal keeps the list empty, as a failed request would.
+            expect(unlinkable.values.recordingsFilters.session_ids).toEqual(
+                expectedReason === null ? BUCKET_RESPONSE.session_ids : []
+            )
+            unlinkable.unmount()
+        }
+    )
 
     it('reports a bucket load once it is the one the list shows', async () => {
         // The bucket events have never fired in production — every open so far used the default
