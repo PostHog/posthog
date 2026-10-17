@@ -65,7 +65,7 @@ const getFirstProductFromProductsParam = (productsParam: unknown): ProductKey | 
 }
 
 export interface BillingAlertConfig {
-    kind?: 'trial' | 'deactivated' | 'usage_limit'
+    kind?: 'trial' | 'usage_limit'
     status: 'info' | 'warning' | 'error'
     title: string
     message?: string
@@ -1678,17 +1678,6 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
-            if (values.billing.deactivated) {
-                actions.setBillingAlert({
-                    kind: 'deactivated',
-                    status: 'error',
-                    title: 'Your organization has been temporarily suspended.',
-                    message: 'Please contact support to reactivate it.',
-                    contactSupport: true,
-                })
-                return
-            }
-
             const billingPeriodEnd = values.billing.billing_period?.current_period_end?.format('YYYY-MM-DD')
 
             const productsAtOrOverLimit =
@@ -1819,7 +1808,6 @@ export const billingLogic = kea<billingLogicType>([
                 const payload: { [key: string]: any } = {
                     has_billing_plan: !!values.billing.has_active_subscription,
                     free_trial_until: values.billing.free_trial_until?.toISOString(),
-                    customer_deactivated: values.billing.deactivated,
                     current_total_amount_usd: values.billing.current_total_amount_usd,
                 }
                 if (values.billing.products) {

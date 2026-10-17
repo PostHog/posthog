@@ -68,7 +68,6 @@ class TestConversation(APIBaseTest):
             subscription_level=MaxBillingContextSubscriptionLevel.PAID,
             billing_plan="paid",
             has_active_subscription=True,
-            is_deactivated=False,
             billing_period=MaxBillingContextBillingPeriod(
                 current_period_start=str(datetime.date(2023, 1, 1)),
                 current_period_end=str(datetime.date(2023, 1, 31)),

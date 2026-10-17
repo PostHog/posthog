@@ -180,7 +180,6 @@ class ProductFeature(TypedDict):
 
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
-    deactivated: bool
     has_active_subscription: bool
     billing_period: BillingPeriod
     available_product_features: list[ProductFeature]

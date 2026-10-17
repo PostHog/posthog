@@ -22,7 +22,6 @@ export interface BillingOverviewResponseApi {
     /** @nullable */
     subscription_level?: string | null
     has_active_subscription?: boolean
-    deactivated?: boolean
     is_annual_plan_customer?: boolean
     /** @nullable */
     free_trial_until?: string | null
@@ -1190,7 +1189,6 @@ export interface BillingSubscriptionApi {
     /** @nullable */
     billing_plan: string | null
     billing_provider: BillingProviderEnumApi | null
-    deactivated: boolean
     is_annual_plan_customer: boolean
     billing_period: BillingPeriodApi | null
     trial: TrialApi | null

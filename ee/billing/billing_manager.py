@@ -233,6 +233,28 @@ def build_billing_token(
     return encoded_jwt
 
 
+DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION = "deactivated_organizations"
+
+
+def build_billing_system_token(license: License, service_action: str) -> str:
+    """JWT for billing's /api/internal/* endpoints: license-signed, org-less, action-scoped.
+
+    Billing's internal endpoints reject tokens that carry an organization_id claim, so unlike
+    build_billing_token this deliberately omits the organization.
+    """
+    license_id = license.key.split("::")[0]
+    license_secret = license.key.split("::")[1]
+
+    payload = {
+        "exp": datetime.now(tz=UTC) + timedelta(minutes=15),
+        "id": license_id,
+        "aud": "posthog:license-key",
+        "service_action": service_action,
+    }
+
+    return jwt.encode(payload, license_secret, algorithm="HS256")
+
+
 def _compute_webhook_signature(secret: str, timestamp: int, body: bytes) -> str:
     """HMAC-SHA256 over "<timestamp>.<body>", hex-encoded."""
     mac = hmac.new(secret.encode(), digestmod=hashlib.sha256)
@@ -1013,6 +1035,41 @@ class BillingManager:
         handle_billing_service_error(res, valid_codes=(200,))
 
         return res.json()
+
+    def _system_auth_headers(self, service_action: str) -> dict[str, str]:
+        if not self.license:  # mypy
+            raise Exception("No license found")
+        return {"Authorization": f"Bearer {build_billing_system_token(self.license, service_action)}"}
+
+    def set_organizations_deactivated(self, organization_ids: list[str], deactivated: bool) -> dict[str, Any]:
+        """Set or remove billing's forecast-exclusion flag for these organizations.
+
+        Billing returns 200 for every handled outcome. The default valid_codes would swallow
+        404 (endpoint not deployed) and 401 (auth failure) as success, so the caller would
+        record a sync that never happened, hence the explicit (200,).
+        """
+        res = http_session.post(
+            f"{BILLING_SERVICE_URL}/api/internal/deactivated-organizations",
+            headers=self._system_auth_headers(DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION),
+            json={"organization_ids": organization_ids, "deactivated": deactivated},
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()
+
+    def get_deactivated_organizations(self) -> list[str]:
+        """Organization ids billing currently excludes from the revenue forecast."""
+        res = http_session.get(
+            f"{BILLING_SERVICE_URL}/api/internal/deactivated-organizations",
+            headers=self._system_auth_headers(DEACTIVATED_ORGANIZATIONS_SERVICE_ACTION),
+            timeout=30,
+        )
+
+        handle_billing_service_error(res, valid_codes=(200,))
+
+        return res.json()["deactivated_organization_ids"]
 
     def activate_trial(self, organization: Organization, data: dict[str, Any]):
         res = http_session.post(

@@ -732,6 +732,44 @@ def invalidate_llm_gateway_quota_cache_on_active_state_change(sender, instance: 
         transaction.on_commit(_project_gateway_quota)
 
 
+@receiver(post_save, sender=Organization)
+def sync_active_state_to_billing_on_change(sender, instance: Organization, created: bool, **kwargs):
+    if created or not instance._is_active_changed:
+        return
+
+    organization_id = str(instance.pk)
+    transaction.on_commit(lambda: _start_billing_active_sync_workflow(organization_id))
+
+
+def _start_billing_active_sync_workflow(organization_id: str) -> None:
+    # Imports deferred to keep the Temporal stack off the model import path.
+    import asyncio
+
+    from temporalio.common import WorkflowIDReusePolicy
+
+    from posthog.temporal.billing_active_sync.sync_organization_active_state import (
+        SyncOrganizationActiveStateInputs,
+        SyncOrganizationActiveStateWorkflow,
+    )
+    from posthog.temporal.common.client import sync_connect
+
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                SyncOrganizationActiveStateWorkflow.run,
+                SyncOrganizationActiveStateInputs(organization_id=organization_id),
+                # The newest flip wins; the activity re-reads the org, so the survivor converges.
+                id=f"billing-org-active-sync-{organization_id}",
+                task_queue=settings.BILLING_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.TERMINATE_IF_RUNNING,
+            )
+        )
+    except Exception:
+        # The nightly reconciliation realigns billing; never fail the org save.
+        logger.warning("billing_active_state_sync_dispatch_failed", organization_id=organization_id)
+
+
 class OrganizationMembership(ModelActivityMixin, UUIDTModel):
     class Level(models.IntegerChoices):
         """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
