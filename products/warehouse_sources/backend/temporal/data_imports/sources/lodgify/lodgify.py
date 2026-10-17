@@ -93,8 +93,14 @@ def list_resource(endpoint: str, watermark: datetime | str | None = None) -> End
     }
 
 
-def calendar_window(today: date) -> tuple[str, str]:
-    return today.isoformat(), (today + timedelta(days=CALENDAR_WINDOW_DAYS)).isoformat()
+@frozen
+class CalendarWindow:
+    start: str
+    end: str
+
+
+def calendar_window(today: date) -> CalendarWindow:
+    return CalendarWindow(start=today.isoformat(), end=(today + timedelta(days=CALENDAR_WINDOW_DAYS)).isoformat())
 
 
 def availability_resource(start: str, end: str) -> EndpointResource:
@@ -128,16 +134,16 @@ def lodgify_source(
         raise ValueError(f"Unsupported Lodgify table: {endpoint}")
 
     initial_state = None
-    window: tuple[str, str] | None = None
+    window: CalendarWindow | None = None
     if resumable_source_manager.can_resume():
         saved = resumable_source_manager.load_state()
         if saved is not None:
             initial_state = saved.paginator_state
             if saved.window_start and saved.window_end:
-                window = (saved.window_start, saved.window_end)
+                window = CalendarWindow(start=saved.window_start, end=saved.window_end)
     if window is None:
         window = calendar_window(datetime.now(UTC).date())
-    start, end = window
+    start, end = window.start, window.end
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
