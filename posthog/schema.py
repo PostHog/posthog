@@ -6261,6 +6261,16 @@ class HogQLQueryModifiers(BaseModel):
         description=("If these are provided, the query will fail if these skip indexes are not used"),
     )
     formatCsvAllowDoubleQuotes: bool | None = None
+    funnelUseClientCaptureOrder: bool | None = Field(
+        default=None,
+        description=(
+            "Order funnel steps by `$client_capture_time`, the device's own clock"
+            " reading at capture, rather than by the stored timestamp, which includes"
+            " the request's delivery latency. Applies to browser and mobile events,"
+            " anchored per device and day; server-side events, and any device-day where"
+            " an event lacks the capture instant, keep the stored timestamp."
+        ),
+    )
     inCohortVia: InCohortVia | None = None
     inlineCohortCalculation: InlineCohortCalculation | None = None
     materializationMode: MaterializationMode | None = None

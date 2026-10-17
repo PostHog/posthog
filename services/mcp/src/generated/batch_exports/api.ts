@@ -585,6 +585,12 @@ export const BatchExportsCreateBody = () => zod
                         .optional()
                         .describe('If these are provided, the query will fail if these skip indexes are not used'),
                     formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                    funnelUseClientCaptureOrder: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Order funnel steps by `$client_capture_time`, the device's own clock reading at capture, rather than by the stored timestamp, which includes the request's delivery latency. Applies to browser and mobile events, anchored per device and day; server-side events, and any device-day where an event lacks the capture instant, keep the stored timestamp."
+                        ),
                     inCohortVia: zod
                         .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
                         .optional(),
@@ -1317,6 +1323,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .optional()
                         .describe('If these are provided, the query will fail if these skip indexes are not used'),
                     formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                    funnelUseClientCaptureOrder: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Order funnel steps by `$client_capture_time`, the device's own clock reading at capture, rather than by the stored timestamp, which includes the request's delivery latency. Applies to browser and mobile events, anchored per device and day; server-side events, and any device-day where an event lacks the capture instant, keep the stored timestamp."
+                        ),
                     inCohortVia: zod
                         .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
                         .optional(),
@@ -1780,6 +1792,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .optional()
                         .describe('If these are provided, the query will fail if these skip indexes are not used'),
                     formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                    funnelUseClientCaptureOrder: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Order funnel steps by `$client_capture_time`, the device's own clock reading at capture, rather than by the stored timestamp, which includes the request's delivery latency. Applies to browser and mobile events, anchored per device and day; server-side events, and any device-day where an event lacks the capture instant, keep the stored timestamp."
+                        ),
                     inCohortVia: zod
                         .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
                         .optional(),
@@ -2091,6 +2109,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .optional()
                     .describe('If these are provided, the query will fail if these skip indexes are not used'),
                 formatCsvAllowDoubleQuotes: zod.union([zod.boolean(), zod.null()]).optional(),
+                funnelUseClientCaptureOrder: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Order funnel steps by `$client_capture_time`, the device's own clock reading at capture, rather than by the stored timestamp, which includes the request's delivery latency. Applies to browser and mobile events, anchored per device and day; server-side events, and any device-day where an event lacks the capture instant, keep the stored timestamp."
+                    ),
                 inCohortVia: zod
                     .union([zod.enum(['auto', 'leftjoin', 'subquery', 'leftjoin_conjoined']), zod.null()])
                     .optional(),
