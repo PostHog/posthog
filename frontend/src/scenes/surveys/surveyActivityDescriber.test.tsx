@@ -1,6 +1,10 @@
 import { render } from '@testing-library/react'
 
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { initKeaTests } from '~/test/init'
 import {
+    ActivityScope,
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
@@ -17,6 +21,7 @@ import {
     describeMultipleChoiceChanges,
     describeQuestionChanges,
     describeRatingChanges,
+    surveyActivityDescriber,
 } from './surveyActivityDescriber'
 
 const getTextContent = (jsxElement: JSX.Element): string => {
@@ -260,5 +265,34 @@ describe('describeQuestionChanges', () => {
         )
         expect(getTextContent(changes[4])).toBe('added choices: Maybe')
         expect(getTextContent(changes[5])).toBe('updated branching logic')
+    })
+})
+
+describe('surveyActivityDescriber', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
+    const question: SurveyQuestion = { question: 'How was your visit?', type: SurveyQuestionType.Open }
+
+    it.each([
+        [null, [question, question], 'changed the number of questions from 0 to 2'],
+        [[question], null, 'changed the number of questions from 1 to 0'],
+    ])('describes a questions change from %p to %p', (before, after, expected) => {
+        const logItem: ActivityLogItem = {
+            activity: 'updated',
+            scope: ActivityScope.SURVEY,
+            item_id: '7',
+            created_at: '2026-10-09T10:00:00Z',
+            user: { first_name: 'Sam', last_name: 'Lee', email: 'sam@example.com' },
+            detail: {
+                name: 'Visit feedback',
+                merge: null,
+                trigger: null,
+                changes: [{ type: ActivityScope.SURVEY, action: 'changed', field: 'questions', before, after }],
+            },
+        }
+
+        expect(getTextContent(<>{surveyActivityDescriber(logItem).description}</>)).toContain(expected)
     })
 })
