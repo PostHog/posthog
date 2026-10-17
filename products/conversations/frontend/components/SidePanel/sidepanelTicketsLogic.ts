@@ -617,6 +617,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
             try {
                 const response = await posthog.conversations.getTickets({ limit: 50 })
+                if (cache.disposables.isDisposed) {
+                    return
+                }
                 if (response) {
                     cache.ticketsFetched = true
                     actions.setTickets(response.results as ConversationTicket[])
@@ -629,6 +632,9 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                     }
                 }
             } catch (e) {
+                if (cache.disposables.isDisposed) {
+                    return
+                }
                 console.error('Failed to load tickets:', e)
                 // Reported because a customer who can't see their tickets can't reply to support on
                 // them either, and the toast alone left us blind to how often that happens
@@ -654,10 +660,6 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 actions.stopPolling()
                 return
             }
-            // Clear any existing poll timer
-            if (cache.pollTimer) {
-                clearTimeout(cache.pollTimer)
-            }
             const onSupportSurface = isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
             // Only treat a thread as open when the surface showing it is actually visible — the logic
             // stays mounted for the panel-bar unread badge, so `view` can still be 'ticket' for a
@@ -668,26 +670,27 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 : onSupportSurface
                   ? POLL_INTERVAL_ACTIVE
                   : POLL_INTERVAL_BACKGROUND
-            cache.pollTimer = window.setTimeout(() => {
-                actions.loadTickets()
-                // loadTickets only refreshes the list, so a support reply wouldn't appear while the
-                // reader sits inside the thread. Re-check on fire in case they've since navigated away,
-                // and skip when a load is already running so a slow fetch can't overlap this one.
-                if (
-                    values.currentTicket &&
-                    values.view === 'ticket' &&
-                    !values.messagesLoading &&
-                    isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
-                ) {
-                    actions.loadMessages(values.currentTicket.id)
-                }
-            }, interval)
+            // Re-adding under the same key replaces the previous timer
+            cache.disposables.add(() => {
+                const pollTimer = window.setTimeout(() => {
+                    actions.loadTickets()
+                    // loadTickets only refreshes the list, so a support reply wouldn't appear while the
+                    // reader sits inside the thread. Re-check on fire in case they've since navigated away,
+                    // and skip when a load is already running so a slow fetch can't overlap this one.
+                    if (
+                        values.currentTicket &&
+                        values.view === 'ticket' &&
+                        !values.messagesLoading &&
+                        isOnSupportSurface(values.sidePanelOpen, values.selectedTab)
+                    ) {
+                        actions.loadMessages(values.currentTicket.id)
+                    }
+                }, interval)
+                return () => clearTimeout(pollTimer)
+            }, 'pollTimer')
         },
         stopPolling: () => {
-            if (cache.pollTimer) {
-                clearTimeout(cache.pollTimer)
-                cache.pollTimer = null
-            }
+            cache.disposables.dispose('pollTimer')
         },
         loadMessages: async ({ ticketId }) => {
             if (!ticketId || !posthog.conversations) {
@@ -703,7 +706,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 while (hasMore) {
                     const response = await (posthog.conversations.getMessages as any)(ticketId, after)
                     // Check if we're still viewing the same ticket (avoid race condition when switching quickly)
-                    if (!response || values.currentTicket?.id !== ticketId) {
+                    if (cache.disposables.isDisposed || !response || values.currentTicket?.id !== ticketId) {
                         return
                     }
                     const messages = response.messages as ConversationMessage[]
@@ -1074,8 +1077,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             }
         },
     })),
-    beforeUnmount(({ actions, cache }) => {
-        actions.stopPolling()
+    beforeUnmount(({ cache }) => {
         if (cache.conversationsRetryTimer) {
             clearTimeout(cache.conversationsRetryTimer)
         }
