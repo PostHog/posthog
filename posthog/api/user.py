@@ -16,6 +16,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.db.models import Exists, OuterRef
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone as django_timezone
@@ -115,8 +116,11 @@ from posthog.models.oauth import OAuthGrant, find_oauth_refresh_token, has_live_
 from posthog.models.onboarding_delegation import cancel_pending_delegation, clear_delegation_state
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.organization_notification_lock import notification_locks_for_users
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import ROLE_CHOICES, Notifications, OnboardingSkippedReason, ShortcutPosition
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission, UserNoOrgMembershipDeletePermission
@@ -307,9 +311,10 @@ class UserSerializer(serializers.ModelSerializer):
     )
     requires_credential_review = serializers.SerializerMethodField(
         help_text=(
-            "True if the user has at least one Personal API Key or passkey, or a third-party OAuth "
-            "application that can currently act as them, and has not yet acknowledged that access. "
-            "Used to gate a one-shot review screen on first post-provisioning login. Becomes False "
+            "True if the user belongs to an organization that a partner provisioned, has not yet "
+            "acknowledged the access on their account, and has at least one Personal API Key or passkey, "
+            "or a third-party OAuth application that can currently act as them. Used to gate a one-shot "
+            "review screen on first post-provisioning login. Becomes False "
             "once the user POSTs to `/api/users/@me/credentials_review_complete/`. Read-only."
         ),
     )
@@ -516,6 +521,26 @@ class UserSerializer(serializers.ModelSerializer):
             return False
         # impersonating users shouldn't bounced into the credential review screen
         if is_impersonated(self.context.get("request")):
+            return False
+        # A self-signed-up user verifies their email before the first login, so nobody else can add
+        # credentials to the account first. TeamProvisioningConfig and a Vercel installation cover
+        # organizations provisioned before OrganizationProvisioning existed. A "connectable" Vercel
+        # integration links an organization the user already owned, so it does not count.
+        organization_id = OuterRef("organization_id")
+        if (
+            not OrganizationMembership.objects.filter(user=instance)
+            .filter(
+                Exists(OrganizationProvisioning.objects.filter(organization_id=organization_id))
+                | Exists(TeamProvisioningConfig.objects.filter(team__organization_id=organization_id))
+                | Exists(
+                    OrganizationIntegration.objects.filter(
+                        organization_id=organization_id,
+                        kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
+                    ).exclude(config__contains={"type": "connectable"})
+                )
+            )
+            .exists()
+        ):
             return False
         if PersonalAPIKey.objects.filter(user=instance).exists():
             return True
@@ -1050,7 +1075,9 @@ class UserViewSet(
         "scene_personalisation",
         "product_intro_seen",
     ]
-    time_sensitive_allow_actions = ["hedgehog_config"]
+    # credentials_review_complete only dismisses the review screen. Requiring a fresh session for it
+    # sends a user with an older session back to the review screen on every load.
+    time_sensitive_allow_actions = ["hedgehog_config", "credentials_review_complete"]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True).order_by("id")
