@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 import json
 import time
+import uuid
 import hashlib
 import datetime as dt
 import dataclasses
@@ -340,12 +341,13 @@ def _shared_options(
     """
     lock_key = f"{key}:lock"
     error_key = f"{key}:error"
+    token = uuid.uuid4().hex
     deadline = time.monotonic() + _OPTIONS_LOCK_SECONDS
     while True:
         options = _published_options(key, error_key)
         if options is not None:
             return options
-        if cache.add(lock_key, True, _OPTIONS_LOCK_SECONDS):
+        if cache.add(lock_key, token, _OPTIONS_LOCK_SECONDS):
             break
         if time.monotonic() >= deadline:
             raise ValueError("The variable values are still loading. Try again in a moment.")
@@ -357,14 +359,16 @@ def _shared_options(
             return options
         try:
             with slot():
-                options = load()
+                options = [option for option in load() if len(str(option)) <= MAX_OPTION_LENGTH]
         except (ValueError, ExposedHogQLError, ExposedCHQueryError) as exc:
             cache.set(error_key, str(exc), _OPTIONS_ERROR_SECONDS)
             raise
         cache.set(key, options, _OPTIONS_CACHE_SECONDS)
         return options
     finally:
-        cache.delete(lock_key)
+        # A load that outlived the lock must not release the lock of the loader that took it over.
+        if cache.get(lock_key) == token:
+            cache.delete(lock_key)
 
 
 def _published_options(key: str, error_key: str) -> list[str] | None:
@@ -433,5 +437,4 @@ def list_variable_options(
             )
         except (ExposedHogQLError, ExposedCHQueryError) as exc:
             raise ValueError(str(exc)) from exc
-    kept = (str(option) for option in options if len(str(option)) <= MAX_OPTION_LENGTH)
-    return list(dict.fromkeys(kept))[:MAX_VARIABLE_OPTIONS]
+    return list(dict.fromkeys(str(option) for option in options))[:MAX_VARIABLE_OPTIONS]
