@@ -1049,6 +1049,8 @@
          "posthog_datawarehousesavedquery"."semantic_enrichment_hash",
          "posthog_datawarehousesavedquery"."incremental_config",
          "posthog_datawarehousesavedquery"."incremental_state",
+         "posthog_datawarehousesavedquery"."snapshot_config",
+         "posthog_datawarehousesavedquery"."snapshot_state",
          "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
          "posthog_datawarehousetable"."updated_at",

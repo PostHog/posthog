@@ -210,6 +210,10 @@ def get_materialized_table_uri(team_id: int, saved_query_id: UUID | str) -> str 
     )
     if saved_query is None or not saved_query.is_materialized:
         return None
+    if saved_query.snapshot_config:
+        # A snapshot publishes immutable generation folders and keeps closed versions, so the model
+        # root holds no current row set for a direct reader to take.
+        return None
     return f"{settings.BUCKET_URL}/{saved_query.folder_path}/{saved_query.normalized_name}"
 
 
