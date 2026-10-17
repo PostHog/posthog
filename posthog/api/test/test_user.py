@@ -594,6 +594,26 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(User.objects.count(), count)
 
+    @parameterized.expand(
+        [
+            ("same_project", False, 1),
+            ("switched_project", True, 2),
+        ]
+    )
+    @patch("posthoganalytics.capture")
+    def test_retrieve_current_user_refreshes_person_properties_once_per_project(
+        self, _name, switch_project, expected_refreshes, mock_capture
+    ):
+        self.client.get("/api/users/@me/")
+        if switch_project:
+            User.objects.filter(pk=self.user.pk).update(
+                current_organization=self.new_org, current_team=self.new_project
+            )
+        self.client.get("/api/users/@me/")
+
+        refreshes = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "update user properties"]
+        assert len(refreshes) == expected_refreshes
+
     # UPDATING USER
 
     @patch("posthoganalytics.capture")

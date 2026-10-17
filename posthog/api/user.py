@@ -150,7 +150,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template
+from posthog.utils import render_template, safe_cache_add
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -164,6 +164,10 @@ NUM_2FA_BACKUP_CODES = 10
 # `product_intro_seen` is exempt from the re-auth gate, so it gets a ceiling of its own. Only a new key
 # is refused at the ceiling, so an intro the user already dismissed still reopens and closes.
 MAX_PRODUCT_INTROS_SEEN = 100
+
+# Building the person properties runs several queries. The user's own edits refresh them through
+# "user updated", so the per-request refresh only catches slower drift such as project counts.
+PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS = 60 * 60
 
 
 logger = structlog.get_logger(__name__)
@@ -229,6 +233,11 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
         max_length=64,
         help_text="Onboarding step key the user was on when skipping, for analytics only.",
     )
+
+
+def _person_properties_refresh_due(user: User) -> bool:
+    key = f"user_person_properties_refreshed:{user.id}:{user.current_organization_id}:{user.current_team_id}"
+    return safe_cache_add(key, True, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -830,12 +839,13 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        with tracer.start_as_current_span("user_serializer.identify"):
-            posthoganalytics.capture(
-                distinct_id=instance.distinct_id,
-                event="update user properties",
-                properties={"$set": instance.get_analytics_metadata()},
-            )
+        if _person_properties_refresh_due(instance):
+            with tracer.start_as_current_span("user_serializer.identify"):
+                posthoganalytics.capture(
+                    distinct_id=instance.distinct_id,
+                    event="update user properties",
+                    properties={"$set": instance.get_analytics_metadata()},
+                )
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
