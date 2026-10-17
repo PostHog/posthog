@@ -97,6 +97,7 @@ def publish_persisted_review(
     capped_lens_parts: int | None = None,
     footer: str = "",
     draft_notice: str = "",
+    first_review_note: str = "",
     comment_commands_on: bool = False,
     answers_request: bool = False,
 ) -> PublishOutcome:
@@ -114,6 +115,7 @@ def publish_persisted_review(
     event loop.
 
     `draft_notice` closes a review with findings when the turn's snapshot shows the PR as a draft.
+    `first_review_note` closes the first review that posts findings on the pull request (see `publish_review`).
     `comment_commands_on` picks the trigger the finding budget note points to.
     `answers_request` is set when a person asked for this turn (see `publish_review`).
     """
@@ -147,6 +149,7 @@ def publish_persisted_review(
         capped_lens_parts=capped_lens_parts,
         footer=footer,
         findings_footer=draft_notice if snapshot is not None and snapshot.pr_metadata.draft else "",
+        first_review_note=first_review_note,
         answers_request=answers_request,
         budget_note=budget_note(over_budget, comment_commands_on) if over_budget else "",
     )
@@ -252,6 +255,7 @@ def publish_review(
     capped_lens_parts: int | None = None,
     footer: str = "",
     findings_footer: str = "",
+    first_review_note: str = "",
     budget_note: str = "",
     answers_request: bool = False,
 ) -> PublishOutcome:
@@ -271,6 +275,9 @@ def publish_review(
     review then carries the large pull request note, and a clean Standard turn posts a short review with it.
 
     `findings_footer` follows `footer` only on a review that posts findings, never on the clean-turn note.
+
+    `first_review_note` follows them only on the first review that posts findings on the pull request. It tells
+    people new to PostHog Review where the review is in PostHog and how to ask for a Deep review.
 
     `budget_note` says the finding budget left findings out. An automatic turn that keeps nothing stays silent: once
     the budget is spent an automatic review only looks for must-fix findings.
@@ -333,6 +340,8 @@ def publish_review(
     remove_own_pr_reactions(repository, pr_number, "+1", token=token, installation_id=installation_id)
     if findings_footer:
         footer_block = f"{footer_block}{findings_footer}\n\n"
+    if first_review_note and report.published_head_sha is None:
+        footer_block = f"{footer_block}{first_review_note}\n\n"
     footer_block = f"{budget_block}{footer_block}"
     body = f"{report.report_markdown}\n\n{note_block}{footer_block}{marker}"
 

@@ -364,6 +364,11 @@ everything would otherwise refill it. Pull requests split into two arms by a has
 (`budget_arm`). Only the `budget` arm applies the budget, and `finding_budget_arm` on `reviewhog_review_completed` and
 `reviewhog_finding_outcome` splits the measurement.
 
+The first review that posts findings on a pull request ends with one more note (`first_review_note` in
+`backend/label_reviews.py`). It links the report in the PostHog Review UI (`report_deep_link`). On a Standard review,
+where comment commands run, it also offers `@posthog review --deep`. A label review leaves the command out, because
+its own footer already names it. Later reviews do not repeat the note: the published watermark is set after the first post.
+
 Every finding the turn drops after scope cleaning persists as a `dropped_finding` artefact (`DroppedFindingArtefact`,
 written by `replace_dropped_findings` beside `replace_deduplicated_findings` in the dedup activity): the full finding
 with its `reported_priority`, the session's pass and part, the `disposition` (`old_code`, `dedup_prior`, `dedup_comment`,
