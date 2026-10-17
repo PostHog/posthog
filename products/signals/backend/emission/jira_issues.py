@@ -41,6 +41,9 @@ An issue is NOT_ACTIONABLE if it is:
 - A meta/tracking issue with no substantive feedback (release checklists, sprint trackers, epics that only link children)
 - An internal housekeeping task (dependency bumps, CI config, infra maintenance)
 - A duplicate that only says "same as X" with no new information
+- A complaint or expression of dissatisfaction that does not point to a specific page, feature, action, or error. Broad statements such as "everything is slow", "it feels broken", or "the new version is worse" are not specific. A frustrated message that names a specific problem is still ACTIONABLE
+- A report that contradicts itself, so no single problem can be identified
+- A report whose writer takes the complaint back, so nothing specific is left to check. A hedged report that still names a specific problem ("might be nothing, but X stopped working") is ACTIONABLE
 
 When in doubt, classify as ACTIONABLE. Jira issues are filed intentionally, so err on the side of capturing the signal.
 
