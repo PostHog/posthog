@@ -17,6 +17,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { GATEWAY_TOOL_SEPARATOR, isGatewayToolName } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
+import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
@@ -240,6 +241,7 @@ export interface ExecToolOptions {
      * degrades to "no third-party tools", never to a broken `exec`.
      */
     gatewayToolsProvider?: () => Promise<Tool<ZodObjectAny>[]>
+    gatewayToolFilter?: Pick<RequestProperties, 'tools' | 'features' | 'excludeTools'> | undefined
     /** Reports what the agent asked for, so non-`call` verbs stop being invisible. */
     trackCommand?: ExecCommandTracker
     /**
@@ -1736,6 +1738,12 @@ export function createExecTool(
                 }
                 if (gatewayTools === undefined) {
                     gatewayTools = await options.gatewayToolsProvider()
+                    const filter = options.gatewayToolFilter
+                    gatewayTools = gatewayTools.filter(
+                        (tool) =>
+                            !filter?.excludeTools?.includes(tool.name) &&
+                            (!(filter?.tools?.length || filter?.features?.length) || filter?.tools?.includes(tool.name))
+                    )
                 }
                 return gatewayTools.length > 0 ? [...allTools, ...gatewayTools] : allTools
             }

@@ -796,6 +796,8 @@ function InfiniteListEmptyState(): JSX.Element {
                         Type at least {minSearchQueryLength} characters to search
                     </span>
                 </>
+            ) : group?.shouldSearch?.(searchQuery) === false && group.searchQueryHint ? (
+                <span className="text-secondary text-center">{group.searchQueryHint}</span>
             ) : hiddenEventSearched ? (
                 // Replaces the generic "no results" line and its recovery buttons: including stale
                 // events cannot bring back an excluded name, and the category jumps lead away from
