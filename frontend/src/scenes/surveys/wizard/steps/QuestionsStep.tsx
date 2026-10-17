@@ -11,9 +11,7 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSegmentedButton, LemonTag 
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { GuidedWizardSection } from 'lib/components/GuidedWizard/GuidedWizardSection'
 import { GuidedWizardStepLayout } from 'lib/components/GuidedWizard/GuidedWizardStepLayout'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 
 import {
     LinkSurveyQuestion,
@@ -508,8 +506,6 @@ export function QuestionsStep({
     const { restoreDefaultQuestions } = useActions(surveyWizardLogic)
 
     const [activeId, setActiveId] = useState<string | null>(null)
-    const { featureFlags } = useValues(enabledFeaturesLogic)
-    const surveyTranslationsEnabled = !!featureFlags[FEATURE_FLAGS.SURVEYS_TRANSLATIONS]
 
     const questions = survey.questions as SurveyQuestion[]
     const sortedItemIds = questions.map((_, index) => index.toString())
@@ -641,9 +637,7 @@ export function QuestionsStep({
                 onUpdate={(updates) => setSurveyValue('appearance', { ...survey.appearance, ...updates })}
             />
 
-            {surveyTranslationsEnabled ? (
-                <TranslationsSection editingLanguage={editingLanguage} setEditingLanguage={setEditingLanguage} />
-            ) : null}
+            <TranslationsSection editingLanguage={editingLanguage} setEditingLanguage={setEditingLanguage} />
         </GuidedWizardStepLayout>
     )
 }
