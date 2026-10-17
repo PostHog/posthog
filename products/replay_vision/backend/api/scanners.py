@@ -42,6 +42,8 @@ from rest_framework.response import Response
 
 from posthog.schema import ProductIntentContext, ProductKey, RecordingsQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, set_tags_on_object
@@ -3180,15 +3182,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = apply_experiment_targeting(RecordingsQuery.model_validate(query_dict), targeting)
 
-        estimate = estimate_scanner_session_volume(
-            team=self.team,
-            query=recordings_query,
-            # The exposure filter's access check runs as the requesting user, so a preview can't
-            # count exposed sessions of an experiment the caller is denied.
-            user=cast(User, request.user),
-            sampling_mode=body.validated_data["sampling_mode"],
-            budget=PREVIEW_ESTIMATE_BUDGET,
-        )
+        try:
+            estimate = estimate_scanner_session_volume(
+                team=self.team,
+                query=recordings_query,
+                # The exposure filter's access check runs as the requesting user, so a preview can't
+                # count exposed sessions of an experiment the caller is denied.
+                user=cast(User, request.user),
+                sampling_mode=body.validated_data["sampling_mode"],
+                budget=PREVIEW_ESTIMATE_BUDGET,
+            )
+        except ExposedHogQLError as error:
+            raise serializers.ValidationError({"query": str(error)})
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
         credits_per_observation = observation_credits_for_model(body.validated_data["model"])
 

@@ -4059,6 +4059,16 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         resp = self.client.post(self.estimate_url, data=payload, format="json")
         self.assertEqual(resp.status_code, 400)
 
+    def test_estimate_rejects_a_filter_on_an_unknown_field(self) -> None:
+        query = {
+            "kind": "RecordingsQuery",
+            "properties": [{"type": "hogql", "key": "not_a_real_field = 1"}],
+        }
+        resp = self.client.post(self.estimate_url, data={"query": query}, format="json")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], "query")
+        self.assertIn("not_a_real_field", resp.json()["detail"])
+
     def test_estimate_scopes_to_an_experiment_scanners_experiment(self) -> None:
         # An experiment scanner keeps its experiment in its config, so the estimate has to take that
         # shape, or an agent sizing one counts every session instead of the exposed ones.
