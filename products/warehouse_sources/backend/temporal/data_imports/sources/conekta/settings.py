@@ -26,7 +26,7 @@ def _epoch_incremental_field(name: str) -> IncrementalField:
     }
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConektaEndpointConfig:
     name: str
     path: str

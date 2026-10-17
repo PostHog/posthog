@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.conekta.se
 )
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ConektaResumeConfig:
     # Top-level list endpoints: the `next` cursor of the page to fetch next.
     next_cursor: str = ""
