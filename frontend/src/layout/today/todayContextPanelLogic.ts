@@ -8,6 +8,8 @@ import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogi
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
+import { todayAiChatLogic } from './todayAiChatLogic'
+
 export interface TodayContextPanelOffset {
     x: number
     y: number
@@ -30,6 +32,7 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
+    aiFullScreenUrl: string | null // todayAiChatLogic
     activeTab: SidePanelTab
     dockHint: boolean
     docked: boolean
@@ -53,6 +56,9 @@ export interface todayContextPanelLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
+    carryContextToFullScreen: () => {
+        value: true
+    } // todayAiChatLogic
     close: () => {
         value: true
     }
@@ -89,7 +95,7 @@ export interface todayContextPanelLogicMeta {
         panelTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
         floatingActiveTab: (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]) => SidePanelTab
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string) => string | null
+        fullScreenUrl: (activeTab: SidePanelTab, aiFullScreenUrl: any, selectedNotebook: string) => string | null
     }
 }
 
@@ -112,10 +118,17 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             ['sidePanelOpen', 'selectedTab'],
             sidePanelLogic,
             ['enabledTabs'],
+            todayAiChatLogic,
+            ['fullScreenUrl as aiFullScreenUrl'],
             notebookPanelLogic,
             ['selectedNotebook'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel', 'closeSidePanel'],
+            todayAiChatLogic,
+            ['carryContextToFullScreen'],
+        ],
     })),
     actions({
         setFloatingOpen: (open: boolean) => ({ open }),
@@ -180,9 +193,11 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 docked && selectedTab ? selectedTab : floatingActiveTab,
         ],
         fullScreenUrl: [
-            (s) => [s.activeTab, s.selectedNotebook],
-            (activeTab: SidePanelTab, selectedNotebook: string): string | null => {
+            (s) => [s.activeTab, s.aiFullScreenUrl, s.selectedNotebook],
+            (activeTab: SidePanelTab, aiFullScreenUrl: string | null, selectedNotebook: string): string | null => {
                 switch (activeTab) {
+                    case SidePanelTab.Max:
+                        return aiFullScreenUrl
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
                     case SidePanelTab.Notebooks:
@@ -235,6 +250,9 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             }
         },
         openFullScreen: () => {
+            if (values.activeTab === SidePanelTab.Max) {
+                actions.carryContextToFullScreen()
+            }
             actions.close()
         },
         // The floating and docked panel are one panel, so docking any tab takes the floating card away.
