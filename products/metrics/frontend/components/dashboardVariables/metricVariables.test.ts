@@ -3,7 +3,6 @@ import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 import { variableErrors } from './metricVariableEditorLogic'
 import {
     ALL_OPTION,
-    applyVariableRegex,
     orderVariables,
     ownValue,
     reconcileSelection,
@@ -96,17 +95,5 @@ describe('metricVariables', () => {
     it.each(['__proto__', '__interval'])('rejects the reserved name %s', (name) => {
         const errors = variableErrors([{ name, source: 'promql', query: 'label_values(job)' }])
         expect(ownValue(errors, name)?.field).toEqual('name')
-    })
-
-    it.each([
-        ['^api', ['api-1', 'web-1'], ['api-1']],
-        [' api', ['api', ' api'], ['api', ' api']],
-        ['/api-(.*)/', ['api-1', 'api-2', 'web-1'], ['1', '2']],
-        ['(', ['a'], ['a']],
-        ['/API-(.*)/i', ['api-1', 'web-1'], ['1']],
-        ['^(a+)+$', ['a'.repeat(40) + 'b', 'aa'], ['aa']],
-        ['^(api-)?web$', ['web', 'api-web'], ['api-']],
-    ])('applies the regex %s', (regex, options, expected) => {
-        expect(applyVariableRegex(options, regex)).toEqual(expected)
     })
 })

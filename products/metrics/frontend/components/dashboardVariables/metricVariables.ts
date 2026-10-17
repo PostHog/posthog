@@ -147,33 +147,6 @@ export function compileVariableRegex(regex: string | null | undefined): RE2JS | 
     )
 }
 
-/** With a capture group, the option is the first group. An invalid pattern keeps every option, because the editor
- * rejects it before it is saved. */
-export function applyVariableRegex(options: string[], regex: string | null | undefined): string[] {
-    let pattern: RE2JS | null
-    try {
-        pattern = compileVariableRegex(regex)
-    } catch {
-        return options
-    }
-    if (!pattern) {
-        return options
-    }
-    const matched: string[] = []
-    for (const option of options) {
-        const matcher = pattern.matcher(option)
-        if (!matcher.find()) {
-            continue
-        }
-        // An option whose group does not take part in the match has no value, as on the backend.
-        const value = matcher.groupCount() > 0 ? matcher.group(1) : option
-        if (value) {
-            matched.push(value)
-        }
-    }
-    return [...new Set(matched)]
-}
-
 /** All keeps no values, so that a high-cardinality variable does not make the dashboard URL too long. */
 export function reconcileSelection(
     variable: MetricsDashboardVariable,

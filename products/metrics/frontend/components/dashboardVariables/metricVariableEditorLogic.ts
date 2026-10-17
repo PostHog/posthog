@@ -23,10 +23,10 @@ import { metricsVariableOptionsCreate } from 'products/metrics/frontend/generate
 import {
     MAX_VALUE_LENGTH,
     VARIABLE_NAME,
-    applyVariableRegex,
     compileVariableRegex,
     orderVariables,
     ownValue,
+    reconcileSelection,
     selectionsForRequest,
 } from './metricVariables'
 
@@ -375,6 +375,20 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                 ) {
                     return null
                 }
+                // A parent added in this session has no selection yet, so the preview uses its first option.
+                const draft = values.draft.map((other) =>
+                    other.current
+                        ? other
+                        : {
+                              ...other,
+                              current: reconcileSelection(
+                                  other,
+                                  other.source === 'custom'
+                                      ? [...new Set((other.customValues ?? []).filter(Boolean))]
+                                      : (ownValue(props.options, other.name) ?? [])
+                              ),
+                          }
+                )
                 let response
                 try {
                     response = await metricsVariableOptionsCreate(
@@ -382,7 +396,8 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                         {
                             source: variable.source,
                             query: variable.query ?? null,
-                            variables: selectionsForRequest(variable, values.draft, props.options),
+                            regex: variable.regex ?? null,
+                            variables: selectionsForRequest(variable, draft, props.options),
                             dateFrom: props.dateFrom ?? null,
                             dateTo: props.dateTo ?? null,
                         },
@@ -394,7 +409,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                     throw error
                 }
                 breakpoint()
-                return applyVariableRegex(response.results, variable.regex)
+                return response.results
             },
         },
     })),
