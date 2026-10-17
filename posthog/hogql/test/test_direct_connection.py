@@ -1,3 +1,5 @@
+from typing import TYPE_CHECKING
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +15,9 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, Team
+from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.shared_link_user import SharedLinkUser
+from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.facade.models import (
@@ -24,6 +29,9 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 from products.warehouse_sources.backend.models.external_data_source import (
     get_direct_external_data_source_for_connection,
 )
+
+if TYPE_CHECKING:
+    from posthog.models import User
 
 
 class TestGetDirectConnectionSource(APIBaseTest):
@@ -92,6 +100,75 @@ class TestGetDirectConnectionSource(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("shared_link", "none", True),
+            ("shared_link_legacy", "none", False),
+            ("shared_link_without_access_control", "none", True),
+            ("synthetic", "none", True),
+            ("member_denied", "none", False),
+            ("member_allowed", "viewer", True),
+        ]
+    )
+    def test_source_access_for_principal(self, principal: str, access_level: str, expected_access: bool) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+        source = self._create_source(access_method=ExternalDataSource.AccessMethod.DIRECT)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=str(source.id),
+            access_level=access_level,
+        )
+        user: User | SyntheticUser | SharedLinkUser = self.user
+        if principal == "shared_link":
+            user = SharedLinkUser(
+                SharingConfiguration(
+                    team=self.team, enabled=True, settings={"_direct_connection_access_validated": True}
+                )
+            )
+        elif principal in {"shared_link_legacy", "shared_link_without_access_control"}:
+            user = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+            if principal == "shared_link_without_access_control":
+                self.organization.available_product_features = []
+                self.organization.save()
+        elif principal == "synthetic":
+            user = SyntheticUser(self.team, distinct_id="test-service-token")
+
+        resolved = get_direct_connection_source(self.team, str(source.id), user=user)
+
+        self.assertEqual(resolved, source if expected_access else None)
+
+    @parameterized.expand(["cross_team", "deleted", "direct_query_disabled", "raw_synced_source"])
+    def test_shared_link_rejects_invalid_source(self, source_state: str) -> None:
+        source = self._create_source(
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            direct_query_enabled=source_state != "direct_query_disabled",
+        )
+        if source_state == "cross_team":
+            source.team = Team.objects.create(organization=self.organization, name="Other project")
+            source.save()
+        elif source_state == "deleted":
+            source.deleted = True
+            source.save()
+        user = SharedLinkUser(
+            SharingConfiguration(team=self.team, enabled=True, settings={"_direct_connection_access_validated": True})
+        )
+
+        resolved = get_direct_connection_source(
+            self.team,
+            str(source.id),
+            user=user,
+            require_pure_direct=source_state == "raw_synced_source",
+        )
+
+        self.assertIsNone(resolved)
+
+    @parameterized.expand(
+        [
             ("reader", "project_reader", True),
             ("dynamic", "duckgres_service", True),
             ("legacy", "org_root", False),
@@ -131,6 +208,10 @@ class TestGetDirectConnectionSource(APIBaseTest):
         self.assertEqual(resolved is not None, expected_access)
         if resolved is not None:
             self.assertEqual(resolved.id, managed_source.id)
+            legacy_viewer = SharedLinkUser(SharingConfiguration(team=self.team, enabled=True))
+            self.assertEqual(
+                get_direct_connection_source(self.team, str(managed_source.id), user=legacy_viewer), managed_source
+            )
 
     def test_ready_reader_resolution_is_available(self) -> None:
         source = self._create_managed_source()
