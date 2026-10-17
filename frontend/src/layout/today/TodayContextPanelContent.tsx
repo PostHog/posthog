@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { ComponentType, Suspense, useState } from 'react'
+import { ComponentType, Suspense, memo, useState } from 'react'
 
 import { Spinner } from '@posthog/quill'
 
@@ -24,7 +24,12 @@ const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {
 
 type SwitchDirection = 'forward' | 'backward'
 
-export function TodayContextPanelContent({ tab }: { tab: SidePanelTab }): JSX.Element {
+// Memoized, so resizing or dragging the panel doesn't rerender the open tab's content on every frame.
+export const TodayContextPanelContent = memo(function TodayContextPanelContent({
+    tab,
+}: {
+    tab: SidePanelTab
+}): JSX.Element {
     const { panelTabs } = useValues(todayContextPanelLogic)
     const [shownTab, setShownTab] = useState(tab)
     const [direction, setDirection] = useState<SwitchDirection | null>(null)
@@ -49,4 +54,4 @@ export function TodayContextPanelContent({ tab }: { tab: SidePanelTab }): JSX.El
             </ErrorBoundary>
         </div>
     )
-}
+})

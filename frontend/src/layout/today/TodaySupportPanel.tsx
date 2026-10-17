@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal, IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
-import { Button, Heading, Skeleton, Text } from '@posthog/quill'
+import { Button, Heading, Skeleton, Text, cn } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -53,9 +53,10 @@ export function TodaySupportPanel(): JSX.Element {
     const showTickets = isCloudOrDev && (canCreateTicket || tickets.length > 0)
 
     // An open ticket, a new ticket or recovery fills the panel on its own, so the thread and composer get the room.
+    // An open ticket scrolls its own thread. The forms scroll as a whole, so Submit stays reachable in a short panel.
     if (showTickets && view !== 'list') {
         return (
-            <div className="flex min-h-0 flex-1 flex-col p-3">
+            <div className={cn('flex min-h-0 flex-1 flex-col p-3', view !== 'ticket' && 'overflow-y-auto')}>
                 <QuillSupportTickets />
             </div>
         )
