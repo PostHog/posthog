@@ -160,14 +160,17 @@ def _property_group_columns_read(events_sql: str) -> list[str]:
     return sorted(column for column in columns if re.search(rf"\b{re.escape(column)}\b", events_sql))
 
 
-# Events names a materialized property column mat_<property>, and a dynamic slot dmat_string_<n>. A
-# persons subquery reads pmat_ columns the same way on both tables, so this leaves them out.
-_EVENTS_MATERIALIZED_COLUMN = re.compile(r"(?<![\w$])(?:mat_|dmat_string_)[\w$]+")
-
-
 def _materialized_columns_read(events_sql: str) -> list[str]:
-    """The events materialized columns that an events-compiled fragment reads."""
-    return sorted(set(_EVENTS_MATERIALIZED_COLUMN.findall(events_sql)))
+    """The enabled events materialized columns that an events-compiled fragment reads.
+
+    The registry holds the ``mat_`` and ``dmat_string_`` columns and the built-in ``$session_id``,
+    ``$window_id`` and ``$group_0`` to ``$group_4`` columns. A persons subquery reads ``pmat_`` columns the
+    same way on both tables, so those are not in this registry.
+    """
+    from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table
+
+    names = {column.name for column in get_enabled_materialized_columns_by_table().get("events", {}).values()}
+    return sorted(name for name in names if re.search(rf"(?<![\w$]){re.escape(name)}(?![\w$])", events_sql))
 
 
 # Compiling a predicate builds the full HogQL schema graph, which is slow. The Django admin

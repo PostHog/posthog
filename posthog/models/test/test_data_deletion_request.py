@@ -372,6 +372,8 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         # mat_$browser reads a stored "" as NULL, and the raw JSON read on flag_evaluations reads it as "".
         ("properties.$browser = ''", "materialized column mat_$browser"),
         ("properties.$browser IS NULL", "materialized column mat_$browser"),
+        # The built-in $group_0 column scrubs the same way, with no mat_ prefix.
+        ("properties.$group_0 IS NULL", "materialized column $group_0"),
     ],
     ids=[
         "person_id",
@@ -381,6 +383,7 @@ def test_compile_hogql_predicate_against_flag_evaluations_reads_its_own_columns(
         "feature_flag_property",
         "materialized_property_equals_empty_string",
         "materialized_property_is_null",
+        "builtin_group_column_is_null",
     ],
 )
 def test_uncopied_rows_predicate_refuses_what_flag_evaluations_rows_cannot_answer(
