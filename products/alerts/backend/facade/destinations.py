@@ -34,7 +34,7 @@ from ..logic import (
     destinations,
     insight_alert_destinations,
 )
-from .contracts import DestinationBucket, DestinationEligibility
+from .contracts import AlertInternalEvent, DestinationBucket, DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -216,6 +216,18 @@ def alert_internal_event_delivered(
     """Whether the broker acknowledged the event. This does not confirm the destination ran."""
     return destinations.alert_internal_event_delivered(
         produce_result, team_id=team_id, alert_id=alert_id, event_name=event_name
+    )
+
+
+def emit_alert_internal_events(
+    *, team_id: int, alert_id: str, events: Sequence[AlertInternalEvent], flush_timeout_seconds: float
+) -> None:
+    """Enqueue the events and wait for the broker. Raises `AlertInternalEventsNotDelivered` when it took not all of them.
+
+    Each event's `uuid` is what lets a receiver drop the copy a retry emits.
+    """
+    destinations.emit_alert_internal_events(
+        team_id=team_id, alert_id=alert_id, events=events, flush_timeout_seconds=flush_timeout_seconds
     )
 
 

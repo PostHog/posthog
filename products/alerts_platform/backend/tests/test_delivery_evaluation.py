@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from parameterized import parameterized
 
-from products.alerts_platform.backend.delivery import legacy_webhook
+from products.alerts_platform.backend.delivery import delivery_paths, legacy_webhook
 from products.alerts_platform.backend.delivery.destinations import list_alert_destination_groups
 from products.alerts_platform.backend.delivery.evaluation import LIVE_DELIVERY_FLAG, deliver_evaluation
 from products.alerts_platform.backend.delivery.legacy_webhook import LEGACY_WEBHOOK_BODY_FLAG
@@ -21,11 +21,14 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationGroup,
     AlertEventKind,
     AnnouncedTransition,
+    DeliveryPath,
     DestinationType,
     EvaluationAnnouncement,
     IncidentAction,
+    LegacyEventEmission,
     SourceKind,
 )
+from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
 _LEGACY_MODULE = "products.alerts_platform.backend.delivery.legacy_webhook"
@@ -87,6 +90,7 @@ class HeldTransport(RecordingTransport):
 def _request(
     team_id: int,
     *,
+    configuration_id: str = "cfg-1",
     sends_messages: bool = True,
     incident_actions: dict[str, IncidentAction] | None = None,
     owned_by_platform: bool = False,
@@ -97,7 +101,7 @@ def _request(
     return AlertDeliveryRequest(
         source=SourceKind.LOGS,
         team_id=team_id,
-        configuration_id="cfg-1",
+        configuration_id=configuration_id,
         evaluation_key="eval-1",
         destination_alert_id="legacy-1",
         event_ids_by_kind={"firing": FIRING_EVENT, "resolved": RESOLVED_EVENT},
@@ -111,11 +115,13 @@ def _request(
     )
 
 
-def _transition(kind: AlertEventKind, grouping_key: str = "") -> AnnouncedTransition:
+def _transition(
+    kind: AlertEventKind, grouping_key: str = "", episode_started_at: datetime | None = FIRING
+) -> AnnouncedTransition:
     return AnnouncedTransition(
         grouping_key=grouping_key,
         kind=kind,
-        episode_started_at=FIRING,
+        episode_started_at=episode_started_at,
         value=None,
         labels={},
         condition={},
@@ -170,6 +176,8 @@ class TestDeliverEvaluation(APIBaseTest):
             patch(f"{_MODULE}.announced_kinds", return_value=kinds or {}),
             patch(f"{_MODULE}.list_alert_destination_groups", side_effect=groups),
             patch(f"{_MODULE}.DatabaseThreadStore"),
+            # The path is covered by `TestDeliveryPath`. Without an emitter every alert delivers natively.
+            patch.dict(delivery_paths._emitters, clear=True),
             patch.dict(
                 f"{_MODULE}._TRANSPORTS",
                 {
@@ -460,3 +468,111 @@ class TestDeliverEvaluation(APIBaseTest):
             list_alert_destination_groups(team_id=self.team.id, alert_id="unknown", allowed_event_ids=[FIRING_EVENT])
             == []
         )
+
+
+class TestDeliveryPath(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        RecordingTransport.sends = []
+        self.emitted: list[tuple[LegacyEventEmission, ...]] = []
+        self.configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            team=self.team, name="API errors", source_kind=SourceKind.LOGS, check_interval_minutes=1
+        )
+
+    def _emit(self, *, emissions: tuple[LegacyEventEmission, ...], **_kwargs: Any) -> None:
+        self.emitted.append(tuple(emissions))
+
+    def _run(
+        self,
+        announced: EvaluationAnnouncement,
+        chooser: Any,
+        *,
+        owned_by_platform: bool = True,
+        incident_actions: dict[str, IncidentAction] | None = None,
+        emitter: Any = None,
+    ) -> Any:
+        with (
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                return_value=True,
+            ),
+            patch(f"{_MODULE}.announcement", return_value=announced),
+            patch(f"{_MODULE}.list_alert_destination_groups", return_value=[_group(SLACK)]),
+            patch(f"{_MODULE}.DatabaseThreadStore"),
+            patch.dict(f"{_MODULE}._TRANSPORTS", {DestinationType.SLACK: RecordingTransport}),
+            patch.dict(delivery_paths._emitters, {SourceKind.LOGS: emitter or self._emit}),
+            patch.object(delivery_paths, "_chooser", chooser),
+        ):
+            return deliver_evaluation(
+                _request(
+                    self.team.id,
+                    configuration_id=str(self.configuration.id),
+                    owned_by_platform=owned_by_platform,
+                    incident_actions=incident_actions,
+                )
+            )
+
+    @staticmethod
+    def _chooses(path: DeliveryPath) -> Any:
+        return lambda **_kwargs: path
+
+    @staticmethod
+    def _fails(**_kwargs: Any) -> DeliveryPath:
+        raise RuntimeError("classifier down")
+
+    @parameterized.expand(
+        [
+            ("stock_destinations_send_natively", True, DeliveryPath.NATIVE, (0, 1)),
+            ("customized_destinations_emit_for_their_hog_functions", True, DeliveryPath.HOG_FUNCTION, (1, 0)),
+            # The source's own stack still emits these events, so emitting them here would send twice.
+            ("an_alert_the_source_owns_never_emits", False, DeliveryPath.HOG_FUNCTION, (0, 1)),
+            ("a_chooser_that_fails_emits", True, None, (1, 0)),
+        ]
+    )
+    def test_an_alert_delivers_through_the_path_its_destinations_allow(
+        self, _name: str, owned_by_platform: bool, path: DeliveryPath | None, expected: tuple[int, int]
+    ) -> None:
+        chooser = self._chooses(path) if path else self._fails
+        outcome = self._run(
+            _announcement(_transition(AlertEventKind.FIRING)), chooser, owned_by_platform=owned_by_platform
+        )
+
+        assert (len(self.emitted), len(RecordingTransport.sends)) == expected
+        assert outcome.emitted == expected[0]
+
+    def test_a_firing_and_its_resolve_take_the_path_the_firing_took(self) -> None:
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING)),
+            self._chooses(DeliveryPath.HOG_FUNCTION),
+            incident_actions={"": IncidentAction.TRIGGER},
+        )
+        # Every destination became stock mid-firing. The resolve still closes what the HogFunction opened.
+        self._run(
+            _announcement(_transition(AlertEventKind.RESOLVED)),
+            self._chooses(DeliveryPath.NATIVE),
+            incident_actions={"": IncidentAction.RESOLVE},
+        )
+        # The next firing reads the destinations again.
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING, episode_started_at=datetime(2026, 9, 30, 10, tzinfo=UTC))),
+            self._chooses(DeliveryPath.NATIVE),
+        )
+
+        assert [
+            [(e.transition.kind, e.sends_message, e.incident_action) for e in emissions] for emissions in self.emitted
+        ] == [
+            [(AlertEventKind.FIRING, True, IncidentAction.TRIGGER)],
+            [(AlertEventKind.RESOLVED, True, IncidentAction.RESOLVE)],
+        ]
+        assert len(RecordingTransport.sends) == 1
+
+    def test_an_emission_the_broker_did_not_take_fails_the_delivery_so_it_retries(self) -> None:
+        def refuse(**_kwargs: Any) -> None:
+            raise RuntimeError("not acknowledged")
+
+        with pytest.raises(DeliveryError):
+            self._run(
+                _announcement(_transition(AlertEventKind.FIRING, episode_started_at=None)),
+                self._chooses(DeliveryPath.HOG_FUNCTION),
+                emitter=refuse,
+            )
