@@ -5,6 +5,7 @@ import hashlib
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import InternalError
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -12,7 +13,7 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 from posthog.storage.object_storage import ObjectStorageError
 
-from products.canvas.backend.facade.tasks import cleanup_canvas_builds
+from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.notebook_integration import (
     NotebookCanvasNotFoundError,
@@ -41,6 +42,24 @@ class TestNotebookCanvasCleanupTasks(SimpleTestCase):
             cleanup_canvas_builds()
         cleanup.assert_called_once_with()
         capture.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("stale_connection", "cannot execute SELECT FOR UPDATE in a read-only transaction", True),
+            ("other_internal_error", "deadlock detected", False),
+        ]
+    )
+    def test_sweep_reports_only_errors_that_are_not_a_stale_connection(
+        self, _name: str, message: str, is_stale: bool
+    ) -> None:
+        with (
+            patch("products.canvas.backend.build_service.sweep_canvas_builds", side_effect=InternalError(message)),
+            patch("products.canvas.backend.tasks.tasks.connections") as connections,
+            patch("products.canvas.backend.tasks.tasks.capture_exception") as capture,
+        ):
+            sweep_canvas_builds()
+        self.assertEqual(connections.close_all.called, is_stale)
+        self.assertEqual(capture.called, not is_stale)
 
 
 class TestNotebookCanvasSourceValidation(SimpleTestCase):
