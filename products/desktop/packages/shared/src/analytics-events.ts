@@ -458,6 +458,8 @@ export interface AgentSessionErrorProperties {
   error_type: string;
   failure_reason?: "startup_timeout" | "startup_failed" | "other";
   startup_step?: string;
+  requested_model?: string;
+  error_message?: string;
 }
 
 export interface CloudStreamDisconnectedProperties {

@@ -181,37 +181,93 @@ describe("SessionService.clearSessionError retry config", () => {
     expect(clearStartup).toHaveBeenCalledWith("task-1", "empty-run");
   });
 
-  it("recreates the session with the original run configuration", async () => {
-    const session = makeSession({
-      model: "claude-fable-5",
-      adapter: "codex",
-      codexModelAccess: "own-subscription",
-      claudeModelAccess: "own-subscription",
-      executionMode: "auto",
-      reasoningLevel: "high",
-      contextWindow: "1m",
-      fastMode: true,
-    });
-    const { service, createNewLocalSession } = createHarness(session);
+  it.each([
+    {
+      errorMessage: "Session initialization failed",
+      expectedModel: "claude-fable-5",
+    },
+    {
+      errorMessage: "Session model switch failed: model rejected",
+      expectedModel: undefined,
+    },
+  ])(
+    "recreates the session with the original run configuration after $errorMessage",
+    async ({ errorMessage, expectedModel }) => {
+      const session = makeSession({
+        errorMessage,
+        model: "claude-fable-5",
+        adapter: "codex",
+        codexModelAccess: "own-subscription",
+        claudeModelAccess: "own-subscription",
+        executionMode: "auto",
+        reasoningLevel: "high",
+        contextWindow: "1m",
+        fastMode: true,
+      });
+      const { service, createNewLocalSession } = createHarness(session);
 
-    await service.clearSessionError("task-1", "/repo");
+      await service.clearSessionError("task-1", "/repo");
 
-    expect(createNewLocalSession).toHaveBeenCalledWith(
-      "task-1",
-      "Test task",
-      "/repo",
-      { client: {} },
-      session.initialPrompt,
-      "auto",
-      "codex",
-      "claude-fable-5",
-      "high",
-      undefined,
-      "1m",
-      true,
-      { codex: "own-subscription", claude: "own-subscription" },
-    );
-  });
+      expect(createNewLocalSession).toHaveBeenCalledWith(
+        "task-1",
+        "Test task",
+        "/repo",
+        { client: {} },
+        session.initialPrompt,
+        "auto",
+        "codex",
+        expectedModel,
+        "high",
+        undefined,
+        "1m",
+        true,
+        { codex: "own-subscription", claude: "own-subscription" },
+      );
+    },
+  );
+
+  it.each([
+    { errorMessage: "Session resumption failed", keepsModel: true },
+    { errorMessage: "Session model switch failed", keepsModel: false },
+  ])(
+    "reconnects after $errorMessage with keepsModel=$keepsModel",
+    async ({ errorMessage, keepsModel }) => {
+      const modelOption = {
+        id: "model",
+        category: "model",
+        type: "select",
+        currentValue: "deepseek-ai/deepseek-v4-flash-0731",
+        options: [],
+      };
+      const modeOption = {
+        id: "mode",
+        category: "mode",
+        type: "select",
+        currentValue: "default",
+        options: [],
+      };
+      const { service, deps, reconnectInPlace } = createHarness(
+        makeSession({
+          errorMessage,
+          events: [PROMPT_ECHO_EVENT, AGENT_MESSAGE_EVENT],
+        }),
+      );
+      let persisted = [modelOption, modeOption] as unknown as ReturnType<
+        SessionServiceDeps["getPersistedConfigOptions"]
+      >;
+      deps.getPersistedConfigOptions = () => persisted;
+      deps.setPersistedConfigOptions = (_runId, options) => {
+        persisted = options;
+      };
+
+      await service.clearSessionError("task-1", "/repo");
+
+      expect(reconnectInPlace).toHaveBeenCalledWith("task-1", "/repo");
+      expect(persisted).toEqual(
+        keepsModel ? [modelOption, modeOption] : [modeOption],
+      );
+    },
+  );
 
   it("reconnects in place instead of recreating when the transcript has agent events", async () => {
     const session = makeSession({
@@ -493,6 +549,8 @@ describe("SessionService.connectToTask start failure", () => {
       error_type: "connect_failed",
       failure_reason: "startup_timeout",
       startup_step: "initialization",
+      requested_model: "claude-fable-5",
+      error_message: "Session initialization timed out after 30000ms",
     });
   });
 });
