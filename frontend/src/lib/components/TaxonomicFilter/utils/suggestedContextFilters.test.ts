@@ -50,6 +50,21 @@ describe('suggestedContextFilters', () => {
             ).toHaveLength(1)
         })
 
+        it('checks the whole filter when excluding a recent', () => {
+            const items = [
+                recent(EventProperties, 'date', {
+                    propertyFilter: { key: 'date', operator: PropertyOperator.IsSet, value: null },
+                }),
+                recent(EventProperties, 'name', {
+                    propertyFilter: { key: 'name', operator: PropertyOperator.IsSet, value: null },
+                }),
+            ]
+            const out = filterRecentsForContext(items, [EventProperties], {
+                [EventProperties]: (filter) => filter.key === 'date',
+            })
+            expect(names(out)).toEqual(['name', 'name'])
+        })
+
         it('drops a recent whose value is excluded for its group, keeping others', () => {
             const items = [recent(EventProperties, 'message'), recent(EventProperties, 'plan')]
             const out = filterRecentsForContext(items, [EventProperties], undefined, undefined, {
