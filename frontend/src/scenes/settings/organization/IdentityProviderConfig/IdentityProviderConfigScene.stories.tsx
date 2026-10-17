@@ -66,7 +66,7 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        featureFlags: [FEATURE_FLAGS.SSO_SETTINGS_REDESIGN, FEATURE_FLAGS.XAA_AUTHENTICATION],
+        featureFlags: [FEATURE_FLAGS.XAA_AUTHENTICATION],
     },
     decorators: [
         mswDecorator({

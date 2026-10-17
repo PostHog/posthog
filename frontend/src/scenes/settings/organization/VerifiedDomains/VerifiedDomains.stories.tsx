@@ -3,7 +3,7 @@ import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 
 import type { Meta, StoryObj } from '@storybook/react'
 import { router } from 'kea-router'
 
-import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -73,8 +73,6 @@ const UNVERIFIED_DOMAIN: OrganizationDomainType = {
     sso_enforcement: '',
 }
 
-const LEGACY_FEATURE_FLAGS = STORYBOOK_FEATURE_FLAGS.filter((flag) => flag !== FEATURE_FLAGS.SSO_SETTINGS_REDESIGN)
-
 const ALL_FEATURES = [
     AvailableFeature.AUTOMATIC_PROVISIONING,
     AvailableFeature.SSO_ENFORCEMENT,
@@ -92,7 +90,7 @@ const meta: Meta<typeof App> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-05-25',
-        featureFlags: LEGACY_FEATURE_FLAGS,
+        featureFlags: STORYBOOK_FEATURE_FLAGS,
     },
     decorators: [
         mswDecorator({
@@ -192,11 +190,6 @@ export const BoostNeedsUpgrade: Story = {
     ],
 }
 
-export const RedesignedNeedsUpgrade: Story = {
-    ...BoostNeedsUpgrade,
-    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
-}
-
 export const EnterpriseMixed: Story = {
     decorators: [
         mswDecorator({
@@ -212,13 +205,7 @@ export const EnterpriseMixed: Story = {
     ],
 }
 
-export const EnterpriseRedesigned: Story = {
-    ...EnterpriseMixed,
-    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
-}
-
 export const EnterpriseRedesignedPartiallyConfigured: Story = {
-    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
     decorators: [
         mswDecorator({
             get: {
@@ -246,7 +233,6 @@ export const EnterpriseRedesignedPartiallyConfigured: Story = {
 }
 
 export const EnterpriseRedesignedNotConfigured: Story = {
-    parameters: { featureFlags: STORYBOOK_FEATURE_FLAGS },
     decorators: [
         mswDecorator({
             get: {
