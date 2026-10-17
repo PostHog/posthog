@@ -13,6 +13,7 @@ import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { CIExplorerActivity } from '../components/ciExplorer/CIExplorerActivity'
 import { CIExplorerOverview } from '../components/ciExplorer/CIExplorerOverview'
 import { CIExplorerSummaryCounts } from '../components/ciExplorer/CIExplorerSummaryCounts'
+import { CIExplorerTimeline } from '../components/ciExplorer/CIExplorerTimeline'
 import { EntityHeader } from '../components/EntityHeader'
 import { ProductNav } from '../components/ProductNav'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
@@ -101,7 +102,7 @@ export function CIExplorerScene(): JSX.Element {
                                     </Link>
                                 </>
                             }
-                            right={view === 'overview' && activePush ? <CIExplorerSummaryCounts /> : undefined}
+                            right={view !== 'activity' && activePush ? <CIExplorerSummaryCounts /> : undefined}
                         />
                     )}
 
@@ -112,6 +113,7 @@ export function CIExplorerScene(): JSX.Element {
                             onChange={() => {}}
                             tabs={[
                                 { key: 'overview', label: 'Overview', link: viewUrl('overview') },
+                                { key: 'timeline', label: 'Timeline', link: viewUrl('timeline') },
                                 { key: 'activity', label: 'Activity', link: viewUrl('activity') },
                             ]}
                             barClassName="mb-0 border-b-0"
@@ -155,6 +157,8 @@ export function CIExplorerScene(): JSX.Element {
                         <LemonSkeleton className="h-96 w-full" />
                     ) : view === 'activity' ? (
                         <CIExplorerActivity />
+                    ) : view === 'timeline' ? (
+                        <CIExplorerTimeline />
                     ) : (
                         <CIExplorerOverview />
                     )}
