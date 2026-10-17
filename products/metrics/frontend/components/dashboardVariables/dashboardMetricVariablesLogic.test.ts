@@ -149,6 +149,26 @@ describe('dashboardMetricVariablesLogic', () => {
         expect(mockOptions).toHaveBeenCalledTimes(1)
     })
 
+    it('sends no queued option request after the dashboard closes', async () => {
+        const first = deferred()
+        mockOptions.mockReturnValueOnce(first.promise).mockReturnValue(new Promise(() => {}))
+        const many: MetricsDashboardVariable[] = Array.from({ length: 6 }, (_, index) => ({
+            name: `v${index}`,
+            source: 'sql',
+            query: `SELECT ${index}`,
+        }))
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables: many, onSelectionsChange: jest.fn() })
+        logic.mount()
+        await flush()
+        logic.unmount()
+
+        first.resolve(['a'])
+        await flush()
+        await flush()
+
+        expect(mockOptions).toHaveBeenCalledTimes(4)
+    })
+
     it('runs at most four option requests at once', async () => {
         const many: MetricsDashboardVariable[] = Array.from({ length: 6 }, (_, index) => ({
             name: `v${index}`,
