@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "A UUID string identifying this message template.",
+            "type": "string"
+        },
+        "instruction": {
+            "description": "The change to make, in the person's words, such as `Make the button green.` At most 2,000 characters.",
+            "maxLength": 2000,
+            "type": "string"
+        }
+    },
+    "required": ["id", "instruction"],
+    "type": "object"
+}

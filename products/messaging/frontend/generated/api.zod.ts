@@ -9,6 +9,54 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Send one transactional email to one recipient from a template named by its key or id. `message_data` fills the template's `{{ variables.* }}` placeholders. With `template.hash`, PostHog checks that it holds the content you hold: content it never published sends nothing, and content that newer content replaced sends the current content with a `template_superseded` warning. Transactional emails skip opt-outs and frequency caps.
+ * @summary Send a transactional email
+ */
+export const messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax = 400
+
+export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
+    to: zod.email().describe('Email address of the recipient.'),
+    identifiers: zod
+        .object({
+            distinct_id: zod
+                .string()
+                .max(messagingSendEmailCreateBodyIdentifiersOneDistinctIdMax)
+                .nullish()
+                .describe(
+                    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`."
+                ),
+        })
+        .optional()
+        .describe('Who the email is for, used to attribute engagement events.'),
+    message_data: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
+    template: zod
+        .object({
+            key: zod
+                .string()
+                .optional()
+                .describe(
+                    'Key of the template, as uploaded with `PUT \/api\/projects\/@current\/messaging_templates\/by_key\/{key}\/`. Give either `key` or `id`.'
+                ),
+            hash: zod
+                .string()
+                .optional()
+                .describe(
+                    'Content hash of the template you hold, as `v1:` and 64 hex characters. When PostHog never published that content, the send answers `template_outdated` and sends nothing. Only with `key`.'
+                ),
+            id: zod
+                .uuid()
+                .optional()
+                .describe('ID of the template, for templates made in PostHog. Give either `key` or `id`.'),
+        })
+        .describe('The template to send, by key or by id.'),
+})
+
 export const messagingCategoriesCreateBodyKeyMax = 64
 
 export const messagingCategoriesCreateBodyNameMax = 128
@@ -251,6 +299,9 @@ export const MessagingSuppressionsRemoveSuppressionCreateBody = /* @__PURE__ */ 
         .describe('The email address to suppress. Will not receive any messages until removed.'),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesCreateBodyNameMax = 400
 
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
@@ -280,6 +331,10 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe('Inbox preview text shown after the subject. Supports Liquid templating.'),
                         text: zod
                             .string()
                             .optional()
@@ -340,6 +395,9 @@ export const MessagingTemplatesCreateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesUpdateBodyNameMax = 400
 
 export const messagingTemplatesUpdateBodyContentOneTemplatingDefault = `liquid`
@@ -369,6 +427,10 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe('Inbox preview text shown after the subject. Supports Liquid templating.'),
                         text: zod
                             .string()
                             .optional()
@@ -429,10 +491,15 @@ export const MessagingTemplatesUpdateBody = /* @__PURE__ */ zod.object({
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const messagingTemplatesPartialUpdateBodyNameMax = 400
 
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
+
+export const messagingTemplatesPartialUpdateBodyKeyMax = 400
 
 export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -459,6 +526,10 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                             .describe(
                                 'Email subject line. Supports Liquid templating. Required for email-type templates.'
                             ),
+                        preheader: zod
+                            .string()
+                            .optional()
+                            .describe('Inbox preview text shown after the subject. Supports Liquid templating.'),
                         text: zod
                             .string()
                             .optional()
@@ -517,8 +588,25 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe('Message category ID to file the template under. Must belong to the same project.'),
     deleted: zod.boolean().optional().describe('Soft-delete flag. Set true to remove the template from the library.'),
+    key: zod
+        .string()
+        .max(messagingTemplatesPartialUpdateBodyKeyMax)
+        .optional()
+        .describe(
+            'Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.'
+        ),
+    managed_by: zod
+        .enum(['gui'])
+        .describe('\* `gui` - GUI')
+        .optional()
+        .describe(
+            'Send `gui` as the only field to stop managing a template in code, so it can be edited in PostHog. It keeps its key, so the next upload under that key manages it in code again.\n\n\* `gui` - GUI'
+        ),
 })
 
+/**
+ * What every route of the transactional email API shares: the flag, workflow access and the send.
+ */
 export const MessagingTemplatesDesignPartialUpdateBody = /* @__PURE__ */ zod.object({
     operations: zod
         .array(
@@ -595,6 +683,21 @@ export const MessagingTemplatesMakeTransactionalCreateBody = /* @__PURE__ */ zod
 })
 
 /**
+ * Start a PostHog Code task that changes the file of a template managed by code, as `instruction` asks, and opens a pull request in the template's GitHub repository. PostHog doesn't change the template: the next upload of the changed file publishes it. Use it only when you can't edit the file yourself. Each call starts another task.
+ * @summary Request a change to a template managed by code
+ */
+export const messagingTemplatesRequestChangeCreateBodyInstructionMax = 2000
+
+export const MessagingTemplatesRequestChangeCreateBody = /* @__PURE__ */ zod.object({
+    instruction: zod
+        .string()
+        .max(messagingTemplatesRequestChangeCreateBodyInstructionMax)
+        .describe(
+            "The change to make, in the person's words, such as `Make the button green.` At most 2,000 characters."
+        ),
+})
+
+/**
  * Send one transactional email from this template to one recipient. The template must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. Transactional emails skip opt-outs and frequency caps.
  * @summary Send a transactional email
  */
@@ -619,5 +722,66 @@ export const MessagingTemplatesSendCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Data for the template\'s Liquid placeholders, available as `variables`. For example `{\"reset_link\": \"https:\/\/...\"}` fills `{{ variables.reset_link }}`.'
+        ),
+})
+
+/**
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that newer content already replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused template back on.
+ * @summary Upload a template by key
+ */
+export const messagingTemplatesByKeyUpdateBodyNameMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
+
+export const messagingTemplatesByKeyUpdateBodySourceOneRefMax = 400
+
+export const messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault = false
+
+export const MessagingTemplatesByKeyUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(messagingTemplatesByKeyUpdateBodyNameMax)
+        .describe('Template name shown in the template library.'),
+    subject: zod.string().describe('Email subject line. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    html: zod
+        .string()
+        .describe('Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.'),
+    text: zod
+        .string()
+        .optional()
+        .describe("Plain-text body for email clients that can't show HTML. Leaving it out removes the stored one."),
+    preheader: zod
+        .string()
+        .optional()
+        .describe('Inbox preview text shown after the subject. Leaving it out removes the stored one.'),
+    source: zod
+        .object({
+            repository: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax)
+                .nullish()
+                .describe('Host and path of the repository the file is in, such as `github.com\/example\/app`.'),
+            path: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOnePathMax)
+                .nullish()
+                .describe('Path of the template file in the repository, such as `emails\/welcome.html`.'),
+            ref: zod
+                .string()
+                .max(messagingTemplatesByKeyUpdateBodySourceOneRefMax)
+                .nullish()
+                .describe('Commit or branch the file was uploaded from.'),
+        })
+        .optional()
+        .describe(
+            'Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored.'
+        ),
+    if_not_superseded: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault)
+        .describe(
+            'Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content.'
         ),
 })

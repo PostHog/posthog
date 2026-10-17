@@ -1,11 +1,14 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isCodeManagedTemplate } from './codeManagedTemplate'
+import { templateCopy } from './templateCopy'
 import { MessageTemplate } from './types'
 
 export type { MessageTemplate }
@@ -209,10 +212,10 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 duplicateTemplate: async (template: MessageTemplate) => {
                     try {
-                        const duplicatedTemplate = await api.messaging.createTemplate({
-                            name: `${template.name} (copy)`,
-                            description: template.description,
-                            content: template.content,
+                        const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(template))
+                        posthog.capture('message template duplicated', {
+                            template_id: template.id,
+                            code_managed: isCodeManagedTemplate(template),
                         })
                         lemonToast.success('Template duplicated successfully')
                         return [...values.templates, duplicatedTemplate]

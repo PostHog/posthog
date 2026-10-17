@@ -1,14 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useMemo } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider, LemonTag, Spinner, SpinnerOverlay } from '@posthog/lemon-ui'
 
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
-import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -21,14 +21,21 @@ import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
+import { CodeManagedNotice } from './CodeManagedNotice'
+import { CodeManagedSource } from './CodeManagedSource'
+import { CodeManagedTag } from './CodeManagedTag'
+import { EditWithAgentButton } from './EditWithAgentButton'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
+import { MessageTemplateMenu } from './MessageTemplateMenu'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { ReadOnlyTemplatePreview } from './ReadOnlyTemplatePreview'
+import { RefusedEditsBanner } from './RefusedEditsBanner'
 import { SendTestEmailModal } from './SendTestEmailModal'
-import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
+import { NEW_TEMPLATE_AGENT_HEADLINES, buildCodeManagedTemplateContext } from './templateAgentContext'
 import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
 
 export const scene: SceneExport<MessageTemplateSceneLogicProps> = {
@@ -48,8 +55,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         submitTemplate,
         resetTemplate,
         setTemplateValue,
-        duplicateTemplate,
-        deleteTemplate,
         setTemplatePickerOpen,
         syncExternalEdit,
         keepMyTemplateVersion,
@@ -67,11 +72,11 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         isSyncingExternalEdit,
         transactionalHogFlowId,
         transactionalTab,
+        isCodeManaged,
+        templateSource,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
-
-    const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
     const testSendLogic = messageTemplateTestSendLogic(props)
     const { isModalOpen: isSendTestEmailModalOpen } = useValues(testSendLogic)
@@ -83,12 +88,13 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     const { aiComposerAvailable, agentContextItems } = useValues(newTemplateAgentLogic)
     // A template started from a sent message, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
     const showAiComposer = props.id === 'new' && aiComposerAvailable
+    const codeManagedAgentContext = useMemo(() => buildCodeManagedTemplateContext(originalTemplate), [originalTemplate])
     useSceneAgentPanel({
         sceneKey: 'email-template',
-        contextItems: showAiComposer ? agentContextItems : null,
-        headlines: NEW_TEMPLATE_AGENT_HEADLINES,
-        composer: AI_FIRST_COMPOSER_OVERRIDE,
-        active: showAiComposer,
+        contextItems: showAiComposer ? agentContextItems : codeManagedAgentContext,
+        headlines: showAiComposer ? NEW_TEMPLATE_AGENT_HEADLINES : undefined,
+        composer: showAiComposer ? AI_FIRST_COMPOSER_OVERRIDE : undefined,
+        active: showAiComposer || !!codeManagedAgentContext,
         // The composer is the page while drafting; the panel opens itself once the template exists.
         autoOpen: false,
     })
@@ -107,6 +113,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             {isSyncingExternalEdit && <SpinnerOverlay />}
             {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
                 <Spinner className="text-lg" />
+            ) : isCodeManaged ? (
+                <ReadOnlyTemplatePreview email={originalTemplate.content.email} />
             ) : (
                 <EmailTemplater
                     value={template?.content.email}
@@ -126,7 +134,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
-                { key: 'design', label: 'Design', content: editor, keepMounted: true },
+                { key: 'design', label: isCodeManaged ? 'Preview' : 'Design', content: editor, keepMounted: true },
                 transactionalHogFlowId
                     ? {
                           key: 'metrics',
@@ -152,7 +160,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     key: 'api',
                     label: 'API',
                     content: transactionalHogFlowId ? (
-                        <TransactionalEmailApiExample templateId={props.id} />
+                        <TransactionalEmailApiExample templateId={props.id} templateKey={originalTemplate.key} />
                     ) : (
                         <MakeTransactionalPrompt {...props} />
                     ),
@@ -173,17 +181,20 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     name={template.name}
                     description={template.description}
                     resourceType={{ type: 'template' }}
-                    canEdit
+                    canEdit={!isCodeManaged}
                     descriptionAlwaysVisible
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
                     onDescriptionChange={(description) => setTemplateValue('description', description)}
                     nameSuffix={
-                        showTransactional && transactionalHogFlowId ? (
-                            <LemonTag type="success" className="ml-1">
-                                Transactional
-                            </LemonTag>
-                        ) : undefined
+                        <>
+                            {showTransactional && transactionalHogFlowId && (
+                                <LemonTag type="success" className="ml-1">
+                                    Transactional
+                                </LemonTag>
+                            )}
+                            <CodeManagedTag template={originalTemplate} />
+                        </>
                     }
                     actions={
                         <>
@@ -197,7 +208,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             >
                                 Send test
                             </LemonButton>
-                            {templateChanged && (
+                            {templateChanged && !isCodeManaged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
                                     type="secondary"
@@ -207,65 +218,57 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     Discard changes
                                 </LemonButton>
                             )}
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                form="template"
-                                onClick={submitTemplate}
-                                loading={isTemplateSubmitting || templateLoading}
-                                disabledReason={
-                                    !templateChanged && props.id !== 'new'
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
-                                }
-                                size="small"
-                            >
-                                {props.id === 'new' ? 'Create' : 'Save'}
-                            </LemonButton>
-                            <More
-                                size="small"
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            data-attr="save-as-new-template"
-                                            fullWidth
-                                            onClick={() => setIsSaveTemplateModalOpen(true)}
-                                        >
-                                            Save as new template
-                                        </LemonButton>
-                                        {props.id !== 'new' && (
-                                            <>
-                                                <LemonButton
-                                                    data-attr="duplicate-message-template"
-                                                    fullWidth
-                                                    onClick={duplicateTemplate}
-                                                    disabledReason={
-                                                        templateChanged
-                                                            ? 'Save your changes before duplicating'
-                                                            : undefined
-                                                    }
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    data-attr="delete-message-template"
-                                                    status="danger"
-                                                    fullWidth
-                                                    onClick={deleteTemplate}
-                                                >
-                                                    Delete
-                                                </LemonButton>
-                                            </>
-                                        )}
-                                    </>
-                                }
-                            />
+                            {isCodeManaged ? (
+                                <EditWithAgentButton {...props} />
+                            ) : (
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    form="template"
+                                    onClick={submitTemplate}
+                                    loading={isTemplateSubmitting || templateLoading}
+                                    disabledReason={
+                                        !templateChanged && props.id !== 'new'
+                                            ? 'No changes to save'
+                                            : !template.name
+                                              ? 'Name is required'
+                                              : undefined
+                                    }
+                                    size="small"
+                                >
+                                    {props.id === 'new' ? 'Create' : 'Save'}
+                                </LemonButton>
+                            )}
+                            <MessageTemplateMenu {...props} />
                         </>
                     }
                 />
+
+                {(originalTemplate.key || templateSource) && (
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
+                        {originalTemplate.key && (
+                            <span
+                                className="flex items-center gap-1 min-w-0 max-w-full"
+                                data-attr="message-template-key"
+                            >
+                                <span className="shrink-0">Key</span>
+                                <span className="font-mono truncate min-w-0" title={originalTemplate.key}>
+                                    {originalTemplate.key}
+                                </span>
+                                <CopyToClipboardInline
+                                    explicitValue={originalTemplate.key}
+                                    description="template key"
+                                    iconMargin={false}
+                                />
+                            </span>
+                        )}
+                        <CodeManagedSource source={templateSource} />
+                    </div>
+                )}
+
+                <RefusedEditsBanner {...props} />
+
+                {isCodeManaged && <CodeManagedNotice {...props} />}
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
                 <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />

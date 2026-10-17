@@ -700,8 +700,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
 
     async def _run_sandbox_window(
         self, eval_case: SandboxedEvalCase, original_case: SandboxedEvalCase | None, hooks: CaseHooks | None = None
-    ) -> tuple[EvalCaseResult, dict[str, Any]]:
-        """Run the sandbox-owning window and return its result plus the seed data.
+    ) -> tuple[SandboxedEvalCase, EvalCaseResult, dict[str, Any]]:
+        """Run the sandbox-owning window and return the case as the agent ran it, its result, and the seed data.
 
         Holds a global sandbox slot for only this window: demo-data copy, setup
         hook, and the agent run. Everything after — log parsing, span building,
@@ -711,6 +711,8 @@ class _SandboxedEvalRun(_BaseEvalRun):
         ctx = self.ctx
         async with self._sandbox_slots:
             prepared = await self._prepare_case(eval_case, original_case, hooks)
+            if original_case is not None and original_case.prompt_from_seed is not None:
+                eval_case = eval_case.model_copy(update={"prompt": original_case.prompt_from_seed(prepared.seed)})
             # Start the agent budget after team setup, so neither semaphore wait
             # nor the ClickHouse copy can consume it.
             try:
@@ -742,7 +744,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
                     prepared.context.team_id,
                     keep=self._provider_strategy is not None and self._provider_strategy.keeps_sandboxes(),
                 )
-        return result, prepared.seed
+        return eval_case, result, prepared.seed
 
     async def _post_process(
         self,
@@ -834,7 +836,7 @@ class _SandboxedEvalRun(_BaseEvalRun):
         )
         original_case = self.cases_by_name.get(input["name"])
         sandbox_case = original_case if isinstance(original_case, SandboxedEvalCase) else None
-        result, seed_result = await self._run_sandbox_window(eval_case, sandbox_case, hooks)
+        eval_case, result, seed_result = await self._run_sandbox_window(eval_case, sandbox_case, hooks)
         await self._set_case_phase(hooks, "logs")
         return await self._post_process(eval_case, hooks, result, seed_result)
 
