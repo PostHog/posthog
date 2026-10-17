@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -480,3 +480,20 @@ class TestKernelRuntimeService(BaseTest):
         assert outputs == expected_outputs
         assert payloads == expected_payloads
         assert parser.buffer == ""
+
+
+class TestKernelLifecycleApi(APIBaseTest):
+    @parameterized.expand([("stop",), ("restart",)])
+    def test_busy_kernel_lock_returns_conflict(self, action: str) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+        busy_lock = MagicMock()
+        busy_lock.acquire.return_value = False
+
+        with patch("products.notebooks.backend.kernel_runtime.get_client") as get_client:
+            get_client.return_value.lock.return_value = busy_lock
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/kernel/{action}/",
+            )
+
+        assert response.status_code == 409, response.json()
+        assert "busy" in response.json()["detail"]
