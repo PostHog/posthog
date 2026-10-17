@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { useActions } from 'kea'
 
 import type { MultiQuestionForm } from '~/queries/schema/schema-assistant-messages'
@@ -54,6 +54,54 @@ describe('MultiQuestionFormInput', () => {
             continueAfterForm,
             continueAfterFormDismissal,
         })
+    })
+
+    it('does not open the next question custom input when the current question shortcut is used', () => {
+        render(<MultiQuestionFormInput form={form} />)
+
+        fireEvent.keyDown(document.body, { key: '3' })
+        const goalPanel = screen.getByText('Which goal matters most?').parentElement!
+        fireEvent.change(within(goalPanel).getByPlaceholderText('Type your answer...'), {
+            target: { value: 'Reduce churn' },
+        })
+        fireEvent.click(within(goalPanel).getByText('Next'))
+
+        const scopePanel = screen.getByText('Which area should I focus on?').parentElement!
+        expect(within(scopePanel).queryByPlaceholderText('Type your answer...')).not.toBeInTheDocument()
+        expect(within(scopePanel).getByText("Explain what you'd like instead.")).toBeInTheDocument()
+    })
+
+    it('only answers the active question when a numbered option shortcut is used', () => {
+        render(<MultiQuestionFormInput form={form} />)
+
+        fireEvent.keyDown(document.body, { key: '1' })
+        expect(continueAfterForm).not.toHaveBeenCalled()
+        const scopePanel = screen.getByText('Which area should I focus on?').parentElement!
+        expect(
+            within(scopePanel)
+                .getAllByRole('radio')
+                .every((radio) => !(radio as HTMLInputElement).checked)
+        ).toBe(true)
+
+        fireEvent.keyDown(document.body, { key: '2' })
+        expect(continueAfterForm).toHaveBeenCalledWith({ goal: 'Activation', scope: 'Onboarding' })
+    })
+
+    it('preserves the custom answer when returning to its question', () => {
+        render(<MultiQuestionFormInput form={form} />)
+
+        fireEvent.keyDown(document.body, { key: '3' })
+        const goalPanel = screen.getByText('Which goal matters most?').parentElement!
+        fireEvent.change(within(goalPanel).getByPlaceholderText('Type your answer...'), {
+            target: { value: 'Reduce churn' },
+        })
+        fireEvent.click(within(goalPanel).getByText('Next'))
+        fireEvent.click(screen.getByText('Goal'))
+
+        expect(within(goalPanel).getByPlaceholderText('Type your answer...')).toHaveValue('Reduce churn')
+        fireEvent.click(within(goalPanel).getByText('Next'))
+        fireEvent.click(screen.getByText('Checkout'))
+        expect(continueAfterForm).toHaveBeenCalledWith({ goal: 'Reduce churn', scope: 'Checkout' })
     })
 
     it('submits partial answers when the user skips the final question', () => {
