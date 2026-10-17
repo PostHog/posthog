@@ -24,6 +24,7 @@ export type ExperimentHealthFindingCode =
     | 'forced_variant_release_condition'
     | 'flag_variants_mismatch'
     | 'split_changed_mid_run'
+    | 'low_power'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
