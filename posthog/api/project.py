@@ -1821,6 +1821,12 @@ class ProjectViewSet(
             raise exceptions.ValidationError("This project is not pending deletion.")
         if not project.can_cancel_deletion(at=now):
             raise exceptions.ValidationError("This project deletion has already started.")
+        if project.teams.exclude(is_demo=True).exists() and get_project_limit_message(
+            project.organization, enforce_hard_limit=True
+        ):
+            raise exceptions.PermissionDenied(
+                "You have reached the maximum number of projects for your current plan. Delete another project or upgrade your plan to restore this one."
+            )
 
         deletion_scheduled_at = project.deletion_scheduled_at
         cancellation_claimed_at = now
@@ -2354,10 +2360,44 @@ class RootProjectViewSet(ProjectViewSet):
     hide_api_docs = True
 
 
+PROJECT_PLAN_LIMIT_MESSAGE = "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+
+
+def get_project_limit_message(organization: Organization, *, enforce_hard_limit: bool) -> str | None:
+    """Return why the organization cannot hold one more non-demo project, or None when it can."""
+    # A project pending deletion gives back its slot, so a user can delete a project to make room for a new one
+    current_non_demo_project_count = (
+        organization.teams.exclude(is_demo=True)
+        .exclude(project__is_pending_deletion=True)
+        .distinct("project_id")
+        .count()
+    )
+    projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
+
+    if projects_feature:
+        allowed_project_count = projects_feature.get("limit")
+        # If allowed_project_count is None then the user is allowed unlimited projects
+        if allowed_project_count is None:
+            # We have a hard limit of MAX_ALLOWED_PROJECTS_PER_ORG projects per organization
+            # We don't want to block updates if a customer is already over the max allowed
+            if enforce_hard_limit and current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG:
+                return f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support if you'd like access to more projects."
+            return None
+        # Check current limit against allowed limit
+        if current_non_demo_project_count >= allowed_project_count:
+            return PROJECT_PLAN_LIMIT_MESSAGE
+    else:
+        # If the org doesn't have the feature, they can only have one non-demo project
+        if current_non_demo_project_count >= 1:
+            return PROJECT_PLAN_LIMIT_MESSAGE
+
+    return None
+
+
 class PremiumMultiProjectPermission(BasePermission):
     """Require user to have all necessary premium features on their plan for create access to the endpoint."""
 
-    message = "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects."
+    message = PROJECT_PLAN_LIMIT_MESSAGE
 
     def has_permission(self, request: request.Request, view) -> bool:
         if view.action not in CREATE_ACTIONS:
@@ -2373,26 +2413,10 @@ class PremiumMultiProjectPermission(BasePermission):
             if organization.teams.filter(is_demo=True).exists():
                 return False
 
-        current_non_demo_project_count = organization.teams.exclude(is_demo=True).distinct("project_id").count()
-        projects_feature = organization.get_available_feature(AvailableFeature.ORGANIZATIONS_PROJECTS)
-
-        if projects_feature:
-            allowed_project_count = projects_feature.get("limit")
-            # If allowed_project_count is None then the user is allowed unlimited projects
-            if allowed_project_count is None:
-                # We have a hard limit of MAX_ALLOWED_PROJECTS_PER_ORG projects per organization
-                # We don't want to block updates if a customer is already over the max allowed
-                if current_non_demo_project_count >= MAX_ALLOWED_PROJECTS_PER_ORG and view.action == "create":
-                    self.message = f"You have reached the maximum limit of {MAX_ALLOWED_PROJECTS_PER_ORG} projects per organization. Contact support if you'd like access to more projects."
-                    return False
-                return True
-            # Check current limit against allowed limit
-            if current_non_demo_project_count >= allowed_project_count:
-                return False
-        else:
-            # If the org doesn't have the feature, they can only have one non-demo project
-            if current_non_demo_project_count >= 1:
-                return False
+        limit_message = get_project_limit_message(organization, enforce_hard_limit=view.action == "create")
+        if limit_message:
+            self.message = limit_message
+            return False
 
         # in any other case, we're good to go
         return True

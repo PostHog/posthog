@@ -201,6 +201,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
         )
 
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True, deletion_scheduled_at=timezone.now() + timedelta(hours=48)
+        )
+
+        response = self.client.post("/api/projects/", {"name": "New Project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
     def test_project_creation_with_limited_feature(self):
         # Set project limit to 2
         self.organization.available_product_features = [
@@ -501,10 +509,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.organization_membership.save()
 
         # Mock the teams queryset to return a count of 2000 non-demo projects
-        mock_qs = MagicMock()
-        mock_qs.exclude.return_value.distinct.return_value.count.return_value = 2000
-        mock_teams.return_value = mock_qs
-        mock_teams.exclude.return_value.distinct.return_value.count.return_value = 2000
+        mock_teams.exclude.return_value.exclude.return_value.distinct.return_value.count.return_value = 2000
 
         # Should not be able to create another project
         response = self.client.post("/api/projects/", {"name": "Project 1001"})
@@ -763,6 +768,25 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         mock_start_delete_task.assert_called_once()
         mock_cancel_delete_task.assert_called_once_with(project_id=self.project.id)
+
+    @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
+    def test_project_deletion_cannot_be_canceled_when_it_would_exceed_the_plan_limit(self, mock_cancel_delete_task):
+        self.organization.available_product_features = []
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        Project.objects.filter(id=self.project.id).update(
+            is_pending_deletion=True, deletion_scheduled_at=timezone.now() + timedelta(hours=48)
+        )
+        Project.objects.create_with_team(organization=self.organization, name="Replacement", initiating_user=self.user)
+
+        response = self.client.post(f"/api/projects/{self.project.id}/cancel-deletion/")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("maximum number of projects", response.json()["detail"])
+        self.project.refresh_from_db()
+        self.assertTrue(self.project.is_pending_deletion)
+        mock_cancel_delete_task.assert_not_called()
 
     @patch("posthog.temporal.delete_teams.dispatch.cancel_delete_project_data_workflow")
     def test_project_member_cannot_cancel_deletion(self, mock_cancel_delete_task):
