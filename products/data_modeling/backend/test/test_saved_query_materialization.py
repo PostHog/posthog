@@ -3,6 +3,8 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from parameterized import parameterized
+
 from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, User
 from posthog.models.organization import OrganizationMembership
@@ -11,7 +13,10 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.datawarehouse_saved_query import (
+    DataWarehouseSavedQuery,
+    SchedulingUnavailableError,
+)
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_modeling.backend.test.helpers import warehouse_source_node
@@ -83,18 +88,22 @@ class TestEnableSavedQueryMaterialization(BaseTest):
         assert self.saved_query.is_materialized is False
         assert self.saved_query.sync_frequency_interval is None
 
-    def test_a_cadence_refused_while_scheduling_restores_the_previous_materialization(self) -> None:
+    @parameterized.expand(
+        [
+            ("cadence_refused", UnsatisfiableFrequencyError("lineage moved"), api.MaterializationRefusedError),
+            ("temporal_unavailable", SchedulingUnavailableError("temporal down"), api.MaterializationFailedError),
+        ]
+    )
+    def test_a_scheduling_error_restores_the_previous_materialization(
+        self, _name: str, error: Exception, expected: type[Exception]
+    ) -> None:
         self.saved_query.is_materialized = True
         self.saved_query.sync_frequency_interval = timedelta(hours=12)
         self.saved_query.save(update_fields=["is_materialized", "sync_frequency_interval"])
 
         with (
-            patch.object(
-                DataWarehouseSavedQuery,
-                "schedule_materialization",
-                side_effect=UnsatisfiableFrequencyError("lineage moved"),
-            ),
-            self.assertRaises(api.MaterializationRefusedError),
+            patch.object(DataWarehouseSavedQuery, "schedule_materialization", side_effect=error),
+            self.assertRaises(expected),
         ):
             self._enable(timedelta(hours=1))
 

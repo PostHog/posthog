@@ -3,6 +3,9 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from parameterized import parameterized
+from temporalio.service import RPCError, RPCStatusCode
+
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
@@ -10,6 +13,7 @@ from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import (
     DataWarehouseSavedQuery,
     NoSchedulableDagError,
+    SchedulingUnavailableError,
 )
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.test.helpers import temporal_listing
@@ -257,3 +261,18 @@ class TestScheduleMaterializationV2Guard(BaseTest):
             self.sq.schedule_materialization()
         self.sq.refresh_from_db()
         assert self.sq.is_materialized is False
+
+    @parameterized.expand(
+        [
+            ("tls_handshake", RuntimeError("Failed client connect: Server connection error: invalid peer certificate")),
+            ("rpc_unavailable", RPCError("connection reset", RPCStatusCode.UNAVAILABLE, b"")),
+        ]
+    )
+    def test_temporal_outage_raises_and_keeps_materialization(self, _name: str, error: Exception):
+        self.sq.is_materialized = True
+        self.sq.save(update_fields=["is_materialized"])
+        with mock.patch(GET_V2_DAG_IDS, side_effect=error), self.assertRaises(SchedulingUnavailableError):
+            self.sq.schedule_materialization()
+        self.sq.refresh_from_db()
+        assert self.sq.is_materialized is True
+        assert self.sq.sync_frequency_interval == timedelta(hours=12)
