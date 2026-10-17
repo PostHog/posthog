@@ -69,6 +69,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_hog_function_calls_in_period,
     get_teams_with_hog_function_fetch_calls_in_period,
     get_teams_with_logs_bytes_in_period,
+    get_teams_with_logs_distinct_patterns_in_period,
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
@@ -242,6 +243,17 @@ class QuerySpec:
     multi_keys_mapping: dict[str, str] = dataclasses.field(default_factory=dict)
     timeout_minutes: int = 15
     kind: Literal["period", "snapshot"] = "period"
+    # A spec added after the workflow shipped runs only when `workflow.patched(patch_id)` is true,
+    # so a run that started before the deploy replays its recorded history without it.
+    patch_id: str | None = None
+
+    @property
+    def destination_keys(self) -> list[str]:
+        return list(self.multi_keys_mapping.values()) if self.output == "multi" else [self.name]
+
+
+SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
+LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID = "usage-report-logs-distinct-patterns-query-2026-10"
 
 
 QUERIES: list[QuerySpec] = [
@@ -513,6 +525,7 @@ QUERIES: list[QuerySpec] = [
         name="sandbox_compute_usage",
         fn=_sandbox_compute_usage,
         output="multi",
+        patch_id=SANDBOX_COMPUTE_QUERY_PATCH_ID,
         multi_keys_mapping={
             "credits": "teams_with_sandbox_compute_credits_used_in_period",
             "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
@@ -571,6 +584,11 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_logs_retention_byte_days_in_period",
         fn=get_teams_with_logs_retention_byte_days_in_period,
+    ),
+    QuerySpec(
+        name="teams_with_logs_distinct_patterns_in_period",
+        fn=get_teams_with_logs_distinct_patterns_in_period,
+        patch_id=LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID,
     ),
     # ---- ClickHouse: APM tracing ---------------------------------------------
     QuerySpec(

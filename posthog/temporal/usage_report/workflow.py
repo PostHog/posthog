@@ -35,7 +35,13 @@ from posthog.temporal.usage_report.activities import (
     run_query_to_s3,
 )
 from posthog.temporal.usage_report.metrics import get_workflow_finished_metric, record_workflow_latency
-from posthog.temporal.usage_report.queries import QUERIES, QUERY_INDEX, QuerySpec
+from posthog.temporal.usage_report.queries import (
+    LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID,
+    QUERIES,
+    QUERY_INDEX,
+    SANDBOX_COMPUTE_QUERY_PATCH_ID,
+    QuerySpec,
+)
 from posthog.temporal.usage_report.storage import run_prefix
 from posthog.temporal.usage_report.types import (
     AggregateInputs,
@@ -51,17 +57,16 @@ from posthog.usage_counters import LEGACY_QUERY_NAMES, UsageCounter
 # Cap concurrent gather queries so we don't overwhelm ClickHouse / Postgres
 # with ~40 simultaneous heavy queries.
 QUERY_CONCURRENCY = 4
-SANDBOX_COMPUTE_QUERY_PATCH_ID = "usage-report-sandbox-compute-query-2026-08"
-SANDBOX_COMPUTE_QUERY_NAME = "sandbox_compute_usage"
 USAGE_COUNTER_SERVICE_PATCH_ID = "usage-report-counter-service-2026-09"
 PARALLEL_COUNTER_QUERIES_PATCH_ID = "usage-report-parallel-counter-queries-2026-10"
 AGGREGATION_QUEUE_PATCH_ID = "usage-report-aggregation-queue-2026-10"
+# Each ID gates the specs whose `patch_id` matches. A history recorded with a marker replays only
+# while its ID is still here, so append new IDs and never rename or remove a shipped one.
+QUERY_PATCH_IDS = (SANDBOX_COMPUTE_QUERY_PATCH_ID, LOGS_DISTINCT_PATTERNS_QUERY_PATCH_ID)
 
 
-def _queries_for_sandbox_compute_patch(patch_applied: bool) -> list[QuerySpec]:
-    if patch_applied:
-        return QUERIES
-    return [spec for spec in QUERIES if spec.name != SANDBOX_COMPUTE_QUERY_NAME]
+def _queries_for_applied_patches(applied_patch_ids: set[str]) -> list[QuerySpec]:
+    return [spec for spec in QUERIES if spec.patch_id is None or spec.patch_id in applied_patch_ids]
 
 
 def build_context(inputs: RunUsageReportsInputs, run_id: str, now: datetime) -> WorkflowContext:
@@ -123,7 +128,9 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
         status = "FAILED"
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=started_at)
-            queries = _queries_for_sandbox_compute_patch(workflow.patched(SANDBOX_COMPUTE_QUERY_PATCH_ID))
+            queries = _queries_for_applied_patches(
+                {patch_id for patch_id in QUERY_PATCH_IDS if workflow.patched(patch_id)}
+            )
             if workflow.patched(USAGE_COUNTER_SERVICE_PATCH_ID):
                 ctx.usage_counter_plan = await workflow.execute_activity(
                     plan_usage_counters,
