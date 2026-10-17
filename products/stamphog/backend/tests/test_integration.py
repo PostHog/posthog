@@ -19,8 +19,10 @@ from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.signals.backend.models import SignalReport
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     AudienceReason,
     ChannelResolutionSource,
@@ -1386,6 +1388,43 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
             ],
         }
     ]
+
+
+@pytest.mark.parametrize(
+    "error,attempt,expect_reported",
+    [
+        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 1, False, id="5xx_first_attempt"),
+        pytest.param(requests.Timeout("read timed out"), 2, False, id="timeout_second_attempt"),
+        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 3, True, id="5xx_final_attempt"),
+        pytest.param(requests.Timeout("read timed out"), 3, True, id="timeout_final_attempt"),
+        pytest.param(StamphogGitHubError("not found", status_code=404), 1, True, id="4xx_first_attempt"),
+        pytest.param(StamphogGitHubError("truncated list"), 1, True, id="no_status_first_attempt"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_fetch_review_context_reports_transient_github_errors_only_on_final_attempt(
+    team, stamphog_chain: StamphogChain, error: Exception, attempt: int, expect_reported: bool
+) -> None:
+    repo_config = _repo_config(team.id)
+    head_sha = "sha134a"
+    stamphog_chain.recorder.register_pr(REPO, 134, _pr_object(134, "devex-dev", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=134, author_login="devex-dev"
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id, pull_request=pull_request, head_sha=head_sha, status=ReviewRunStatus.QUEUED
+    )
+
+    with (
+        patch.object(activities.activity, "info", return_value=MagicMock(attempt=attempt)),
+        patch.object(StamphogGitHubClient, "get_pr_reactions", side_effect=error),
+        pytest.raises(Exception) as raised,
+    ):
+        _run_activity(fetch_review_context, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    # The activity fails either way, so a review never runs with incomplete context.
+    assert is_expected_activity_failure(raised.value) is not expect_reported
+    assert raised.value is error or raised.value.__cause__ is error
 
 
 @pytest.mark.parametrize(

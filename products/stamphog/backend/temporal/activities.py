@@ -54,8 +54,10 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import AIGatewayConfig, resolve_ai_gateway_config
 from posthog.models import User
 from posthog.ph_client import ph_background_capture, ph_scoped_capture
+from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.utils import asyncify
 
+from products.stamphog.backend.facade.contracts import StamphogGitHubError
 from products.stamphog.backend.facade.enums import (
     TERMINAL_STATUSES,
     ReviewMode,
@@ -95,6 +97,7 @@ from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import request_rereview_after_external_review
 from products.stamphog.backend.temporal.constants import (
+    ACTIVITY_RETRY_POLICY,
     CLONE_STEP_TIMEOUT_SECONDS,
     NETWORK_RESTRICTED_AGENT_ENV,
     PREFETCH_DIFF_BLOBS_TIMEOUT_SECONDS,
@@ -486,6 +489,17 @@ class _StepTimer:
             self.timings_ms[name] = int((time.monotonic() - started) * 1000)
 
 
+class TransientGitHubError(NonReportableError):
+    """A GitHub 5xx or timeout on an attempt that Temporal still retries. The activity still fails,
+    so a review never runs with incomplete context, but only the final attempt reaches error tracking."""
+
+
+def _is_transient_github_error(error: Exception) -> bool:
+    if isinstance(error, requests.Timeout):
+        return True
+    return isinstance(error, StamphogGitHubError) and error.status_code is not None and error.status_code >= 500
+
+
 @activity.defn
 @asyncify
 def fetch_review_context(input: StamphogReviewInput) -> dict:
@@ -494,6 +508,15 @@ def fetch_review_context(input: StamphogReviewInput) -> dict:
     The reads are independent GitHub round trips, so they run concurrently. Only the reads that need
     the PR's author or its file list wait for those two.
     """
+    try:
+        return _fetch_review_context(input)
+    except (StamphogGitHubError, requests.Timeout) as error:
+        if _is_transient_github_error(error) and activity.info().attempt < ACTIVITY_RETRY_POLICY.maximum_attempts:
+            raise TransientGitHubError(str(error)) from error
+        raise
+
+
+def _fetch_review_context(input: StamphogReviewInput) -> dict:
     run = _load_run(input)
     pull_request = run.pull_request
     repo_config = pull_request.repo_config
