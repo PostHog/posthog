@@ -148,7 +148,7 @@ def _entry(
 
 
 def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateRange | None) -> dict:
-    """Mine the query's window and a baseline window, and return classified diff entries.
+    """Get patterns for the query's window and a baseline window, and return classified diff entries.
 
     The baseline defaults to the same window shifted back one week — log streams have strong
     daily/weekly cycles, so last week's identical window is a fairer expectation than the
@@ -166,13 +166,19 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
         )
     baseline_query = query.model_copy(update={"dateRange": baseline_date_range})
     baseline_runner = PatternsQueryRunner(team=team, query=baseline_query)
-    current_runner.use_stored_patterns = False
-    baseline_runner.use_stored_patterns = False
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 
     current_results = current_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
     baseline_results = baseline_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
+
+    # Stored templates of one version only match templates of that same version, and never
+    # mined ones, so a mismatched pair falls back to body mining on both sides.
+    if _template_identity(current_results) != _template_identity(baseline_results):
+        if current_results.get("source") == "stored_patterns":
+            current_results = _mine_bodies(team, query, current_from, current_to)
+        if baseline_results.get("source") == "stored_patterns":
+            baseline_results = _mine_bodies(team, query, baseline_from, baseline_to)
 
     entries = diff_patterns(
         current_results["patterns"],
@@ -185,6 +191,17 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
         "current": _window_meta(current_results, current_from, current_to),
         "baseline": _window_meta(baseline_results, baseline_from, baseline_to),
     }
+
+
+def _template_identity(results: dict) -> tuple[str | None, int | None]:
+    return results.get("source"), results.get("pattern_version")
+
+
+def _mine_bodies(team: "Team", query: LogsQuery, date_from: dt.datetime, date_to: dt.datetime) -> dict:
+    window = DateRange(date_from=date_from.isoformat(), date_to=date_to.isoformat())
+    runner = PatternsQueryRunner(team=team, query=query.model_copy(update={"dateRange": window}))
+    runner.use_stored_patterns = False
+    return runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
 
 
 def _window_meta(results: dict, date_from: dt.datetime, date_to: dt.datetime) -> dict:
