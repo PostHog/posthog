@@ -77,6 +77,7 @@ tools:
                 - created_by
                 - change_prompt_starter
                 - change_prompt_context
+                - change_prompt_variables
     workflows-patch-email-template:
         operation: messaging_templates_design_partial_update
         enabled: true

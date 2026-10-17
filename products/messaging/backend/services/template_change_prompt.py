@@ -4,17 +4,24 @@ The web page copies it, and agents read it from the API, so every caller hands t
 """
 
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Any, Final, Protocol
 from uuid import UUID
 
+from posthog.dataclasses import frozen
 from posthog.utils import absolute_uri
 
 from products.messaging.backend.facade.contracts import TemplateChangePrompt, TemplateManagedBy
 
-LIQUID_MARKUP: Final = re.compile(r"\{\{.*?\}\}|\{%.*?%\}", re.DOTALL)
+LIQUID_DELIMITERS: Final = (("{{", "}}"), ("{%", "%}"))
 VARIABLE: Final = re.compile(r"(?<![\w.])variables\.([A-Za-z_][\w-]*)")
 COMMIT_SHA: Final = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
+# Uploads store source values as free text, and the prompt goes to an agent that can write to the repository,
+# so a value with characters a repository, path or ref never needs (spaces, backticks, shell syntax) is treated as
+# unknown.
+SOURCE_REPOSITORY: Final = re.compile(r"[\w.-]+(?:/[\w.-]+)+")
+SOURCE_PATH: Final = re.compile(r"[\w.@+~,=()\[\]-]+(?:/[\w.@+~,=()\[\]-]+)*")
+SOURCE_REF: Final = re.compile(r"[\w./-]+")
 SHORT_SHA_LENGTH: Final = 7
 
 FILE_CONTRACT: Final = (
@@ -50,19 +57,37 @@ class PromptedTemplate(Protocol):
     def source_ref(self) -> str | None: ...
 
 
+@frozen
+class PromptSource:
+    repository: str | None
+    path: str | None
+    ref: str | None
+
+    @classmethod
+    def of(cls, template: PromptedTemplate) -> "PromptSource":
+        return cls(
+            repository=_if_shaped(template.source_repository, SOURCE_REPOSITORY),
+            path=_if_shaped(template.source_path, SOURCE_PATH),
+            ref=_if_shaped(template.source_ref, SOURCE_REF),
+        )
+
+
 def change_prompt(team_id: int, template: PromptedTemplate) -> TemplateChangePrompt | None:
     if template.managed_by != TemplateManagedBy.CODE or not template.key:
         return None
+    source = PromptSource.of(template)
+    variables = _variables_in_order_of_first_use(_published_parts(template.content))
     lines = [
-        _identity(template, template.key),
+        _identity(source, template.key),
         FILE_CONTRACT,
-        _personalization(template.content),
+        _personalization(variables),
         _how_it_goes_live(template.key),
         f"The template in PostHog: {_template_link(team_id, template.id)}",
     ]
     return TemplateChangePrompt(
-        starter=_starter(template, template.key),
+        starter=_starter(source, template.key),
         context="\n".join(["About this file:", *(f"- {line}" for line in lines)]),
+        variables=tuple(variables),
     )
 
 
@@ -70,21 +95,25 @@ def _template_link(team_id: int, template_id: UUID) -> str:
     return absolute_uri(f"/project/{team_id}/workflows/library/templates/{template_id}")
 
 
-def _starter(template: PromptedTemplate, key: str) -> str:
-    if template.source_path:
-        return f"In `{template.source_path}`, change "
+def _if_shaped(value: str | None, shape: re.Pattern[str]) -> str | None:
+    return value if value and shape.fullmatch(value) else None
+
+
+def _starter(source: PromptSource, key: str) -> str:
+    if source.path:
+        return f"In `{source.path}`, change "
     return f"In the HTML file of the `{key}` email template, change "
 
 
-def _identity(template: PromptedTemplate, key: str) -> str:
-    if template.source_path:
+def _identity(source: PromptSource, key: str) -> str:
+    if source.path:
         sentence = f"It is the PostHog email template with the key `{key}`"
     else:
         sentence = f"Find the HTML file that the app loads with `posthog.emails.templateFile()` for the key `{key}`"
-    if template.source_repository:
-        sentence += f", in the repository `{template.source_repository}`"
-    if template.source_ref:
-        sentence += f", last uploaded from {_ref(template.source_ref)}"
+    if source.repository:
+        sentence += f", in the repository `{source.repository}`"
+    if source.ref:
+        sentence += f", last uploaded from {_ref(source.ref)}"
     return f"{sentence}."
 
 
@@ -94,8 +123,7 @@ def _ref(ref: str) -> str:
     return f"`{ref}`"
 
 
-def _personalization(content: Mapping[str, Any]) -> str:
-    variables = _variables_in_order_of_first_use(_published_parts(content))
+def _personalization(variables: Sequence[str]) -> str:
     if not variables:
         return PERSONALIZATION
     return f"{PERSONALIZATION} This file uses {_join([f'`{{{{ variables.{name} }}}}`' for name in variables])}."
@@ -107,8 +135,30 @@ def _published_parts(content: Mapping[str, Any]) -> list[str]:
 
 
 def _variables_in_order_of_first_use(parts: Sequence[str]) -> list[str]:
-    names = (name for part in parts for markup in LIQUID_MARKUP.findall(part) for name in VARIABLE.findall(markup))
+    names = (name for part in parts for markup in _liquid_markups(part) for name in VARIABLE.findall(markup))
     return list(dict.fromkeys(names))
+
+
+def _liquid_markups(text: str) -> Iterator[str]:
+    """Each `{{ … }}` and `{% … %}` in one forward pass. A lazy regex rescans the rest of the text after every
+    opener that never closes, which turns a large uploaded HTML into quadratic work on every read."""
+    next_opener = {opener: text.find(opener) for opener, _ in LIQUID_DELIMITERS}
+    while True:
+        open_delimiters = [
+            (at, opener, closer) for opener, closer in LIQUID_DELIMITERS if (at := next_opener[opener]) >= 0
+        ]
+        if not open_delimiters:
+            return
+        start, opener, closer = min(open_delimiters)
+        end = text.find(closer, start + len(opener))
+        if end == -1:
+            next_opener[opener] = -1
+            continue
+        yield text[start : end + len(closer)]
+        position = end + len(closer)
+        for other, _ in LIQUID_DELIMITERS:
+            if 0 <= next_opener[other] < position:
+                next_opener[other] = text.find(other, position)
 
 
 def _join(items: Sequence[str]) -> str:

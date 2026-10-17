@@ -96,7 +96,13 @@ const workflowsListEmailTemplates = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['content', 'created_by', 'change_prompt_starter', 'change_prompt_context'])
+                omitResponseFields(item, [
+                    'content',
+                    'created_by',
+                    'change_prompt_starter',
+                    'change_prompt_context',
+                    'change_prompt_variables',
+                ])
             ),
         } as typeof result
         return await withPostHogUrl(

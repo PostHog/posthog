@@ -274,6 +274,13 @@ class MessageTemplateSerializer(serializers.Serializer):
         "how the change goes live, and a link to the template. An agent that can reach the repository edits the file "
         "following it. Null unless `managed_by` is `code`.",
     )
+    change_prompt_variables = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        allow_null=True,
+        help_text="Names of the `{{ variables.<name> }}` the published subject, preheader and HTML use, in order of "
+        "first use, as `change_prompt_context` lists them. Null unless `managed_by` is `code`.",
+    )
 
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")
@@ -577,11 +584,12 @@ class MessageTemplatesViewSet(
             for template in templates
         ]
 
-    def _change_prompt_fields(self, template: MessageTemplateRow) -> dict[str, str | None]:
+    def _change_prompt_fields(self, template: MessageTemplateRow) -> dict[str, str | list[str] | None]:
         prompt = change_prompt(self.team_id, template)
         return {
             "change_prompt_starter": prompt.starter if prompt else None,
             "change_prompt_context": prompt.context if prompt else None,
+            "change_prompt_variables": list(prompt.variables) if prompt else None,
         }
 
     def _serialize(self, template: MessageTemplateRow) -> Any:

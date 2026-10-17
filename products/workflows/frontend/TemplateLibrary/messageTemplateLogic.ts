@@ -38,7 +38,6 @@ import type {
 import { workflowLogic } from '../Workflows/workflowLogic'
 import {
     TemplateSource,
-    changePromptVariableCount,
     isChangeDescribed,
     isCodeManagedTemplate,
     isGitHubRepository,
@@ -48,6 +47,7 @@ import {
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { templateCopy } from './templateCopy'
+import { templateHtmlFile } from './templateHtmlFile'
 import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
@@ -105,6 +105,7 @@ export interface messageTemplateLogicValues {
     postHogCodeAvailable: boolean | null
     postHogCodeAvailableLoading: boolean
     runWithPostHogCodeDisabledReason: string | undefined
+    refusedEdits: MessageTemplate | null
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -113,6 +114,7 @@ export interface messageTemplateLogicValues {
         {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -143,6 +145,7 @@ export interface messageTemplateLogicValues {
         {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -174,13 +177,22 @@ export interface messageTemplateLogicActions {
     copyAgentPrompt: () => {
         value: true
     }
+    copyHtmlFile: () => {
+        value: true
+    }
     deleteTemplate: () => {
+        value: true
+    }
+    discardChangeSentence: () => {
         value: true
     }
     duplicateTemplate: () => {
         value: true
     }
     duplicateTemplateDone: () => {
+        value: true
+    }
+    duplicateWithMyChanges: () => {
         value: true
     }
     keepMyTemplateVersion: () => {
@@ -267,6 +279,7 @@ export interface messageTemplateLogicActions {
     resetTemplate: (values?: {
         change_prompt_context?: string | null | undefined
         change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -287,6 +300,7 @@ export interface messageTemplateLogicActions {
         values?: {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -338,6 +352,9 @@ export interface messageTemplateLogicActions {
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    setRefusedEdits: (edits: MessageTemplate | null) => {
+        edits: MessageTemplate | null
+    }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
     }
@@ -361,6 +378,7 @@ export interface messageTemplateLogicActions {
         values: DeepPartial<{
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -382,6 +400,7 @@ export interface messageTemplateLogicActions {
         values: DeepPartial<{
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -416,6 +435,7 @@ export interface messageTemplateLogicActions {
     submitTemplateRequest: (template: {
         change_prompt_context?: string | null | undefined
         change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -436,6 +456,7 @@ export interface messageTemplateLogicActions {
         template: {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -457,6 +478,7 @@ export interface messageTemplateLogicActions {
     submitTemplateSuccess: (template: {
         change_prompt_context?: string | null | undefined
         change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -477,6 +499,7 @@ export interface messageTemplateLogicActions {
         template: {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -534,6 +557,17 @@ export type messageTemplateLogicType = MakeLogicType<
     messageTemplateLogicMeta
 >
 
+async function createCopyOf(source: MessageTemplate): Promise<MessageTemplate | null> {
+    try {
+        const copy = await api.messaging.createTemplate(templateCopy(source))
+        lemonToast.success('Template duplicated successfully')
+        return copy
+    } catch (error: any) {
+        lemonToast.error(error?.detail || 'Failed to duplicate template')
+        return null
+    }
+}
+
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
     props({} as MessageTemplateLogicProps),
@@ -554,6 +588,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
         duplicateTemplateDone: true,
+        setRefusedEdits: (edits: MessageTemplate | null) => ({ edits }),
+        duplicateWithMyChanges: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
@@ -568,11 +604,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
         setAgentPromptOpen: (open: boolean) => ({ open }),
         setChangeSentence: (sentence: string) => ({ sentence }),
+        discardChangeSentence: true,
         copyAgentPrompt: true,
         runWithPostHogCode: true,
         requestChangeRun: (instruction: string) => ({ instruction }),
         requestChangeRunSuccess: (changeRun: TemplateChangeRequestedApi) => ({ changeRun }),
         requestChangeRunFailure: (error: ChangeRunError) => ({ error }),
+        copyHtmlFile: true,
     }),
     selectors({
         logicProps: [
@@ -627,7 +665,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             false,
             {
                 duplicateTemplate: () => true,
+                duplicateWithMyChanges: () => true,
                 duplicateTemplateDone: () => false,
+            },
+        ],
+        // Unsaved edits that the server refused because an upload claimed the template back for code.
+        refusedEdits: [
+            null as MessageTemplate | null,
+            {
+                setRefusedEdits: (_, { edits }) => edits,
             },
         ],
         transactionalTab: [
@@ -653,6 +699,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 setChangeSentence: (_, { sentence }) => sentence,
                 requestChangeRunSuccess: () => null,
+                discardChangeSentence: () => null,
             },
         ],
         isRequestingChangeRun: [
@@ -801,7 +848,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, selectors }) => ({
         resourceEdited: ({ event }) => {
             if (event.resource_type === 'MessageTemplate' && event.resource_id === props.id) {
                 actions.templateEditedElsewhere(event)
@@ -864,7 +911,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             posthog.capture('message template agent prompt copied', {
                 ...values.agentPromptEventProperties,
-                variable_count: changePromptVariableCount(values.originalTemplate.change_prompt_context),
+                variable_count: values.originalTemplate.change_prompt_variables?.length ?? 0,
             })
             lemonToast.success(
                 'Prompt copied. Paste it into your coding agent. PostHog keeps sending the current version until your app sends or uploads the changed file.'
@@ -902,6 +949,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                     action: () => router.actions.push(urls.taskDetail(changeRun.task_id)),
                 },
             })
+        },
+        copyHtmlFile: async () => {
+            const { id, content } = values.originalTemplate
+            const copied = await copyToClipboard(templateHtmlFile(content.email), 'HTML file', { silent: true })
+            if (!copied) {
+                return
+            }
+            const droppedTextPart = !!content.email.text?.trim()
+            posthog.capture('message template html file copied', {
+                template_id: id,
+                dropped_text_part: droppedTextPart,
+            })
+            const textPartNote = droppedTextPart
+                ? ' This file has no plain-text part. The next upload from this file removes the plain-text version.'
+                : ''
+            lemonToast.success(
+                `Copied. Save it as the template's file. PostHog keeps sending the current version until your app sends or uploads the file.${textPartNote}`
+            )
         },
         releaseTemplateSuccess: ({ template }) => {
             posthog.capture('message template released from code', { template_id: template.id })
@@ -949,7 +1014,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setExternallyEdited(true)
             }
         },
-        loadTemplateSuccess: ({ template }) => {
+        loadTemplateSuccess: ({ template }, _, __, previousState) => {
+            // A sentence typed against another file's starter would point the agent at the old file.
+            if (selectors.changePromptStarter(previousState) !== values.changePromptStarter) {
+                actions.discardChangeSentence()
+            }
             if (isCodeManagedTemplate(template) && values.postHogCodeAvailable === null) {
                 actions.loadPostHogCodeAvailable()
             }
@@ -970,6 +1039,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         saveTemplateFailure: ({ errorObject }) => {
+            if (errorObject?.code === 'immutable') {
+                // An upload claimed the template back for code. The page locks at once, so a failed reload
+                // can't leave it editable. Only the offered duplicate keeps the refused edits.
+                const claimed = { ...values.originalTemplate, managed_by: 'code' as const }
+                actions.setRefusedEdits(values.template)
+                actions.setExternallyEdited(false)
+                actions.setOriginalTemplate(claimed)
+                actions.resetTemplate(claimed)
+                actions.loadTemplate()
+                return
+            }
             actions.replayDeferredExternalEdit()
             // A 404 means the template no longer resolves for this environment - it was soft-deleted,
             // or it belongs to a different environment than the one currently selected.
@@ -980,10 +1060,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         action: () => router.actions.push(urls.workflows('library')),
                     },
                 })
-                return
-            }
-            if (errorObject?.code === 'immutable') {
-                lemonToast.error(errorObject.detail)
                 return
             }
             lemonToast.error('Failed to save template. Please try again.')
@@ -1017,24 +1093,35 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             })
         },
-        duplicateTemplate: async () => {
+        duplicateTemplate: async (_, breakpoint) => {
             if (values.templateChanged) {
                 lemonToast.error('Please save your changes before duplicating')
                 actions.duplicateTemplateDone()
                 return
             }
-            try {
-                const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(values.template))
+            const copy = await createCopyOf(values.template)
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
                 posthog.capture('message template duplicated', {
                     template_id: values.originalTemplate.id,
                     code_managed: values.isCodeManaged,
                 })
-                lemonToast.success('Template duplicated successfully')
-                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
-            } catch (error: any) {
-                lemonToast.error(error?.detail || 'Failed to duplicate template')
-            } finally {
-                actions.duplicateTemplateDone()
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
+            }
+        },
+        duplicateWithMyChanges: async (_, breakpoint) => {
+            const edits = values.refusedEdits
+            const copy = edits && (await createCopyOf(edits))
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
+                posthog.capture('message template duplicated', {
+                    template_id: values.originalTemplate.id,
+                    code_managed: values.isCodeManaged,
+                })
+                actions.setRefusedEdits(null)
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
             }
         },
         deleteTemplate: async () => {

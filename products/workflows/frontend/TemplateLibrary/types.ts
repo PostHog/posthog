@@ -23,4 +23,5 @@ export interface MessageTemplate {
     source_ref?: MessageTemplateApi['source_ref']
     change_prompt_starter?: MessageTemplateApi['change_prompt_starter']
     change_prompt_context?: MessageTemplateApi['change_prompt_context']
+    change_prompt_variables?: MessageTemplateApi['change_prompt_variables']
 }
