@@ -35,7 +35,7 @@ Use this tool to generate an insight from a structured plan. It will return a vi
 
 A chart generated in this conversation can have an artifact or visualization ID without being saved. Never pass those IDs as `insight_id`. To revise an unsaved chart, omit both `insight_id` and `query_patch`, and provide a revised structured plan based on that chart and the requested changes. Only use `insight_id` after confirming the saved insight in this project through search or read_data.
 
-To update an existing saved insight, first read its saved query with read_data, then provide its short ID as `insight_id` and `query_patch` as a JSON-encoded array of JSON Patch operations against that full query. This saves the same insight and affects every dashboard referencing it. Use narrow paths for only the changes in the current request. Do not apply remembered preferences, defaults, or other improvements to unrelated settings. For example, [{"op":"replace","path":"/source/breakdownFilter/breakdown","value":"name"}] changes a legacy breakdown property; for a breakdowns list, use /source/breakdownFilter/breakdowns/0/property. Use add to set an optional field, remove to delete a field, and move with from/path to reorder a series without rebuilding it. Parent objects must exist. Never regenerate the whole query or replace a whole filter object to change one setting. Use the saved query, not dashboard overrides. Do not create a replacement insight or use upsert_dashboard for insight edits. The existing name and description are preserved. query_description and insight_type are used only for generation, not saved edits.
+To update an existing saved insight, first read its full saved query with read_data using execute=false, then provide its short ID as `insight_id` and `query_patch` as a JSON-encoded array of JSON Patch operations against that full query. This saves the same insight and affects every dashboard referencing it. Use narrow paths for only the changes in the current request. Do not apply remembered preferences, defaults, or other improvements to unrelated settings. For example, [{"op":"replace","path":"/source/breakdownFilter/breakdown","value":"name"}] changes a legacy breakdown property; for a breakdowns list, use /source/breakdownFilter/breakdowns/0/property. Use add to set an optional field, remove to delete a field, and move with from/path to reorder a series without rebuilding it. Parent objects must exist. Never regenerate the whole query or replace a whole filter object to change one setting. Use the saved query, not dashboard overrides. Do not create a replacement insight or use upsert_dashboard for insight edits. The existing name and description are preserved. query_description and insight_type are used only for generation, not saved edits.
 When editing the currently open insight editor, omit `insight_id` to apply a draft to the editor, including its unsaved changes. Supply `insight_id` only when the user asks to save directly to that insight.
 
 This tool can also be used to edit the visualization the user is currently viewing on the insight page. In that case, you need to generate a new plan based on the schema of the existing insight.
@@ -535,6 +535,23 @@ The agent has encountered an unknown error while creating an insight.
 InsightType = Literal["trends", "funnel", "retention", "sql"]
 
 
+MISSING_QUERY_PATCH_ERROR = (
+    "To update a saved insight, provide query_patch with the requested edits. Read the saved query first. "
+    "To create or revise an unsaved chart instead, omit insight_id."
+)
+
+
+def _describe_query_paths(query: dict[str, Any]) -> str:
+    lines = ["Valid top-level paths in the saved query:"]
+    for key, value in query.items():
+        if key == "response":
+            continue
+        lines.append(f"- /{key}")
+        if key == "source" and isinstance(value, dict):
+            lines.extend(f"- /source/{source_key}" for source_key in value if source_key != "response")
+    return "\n".join(lines)
+
+
 class CreateInsightToolArgs(BaseModel):
     insight_id: str | None = Field(
         default=None,
@@ -542,7 +559,7 @@ class CreateInsightToolArgs(BaseModel):
     )
     query_patch: str | None = Field(
         default=None,
-        description="Required for saved edits: JSON-encoded JSON Patch array against the full saved query. Use add, replace, remove, move or test with precise paths. Read the saved query first. Omit for generation.",
+        description="Required for saved edits: JSON-encoded JSON Patch array against the full saved query. Use add, replace, remove, move or test with precise paths. Read the saved query with read_data using execute=false first. Include /source in a path only when the returned saved query contains source. Omit for generation.",
     )
     expected_query: dict[str, Any] | None = Field(default=None, exclude=True)
     query_description: str = Field(description="A plan of the query to generate based on the template.")
@@ -596,13 +613,15 @@ class CreateInsightTool(MaxTool):
         if insight_id is None:
             return await super()._check_dangerous_operation(kwargs)
 
+        query_patch = kwargs.get("query_patch")
+        if not query_patch:
+            raise MaxToolRetryableError(MISSING_QUERY_PATCH_ERROR)
         insight = await self._get_insight(insight_id)
         if kwargs.get("expected_query") is None:
             kwargs["expected_query"] = insight.query
+        self._updated_insight_query(insight, query_patch)
         preview = f"Update insight **{insight.name or insight.short_id}**. This changes every dashboard that uses this insight."
-        if query_patch := kwargs.get("query_patch"):
-            self._updated_insight_query(insight, query_patch)
-            preview += f"\n\nRequested query edits:\n```json\n{json.dumps(json.loads(query_patch), indent=2)}\n```"
+        preview += f"\n\nRequested query edits:\n```json\n{json.dumps(json.loads(query_patch), indent=2)}\n```"
         return self._handle_dangerous_operation(kwargs, preview=preview)
 
     @staticmethod
@@ -639,7 +658,8 @@ class CreateInsightTool(MaxTool):
             ValidationError,
         ) as error:
             raise MaxToolRetryableError(
-                f"Could not apply the query edits. Read the saved query and retry: {error}"
+                f"Could not apply the query edits: {error}\n{_describe_query_paths(insight.query or {})}\n"
+                "Paths start at the root of the saved query. Fix the paths and retry."
             ) from error
 
     async def _save_insight_query(self, insight: SavedInsightDefinition, query: dict[str, Any]) -> None:
@@ -678,8 +698,8 @@ class CreateInsightTool(MaxTool):
         expected_query: dict[str, Any] | None = None,
     ) -> tuple[str, ToolMessagesArtifact | None]:
         if insight_id is not None:
-            if query_patch is None:
-                raise MaxToolRetryableError("Read the saved insight and provide query_patch with the requested edits.")
+            if not query_patch:
+                raise MaxToolRetryableError(MISSING_QUERY_PATCH_ERROR)
             insight = await self._get_insight(insight_id)
             if expected_query is not None and insight.query != expected_query:
                 raise MaxToolRetryableError("This insight changed while awaiting approval. Read it again and retry.")

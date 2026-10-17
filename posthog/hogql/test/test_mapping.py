@@ -461,7 +461,9 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
                 JSONLength('{"a": [1, 2, 3], "b": {"c": "hello"}}') as obj_length,
                 JSONArrayLength('[1, 2, 3, 4, 5]') as array_length,
                 JSONType('{"key": "value"}', 'key') as string_type,
-                JSONExtract('{"num": 42}', 'num', 'Int32') as extracted_int
+                JSONExtract('{"num": 42}', 'num', 'Int32') as extracted_int,
+                JSONExtract(nullIf('["a", "b"]', ''), 'Array(String)') as extracted_nullable_array,
+                JSONExtract(nullIf('', ''), 'Array(String)') as extracted_null_array
             """,
             self.team,
         )
@@ -475,6 +477,8 @@ class TestMappings(ClickhouseTestMixin, BaseTest):
         self.assertEqual(result_dict["array_length"], 5)  # 5 elements in array
         self.assertEqual(result_dict["string_type"], "String")  # type of "value"
         self.assertEqual(result_dict["extracted_int"], 42)  # extracted integer
+        self.assertEqual(result_dict["extracted_nullable_array"], ["a", "b"])
+        self.assertEqual(result_dict["extracted_null_array"], [])
 
     def test_generated_aggregate_combinator_functions_snapshot(self):
         generated_sigs = [
