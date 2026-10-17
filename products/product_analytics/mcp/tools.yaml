@@ -152,6 +152,46 @@ tools:
                 - query_status
                 - hogql
                 - types
+    insight-data-checks-run:
+        operation: insights_data_checks_retrieve
+        enabled: true
+        scopes:
+            - insight:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run insight data checks
+        description: >
+            Check the events behind a saved insight for four common problems that make its numbers misleading: events
+            from internal and test users, events from local development, bot and crawler traffic, and events sent twice.
+            Pass the insight's numeric `id` or its 8-character `short_id`. Use it after you create or change a trends,
+            funnel, stickiness, or lifecycle insight, and when the user asks whether an insight's numbers can be
+            trusted. For a query that is not saved as an insight, use `query-data-checks-run`.
+
+
+            Only event series are checked. The `status` is `unsupported` for a SQL insight, for a series built on an
+            action or a data warehouse table, for an insight that still stores legacy `filters`, and when a property of
+            the project is hidden from you. It is `no_events` when no event matches the insight.
+
+
+            Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix`
+            when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to
+            true on the query with `insight-update`. A large insight is checked on a sample: when `sample_rate` is below
+            1, `events_checked` and the `events` of each check count the sample only. The internal users check reads a
+            smaller sample of its own, so its `events` is an estimate on the same scale.
+        agent_note: >
+            When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its
+            share of the events, and offer the fix. Do not change the insight or the project's filter settings before
+            the user agrees. When every check passed, say so in a few words. Do not list the checks that passed.
+        param_overrides:
+            id:
+                aliases:
+                    - insightId
+                    - insight_id
+                    - short_id
+                    - shortId
+        feature_flag: insight-data-checks
     insight-delete:
         operation: insights_destroy
         enabled: true
@@ -395,3 +435,50 @@ tools:
                 - last_viewed_at
                 - view_count
                 - viewers
+    query-data-checks-run:
+        operation: insights_data_checks_create
+        enabled: true
+        scopes:
+            - insight:read
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run data checks on an insight query
+        description: >
+            Run the insight data checks on a query that is not saved as an insight, such as one you are about to pass to
+            `insight-create`. For a saved insight, use `insight-data-checks-run` with its id instead. The checks look
+            for four common problems that make numbers misleading: events from internal and test users, events from
+            local development, bot and crawler traffic, and events sent twice.
+
+
+            Pass the `query` in the shape an insight stores it. Only event series of a trends, funnel, stickiness, or
+            lifecycle query are checked. The `status` is `unsupported` for a SQL query, for a series built on an action
+            or a data warehouse table, and when a property of the project is hidden from you. It is `no_events` when no
+            event matches the query.
+
+
+            ```json
+
+            { "query": { "kind": "InsightVizNode", "source": { "kind": "TrendsQuery", "series": [{ "kind": "EventsNode",
+            "event": "$pageview" }], "dateRange": { "date_from": "-30d" } } } }
+
+            ```
+
+
+            Each check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix`
+            when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to
+            true on the query. A large query is checked on a sample: when `sample_rate` is below 1, `events_checked` and
+            the `events` of each check count the sample only. The internal users check reads a smaller sample of its
+            own, so its `events` is an estimate on the same scale.
+        agent_note: >
+            When a check has the level `warning` or `problem`, tell the user what it found in one sentence, with its
+            share of the events, and offer the fix. Do not change the query or the project's filter settings before the
+            user agrees. When every check passed, say so in a few words. Do not list the checks that passed.
+        exclude_params:
+            - query
+        param_overrides:
+            query:
+                schema_ref: InsightQuery
+        feature_flag: insight-data-checks
