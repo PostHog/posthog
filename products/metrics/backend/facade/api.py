@@ -8,6 +8,7 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import replace
 from functools import partial
 from typing import Any
@@ -520,9 +521,12 @@ def list_metric_variable_options(
     Raises `ValueError` for a bad query or window, and `ConcurrencyLimitExceeded` when the organization
     runs too many queries.
     """
+    # `all` looks up the earliest event, which is a query, so it counts against the same limits.
+    lookup = query_concurrency_slots(team) if date_from == "all" else nullcontext()
     try:
-        window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
-        resolved_from, resolved_to = window.date_from(), window.date_to()
+        with lookup:
+            window = metrics_query_date_range(team, DateRange(date_from=date_from, date_to=date_to))
+            resolved_from, resolved_to = window.date_from(), window.date_to()
     except (ValueError, OverflowError) as exc:
         raise ValueError("The window of the variable options is not a valid date range.") from exc
     check_options_window(resolved_from, resolved_to)

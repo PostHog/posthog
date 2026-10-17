@@ -30,7 +30,7 @@ from posthog.hogql.database.schema.metrics import (
     MetricsTable,
 )
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.visitor import TraversingVisitor
@@ -282,15 +282,23 @@ def run_metrics_sql_values(
     date_to: dt.datetime,
     limit: int,
     variables: Mapping[str, ast.Expr] | None = None,
+    max_length: int | None = None,
 ) -> list[str]:
-    """ClickHouse removes duplicates and stops at the limit, so only the returned values leave the database."""
+    """ClickHouse removes duplicates, drops values longer than `max_length` and stops at the limit, so only the
+    returned values leave the database."""
     inner = _parse_metrics_sql(team, sql, date_from, date_to, None, variables)
     name = _name_first_column(inner)
     query = parse_select(
-        "SELECT DISTINCT {value} FROM {inner} LIMIT {limit}",
+        "SELECT DISTINCT {value} FROM {inner} WHERE {short} LIMIT {limit}",
         placeholders={
             "value": ast.Field(chain=[name]),
             "inner": inner,
+            "short": parse_expr(
+                "length(toString({value})) <= {max_length}",
+                placeholders={"value": ast.Field(chain=[name]), "max_length": ast.Constant(value=max_length)},
+            )
+            if max_length is not None
+            else ast.Constant(value=True),
             "limit": ast.Constant(value=limit),
         },
     )

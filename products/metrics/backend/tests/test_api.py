@@ -304,6 +304,23 @@ class TestMetricsVariableOptionsApi(APIBaseTest):
         request.assert_not_called()
         run.assert_not_called()
 
+    def test_windows_in_the_same_minutes_run_on_the_same_bounds(self) -> None:
+        start = timezone.now().replace(second=0, microsecond=0) - timedelta(hours=1)
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["a"]) as run:
+            for seconds in (10, 50):
+                window = {"dateFrom": (start + timedelta(seconds=seconds)).isoformat()}
+                self._post({"source": "sql", "query": OPTIONS_SQL, **window})
+
+        assert run.call_count == 1
+        assert run.call_args.args[2] == start
+
+    def test_sql_options_drop_long_values_in_clickhouse(self) -> None:
+        with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["a"]) as run:
+            self._post({"source": "sql", "query": OPTIONS_SQL})
+            self._post({"source": "sql", "query": OPTIONS_SQL, "regex": "a(.)"})
+
+        assert [call.kwargs["max_length"] for call in run.call_args_list] == [1024, 16 * 1024]
+
     def test_a_selection_set_to_all_without_options_is_an_empty_set(self) -> None:
         with patch("products.metrics.backend.variable_options.run_metrics_sql_values", return_value=["a"]) as run:
             response = self._post(

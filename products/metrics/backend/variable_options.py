@@ -55,6 +55,8 @@ _OPTIONS_ERROR_SECONDS = 10
 cache = ConnectionProxy(caches, "metrics_variable_options")
 # The selection API accepts values up to this length, so a longer option could not be selected.
 MAX_OPTION_LENGTH = 1024
+# A regex can capture a short option from a longer value, so a query with a regex keeps longer values for it.
+_MAX_REGEX_SOURCE_LENGTH = 16 * 1024
 
 
 @frozen
@@ -367,6 +369,10 @@ def list_variable_options(
     `slot` holds a concurrency slot while the query runs. `regex` filters the options of a query, and a list
     ignores it, because its select shows every value.
     """
+    # The cache key holds whole minutes, so the query runs on the same whole minutes.
+    date_from = date_from.replace(second=0, microsecond=0)
+    if date_to.second or date_to.microsecond:
+        date_to = date_to.replace(second=0, microsecond=0) + dt.timedelta(minutes=1)
     options: list[Any]
     if source == MetricsDashboardVariableSource.CUSTOM:
         options = [value for value in custom_values or [] if value]
@@ -404,7 +410,15 @@ def list_variable_options(
             options = _shared_options(
                 key,
                 lambda: apply_regex(
-                    run_metrics_sql_values(team, sql.sql, date_from, date_to, MAX_VARIABLE_OPTIONS, sql.placeholders),
+                    run_metrics_sql_values(
+                        team,
+                        sql.sql,
+                        date_from,
+                        date_to,
+                        MAX_VARIABLE_OPTIONS,
+                        sql.placeholders,
+                        max_length=_MAX_REGEX_SOURCE_LENGTH if regex else MAX_OPTION_LENGTH,
+                    ),
                     regex,
                 ),
                 slot,
