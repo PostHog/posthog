@@ -45,6 +45,7 @@ from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, create_project_secret_api_key_for_token
 from posthog.models.team import Team
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
@@ -4266,6 +4267,17 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         )
         self.team.refresh_from_db()
         assert getattr(self.team, team_attr) != value
+
+    def test_member_cannot_set_project_logo_via_projects(self) -> None:
+        media = UploadedMedia.objects.create(team=self.team, created_by=self.user, content_type="image/png")
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/", {"logo_media_id": str(media.id)}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.project.refresh_from_db()
+        assert self.project.logo_media_id is None
 
     @parameterized.expand(_MEMBER_SAFE_TEAM_CONFIG_FIELDS)
     def test_member_can_still_patch_member_safe_field_via_environments(
