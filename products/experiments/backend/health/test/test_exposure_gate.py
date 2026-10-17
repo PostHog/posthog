@@ -18,13 +18,14 @@ from posthog.models.user import User
 
 from products.experiments.backend.facade.contracts import ExperimentHealthReaderAccess
 from products.experiments.backend.health.context import (
-    SplitHistory,
-    SplitHistoryNotChecked,
-    SplitHistoryNotCheckedReason,
+    BucketingSetting,
+    FlagHistory,
+    FlagHistoryNotChecked,
+    FlagHistoryNotCheckedReason,
 )
 from products.experiments.backend.health.exposure_gate import (
     MAX_EXPOSURE_QUERIES,
-    load_split_history,
+    load_flag_history,
     query_any_exposure,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import DEFAULT_EXPOSURE_EVENT
@@ -67,7 +68,7 @@ def _create_running_experiment(
     )
 
 
-class TestLoadSplitHistory(BaseTest):
+class TestLoadFlagHistory(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         cache.clear()
@@ -100,16 +101,31 @@ class TestLoadSplitHistory(BaseTest):
             )
         return changed_at
 
+    def _log_change(self, at: datetime, **fields: tuple[Any, Any]) -> None:
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            scope="FeatureFlag",
+            item_id=str(self.experiment.feature_flag_id),
+            activity="updated",
+            detail={
+                "changes": [
+                    {"type": "FeatureFlag", "action": "changed", "field": field, "before": before, "after": after}
+                    for field, (before, after) in fields.items()
+                ]
+            },
+            created_at=at,
+        )
+
     def _load(
         self,
         answers: list[bool | Exception] | Callable[..., bool],
         *,
         reader_access: ExperimentHealthReaderAccess = FULL_ACCESS,
-    ) -> tuple[SplitHistory | SplitHistoryNotChecked | None, MagicMock]:
+    ) -> tuple[FlagHistory | FlagHistoryNotChecked | None, MagicMock]:
         with patch(
             "products.experiments.backend.health.exposure_gate.query_any_exposure", side_effect=answers
         ) as query:
-            history = load_split_history(self.experiment, reader_access=reader_access)
+            history = load_flag_history(self.experiment, reader_access=reader_access)
         return history, query
 
     def test_changes_before_the_first_exposure_do_not_count(self) -> None:
@@ -117,12 +133,70 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([False, True])
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual([change.changed_at for change in history.counted_changes], changed_at[1:])
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.counted_split_changes], changed_at[1:])
         self.assertIs(history.exposed_before_first, True)
         self.assertEqual(
             [(call.kwargs["window_start"], call.kwargs["window_end"]) for call in query.call_args_list],
             [(self.launched_at, changed_at[0]), (changed_at[0], changed_at[1])],
+        )
+
+    def test_every_kind_of_change_shares_one_walk(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1), first_at + timedelta(hours=2)]
+        self._log_change(changed_at[0], filters=(_filters(_split(50, 50)), _filters(_split(55, 45))))
+        self._log_change(
+            changed_at[1],
+            bucketing_identifier=("distinct_id", "device_id"),
+            ensure_experience_continuity=(True, False),
+        )
+        self._log_change(
+            changed_at[2],
+            filters=(
+                {**_filters(_split(55, 45)), "aggregation_group_type_index": None},
+                {**_filters(_split(60, 40)), "aggregation_group_type_index": 0},
+            ),
+        )
+
+        history, query = self._load([False, True])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.split_changes], [changed_at[0], changed_at[2]])
+        self.assertEqual([change.changed_at for change in history.counted_split_changes], changed_at[2:])
+        self.assertEqual(
+            [(change.changed_at, change.setting) for change in history.counted_bucketing_changes],
+            [
+                (changed_at[1], BucketingSetting.BUCKETING_IDENTIFIER),
+                (changed_at[1], BucketingSetting.EXPERIENCE_CONTINUITY),
+                (changed_at[2], BucketingSetting.AGGREGATION),
+            ],
+        )
+        self.assertEqual(query.call_count, 2)
+
+    def test_each_window_asks_with_the_key_the_flag_had_then(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(hours=1)]
+        self._log_change(changed_at[0], key=("first-key", "second-key"))
+        self._log_change(changed_at[1], key=("second-key", FLAG_KEY))
+
+        history, query = self._load([False, True])
+
+        assert isinstance(history, FlagHistory)
+        self.assertEqual([call.kwargs["flag_key"] for call in query.call_args_list], ["first-key", "second-key"])
+        self.assertEqual([change.changed_at for change in history.counted_bucketing_changes], changed_at[1:])
+
+    def test_a_key_set_back_asks_between_with_the_key_in_between(self) -> None:
+        first_at = self.launched_at + timedelta(days=1)
+        changed_at = [first_at, first_at + timedelta(minutes=6)]
+        self._log_change(changed_at[0], key=(FLAG_KEY, "renamed"))
+        self._log_change(changed_at[1], key=("renamed", FLAG_KEY))
+
+        history, query = self._load([True, False])
+
+        assert isinstance(history, FlagHistory)
+        self.assertIs(history.bucketing_exposed_between, False)
+        self.assertEqual(
+            (query.call_args.kwargs["flag_key"], query.call_args.kwargs["window_start"]), ("renamed", changed_at[0])
         )
 
     def test_no_exposure_before_any_change(self) -> None:
@@ -130,8 +204,8 @@ class TestLoadSplitHistory(BaseTest):
 
         history, _ = self._load([False, False])
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual(history.counted_changes, ())
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.counted_split_changes, ())
 
     @parameterized.expand(
         [
@@ -161,24 +235,24 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([True])
 
-        assert isinstance(history, SplitHistory)
+        assert isinstance(history, FlagHistory)
         self.assertIs(history.exposed_before_first, True)
         self.assertEqual(query.call_count, 1)
 
     @parameterized.expand(
         [
-            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, SplitHistoryNotCheckedReason.EXPOSURE_FILTERS),
-            ("exposure_action", _BY_ACTION, True, True, SplitHistoryNotCheckedReason.EXPOSURE_ACTION),
-            ("exposure_criteria", _UNREADABLE, True, True, SplitHistoryNotCheckedReason.EXPOSURE_CRITERIA),
-            ("no_query_access", {}, True, False, SplitHistoryNotCheckedReason.NO_QUERY_ACCESS),
+            ("exposure_filters", _BY_EVENT_PROPERTY, True, True, FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+            ("exposure_action", _BY_ACTION, True, True, FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
+            ("exposure_criteria", _UNREADABLE, True, True, FlagHistoryNotCheckedReason.EXPOSURE_CRITERIA),
+            ("no_query_access", {}, True, False, FlagHistoryNotCheckedReason.NO_QUERY_ACCESS),
             (
                 "filters_without_query_access",
                 _BY_EVENT_PROPERTY,
                 True,
                 False,
-                SplitHistoryNotCheckedReason.EXPOSURE_FILTERS,
+                FlagHistoryNotCheckedReason.EXPOSURE_FILTERS,
             ),
-            ("no_history_access", {}, False, True, SplitHistoryNotCheckedReason.NO_HISTORY_ACCESS),
+            ("no_history_access", {}, False, True, FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
         ]
     )
     def test_split_changes_that_cannot_be_checked(
@@ -187,7 +261,7 @@ class TestLoadSplitHistory(BaseTest):
         exposure_criteria: dict[str, Any],
         can_read_flag_history: bool,
         can_query_events: bool,
-        expected_reason: SplitHistoryNotCheckedReason,
+        expected_reason: FlagHistoryNotCheckedReason,
     ) -> None:
         self.experiment.exposure_criteria = exposure_criteria
         self.experiment.save()
@@ -202,10 +276,10 @@ class TestLoadSplitHistory(BaseTest):
             ),
         )
 
-        assert isinstance(history, SplitHistoryNotChecked)
+        assert isinstance(history, FlagHistoryNotChecked)
         self.assertEqual(history.reason, expected_reason)
         expected_changes = changed_at if can_read_flag_history else []
-        self.assertEqual([change.changed_at for change in history.changes], expected_changes)
+        self.assertEqual([change.changed_at for change in history.split_changes], expected_changes)
         self.assertEqual(query.call_count, 0)
 
     @parameterized.expand(
@@ -228,8 +302,8 @@ class TestLoadSplitHistory(BaseTest):
 
         history, _ = self._load([], reader_access=reader_access)
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual(history.counted_changes, ())
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.counted_split_changes, ())
 
     @parameterized.expand(
         [
@@ -244,11 +318,12 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([True, False])
 
-        assert isinstance(history, SplitHistory)
-        self.assertIs(history.exposed_between, False)
+        assert isinstance(history, FlagHistory)
+        self.assertIs(history.split_exposed_between, False)
         self.assertEqual(
             query.call_args.kwargs,
             {
+                "flag_key": FLAG_KEY,
                 "window_start": changed_at[0],
                 "window_end": changed_at[1],
                 "variant_keys": ("control", "test"),
@@ -272,8 +347,8 @@ class TestLoadSplitHistory(BaseTest):
             history, _ = self._load([False, error])
         next_load, next_query = self._load([True])
 
-        assert isinstance(history, SplitHistory) and isinstance(next_load, SplitHistory)
-        self.assertEqual([change.changed_at for change in history.counted_changes], changed_at[1:])
+        assert isinstance(history, FlagHistory) and isinstance(next_load, FlagHistory)
+        self.assertEqual([change.changed_at for change in history.counted_split_changes], changed_at[1:])
         self.assertIsNone(history.exposed_before_first)
         self.assertIsNone(next_load.exposed_before_first)
         self.assertEqual(next_query.call_count, 0)
@@ -301,9 +376,9 @@ class TestLoadSplitHistory(BaseTest):
         with patch("products.experiments.backend.health.exposure_gate.monotonic", side_effect=lambda: clock[0]):
             history, query = self._load(nobody_exposed)
 
-        assert isinstance(history, SplitHistory)
+        assert isinstance(history, FlagHistory)
         self.assertEqual(query.call_count, expected_queries)
-        self.assertEqual(history.counted_changes[0].changed_at, changed_at[expected_queries])
+        self.assertEqual(history.counted_split_changes[0].changed_at, changed_at[expected_queries])
         self.assertIsNone(history.exposed_before_first)
 
     def test_cached_walk_reads_the_cache_once(self) -> None:
@@ -313,8 +388,8 @@ class TestLoadSplitHistory(BaseTest):
         with patch("products.experiments.backend.health.exposure_gate.cache", wraps=cache) as cache_spy:
             history, query = self._load([])
 
-        assert isinstance(history, SplitHistory)
-        self.assertEqual(history.counted_changes, ())
+        assert isinstance(history, FlagHistory)
+        self.assertEqual(history.counted_split_changes, ())
         self.assertEqual(query.call_count, 0)
         self.assertEqual((cache_spy.get_many.call_count, cache_spy.get.call_count), (1, 0))
 
@@ -347,8 +422,8 @@ class TestLoadSplitHistory(BaseTest):
 
         history, query = self._load([True])
 
-        assert isinstance(history, SplitHistory)
-        self.assertIsNone(history.exposed_between)
+        assert isinstance(history, FlagHistory)
+        self.assertIsNone(history.split_exposed_between)
         self.assertEqual(query.call_count, 1)
 
 
@@ -403,6 +478,7 @@ class TestQueryAnyExposure(ClickhouseTestMixin, BaseTest):
 
         exposed = query_any_exposure(
             experiment,
+            flag_key=FLAG_KEY,
             window_start=now - timedelta(days=5),
             window_end=now - timedelta(days=1),
             variant_keys=["control", "test"],
