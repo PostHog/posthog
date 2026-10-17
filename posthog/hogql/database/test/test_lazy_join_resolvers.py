@@ -16,6 +16,7 @@ from posthog.hogql.database.lazy_join_registry import RESOLVERS
 from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE, DATA_WAREHOUSE_EXPERIMENTS, GROUP_N
 from posthog.hogql.database.models import LazyJoin, LazyJoinToAdd, Table, TableNode
 from posthog.hogql.database.schema.groups import join_with_group_n_table
+from posthog.hogql.database.utils import get_join_field_chain
 from posthog.hogql.database.warehouse_join_resolvers import (
     data_warehouse_resolver_params,
     resolve_data_warehouse_experiments_join,
@@ -44,6 +45,59 @@ class TestLazyJoinResolvers(SimpleTestCase):
         lazy_join = LazyJoin(from_field=["id"], join_table="x", resolver="does_not_exist")
         with self.assertRaises(ValueError):
             lazy_join.resolve_join_to_add(None, None, None)  # type: ignore[arg-type]
+
+    @parameterized.expand(
+        [
+            ("plain_field", "id", ["id"], "events.id"),
+            (
+                "call_on_field",
+                "toString(properties.email)",
+                ["properties", "email"],
+                "toString(events.properties.email)",
+            ),
+            (
+                "conditional_key",
+                "if(event = 'SaveProduct', properties.merchant_domain, NULL)",
+                ["properties", "merchant_domain"],
+                "if(equals(events.event, 'SaveProduct'), events.properties.merchant_domain, NULL)",
+            ),
+            (
+                "lambda_key",
+                "arrayMap(x -> lower(x), properties.emails)",
+                ["properties", "emails"],
+                "arrayMap(x -> lower(x), events.properties.emails)",
+            ),
+        ]
+    )
+    def test_data_warehouse_join_qualifies_source_key(
+        self, _name: str, source_table_key: str, expected_chain: list[str], expected_left: str
+    ) -> None:
+        assert get_join_field_chain(source_table_key) == expected_chain
+
+        lazy_join = LazyJoin(
+            from_field=expected_chain,
+            join_table="crm_accounts",
+            resolver=DATA_WAREHOUSE,
+            resolver_params=data_warehouse_resolver_params(
+                source_table_key=source_table_key,
+                joining_table_key="domain",
+                joining_table_name="crm_accounts",
+            ),
+        )
+        join_to_add = LazyJoinToAdd(
+            from_table="events",
+            to_table="crm_accounts",
+            lazy_join=lazy_join,
+            lazy_join_type=None,  # type: ignore[arg-type]
+            fields_accessed={"name": ["name"]},
+        )
+
+        join_expr = resolve_data_warehouse_join(join_to_add, HogQLContext(team_id=1), ast.SelectQuery(select=[]))
+
+        assert join_expr.constraint is not None
+        constraint = join_expr.constraint.expr
+        assert isinstance(constraint, ast.CompareOperation)
+        assert constraint.left.to_hogql() == expected_left
 
     def test_unsupported_join_key_is_an_exposed_query_error(self):
         # A join key that doesn't root in a field fails deterministically for every query
