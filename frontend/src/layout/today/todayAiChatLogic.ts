@@ -76,11 +76,11 @@ export interface todayAiChatLogicActions {
         expanded: boolean
     } // runnerPanelLogic
     markSessionRead: (
-        marker: import('products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
+        marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
         activityIds: string[]
     ) => {
         activityIds: string[]
-        marker: import('products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi
+        marker: import('../../../../products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi
     } // todaySpacesLogic
     carryContextToFullScreen: () => {
         value: true
