@@ -114,19 +114,24 @@ fn admin_options() -> AdminOptions {
     AdminOptions::new().operation_timeout(Some(Duration::from_secs(10)))
 }
 
-/// Commits `offset` on `partition` for `group` with `metadata`, as a build from before stamps
-/// (empty), an offset reset (empty) or another split would.
-fn commit_as(group: &str, topic: &str, partition: i32, offset: i64, metadata: &str) {
-    let client: BaseConsumer = ClientConfig::new()
+fn committer(group: &str) -> BaseConsumer {
+    ClientConfig::new()
         .set("bootstrap.servers", bootstrap_servers())
         .set("group.id", group)
         .create()
-        .expect("create committer");
+        .expect("create committer")
+}
+
+/// Commits `offset` on `partition` for `group` with `metadata`, as a build from before stamps
+/// (empty), an offset reset (empty) or another split would.
+fn commit_as(group: &str, topic: &str, partition: i32, offset: i64, metadata: &str) {
     let mut list = TopicPartitionList::new();
     let mut elem = list.add_partition(topic, partition);
     elem.set_offset(Offset::Offset(offset)).unwrap();
     elem.set_metadata(metadata);
-    client.commit(&list, CommitMode::Sync).expect("commit");
+    committer(group)
+        .commit(&list, CommitMode::Sync)
+        .expect("commit");
 }
 
 fn every_partition() -> BTreeSet<u16> {
@@ -135,7 +140,8 @@ fn every_partition() -> BTreeSet<u16> {
 
 /// The broker keeps a commit's metadata, on every group: the claim stamps each owned partition at
 /// its commit, or at the low watermark where the group never committed, and reads every stamp back.
-/// A commit from a build before stamps reads back unstamped and admits. If the broker stops keeping
+/// A commit from a build before stamps reads back unstamped and admits. A claim admitted before
+/// another split claimed refuses to commit over that split's stamps. If the broker stops keeping
 /// metadata, this test fails first.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
@@ -157,9 +163,14 @@ async fn commit_stamps_round_trip_on_every_group() {
 
     let admitted =
         AdmittedSplit::try_admit(split(1, 0), &groups).expect("a commit without a stamp admits");
+    let stale = AdmittedSplit::try_admit(split(2, 0), &groups).expect("nothing is stamped yet");
     admitted
         .claim(&groups)
         .expect("the claim reads its stamps back");
+    assert!(
+        stale.claim(&groups).is_err(),
+        "a stale admission must not claim over another split's stamps",
+    );
 
     let after = groups.ledger(&every_partition()).unwrap();
     let ours = Stamp::Split(split(1, 0));
@@ -187,7 +198,8 @@ async fn commit_stamps_round_trip_on_every_group() {
 }
 
 /// The audit lets a commit without a stamp pass, as an operator's offset reset writes one, and stops
-/// the pod when another split commits one of its partitions.
+/// the pod when another split commits one of its partitions. It also revokes the pod's commits, so
+/// the final commits of the stop cannot cover the foreign stamp, and the next boot holds.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn the_audit_stops_a_pod_whose_partition_another_split_commits() {
@@ -205,7 +217,7 @@ async fn the_audit_stops_a_pod_whose_partition_another_split_commits() {
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
         );
         let monitor = manager.monitor_background();
-        let audit = OwnershipAudit::new(groups.clone(), claimed, handle.clone());
+        let audit = OwnershipAudit::new(groups.clone(), claimed.clone(), handle.clone());
         async move {
             audit.run_once().await;
             handle.work_completed();
@@ -230,6 +242,16 @@ async fn the_audit_stops_a_pod_whose_partition_another_split_commits() {
     assert!(
         matches!(stopped, Err(LifecycleError::ComponentFailure { ref reason, .. }) if reason.contains("another split")),
         "{stopped:?}",
+    );
+    let final_commit = claimed
+        .stamp()
+        .list(&inputs.merges, [(3, 1)])
+        .unwrap()
+        .commit(&committer(&inputs.merges_group()), CommitMode::Sync);
+    assert!(final_commit.is_err(), "the audit revokes the pod's commits");
+    assert!(
+        AdmittedSplit::try_admit(split(1, 0), &groups).is_err(),
+        "the next boot holds in the fence",
     );
 
     inputs.delete().await;

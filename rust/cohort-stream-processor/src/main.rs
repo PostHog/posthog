@@ -565,7 +565,7 @@ async fn async_main(config: Config) -> Result<()> {
     );
 
     tokio::spawn(run_sweep_loop(
-        OwnershipAudit::new(groups.clone(), claimed, consumer_handle.clone()),
+        OwnershipAudit::new(groups.clone(), claimed.clone(), consumer_handle.clone()),
         AUDIT_INTERVAL,
         "ownership_audit",
         consumer_handle.shutdown_token(),

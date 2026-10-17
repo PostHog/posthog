@@ -257,14 +257,9 @@ impl GroupReader {
         Ok(InputPositions::new(self.topic.clone(), positions))
     }
 
-    /// Commits each of `partitions` again at its resume position, with `stamp`.
-    fn restamp(
-        &self,
-        stamp: &CommitStamp,
-        partitions: &BTreeSet<u16>,
-    ) -> Result<(), PositionsError> {
-        let client = self.client()?;
-        let positions = self.resume_positions(&client, &self.commits(&client, partitions)?)?;
+    /// Commits each partition of `commits` again at its resume position, with `stamp`.
+    fn restamp(&self, stamp: &CommitStamp, commits: &InputCommits) -> Result<(), PositionsError> {
+        let positions = self.resume_positions(&self.client()?, commits)?;
         Ok(self.commit(stamp, &positions)?)
     }
 
@@ -382,14 +377,16 @@ impl InputGroups {
         Ok(CommitLedger::new(events, followers))
     }
 
-    /// Commits `partitions` again with `stamp` on every enabled group.
+    /// Commits the partitions of `ledger`, read by [`Self::ledger`], again with `stamp` on every
+    /// enabled group.
     pub(super) fn restamp(
         &self,
         stamp: &CommitStamp,
-        partitions: &BTreeSet<u16>,
+        ledger: &CommitLedger,
     ) -> Result<(), PositionsError> {
         self.readers()
-            .try_for_each(|reader| reader.restamp(stamp, partitions))
+            .zip(ledger.inputs())
+            .try_for_each(|(reader, commits)| reader.restamp(stamp, commits))
     }
 
     /// Every input's resume positions on `partitions`.

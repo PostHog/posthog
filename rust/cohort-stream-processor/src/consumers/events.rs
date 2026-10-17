@@ -924,7 +924,7 @@ impl CohortStreamEventsConsumer {
             recv_batch_size,
             recv_batch_timeout,
             offset_commit_interval,
-            claimed: *claimed,
+            claimed: claimed.clone(),
             restore,
         })
     }
