@@ -26,6 +26,22 @@ from posthog.uuidt import UUIDT
 # Prevents SQL injection via backtick-quoted identifiers in HogQL.
 _SAFE_FUNCTION_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# dateDiff counts unit boundaries crossed, like ClickHouse. Fixed-length units floor the epoch
+# into buckets. The week offset moves bucket starts from Thursday 1970-01-01 to Monday.
+_DATE_DIFF_EPOCH_BUCKETS: dict[str, str] = {
+    "second": "{epoch}",
+    "minute": "{epoch} / 60",
+    "hour": "{epoch} / 3600",
+    "day": "{epoch} / 86400",
+    "week": "({epoch} + 259200) / 604800",
+}
+
+_DATE_DIFF_CALENDAR_INDEXES: dict[str, str] = {
+    "month": "EXTRACT(YEAR FROM {ts}) * 12 + EXTRACT(MONTH FROM {ts})",
+    "quarter": "EXTRACT(YEAR FROM {ts}) * 4 + EXTRACT(QUARTER FROM {ts})",
+    "year": "EXTRACT(YEAR FROM {ts})",
+}
+
 
 class PostgresPrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "postgres"
@@ -131,6 +147,9 @@ class PostgresPrinter(BasePrinter):
             "toStartOfISOYear",
         }:
             return self._visit_to_start_of_call(node)
+
+        if node.name.lower() == "datediff":
+            return self._visit_date_diff(node)
 
         if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
             if len(node.args) != 1:
@@ -312,6 +331,27 @@ class PostgresPrinter(BasePrinter):
             for function_name in available_functions
             if isinstance(function_name, str) and _SAFE_FUNCTION_NAME_RE.match(function_name)
         }
+
+    def _visit_date_diff(self, node: ast.Call) -> str:
+        if len(node.args) != 3:
+            raise QueryError(f"dateDiff expects exactly 3 arguments {self._dialect_error_suffix()}.")
+        unit_node = node.args[0]
+        if not (isinstance(unit_node, ast.Constant) and isinstance(unit_node.value, str)):
+            raise QueryError(f"dateDiff requires a literal unit {self._dialect_error_suffix()}.")
+        unit = unit_node.value.lower()
+        start = f"CAST({self.visit(node.args[1])} AS TIMESTAMP)"
+        end = f"CAST({self.visit(node.args[2])} AS TIMESTAMP)"
+
+        if unit in _DATE_DIFF_EPOCH_BUCKETS:
+            bucket = _DATE_DIFF_EPOCH_BUCKETS[unit]
+            end_index = "FLOOR(" + bucket.format(epoch=f"EXTRACT(EPOCH FROM {end})") + ")"
+            start_index = "FLOOR(" + bucket.format(epoch=f"EXTRACT(EPOCH FROM {start})") + ")"
+        elif unit in _DATE_DIFF_CALENDAR_INDEXES:
+            end_index = _DATE_DIFF_CALENDAR_INDEXES[unit].format(ts=end)
+            start_index = _DATE_DIFF_CALENDAR_INDEXES[unit].format(ts=start)
+        else:
+            raise QueryError(f"Unsupported dateDiff unit '{unit}' {self._dialect_error_suffix()}.")
+        return f"CAST(({end_index}) - ({start_index}) AS BIGINT)"
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:
