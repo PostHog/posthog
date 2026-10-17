@@ -874,6 +874,8 @@ export interface RecordingsQuery extends DataNode<RecordingsQueryResponse> {
 }
 
 export interface HogQLNotice {
+    /** Stable diagnostic code for programmatic handling. */
+    code?: string
     start?: integer
     end?: integer
     message: string

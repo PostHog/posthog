@@ -29558,6 +29558,10 @@
         "HogQLNotice": {
             "additionalProperties": false,
             "properties": {
+                "code": {
+                    "description": "Stable diagnostic code for programmatic handling.",
+                    "type": "string"
+                },
                 "end": {
                     "$ref": "#/definitions/integer"
                 },

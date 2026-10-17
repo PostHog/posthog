@@ -32,13 +32,15 @@ from products.managed_warehouse.backend.service_credentials import (
 if TYPE_CHECKING:
     from trino.dbapi import Connection
 
-    from posthog.schema import HogQLQuery
+    from posthog.schema import HogQLQuery, HogQLQueryModifiers
 
+    from posthog.hogql.context import HogQLContext
     from posthog.hogql.transforms.trino.manifest import TrinoCatalogManifest
 
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.managed_warehouse.backend.facade.contracts import (
         DuckLakeCompiledQuery,
         DuckLakeQueryResult,
@@ -58,6 +60,8 @@ __all__ = [
     "ManagedWarehouseTrinoConnectionUnavailable",
     "compile_hogql_to_ducklake_sql",
     "compile_hogql_to_trino_sql",
+    "is_managed_trino_editor_connection",
+    "prepare_managed_trino_editor_context",
     "connect_managed_warehouse_trino",
     "execute_ducklake_create_table",
     "execute_ducklake_query",
@@ -256,4 +260,31 @@ async def execute_trino_model(
             incremental=incremental,
             control=control,
         ),
+    )
+
+
+def is_managed_trino_editor_connection(team_id: int, connection_id: str) -> bool:
+    from products.managed_warehouse.backend.trino_compiler import (
+        is_managed_trino_editor_connection as enabled,  # noqa: PLC0415
+    )
+
+    return enabled(team_id, connection_id)
+
+
+def prepare_managed_trino_editor_context(
+    team_id: int,
+    *,
+    user: User | None = None,
+    user_access_control: UserAccessControl | None = None,
+    bypass_warehouse_access_control: bool = False,
+    modifiers: HogQLQueryModifiers | None = None,
+) -> HogQLContext:
+    from products.managed_warehouse.backend.trino_compiler import prepare_django_trino_context  # noqa: PLC0415
+
+    return prepare_django_trino_context(
+        team_id,
+        user=user,
+        user_access_control=user_access_control,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+        modifiers=modifiers,
     )
