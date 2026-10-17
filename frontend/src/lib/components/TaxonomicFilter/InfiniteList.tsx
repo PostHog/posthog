@@ -943,7 +943,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         trimmedSearchQuery,
         showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem, emptyResultShown } =
+        useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const listRef = useListRef(null)
 
@@ -952,6 +953,12 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
             listRef.current.scrollToRow({ index, align: 'smart' })
         }
     }, [index, listRef])
+
+    useEffect(() => {
+        if (isSuggestedFilters && isActiveTab && showEmptyState && !showLoadingState && trimmedSearchQuery) {
+            emptyResultShown()
+        }
+    }, [isSuggestedFilters, isActiveTab, showEmptyState, showLoadingState, trimmedSearchQuery, emptyResultShown])
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false

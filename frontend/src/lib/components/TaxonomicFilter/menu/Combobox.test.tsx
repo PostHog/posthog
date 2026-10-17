@@ -1172,7 +1172,7 @@ describe('MenuFilterCombobox', () => {
         await waitFor(() =>
             expect(captureMock).toHaveBeenCalledWith(
                 'taxonomic filter empty result',
-                expect.objectContaining({ searchQuery: 'zzz_no_match' })
+                expect.objectContaining({ searchQuery: 'zzz_no_match', scope: 'all' })
             )
         )
     })

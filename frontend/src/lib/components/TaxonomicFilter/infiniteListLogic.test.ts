@@ -1873,6 +1873,7 @@ describe('infiniteListLogic', () => {
             if (expectFire) {
                 expect(emptyCalls).toHaveLength(1)
                 expect(emptyCalls[0][1]).toMatchObject({
+                    scope: 'category',
                     groupType: listGroupType,
                     searchQuery: 'mcp tool call',
                 })
