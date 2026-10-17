@@ -25,6 +25,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_query_runner imp
     WEB_ANALYTICS_NO_JOIN_SERVED,
     WebAnalyticsQueryRunner,
 )
+from products.web_analytics.backend.hogql_queries.web_dimensional_read import (
+    DimensionalWebOverviewQueryBuilder,
+    ready_dimensional_job_ids,
+)
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     can_use_lazy_precompute,
@@ -255,6 +259,16 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         assert isinstance(combined, ast.SelectQuery)
         return combined
 
+    def get_dimensional_response(self):
+        if self.query.conversionGoal or not self.preaggregated_query_builder.can_use_preaggregated_tables():
+            return None
+        job_ids = ready_dimensional_job_ids(self)
+        if job_ids is None:
+            return None
+        return self._execute_pre_aggregated(
+            DimensionalWebOverviewQueryBuilder(self, job_ids), query_type="web_overview_dimensional_query"
+        )
+
     def get_pre_aggregated_response(self):
         should_use_preaggregated = (
             self.modifiers
@@ -266,6 +280,11 @@ CROSS JOIN {sessions_agg} AS sessions_agg
         if not should_use_preaggregated:
             return None
 
+        return self._execute_pre_aggregated(
+            self.preaggregated_query_builder, query_type="web_overview_preaggregated_query"
+        )
+
+    def _execute_pre_aggregated(self, builder: WebOverviewPreAggregatedQueryBuilder, query_type: str):
         try:
             # Pre-aggregated tables store data in UTC **buckets**, so we need to disable timezone conversion
             # to prevent HogQL from automatically converting DateTime fields to team timezone.
@@ -275,8 +294,8 @@ CROSS JOIN {sessions_agg} AS sessions_agg
             pre_agg_modifiers.convertToProjectTimezone = False
 
             response = execute_hogql_query(
-                query_type="web_overview_preaggregated_query",
-                query=self.preaggregated_query_builder.get_query(),
+                query_type=query_type,
+                query=builder.get_query(),
                 team=self.team,
                 user=self.user,
                 bypass_warehouse_access_control=self.bypass_warehouse_access_control,
@@ -293,7 +312,7 @@ CROSS JOIN {sessions_agg} AS sessions_agg
 
             return response
         except Exception as e:
-            logger.exception("Error getting pre-aggregated web_overview", error=e)
+            logger.exception("Error getting pre-aggregated web_overview", query_type=query_type, error=e)
             return None
 
     def get_lazy_precomputed_row(self) -> Optional[list]:
@@ -442,11 +461,13 @@ WHERE and(
         if self.should_split_conversion_goal:
             return self._calculate_split_conversion_goal()
 
-        lazy_row = self.get_lazy_precomputed_row()
-        if lazy_row is not None:
-            return self._build_response_from_row(lazy_row)
+        pre_aggregated_response = self.get_dimensional_response()
+        if not pre_aggregated_response:
+            lazy_row = self.get_lazy_precomputed_row()
+            if lazy_row is not None:
+                return self._build_response_from_row(lazy_row)
 
-        pre_aggregated_response = self.get_pre_aggregated_response()
+            pre_aggregated_response = self.get_pre_aggregated_response()
 
         # Preflight only when the main query will actually run — if the
         # pre-aggregated builder already served the response, spending a

@@ -279,7 +279,7 @@ class TestColdBackfillSplitsByTtlBandNotPerDay(unittest.TestCase):
         # DIMENSIONAL_TTL_SECONDS has 3 entries (0d / 2d / default) -> 3 INSERTs,
         # oldest first. NOT 90.
         ttls = [ttl for _s, _e, ttl in bands]
-        assert ttls == [90 * 86400, 86400, 3600]
+        assert ttls == [90 * 86400, 86400, 45 * 60]
 
         # The bulk of history is ONE query covering many days, not one-per-day.
         oldest_start, oldest_end, _ = bands[0]

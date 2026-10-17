@@ -5,8 +5,8 @@ These are the precomputation-framework successors to the v2 pre-aggregation
 Where v2 was hand-written ClickHouse SQL run by a staging-table + partition-swap
 Dagster ETL, these are HogQL templates fed to `ensure_precomputed`, which manages
 job tracking, TTLs and the `ReplacingMergeTree` INSERTs. The scheduled
-`web_dimensional_precompute` Dagster job is the only caller (the write path is
-not wired into any query runner yet).
+`web_dimensional_precompute` Dagster job is the only writer. Query runners only
+check for READY jobs (`dimensional_job_ids`) and never build a window inline.
 
 The framework auto-prepends `team_id`/`job_id` and appends `expires_at` to the
 top-level SELECT, and substitutes `{time_window_min}` / `{time_window_max}` per
@@ -23,6 +23,7 @@ Parity with v2 is intentional, with two deliberate deviations:
 """
 
 from datetime import datetime
+from uuid import UUID
 
 from posthog.schema import HogQLQueryModifiers
 
@@ -30,6 +31,7 @@ from posthog.hogql import ast
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.models.web_preaggregated.sql import is_eu_cluster
 
@@ -40,12 +42,19 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import SESSION_FORWARD_PAD_MINUTES
 
+# Distributed read-table names as registered in the HogQL database schema.
+WEB_STATS_DIMENSIONAL_READ_TABLE = "web_stats_dimensional_preaggregated"
+WEB_BOUNCES_DIMENSIONAL_READ_TABLE = "web_bounces_dimensional_preaggregated"
+
 # TTL tuned for "keep ~90 days warm, don't recompute every time": today's window
 # refreshes hourly, the last two days daily, everything older is computed once and
 # held for 90 days. The scheduled job re-runs over the rolling window and the
-# framework only recomputes windows whose jobs have expired.
+# framework only recomputes windows whose jobs have expired. Today's TTL is shorter
+# than the hourly schedule so that every run finds today's job expired and rebuilds
+# it. A TTL equal to the schedule period lets a run find the job fresh by seconds,
+# skip it, and leave it expired until the next run.
 DIMENSIONAL_TTL_SECONDS: dict[str, int] = {
-    "0d": 60 * 60,
+    "0d": 45 * 60,
     "2d": 24 * 60 * 60,
     "default": 90 * 24 * 60 * 60,
 }
@@ -336,6 +345,8 @@ def ensure_web_stats_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
     time_range_end: datetime,
+    run_inserts: bool = True,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
     return ensure_precomputed(
         team=team,
@@ -346,7 +357,10 @@ def ensure_web_stats_dimensional_precomputed(
         table=LazyComputationTable.WEB_STATS_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_stats_dimensional_insert",
-        read_after_write=False,
+        # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
+        read_after_write=True,
+        run_inserts=run_inserts,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
         modifiers=_insert_modifiers(team),
     )
@@ -356,6 +370,8 @@ def ensure_web_bounces_dimensional_precomputed(
     team: Team,
     time_range_start: datetime,
     time_range_end: datetime,
+    run_inserts: bool = True,
+    stale_while_revalidate_seconds: float | None = None,
 ) -> LazyComputationResult:
     return ensure_precomputed(
         team=team,
@@ -366,7 +382,47 @@ def ensure_web_bounces_dimensional_precomputed(
         table=LazyComputationTable.WEB_BOUNCES_DIMENSIONAL_PREAGGREGATED,
         placeholders=_base_placeholders(),
         query_type="web_bounces_dimensional_insert",
-        read_after_write=False,
+        # Readers select by job_id as soon as a job turns READY, so its rows must be on the replica quorum first.
+        read_after_write=True,
+        run_inserts=run_inserts,
+        stale_while_revalidate_seconds=stale_while_revalidate_seconds,
         insert_settings=DIMENSIONAL_INSERT_SETTINGS,
         modifiers=_insert_modifiers(team),
     )
+
+
+# The hourly writer rebuilds today's window, and the read keeps serving the previous
+# generation while the rebuild runs or after a run fails. The grace stays far below
+# EXPIRY_BUFFER_SECONDS, so the ClickHouse rows of a graced job still exist.
+DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS = 30 * 60
+
+
+@frozen
+class DimensionalJobIds:
+    stats: list[UUID]
+    bounces: list[UUID]
+
+
+def dimensional_job_ids(team: Team, time_range_start: datetime, time_range_end: datetime) -> DimensionalJobIds | None:
+    """Return the READY job ids of both tables that cover the range, or None when either
+    table has a gap. Check-only: a read never builds a window, the scheduled job does.
+    The framework splits jobs on UTC days, so the bounds should already be in UTC."""
+    stats = ensure_web_stats_dimensional_precomputed(
+        team,
+        time_range_start,
+        time_range_end,
+        run_inserts=False,
+        stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
+    )
+    if not stats.ready:
+        return None
+    bounces = ensure_web_bounces_dimensional_precomputed(
+        team,
+        time_range_start,
+        time_range_end,
+        run_inserts=False,
+        stale_while_revalidate_seconds=DIMENSIONAL_READ_STALE_WHILE_REVALIDATE_SECONDS,
+    )
+    if not bounces.ready:
+        return None
+    return DimensionalJobIds(stats=stats.job_ids, bounces=bounces.job_ids)

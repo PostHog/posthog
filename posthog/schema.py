@@ -3563,6 +3563,20 @@ class WebAnalyticsExternalSummaryRequest(BaseModel):
     explicit_date: bool | None = None
 
 
+class WebAnalyticsQueryModifiers(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    useDimensionalTables: bool | None = Field(
+        default=None,
+        description=(
+            "Serve web overview and stats table queries from the dimensional precompute"
+            " tables when they hold ready data for the whole date range. Falls back to"
+            " the normal path otherwise."
+        ),
+    )
+
+
 class WebAnalyticsSampling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -26156,6 +26170,10 @@ class WebBotsTableQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebExternalClicksTableQuery(BaseModel):
@@ -26194,6 +26212,10 @@ class WebExternalClicksTableQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebGoalsQuery(BaseModel):
@@ -26239,6 +26261,10 @@ class WebGoalsQuery(BaseModel):
         ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebNotableChangesQuery(BaseModel):
@@ -26276,6 +26302,10 @@ class WebNotableChangesQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebOverviewQuery(BaseModel):
@@ -26320,6 +26350,10 @@ class WebOverviewQuery(BaseModel):
         ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebPageURLSearchQuery(BaseModel):
@@ -26359,6 +26393,10 @@ class WebPageURLSearchQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebStatsTableQuery(BaseModel):
@@ -26411,6 +26449,10 @@ class WebStatsTableQuery(BaseModel):
         ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebVitalsItem(BaseModel):
@@ -28936,6 +28978,10 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class MarketingAnalyticsAttributionPathsQuery(BaseModel):
@@ -29009,6 +29055,10 @@ class MarketingAnalyticsAttributionPathsQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class MarketingAnalyticsAttributionQuery(BaseModel):
@@ -29085,6 +29135,10 @@ class MarketingAnalyticsAttributionQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class MarketingAnalyticsConfig(BaseModel):
@@ -29168,6 +29222,10 @@ class MarketingAnalyticsRetentionQuery(BaseModel):
     )
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class MarketingAnalyticsSearchQuery(BaseModel):
@@ -29241,6 +29299,10 @@ class MarketingAnalyticsTableQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class MaxInnerUniversalFiltersGroup(BaseModel):
@@ -30080,6 +30142,10 @@ class WebAgentAnalyticsQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class WebVitalsPathBreakdownQuery(BaseModel):
@@ -30127,6 +30193,10 @@ class WebVitalsPathBreakdownQuery(BaseModel):
         ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class ActionsNode(BaseModel):
@@ -32963,6 +33033,10 @@ class WebVitalsQuery(BaseModel):
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+    webQueryModifiers: WebAnalyticsQueryModifiers | None = Field(
+        default=None,
+        description="Per-request switches for how web analytics serves this query.",
+    )
 
 
 class DocumentArtifactContent(BaseModel):

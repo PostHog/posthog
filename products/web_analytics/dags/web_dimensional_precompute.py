@@ -188,8 +188,8 @@ def web_dimensional_precompute_job():
 
 
 @dagster.schedule(
-    # Hourly. Recent windows carry a short TTL (see DIMENSIONAL_TTL_SECONDS), so an
-    # hourly cadence keeps today fresh; older windows are computed once and skipped.
+    # Hourly. Today's TTL is shorter than this period (see DIMENSIONAL_TTL_SECONDS), so
+    # every run rebuilds today; older windows are computed once and skipped.
     cron_schedule="20 * * * *",
     job=web_dimensional_precompute_job,
     execution_timezone="UTC",

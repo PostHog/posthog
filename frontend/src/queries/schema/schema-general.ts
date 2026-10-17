@@ -3458,7 +3458,14 @@ export type WebAnalyticsSampling = {
     enabled?: boolean
     forceSamplingRate?: SamplingRate
 }
+export interface WebAnalyticsQueryModifiers {
+    /** Serve web overview and stats table queries from the dimensional precompute tables when they hold ready data for the whole date range. Falls back to the normal path otherwise. */
+    useDimensionalTables?: boolean
+}
+
 interface WebAnalyticsQueryBase<R extends Record<string, any>> extends DataNode<R> {
+    /** Per-request switches for how web analytics serves this query. */
+    webQueryModifiers?: WebAnalyticsQueryModifiers
     dateRange?: DateRange
     properties: WebAnalyticsPropertyFilters
     conversionGoal?: WebAnalyticsConversionGoal | null
