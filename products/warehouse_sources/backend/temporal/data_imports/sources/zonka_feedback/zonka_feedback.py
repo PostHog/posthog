@@ -146,6 +146,9 @@ def _distribution_logs(
 
     for index in range(start_index, len(pairs)):
         survey_id, channel = pairs[index]
+        # Save the pair before reading it, so a run of pairs with no rows still makes durable progress.
+        checkpoint(first_page, survey_id, channel)
+        manager.safe_point()
         for rows in client.paginate(
             path="/distribution-logs",
             params={
@@ -169,10 +172,6 @@ def _distribution_logs(
             # The request already names the survey and channel; fill them in so the key is never null.
             yield [{"surveyId": survey_id, "channel": channel, **row} for row in rows]
         first_page = FIRST_PAGE
-        if index + 1 < len(pairs):
-            # Save the next pair so a run of pairs with no rows still makes durable progress.
-            checkpoint(FIRST_PAGE, *pairs[index + 1])
-            manager.safe_point()
 
 
 def _distribution_logs_response(

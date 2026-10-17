@@ -223,8 +223,9 @@ class TestDistributionLogs:
             LOG_EMAIL_SECOND,
             {"surveyId": "s3", "channel": "whatsapp", **LOG_WHATSAPP_NO_KEYS},
         ]
-        # A pair with no rows still moves the saved cursor on to the next pair.
+        # Each pair is saved before it is read, so a pair with no rows still moves the saved cursor on.
         assert result.committed_states == [
+            _state("s1", "email", 1),
             _state("s1", "email", 2),
             _state("s1", "email", 3),
             _state("s1", "sms", 1),
