@@ -341,17 +341,40 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         expect(buildActiveEnvironmentContextPrompt(undefined, undefined)).toBeUndefined()
     })
 
-    it.each([
-        ['checked', true, true],
-        ['unchecked', false, false],
-        ['unset', undefined, false],
-    ])('surfaces the test account filter default only when %s', (_name, testAccountFiltersDefaultChecked, expected) => {
-        const result = buildActiveEnvironmentContextPrompt(org, {
-            ...project,
-            test_account_filters_default_checked: testAccountFiltersDefaultChecked,
-        } as CachedProject)
-        expect((result ?? '').includes('filters out internal and test users by default')).toBe(expected)
-    })
+    const testAccountsLine = 'filters out internal and test users by default'
+    const noEventsLine = 'This project has not received any events yet'
+    it.each<[string, Partial<CachedProject>, string, boolean, boolean?]>([
+        ['test account filter default checked', { test_account_filters_default_checked: true }, testAccountsLine, true],
+        [
+            'test account filter default unchecked',
+            { test_account_filters_default_checked: false },
+            testAccountsLine,
+            false,
+        ],
+        [
+            'test account filter default unset',
+            { test_account_filters_default_checked: undefined },
+            testAccountsLine,
+            false,
+        ],
+        ['no event ingested in the notice test arm', { ingested_event: false }, noEventsLine, true],
+        ['no event ingested in control', { ingested_event: false }, noEventsLine, false, false],
+        ['an event ingested', { ingested_event: true }, noEventsLine, false],
+        ['ingestion state unknown', {}, noEventsLine, false],
+    ])(
+        'renders the project fact line only when it applies: %s',
+        (_name, fields, line, expected, noEventsNotice = true) => {
+            const result = buildActiveEnvironmentContextPrompt(
+                org,
+                { ...project, ...fields } as CachedProject,
+                undefined,
+                {
+                    noEventsNotice,
+                }
+            )
+            expect((result ?? '').includes(line)).toBe(expected)
+        }
+    )
 
     it('still renders an "Unknown" project when org is present but project is missing', () => {
         // The org branch is unchanged — only the no-org branch was added.

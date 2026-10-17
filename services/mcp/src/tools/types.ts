@@ -73,7 +73,9 @@ export type State = {
     Record<PrefixedString<'integrationKinds'>, string[] | undefined> &
     Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
-    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined>
+    Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
+    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined>
 
 export type Env = {
     /**
@@ -151,6 +153,8 @@ export type Context = {
      * session state to record for.
      */
     setSessionActiveContext?: (updates: { orgId?: string; projectId?: string }) => Promise<void>
+    /** Set by the request resolver when the `mcp-no-data-install-notice` flag is on its `warn` or `block` arm. */
+    noDataInstallNotice?: boolean
     /**
      * Which PostHog connection this context runs through, when it runs through one at all. Set only
      * by the forwarded context (see lib/connection-forwarding.ts); absent on a local call.

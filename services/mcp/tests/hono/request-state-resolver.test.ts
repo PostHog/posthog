@@ -9,8 +9,10 @@ const {
     mockRedisFailures,
     mockPinned,
     mockGetApiKey,
+    mockAnalyticsContext,
 } = vi.hoisted(() => ({
     mockGetApiKey: vi.fn(),
+    mockAnalyticsContext: { current: undefined as { projectHasData?: boolean } | undefined },
     mockSessionStore: new Map<string, unknown>(),
     mockTokenStore: new Map<string, unknown>(),
     mockApiKey: {
@@ -130,7 +132,7 @@ vi.mock('@/hono/request-context', () => {
                         },
                     }
                 }),
-                safelyGetAnalyticsContext: vi.fn(async () => undefined),
+                safelyGetAnalyticsContext: vi.fn(async () => mockAnalyticsContext.current),
                 getDistinctId: vi.fn(async () => 'distinct-id'),
                 setMcpContexts: vi.fn(),
                 setPinnedContext: vi.fn((pinned: typeof mockPinned.last) => {
@@ -147,6 +149,7 @@ import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
+import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
@@ -196,6 +199,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockRedisFailures.legacyReadError = undefined
         mockRedisFailures.contextReads = 0
         mockPinned.last = undefined
+        mockAnalyticsContext.current = undefined
         mockGetApiKey.mockReset().mockImplementation(async () => mockApiKey)
         mockApiKey.scopes = ['*']
         mockApiKey.is_impersonated = undefined
@@ -491,15 +495,40 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
-        'evaluates %s even though no generated tool declares it',
-        async (flag) => {
-            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
+    it.each([
+        MCP_EXEC_SKILLS_FEATURE_FLAG,
+        MCP_INTERVIEW_RECRUITMENT_FLAG,
+        MCP_INTENT_PROMPT_FLAG,
+        MCP_NO_DATA_INSTALL_NOTICE_FLAG,
+    ])('evaluates %s even though no generated tool declares it', async (flag) => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
+
+        const result = await makeResolver().resolve(makeProps())
+
+        expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
+        expect(result.toolFeatureFlags?.[flag]).toBe(true)
+    })
+
+    // Unknown must stay unknown: the no-data notice only fires on an explicit false.
+    it.each([
+        [{ projectHasData: false }, 'block', false, true],
+        [{ projectHasData: false }, 'warn', false, true],
+        [{ projectHasData: false }, 'control', false, false],
+        [{ projectHasData: true }, 'block', true, true],
+        [undefined, undefined, undefined, false],
+    ])(
+        'carries the project ingestion state from analytics context %j with variant %s',
+        async (analyticsContext, variant, expectedHasData, expectedNotice) => {
+            mockAnalyticsContext.current = analyticsContext
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({
+                flags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: variant },
+                payloads: {},
+            })
 
             const result = await makeResolver().resolve(makeProps())
 
-            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
-            expect(result.toolFeatureFlags?.[flag]).toBe(true)
+            expect(result.projectHasData).toBe(expectedHasData)
+            expect(result.context.noDataInstallNotice).toBe(expectedNotice)
         }
     )
 
