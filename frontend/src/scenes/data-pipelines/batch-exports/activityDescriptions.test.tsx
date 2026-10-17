@@ -83,7 +83,12 @@ describe('batch export activity descriptions', () => {
             expect(text).toContain(`Max Hog deleted batch export 'My S3 Export' (S3)`)
         })
 
-        it('describes enabling (paused=false)', () => {
+        it.each([
+            ['paused', true, false, 'enabled'],
+            ['paused', false, true, 'disabled'],
+            ['enabled', true, false, 'enabled'],
+            ['enabled', false, true, 'disabled'],
+        ])('describes a %s change from %s to %s as %s', (field, before, after, verb) => {
             const text = describeText(
                 makeLogItem({
                     detail: {
@@ -94,37 +99,15 @@ describe('batch export activity descriptions', () => {
                             {
                                 type: ActivityScope.BATCH_EXPORT,
                                 action: 'changed',
-                                field: 'enabled',
-                                before: true,
-                                after: false,
+                                field,
+                                before,
+                                after,
                             },
                         ],
                     },
                 })
             )
-            expect(text).toContain(`Max Hog enabled batch export 'My S3 Export' (S3)`)
-        })
-
-        it('describes disabling (paused=true)', () => {
-            const text = describeText(
-                makeLogItem({
-                    detail: {
-                        name: "'My S3 Export' (S3)",
-                        merge: null,
-                        trigger: null,
-                        changes: [
-                            {
-                                type: ActivityScope.BATCH_EXPORT,
-                                action: 'changed',
-                                field: 'enabled',
-                                before: false,
-                                after: true,
-                            },
-                        ],
-                    },
-                })
-            )
-            expect(text).toContain(`Max Hog disabled batch export 'My S3 Export' (S3)`)
+            expect(text).toContain(`Max Hog ${verb} batch export 'My S3 Export' (S3)`)
         })
 
         it('describes a name change with before and after', () => {

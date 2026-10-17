@@ -59,15 +59,32 @@ class TestBatchExportActivityLogging(ActivityLogTestHelper):
             activity_storage.clear_user()
 
     def test_batch_export_status_changes(self):
+        from posthog.models.activity_logging.activity_log import ActivityLog
         from posthog.models.activity_logging.utils import activity_storage
 
         activity_storage.set_user(self.user)
         try:
             batch_export = self.create_batch_export(name="Status Test Export", paused=False)
 
-            # Test pausing/unpausing which should appear as "enabled" field in activity log
             self.update_batch_export(batch_export["id"], {"paused": True})
             self.update_batch_export(batch_export["id"], {"paused": False})
+
+            pause_changes = [
+                {key: change[key] for key in ("field", "before", "after")}
+                for log in ActivityLog.objects.filter(
+                    scope="BatchExport", activity="updated", item_id=batch_export["id"]
+                ).order_by("created_at")
+                for change in (log.detail or {}).get("changes", [])
+                if change["field"] in ("paused", "enabled")
+            ]
+            self.assertEqual(
+                pause_changes,
+                [
+                    {"field": "paused", "before": False, "after": True},
+                    {"field": "paused", "before": True, "after": False},
+                ],
+            )
+
             self.update_batch_export(batch_export["id"], {"model": "persons"})
             self.update_batch_export(
                 batch_export["id"], {"schema": [{"alias": "test", "table": "events", "fields": ["event"]}]}
