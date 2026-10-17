@@ -1,5 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { Form } from 'kea-forms'
+import { useEffect, useRef } from 'react'
 
 import { IconChevronDown, IconFilter, IconPlus } from '@posthog/icons'
 import {
@@ -101,6 +102,16 @@ export function TriggerGroupsEditor(): JSX.Element {
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
+    const addGroupFormRef = useRef<HTMLDivElement>(null)
+
+    // The form can open from a button outside this editor, so bring it into view and focus it.
+    useEffect(() => {
+        if (isAddingGroup && addGroupFormRef.current) {
+            addGroupFormRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            addGroupFormRef.current.querySelector('input')?.focus({ preventScroll: true })
+        }
+    }, [isAddingGroup])
+
     const handleDeleteTriggerGroup = (id: string): void => {
         if (triggerGroups.length === 1) {
             setDeleteModalGroupId(id)
@@ -176,12 +187,14 @@ export function TriggerGroupsEditor(): JSX.Element {
             )}
 
             {isAddingGroup && (
-                <GroupForm
-                    onSave={(group) => {
-                        addTriggerGroup(group)
-                    }}
-                    onCancel={() => setIsAddingGroup(false)}
-                />
+                <div ref={addGroupFormRef}>
+                    <GroupForm
+                        onSave={(group) => {
+                            addTriggerGroup(group)
+                        }}
+                        onCancel={() => setIsAddingGroup(false)}
+                    />
+                </div>
             )}
 
             {triggerGroups.length === 0 && !isAddingGroup ? (
