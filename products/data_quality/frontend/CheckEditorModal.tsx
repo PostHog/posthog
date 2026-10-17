@@ -29,6 +29,7 @@ import { checkTypeLabel, subjectTypeLabel } from './checksConstants'
 import { dataQualityCheckEditorLogic } from './dataQualityCheckEditorLogic'
 import { CheckTypeEnumApi, DataQualityCheckSeverityEnumApi } from './generated/api.schemas'
 import { formatPreviewCell } from './previewCell'
+import { QuestionCheckFields } from './QuestionCheckFields'
 
 type CodeEditorInstance = Parameters<NonNullable<CodeEditorProps['onMount']>>[0]
 
@@ -202,12 +203,21 @@ export function CheckEditorModal(): JSX.Element {
                                 rowCountMax: null,
                                 maxAgeMinutes: null,
                                 customSql: '',
+                                question: '',
+                                questionInputMode: 'column',
+                                questionColumns: [],
+                                minProbability: 0.8,
+                                maxFailureRate: 0,
+                                severity:
+                                    checkType === CheckTypeEnumApi.Question
+                                        ? DataQualityCheckSeverityEnumApi.Warn
+                                        : checkForm.severity,
                             })
                         }
                     />
                 </LemonField>
 
-                {requiresColumn && (
+                {requiresColumn && checkForm.checkType !== CheckTypeEnumApi.Question && (
                     <LemonField name="columnName" label="Column">
                         <LemonSelect
                             loading={checkSubjectsLoading && !availableColumns.length}
@@ -241,7 +251,14 @@ export function CheckEditorModal(): JSX.Element {
                 <LemonField name="severity" label="Severity">
                     <LemonSegmentedButton
                         options={[
-                            { value: DataQualityCheckSeverityEnumApi.Error, label: 'Error' },
+                            {
+                                value: DataQualityCheckSeverityEnumApi.Error,
+                                label: 'Error',
+                                disabledReason:
+                                    checkForm.checkType === CheckTypeEnumApi.Question
+                                        ? 'Question checks are warning only.'
+                                        : undefined,
+                            },
                             { value: DataQualityCheckSeverityEnumApi.Warn, label: 'Warning' },
                         ]}
                     />
@@ -257,6 +274,8 @@ export function CheckEditorModal(): JSX.Element {
 
 function CheckConfigFields({ checkType }: { checkType: CheckTypeEnumApi }): JSX.Element | null {
     switch (checkType) {
+        case CheckTypeEnumApi.Question:
+            return <QuestionCheckFields />
         case CheckTypeEnumApi.AcceptedValues:
             return (
                 <LemonField name="acceptedValues" label="Allowed values">

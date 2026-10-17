@@ -9,6 +9,7 @@ import {
     dataQualityChecksMetricSubjectsList,
     dataQualityChecksOutputSchemaRetrieve,
     dataQualityChecksPartialUpdate,
+    dataQualityChecksQuestionPreviewCreate,
     dataQualityChecksRunCreate,
     dataQualityChecksRunsList,
     dataQualityChecksSchedulePartialUpdate,
@@ -35,6 +36,7 @@ import type {
     PaginatedDataQualityOverviewCheckListApi,
     PaginatedDataQualitySuiteRunListApi,
     SubjectTypeEnumApi,
+    QuestionPreviewApi,
 } from './generated/api.schemas'
 
 export function apiErrorDetail(error: unknown): string | null {
@@ -90,6 +92,12 @@ export const checksApi = {
 
     runAll: (ref: DataQualitySubjectRef): Promise<DataQualitySuiteRunApi> =>
         dataQualityRunsCreate(projectId(), subjectParams(ref)),
+
+    questionPreview: (
+        ref: DataQualitySubjectRef,
+        body: Omit<Parameters<typeof dataQualityChecksQuestionPreviewCreate>[1], 'subject_type' | 'subject_uuid'>
+    ): Promise<QuestionPreviewApi> =>
+        dataQualityChecksQuestionPreviewCreate(projectId(), { ...body, ...subjectParams(ref) }),
 
     runs: (id: string): Promise<DataQualityCheckRunApi[]> => dataQualityChecksRunsList(projectId(), id),
 

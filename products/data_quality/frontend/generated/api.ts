@@ -31,6 +31,8 @@ import type {
     PaginatedDataQualitySuiteRunListApi,
     PatchedDataQualityCheckApi,
     PatchedDataQualityCheckScheduleUpdateApi,
+    QuestionPreviewApi,
+    QuestionPreviewRequestApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -320,6 +322,26 @@ export const dataQualityChecksOutputSchemaRetrieve = async (
     return apiMutator<DataQualityOutputSchemaApi>(getDataQualityChecksOutputSchemaRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getDataQualityChecksQuestionPreviewCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_checks/question_preview/`
+}
+
+/**
+ * Preview a question on at most ten rows. Full check runs still examine every row in scope. Preview uses the same billed evaluator and shared decision cache but creates no check run.
+ */
+export const dataQualityChecksQuestionPreviewCreate = async (
+    projectId: string,
+    questionPreviewRequestApi: QuestionPreviewRequestApi,
+    options?: RequestInit
+): Promise<QuestionPreviewApi> => {
+    return apiMutator<QuestionPreviewApi>(getDataQualityChecksQuestionPreviewCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(questionPreviewRequestApi),
     })
 }
 

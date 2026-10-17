@@ -587,6 +587,21 @@ export interface PatchedDataQualityCheckApi {
     readonly updated_at?: string | null
 }
 
+export interface QuestionProgressApi {
+    /** Check whose frozen inputs are being evaluated. */
+    check_id: string
+    /** Whether the complete input snapshot is still being prepared. */
+    preparing: boolean
+    /** Rows in the complete frozen input set. Available after preparation. */
+    total_row_count: number
+    /** Rows in completed durable checkpoints. */
+    evaluated_row_count: number
+    /** Completed evaluation batches. */
+    completed_chunk_count: number
+    /** Batches in the complete frozen input set. */
+    total_chunk_count: number
+}
+
 export interface DataQualitySuiteRunApi {
     readonly id: string
     /** manual, materialization, source_sync, or scheduled. */
@@ -604,6 +619,8 @@ export interface DataQualitySuiteRunApi {
      */
     readonly subject_uuid: string | null
     readonly workflow_id: string
+    /** Active question execution coverage, populated when retrieving one suite run. */
+    readonly question_progress: readonly QuestionProgressApi[]
     readonly checks_passed: number
     readonly checks_failed: number
     readonly checks_errored: number
@@ -773,6 +790,58 @@ export interface DataQualityOutputColumnApi {
 export interface DataQualityOutputSchemaApi {
     /** Columns returned by the saved metric query. */
     columns: DataQualityOutputColumnApi[]
+}
+
+/**
+ * Question configuration using the question check type's schema.
+ */
+export type QuestionPreviewRequestApiConfig = { [key: string]: unknown }
+
+/**
+ * The subject a request names, wherever it names it: a body, a query string, or both.
+ */
+export interface QuestionPreviewRequestApi {
+    /** Kind of object: 'table', 'view', 'metric', or 'posthog_table'.
+     *
+     * * `table` - table
+     * * `view` - view
+     * * `metric` - metric
+     * * `posthog_table` - posthog_table */
+    subject_type: SubjectTypeEnumApi
+    /** Id of the table, view, metric, or PostHog table. */
+    subject_uuid: string
+    /** Column evaluated in single-column mode. Leave blank in row mode. */
+    column_name?: string
+    /** Question configuration using the question check type's schema. */
+    config: QuestionPreviewRequestApiConfig
+}
+
+export interface QuestionPreviewInputApi {
+    /**
+     * Exact text sent to the evaluator, or null for a null column value.
+     * @nullable
+     */
+    input: string | null
+    /** Number of preview rows with this input. */
+    row_count: number
+    /**
+     * Probability of Yes, or null for a deterministic null-column failure.
+     * @nullable
+     */
+    probability: number | null
+}
+
+export interface QuestionPreviewApi {
+    /** Decisions for this small preview only. */
+    inputs: QuestionPreviewInputApi[]
+    /** Maximum number of source rows in a preview. Full runs examine all rows in scope. */
+    row_limit: number
+    /** Source rows included in this preview. */
+    examined_row_count: number
+    /** Distinct decisions reused from the shared question cache. */
+    reused_decision_count: number
+    /** New distinct decisions returned by the evaluator, not a billing total. */
+    new_decision_count: number
 }
 
 /**

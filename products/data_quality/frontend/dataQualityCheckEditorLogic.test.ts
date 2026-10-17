@@ -14,6 +14,7 @@ import {
     dataQualityChecksSubjectsList,
     dataQualityChecksOutputSchemaRetrieve,
     dataQualityChecksPartialUpdate,
+    dataQualityChecksQuestionPreviewCreate,
 } from './generated/api'
 import type { DataQualityCheckApi } from './generated/api.schemas'
 import { CheckTypeEnumApi } from './generated/api.schemas'
@@ -63,6 +64,7 @@ jest.mock('./generated/api', () => ({
     dataQualityChecksSubjectsList: jest.fn(),
     dataQualityChecksOutputSchemaRetrieve: jest.fn(),
     dataQualityChecksPartialUpdate: jest.fn(),
+    dataQualityChecksQuestionPreviewCreate: jest.fn(),
 }))
 
 const VIEW_SUBJECT: DataQualitySubjectRef = { subjectType: 'view', subjectId: 'view-1' }
@@ -1113,5 +1115,116 @@ describe('dataQualityCheckEditorLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect((dataQualityChecksSubjectsList as jest.Mock).mock.calls.length).toEqual(2)
+    })
+    it('previews once, recomputes inclusive thresholds, and discards inputs after editing', async () => {
+        await mountLogic()
+        logic.actions.openEditor(null, { subjectType: 'table', subjectId: 'table-1' }, ['description'])
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValues({
+            checkType: CheckTypeEnumApi.Question,
+            columnName: 'description',
+            question: 'Does this explain the item?',
+            minProbability: 0.8,
+            maxFailureRate: 0.5,
+        })
+        let resolvePreview!: (value: unknown) => void
+        ;(dataQualityChecksQuestionPreviewCreate as jest.Mock).mockReturnValue(
+            new Promise((resolve) => {
+                resolvePreview = resolve
+            })
+        )
+        logic.actions.requestQuestionPreview()
+        logic.actions.requestQuestionPreview()
+        expect(dataQualityChecksQuestionPreviewCreate).toHaveBeenCalledTimes(1)
+        expect(logic.values.questionPreviewLoading).toBe(true)
+        resolvePreview({
+            inputs: [
+                { input: 'A desk lamp', probability: 0.8, row_count: 1 },
+                { input: null, probability: null, row_count: 1 },
+            ],
+            row_limit: 10,
+            examined_row_count: 2,
+            reused_decision_count: 1,
+            new_decision_count: 0,
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.questionPreviewPassed).toBe(true)
+        logic.actions.setCheckFormValues({ minProbability: 0.9 })
+        expect(logic.values.questionPreviewFailureRate).toBe(1)
+        expect(logic.values.questionPreviewPassed).toBe(false)
+        expect(dataQualityChecksQuestionPreviewCreate).toHaveBeenCalledTimes(1)
+        logic.actions.setCheckFormValues({ question: 'Is this another question?' })
+        expect(logic.values.currentQuestionPreview).toBeNull()
+        logic.actions.setCheckFormValues({ question: 'Does this explain the item?' })
+        expect(logic.values.currentQuestionPreview).toBeNull()
+    })
+
+    it.each(['success', 'failure'])(
+        'discards a late preview %s after changing and restoring the question',
+        async (outcome) => {
+            await mountLogic()
+            logic.actions.openEditor(null, { subjectType: 'table', subjectId: 'table-1' }, ['description'])
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.setCheckFormValues({
+                checkType: CheckTypeEnumApi.Question,
+                columnName: 'description',
+                question: 'Is this valid?',
+            })
+            let resolvePreview!: (value: unknown) => void
+            let rejectPreview!: (error: Error) => void
+            ;(dataQualityChecksQuestionPreviewCreate as jest.Mock).mockReturnValue(
+                new Promise((resolve, reject) => {
+                    resolvePreview = resolve
+                    rejectPreview = reject
+                })
+            )
+            logic.actions.requestQuestionPreview()
+            logic.actions.setCheckFormValues({ question: 'Is this different?' })
+            logic.actions.setCheckFormValues({ question: 'Is this valid?' })
+            if (outcome === 'success') {
+                resolvePreview({
+                    inputs: [],
+                    row_limit: 10,
+                    examined_row_count: 0,
+                    reused_decision_count: 0,
+                    new_decision_count: 0,
+                })
+            } else {
+                rejectPreview(apiError({ detail: 'Could not preview' }))
+            }
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.currentQuestionPreview).toBeNull()
+            expect(logic.values.questionPreviewError).toBeNull()
+            expect(logic.values.questionPreviewLoading).toBe(false)
+        }
+    )
+
+    it('saves selected row fields in canonical order with warning severity', async () => {
+        await mountLogic()
+        logic.actions.openEditor(null, { subjectType: 'table', subjectId: 'table-1' }, COLUMNS)
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setCheckFormValues({
+            checkType: CheckTypeEnumApi.Question,
+            questionInputMode: 'row',
+            questionColumns: ['total', 'status'],
+            question: 'Is this order consistent?',
+        })
+        ;(dataQualityChecksCreate as jest.Mock).mockResolvedValue(buildCheck({ check_type: CheckTypeEnumApi.Question }))
+        logic.actions.submitCheckForm()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(dataQualityChecksCreate).toHaveBeenCalledWith(
+            '1',
+            expect.objectContaining({
+                column_name: '',
+                severity: 'warn',
+                config: {
+                    input_mode: 'row',
+                    columns: ['status', 'total'],
+                    question: 'Is this order consistent?',
+                    min_probability: 0.8,
+                    max_failure_rate: 0,
+                },
+            })
+        )
     })
 })

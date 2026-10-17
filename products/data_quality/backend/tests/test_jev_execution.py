@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
+from types import SimpleNamespace
+from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -9,6 +10,8 @@ from django.test import override_settings
 
 import fakeredis
 from parameterized import parameterized
+
+from posthog.hogql import ast
 
 from posthog.models.scoping import team_scope
 
@@ -21,7 +24,15 @@ from products.data_quality.backend.facade.enums import (
 )
 from products.data_quality.backend.logic.contracts import SubjectRef
 from products.data_quality.backend.logic.jev_execution import DurableQuestionRunner, cleanup_question_snapshots
-from products.data_quality.backend.logic.jev_question import PartialQuestionDecisionsError, WeightedInput
+from products.data_quality.backend.logic.jev_preview import QuestionPreviewRunner
+from products.data_quality.backend.logic.jev_progress import question_progress
+from products.data_quality.backend.logic.jev_question import (
+    PartialQuestionDecisionsError,
+    QuestionConfig,
+    WeightedInput,
+    question_input_query,
+)
+from products.data_quality.backend.logic.subject_access import ReadableSubjects
 from products.data_quality.backend.models import (
     DataQualityCheck,
     DataQualityCheckRun,
@@ -106,6 +117,103 @@ class TestDurableQuestionExecution(BaseTest):
 
     def runner(self, suite: DataQualitySuiteRun | None = None) -> DurableQuestionRunner:
         return DurableQuestionRunner.start(self.team.id, str((suite or self.suite).id), str(self.check.id))
+
+    def test_preview_reuses_run_decisions_without_creating_history(self) -> None:
+        runner = self.runner()
+        runner.prepare()
+        runner.chunk(0)
+        preview_module = "products.data_quality.backend.logic.jev_preview"
+        with (
+            patch(f"{preview_module}.authorize_warehouse_question_subject", return_value=(None, None)),
+            patch(f"{preview_module}.validate_prompt_jev_access"),
+            patch(f"{preview_module}.get_client", return_value=self.redis),
+            patch(
+                f"{preview_module}.execute_hogql_query",
+                return_value=SimpleNamespace(results=[["example 0", 2], [None, 1]], error=None, hasMore=False),
+            ) as query,
+            patch(f"{preview_module}.QuestionGatewayEvaluator") as gateway,
+        ):
+            preview = QuestionPreviewRunner(
+                team=self.team,
+                user=self.user,
+                subject=self.subject,
+                config=QuestionConfig(question="Is this valid?", min_probability=0.95),
+                column_name="description",
+            ).run()
+        assert preview.examined_row_count == 3
+        assert preview.reused_decision_count == 1
+        assert preview.new_decision_count == 0
+        assert [item.probability for item in preview.inputs] == [0.9, None]
+        assert not DataQualityCheckRun.objects.for_team(self.team.id).exists()
+        gateway.assert_not_called()
+        query_ast = query.call_args.kwargs["query"]
+        assert query_ast.select_from.table.limit.value == 10
+        assert query.call_args.kwargs["settings"].output_format_json_quote_denormals is True
+        full_query = question_input_query(self.subject, QuestionConfig(question="Is this valid?"), "description")
+        assert isinstance(full_query.select_from, ast.JoinExpr)
+        assert isinstance(full_query.select_from.table, ast.SelectQuery)
+        assert full_query.select_from.table.limit is None
+
+    def test_preview_withholds_decisions_when_source_access_is_revoked_after_inference(self) -> None:
+        preview_module = "products.data_quality.backend.logic.jev_preview"
+        authorization_calls = 0
+
+        def authorize(*args: object) -> tuple[None, None]:
+            nonlocal authorization_calls
+            authorization_calls += 1
+            if authorization_calls >= 5:
+                raise ValueError("Access revoked")
+            return None, None
+
+        with (
+            patch(f"{preview_module}.authorize_warehouse_question_subject", side_effect=authorize),
+            patch(f"{preview_module}.validate_prompt_jev_access"),
+            patch(f"{preview_module}.get_client", return_value=self.redis),
+            patch(
+                f"{preview_module}.execute_hogql_query",
+                return_value=SimpleNamespace(results=[["new preview input", 1]], error=None, hasMore=False),
+            ),
+            patch(f"{preview_module}.QuestionGatewayEvaluator", return_value=lambda inputs: [0.9]),
+        ):
+            with self.assertRaises(ValueError):
+                QuestionPreviewRunner(
+                    team=self.team,
+                    user=self.user,
+                    subject=self.subject,
+                    config=QuestionConfig(question="Is this valid?"),
+                    column_name="description",
+                ).run()
+
+    def test_progress_reports_checkpointed_rows_and_hides_revoked_sources(self) -> None:
+        runner = self.runner()
+        runner.prepare()
+        runner.chunk(0)
+        with (
+            patch("products.data_quality.backend.logic.jev_progress.resolve_subject", return_value=self.subject),
+            patch("products.data_quality.backend.logic.jev_progress.authorize_warehouse_question_subject") as authorize,
+        ):
+            progress = question_progress(self.team, self.user, str(self.suite.id))
+            assert len(progress) == 1
+            assert progress[0].total_row_count == 20_000
+            assert progress[0].evaluated_row_count == 128 * 40
+            assert progress[0].completed_chunk_count == 1
+            assert progress[0].total_chunk_count == 4
+            authorize.side_effect = ValueError("Access revoked")
+            assert question_progress(self.team, self.user, str(self.suite.id)) == []
+
+    def test_progress_withholds_subjects_outside_the_callers_readable_set(self) -> None:
+        runner = self.runner()
+        runner.prepare()
+        runner.chunk(0)
+        with (
+            patch("products.data_quality.backend.logic.jev_progress.resolve_subject", return_value=self.subject),
+            patch("products.data_quality.backend.logic.jev_progress.authorize_warehouse_question_subject") as authorize,
+        ):
+            none_readable = ReadableSubjects(table_ids=frozenset(), view_ids=frozenset())
+            assert question_progress(self.team, self.user, str(self.suite.id), none_readable) == []
+            authorize.assert_not_called()
+            readable = ReadableSubjects(table_ids=frozenset({UUID(str(self.subject_id))}), view_ids=frozenset())
+            assert len(question_progress(self.team, self.user, str(self.suite.id), readable)) == 1
 
     def test_cold_retry_and_warm_runs_preserve_frozen_coverage_and_budget(self) -> None:
         runner = self.runner()

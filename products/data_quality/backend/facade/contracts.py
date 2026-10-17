@@ -94,3 +94,29 @@ class SelectableSubject:
 class OutputColumn:
     name: str
     type: str | None
+
+
+@frozen
+class QuestionPreviewInput:
+    input: str | None = field(repr=False)
+    row_count: int
+    probability: float | None
+
+
+@frozen
+class QuestionPreview:
+    inputs: list[QuestionPreviewInput] = field(repr=False)
+    row_limit: int
+    examined_row_count: int
+    reused_decision_count: int
+    new_decision_count: int
+
+
+@frozen
+class QuestionProgress:
+    check_id: str
+    preparing: bool
+    total_row_count: int
+    evaluated_row_count: int
+    completed_chunk_count: int
+    total_chunk_count: int

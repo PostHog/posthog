@@ -19,7 +19,7 @@ import type {
     DataQualitySubjectScheduleApi,
     DataQualitySuiteRunApi,
 } from 'products/data_quality/frontend/generated/api.schemas'
-import { SubjectTypeEnumApi } from 'products/data_quality/frontend/generated/api.schemas'
+import { CheckTypeEnumApi, SubjectTypeEnumApi } from 'products/data_quality/frontend/generated/api.schemas'
 import { openFailingRowsInSqlEditor } from 'products/data_quality/frontend/openFailingRows'
 import {
     isTerminalSuiteRun,
@@ -675,6 +675,11 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                 }
             },
             openFailingRows: async ({ check }) => {
+                // Question runs keep no compiled query, so the newest run with one is a stale SQL assertion
+                // from before the check became a question.
+                if (check.check_type === CheckTypeEnumApi.Question) {
+                    return
+                }
                 await openFailingRowsInSqlEditor({
                     cachedRuns: values.checkRunsByCheckId[check.id],
                     fetchRuns: () => checksApi.runs(check.id),

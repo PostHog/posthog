@@ -40,6 +40,7 @@ export function DataQualityChecksPanel({
         checksLoaded,
         enabledChecksCount,
         isSuiteRunning,
+        activeSuiteRun,
         pollTimedOut,
         runAllInFlight,
         accessDenied,
@@ -138,7 +139,16 @@ export function DataQualityChecksPanel({
                 )}
                 {isSuiteRunning && (
                     <LemonBanner type="info" icon={<Spinner />}>
-                        Running checks...
+                        <div className="flex flex-col gap-1">
+                            <span>Running checks...</span>
+                            {activeSuiteRun?.question_progress?.map((progress) => (
+                                <span key={progress.check_id}>
+                                    {progress.preparing
+                                        ? 'Preparing all question inputs...'
+                                        : `${progress.evaluated_row_count} / ${progress.total_row_count} rows examined, ${progress.completed_chunk_count} / ${progress.total_chunk_count} batches completed`}
+                                </span>
+                            ))}
+                        </div>
                     </LemonBanner>
                 )}
                 {pollTimedOut && (
