@@ -1,4 +1,5 @@
 // sort-imports-ignore
+import { SESv2Client, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { ScopedServiceJwt } from '~/cdp/utils/scoped-service-jwt'
 import { DateTime, Duration } from 'luxon'
@@ -31,6 +32,7 @@ import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messa
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { EmailService } from '../messaging/email.service'
 import { EmailTrackingCodeSigner } from '../messaging/helpers/tracking-code'
+import { PushNotificationFetchUtils, PushNotificationService } from '../messaging/push-notification.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
 import { RecipientTokensService } from '../messaging/recipient-tokens.service'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
@@ -48,6 +50,8 @@ jest.mock('~/common/utils/request', () => {
     }
 })
 
+type TrackedPushFetch = PushNotificationFetchUtils['trackedFetch']
+
 const cleanLogs = (logs: string[]): string[] => {
     // Replaces the function time with a fixed value to simplify testing
     return logs.map((log) => log.replace(/Function completed in \d+(\.\d+)?ms/, 'Function completed in REPLACEDms'))
@@ -60,8 +64,10 @@ describe('Hogflow Executor', () => {
     let team: Team
     let integrationId: number
     const mockFetch = jest.mocked(fetch)
+    const mockPushProviderFetch = jest.fn<ReturnType<TrackedPushFetch>, Parameters<TrackedPushFetch>>()
 
     beforeEach(async () => {
+        mockPushProviderFetch.mockReset()
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
@@ -124,7 +130,18 @@ describe('Hogflow Executor', () => {
                 hogInputsService,
                 emailService,
                 recipientTokensService,
-                pushNotificationService: undefined as any,
+                pushNotificationService: new PushNotificationService(
+                    hub.integrationManager,
+                    hub.encryptedFields,
+                    {
+                        trackedFetch: mockPushProviderFetch,
+                        maxFetchTimeoutMs: 10000,
+                        maxRetries: 3,
+                        backoffBaseMs: 1000,
+                        backoffMaxMs: 30000,
+                    },
+                    undefined as any
+                ),
             }
         )
         const hogFunctionTemplateManager = new HogFunctionTemplateManagerService(hub.postgres)
@@ -2941,6 +2958,10 @@ describe('Hogflow Executor', () => {
     })
 
     describe('email queue routing', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
         it('should route email actions to the email queue', async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
@@ -3033,7 +3054,7 @@ describe('Hogflow Executor', () => {
             expect(result.invocation.queueParameters?.type).toBe('email')
         })
 
-        it('should complete the full round-trip: hogflow → email queue → email sent → workflow continues', async () => {
+        it('returns consecutive emails and push retries to their origin queue and priority: hogflow → email queue → messages sent → workflow continues', async () => {
             await insertIntegration(hub.postgres, team.id, {
                 id: integrationId,
                 kind: 'email',
@@ -3042,9 +3063,37 @@ describe('Hogflow Executor', () => {
                     name: 'Test User',
                     domain: 'posthog.com',
                     verified: true,
-                    provider: 'maildev',
+                    provider: 'ses',
                 },
             })
+            const pushIntegrationId = uniqueTestId()
+            await insertIntegration(hub.postgres, team.id, {
+                id: pushIntegrationId,
+                kind: 'firebase',
+                config: { project_id: 'test-project' },
+                sensitive_config: { access_token: 'test-access-token' },
+            })
+            const fcmResponse = (status: number): Awaited<ReturnType<TrackedPushFetch>> => ({
+                fetchError: null,
+                fetchResponse: {
+                    status,
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve('{}'),
+                    dump: () => Promise.resolve(),
+                },
+                fetchDuration: 10,
+            })
+            mockPushProviderFetch
+                .mockResolvedValueOnce(fcmResponse(503))
+                .mockResolvedValueOnce(fcmResponse(200))
+                .mockResolvedValueOnce(fcmResponse(503))
+                .mockResolvedValueOnce(fcmResponse(200))
+            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+            sesSend
+                .mockResolvedValueOnce({ MessageId: 'first-email' })
+                .mockRejectedValueOnce(new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' }))
+                .mockResolvedValue({ MessageId: 'follow-up-email' })
 
             await insertHogFunctionTemplate(hub.postgres, {
                 id: 'template-email-routing-test',
@@ -3070,6 +3119,24 @@ describe('Hogflow Executor', () => {
                     },
                 ],
             })
+
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-push-queue-routing-test',
+                name: 'Push Routing Test',
+                code: `let res := sendPushNotification({'integrationIds': [inputs.integrationId], 'distinctId': 'distinct-id', 'payload': {'title': 'Hi', 'body': 'Hello'}})
+if (not res.success) { throw Error(res.error) }`,
+                inputs_schema: [
+                    { type: 'string', key: 'integrationId', label: 'Channel', secret: false, required: true },
+                ],
+            })
+            const transactionalPush = {
+                type: 'function_push',
+                config: {
+                    template_id: 'template-push-queue-routing-test',
+                    message_category_type: 'transactional',
+                    inputs: { integrationId: { value: pushIntegrationId } },
+                },
+            } as const
 
             const hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
@@ -3100,6 +3167,32 @@ describe('Hogflow Executor', () => {
                                 },
                             },
                         },
+                        push_1: transactionalPush,
+                        push_2: transactionalPush,
+                        email_2: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email-routing-test',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: 'recipient@example.com', name: 'Recipient' },
+                                            from: { integrationId, email: 'test@posthog.com' },
+                                            subject: 'Follow-up Email',
+                                            text: 'Follow-up text',
+                                            html: '<p>Follow-up html</p>',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        webhook: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-test-hogflow-executor',
+                                inputs: { name: { value: 'Mr Debug' } },
+                            },
+                        },
                         exit: {
                             type: 'exit',
                             config: {},
@@ -3107,17 +3200,29 @@ describe('Hogflow Executor', () => {
                     },
                     edges: [
                         { from: 'trigger', to: 'email_1', type: 'continue' },
-                        { from: 'email_1', to: 'exit', type: 'continue' },
+                        { from: 'email_1', to: 'push_1', type: 'continue' },
+                        { from: 'push_1', to: 'push_2', type: 'continue' },
+                        { from: 'push_2', to: 'email_2', type: 'continue' },
+                        { from: 'email_2', to: 'webhook', type: 'continue' },
+                        { from: 'webhook', to: 'exit', type: 'continue' },
                     ],
                 })
                 .build()
 
-            const invocation = createExampleHogFlowInvocation(hogFlow, {
-                event: {
-                    ...createHogExecutionGlobals().event,
-                    event: '$pageview',
+            const invocation = createExampleHogFlowInvocation(
+                hogFlow,
+                {
+                    event: {
+                        ...createHogExecutionGlobals().event,
+                        event: '$pageview',
+                    },
                 },
-            })
+                {
+                    properties: {
+                        '$device_push_subscription_test-project': hub.encryptedFields.encrypt('device-token'),
+                    },
+                }
+            )
 
             // A watcher-degraded flow enters at priority 2; the routing must stash that
             // exact value, not the 0 that per-action result clones reset queuePriority to
@@ -3133,19 +3238,37 @@ describe('Hogflow Executor', () => {
             expect(hogflowResult.invocation.queuePriority).toBe(1)
             expect(hogflowResult.invocation.queueMetadata?.originPriority).toBe(2)
 
-            // Step 2: Email worker picks up the job (queue === 'email') — should send inline and continue
+            const results = []
             let emailResult = await executor.execute(hogflowResult.invocation)
-            while (!emailResult.finished) {
+            results.push(emailResult)
+            while (!emailResult.finished && emailResult.invocation.queue === 'email') {
                 emailResult = await executor.execute(emailResult.invocation)
+                results.push(emailResult)
             }
+            expect(emailResult.invocation).toMatchObject({ queue: 'hogflow', queuePriority: 2 })
+            const rescheduledOnEmailQueue = results
+                .filter((result) => result.invocation.queue === 'email')
+                .map(({ invocation }) => ({ priority: invocation.queuePriority, metadata: invocation.queueMetadata }))
+            expect(rescheduledOnEmailQueue).toEqual([
+                { priority: 0, metadata: { originQueue: 'hogflow', originPriority: 2, tries: 1 } },
+                { priority: 0, metadata: { originQueue: 'hogflow', originPriority: 2, tries: 1 } },
+                { priority: 1, metadata: expect.objectContaining({ originQueue: 'hogflow', originPriority: 2 }) },
+            ])
 
-            // Workflow should complete
-            expect(emailResult.finished).toBe(true)
-            expect(emailResult.error).toBeUndefined()
+            let workflowResult = emailResult
+            while (!workflowResult.finished) {
+                workflowResult = await executor.execute(workflowResult.invocation)
+                results.push(workflowResult)
+            }
+            expect(workflowResult.error).toBeUndefined()
 
-            // Verify email_sent metric was emitted
-            const emailSentMetrics = emailResult.metrics.filter((m) => m.metric_name === 'email_sent')
-            expect(emailSentMetrics).toHaveLength(1)
+            const sentMetrics = results
+                .flatMap((r) => r.metrics)
+                .map((m) => m.metric_name)
+                .filter((name) => name === 'email_sent' || name === 'push_sent')
+            expect(sentMetrics).toEqual(['email_sent', 'push_sent', 'push_sent', 'email_sent'])
+            expect(sesSend).toHaveBeenCalledTimes(3)
+            expect(mockPushProviderFetch).toHaveBeenCalledTimes(4)
         })
     })
 })
