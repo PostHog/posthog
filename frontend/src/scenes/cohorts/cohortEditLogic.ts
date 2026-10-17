@@ -320,8 +320,12 @@ export interface cohortEditLogicActions {
             value: true
         }
     }
-    saveCohort: (cohortParams?: any) => {
+    saveCohort: (
+        cohortParams?: any,
+        formData?: FormData
+    ) => {
         cohortParams: any
+        formData: FormData | undefined
     }
     saveCohortFailure: (
         error: string,
@@ -446,6 +450,9 @@ export interface cohortEditLogicActions {
     updateCohortCount: () => {
         value: true
     }
+    uploadCohortCsv: () => {
+        value: true
+    }
     updateCohortCountFailure: (
         error: string,
         errorObject?: any
@@ -557,7 +564,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
 
     actions({
-        saveCohort: (cohortParams = {}) => ({ cohortParams }),
+        saveCohort: (cohortParams = {}, formData?: FormData) => ({ cohortParams, formData }),
         setCohort: (cohort: CohortType) => ({ cohort }),
         deleteCohort: true,
         restoreCohort: true,
@@ -584,6 +591,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
         updateCohortCount: true,
+        uploadCohortCsv: true,
         setCreationPersonQuery: (query: ActorsQuery) => ({ query }),
         addPersonToCreateStaticCohort: (personId: string, displayName: string | null) => ({ personId, displayName }),
         removePersonFromCreateStaticCohort: (personId: string) => ({ personId }),
@@ -938,22 +946,35 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         return values.cohort
                     }
                 },
-                saveCohort: async ({ cohortParams }, breakpoint) => {
+                saveCohort: async ({ cohortParams, formData }, breakpoint) => {
                     const existingCohort = values.cohort
                     let cohort = { ...existingCohort, ...cohortParams }
-                    const cohortFormData = createCohortFormData(cohort, {
-                        preserveStaticFilters: cohort.is_static && values.staticCohortMode === 'criteria',
-                    })
+                    const cohortFormData =
+                        formData ??
+                        createCohortFormData(cohort, {
+                            preserveStaticFilters: cohort.is_static && values.staticCohortMode === 'criteria',
+                        })
 
                     try {
                         if (cohort.id !== 'new') {
-                            cohort = await api.cohorts.update(cohort.id, cohortFormData as Partial<CohortType>)
-                            cohortsModel.actions.updateCohort(cohort)
+                            const savedCohort = await api.cohorts.update(
+                                cohort.id,
+                                cohortFormData as Partial<CohortType>
+                            )
+                            cohortsModel.actions.updateCohort(savedCohort)
 
-                            if (cohort.experiment_set && cohort.experiment_set.length > 0) {
+                            if (!formData && savedCohort.experiment_set && savedCohort.experiment_set.length > 0) {
                                 // someone edited an exposure cohort. Track what kind of updates were made
-                                actions.reportExperimentExposureCohortEdited(existingCohort, cohort)
+                                actions.reportExperimentExposureCohortEdited(existingCohort, savedCohort)
                             }
+
+                            cohort = formData
+                                ? {
+                                      ...savedCohort,
+                                      name: existingCohort.name,
+                                      description: existingCohort.description,
+                                  }
+                                : savedCohort
                         } else {
                             cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                             cohortsModel.actions.cohortCreated(cohort)
@@ -1127,6 +1148,24 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
     })),
     listeners(({ actions, values, cache }) => ({
+        uploadCohortCsv: () => {
+            if (values.cohortLoading) {
+                return
+            }
+
+            if (values.cohort.id === 'new') {
+                actions.submitCohort()
+                return
+            }
+
+            if (!values.cohort.csv) {
+                return
+            }
+
+            const formData = new FormData()
+            formData.append('csv', values.cohort.csv)
+            actions.saveCohort({}, formData)
+        },
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
             // When the person property key changes, auto-reset the operator to match the
             // property type (DateTime → "on the date", non-DateTime → "equals").

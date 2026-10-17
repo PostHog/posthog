@@ -8,7 +8,7 @@ import { CohortLogicProps, cohortEditLogic } from './cohortEditLogic'
 export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
     const logic = cohortEditLogic({ id })
     const { cohort, cohortErrors, cohortLoading, csvUploadModalOpen } = useValues(logic)
-    const { setCohortValue, setCsvUploadModalOpen, submitCohort } = useActions(logic)
+    const { setCohortValue, setCsvUploadModalOpen, uploadCohortCsv } = useActions(logic)
 
     const onClose = (): void => {
         setCohortValue('csv', undefined)
@@ -34,7 +34,7 @@ export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
                     </LemonButton>
                     <LemonButton
                         type="primary"
-                        onClick={() => submitCohort()}
+                        onClick={() => uploadCohortCsv()}
                         loading={cohortLoading}
                         disabledReason={!cohort.csv ? 'Choose a CSV file first' : undefined}
                         data-attr="cohort-upload-csv-modal-save"
