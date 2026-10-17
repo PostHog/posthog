@@ -921,6 +921,12 @@ describe('cohortEditLogic', () => {
     it.each([
         { key: '$browser', operator: PropertyOperator.IContains, value: 'Chrome', label: 'contains' },
         { key: '$browser', operator: PropertyOperator.StartsWith, value: 'Chr', label: 'starts with' },
+        {
+            key: '$app_version',
+            operator: PropertyOperator.SemverGte,
+            value: '1.2.3',
+            label: 'greater than or equal (semver)',
+        },
         { key: 'birth_date', operator: PropertyOperator.IsSet, value: null, label: 'is set' },
         { key: 'birth_date', operator: PropertyOperator.IsNotSet, value: null, label: 'is not set' },
     ])(
