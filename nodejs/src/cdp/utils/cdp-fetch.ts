@@ -105,6 +105,32 @@ export function fetchErrorDetail(error: Error): string {
     return error.message || causes
 }
 
+// The same check as undici's isValidHeaderValue. undici throws InvalidArgumentError for a value
+// that matches, and its message names the header but not the character.
+const INVALID_HEADER_VALUE_CHAR = /[^\t\x20-\x7e\x80-\xff]/
+
+// Finds the first header value that undici refuses, so the customer log can name the header
+// and the character. A Headers instance has already rejected invalid values, so it is skipped.
+function invalidHeaderValueError(headers: FetchOptions['headers']): InvalidRequestError | null {
+    if (!headers || headers instanceof Headers) {
+        return null
+    }
+    const entries = Array.isArray(headers) ? headers : Object.entries(headers)
+    for (const [name, value] of entries) {
+        if (typeof value !== 'string') {
+            continue
+        }
+        const match = INVALID_HEADER_VALUE_CHAR.exec(value)
+        if (match) {
+            const codePoint = match[0].codePointAt(0)!.toString(16).toUpperCase().padStart(4, '0')
+            return new InvalidRequestError(
+                `Header "${name}" has a character that HTTP headers do not allow (U+${codePoint}) at position ${match.index}. Remove line breaks and characters outside Latin-1 from the header value, or send the value in the body`
+            )
+        }
+    }
+    return null
+}
+
 // Attribution for a tracked fetch, so a blocked/refused request can be traced back to the
 // owning hog function and team. Optional because a few callers (push notifications, hog
 // transformations) hand `cdpTrackedFetch` to the Hog VM without an invocation in scope.
@@ -128,6 +154,12 @@ export async function cdpTrackedFetch({
     fetchResponse: FetchResponse | null
     fetchDuration: number
 }> {
+    const headerError = invalidHeaderValueError(fetchParams.headers)
+    if (headerError) {
+        cdpHttpRequests.inc({ status: 'invalid_header', template_id: templateId })
+        return { fetchError: headerError, fetchResponse: null, fetchDuration: 0 }
+    }
+
     const start = performance.now()
 
     // Attribution read by the URL-validation check logs and the egress proxy rollout in common/utils/request.ts,
@@ -181,6 +213,8 @@ export const isFetchResponseRetriable = (response: FetchResponse | null, error: 
         if (
             error instanceof SecureRequestError ||
             error instanceof InvalidRequestError ||
+            // undici InvalidArgumentError: the request is malformed, so every retry fails the same way
+            error.code === 'UND_ERR_INVALID_ARG' ||
             error.name === 'ResponseContentLengthMismatchError'
         ) {
             canRetry = false
