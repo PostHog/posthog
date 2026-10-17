@@ -666,6 +666,62 @@ class TestTaskRunEventIngest(TestCase):
 
     @parameterized.expand(
         [
+            ("interactive_flag_on", "interactive", True, True),
+            ("interactive_flag_off", "interactive", False, False),
+            ("background", "background", True, False),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_permission_request_ingest_pushes_awaiting_input(
+        self, _name: str, mode: str, flag_enabled: bool, expect_push: bool
+    ) -> None:
+        creator = User.objects.create_and_join(self.organization, "awaiting-push@posthog.com", None)
+        self.task.created_by = creator
+        self.task.save(update_fields=["created_by"])
+        self.task_run.state = {**(self.task_run.state or {}), "mode": mode}
+        self.task_run.save(update_fields=["state"])
+        token = self._create_token()
+        permission_request = {
+            "type": "notification",
+            "notification": {
+                "method": "_posthog/permission_request",
+                "params": {
+                    "requestId": "request-1",
+                    "toolCall": {"title": "Run the test suite"},
+                    "options": [{"optionId": "allow", "kind": "allow_once", "name": "Allow"}],
+                },
+            },
+        }
+
+        with (
+            patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=flag_enabled),
+            patch("products.tasks.backend.push_dispatcher.send_user_push.delay") as send_push,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            status, body = self._call_ingest(token, [{"seq": 1, "event": permission_request}])
+            self.assertEqual((status, body["accepted"]), (200, 1))
+            permission_request["notification"]["params"]["requestId"] = "request-2"
+            status, body = self._call_ingest(token, [{"seq": 2, "event": permission_request}])
+
+        self.assertEqual((status, body["accepted"]), (200, 1))
+        if not expect_push:
+            send_push.assert_not_called()
+            return
+        self.assertEqual(send_push.call_count, 2)
+        user_id, title, push_body, data, _suppressed = send_push.call_args.args
+        self.assertEqual((user_id, title, push_body), (creator.id, "PostHog", '"Test Task" needs your input'))
+        self.assertEqual(
+            data,
+            {
+                "taskId": str(self.task.id),
+                "taskRunId": str(self.task_run.id),
+                "notificationKind": "awaiting",
+                "projectId": str(self.task.team_id),
+            },
+        )
+
+    @parameterized.expand(
+        [
             (runtime, reason, reason == "end_turn")
             for runtime in ("acp", "pi")
             for reason in ("end_turn", "cancelled", None)

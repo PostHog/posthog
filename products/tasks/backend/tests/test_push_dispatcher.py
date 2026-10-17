@@ -62,9 +62,10 @@ class TestPushDispatcher(TestCase):
         mock_delay.assert_called_once()
         user_id, title, body, data, suppressed = mock_delay.call_args.args
         self.assertEqual(user_id, self.user.id)
-        self.assertEqual(title, "posthog")
+        self.assertEqual(title, "PostHog")
         self.assertIn(expected_body_fragment, body)
         self.assertEqual(data["taskId"], str(self.task.id))
+        self.assertEqual(data["projectId"], str(self.task.team_id))
         self.assertEqual(data["taskRunId"], str(self.task_run.id))
         self.assertEqual(data["notificationKind"], _name)
         # No presence rows in this test's setUp, so nothing to suppress.
@@ -126,6 +127,15 @@ class TestPushDispatcher(TestCase):
             notify_task_run_awaiting_input(self.task_run)
             notify_task_run_turn_completed(self.task_run)
         self.assertEqual(mock_delay.call_count, 3)
+
+    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_awaiting_cooldown_distinguishes_permission_requests(self, mock_delay, _flag) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_awaiting_input(self.task_run, request_id="request-1")
+            notify_task_run_awaiting_input(self.task_run, request_id="request-2")
+            notify_task_run_awaiting_input(self.task_run, request_id="request-1")
+        self.assertEqual(mock_delay.call_count, 2)
 
     @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")

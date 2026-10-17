@@ -355,6 +355,19 @@ class TestAgentProxyCallback(TestCase):
         notify.assert_not_called()
         signal_turn_completed.assert_called_once_with(succeeded=expected_succeeded)
 
+    @parameterized.expand([("interactive", True), ("background", False)])
+    def test_permission_requested_pushes_only_for_interactive_run(self, mode: str, expect_push: bool) -> None:
+        run = self.task.create_run(mode=mode)
+        body = self._body(kind="permission_requested", agent_active=False, sequence=3, request_id="request-1")
+        with patch("products.tasks.backend.push_dispatcher.notify_task_run_awaiting_input") as notify:
+            response = self._post(body, token=self._token(run), run_id=str(run.id))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["dispatched"], expect_push)
+        self.assertEqual(notify.call_count, int(expect_push))
+        if expect_push:
+            self.assertEqual(notify.call_args.args[0].id, run.id)
+            self.assertEqual(notify.call_args.kwargs, {"request_id": "request-1"})
+
     def test_turn_failed_signals_workflow_completion_as_failed(self) -> None:
         with patch(
             "products.tasks.backend.agent_proxy_callback.signal_workflow_completion"
@@ -372,6 +385,7 @@ class TestAgentProxyCallback(TestCase):
             ("command_dispatched", {"agent_active": False}),
             ("agent_activity", {"agent_active": True}),
             ("awaiting_input", {"agent_active": False}),
+            ("permission_requested", {"agent_active": False}),
             ("turn_failed", {"agent_active": False}),
             ("process_killed", {"agent_active": False, "sequence": 5, "process_killed": PROCESS_KILLED}),
         ]

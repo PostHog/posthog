@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-PUSH_TITLE = "posthog"
+PUSH_TITLE = "PostHog"
 FEATURE_FLAG_KEY = "posthog-code-mobile-push"
 
 # Cooldown windows per push kind. Terminal pushes get a longer window because
@@ -78,10 +78,15 @@ def notify_task_run_cancelled(task_run: TaskRun) -> None:
     _enqueue(task_run, kind="cancelled", body=f'"{_task_title(task_run)}" was cancelled')
 
 
-def notify_task_run_awaiting_input(task_run: TaskRun) -> None:
+def notify_task_run_awaiting_input(task_run: TaskRun, *, request_id: str | None = None) -> None:
     """Fire a push notification when an interactive run is waiting for user input."""
     _project_awaiting_input_activity(task_run)
-    _enqueue(task_run, kind="awaiting", body=f'"{_task_title(task_run)}" needs your input')
+    _enqueue(
+        task_run,
+        kind="awaiting",
+        body=f'"{_task_title(task_run)}" needs your input',
+        cooldown_subject=f"{task_run.id}:{request_id}" if request_id else None,
+    )
 
 
 def notify_task_run_turn_completed(task_run: TaskRun) -> None:
@@ -208,7 +213,7 @@ def _task_title(task_run: TaskRun) -> str:
     return title or "Untitled task"
 
 
-def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
+def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str, cooldown_subject: str | None = None) -> None:
     """Best-effort: this function MUST NOT raise.
 
     Wrap the whole body in a bare ``except Exception`` so a DB outage,
@@ -217,7 +222,7 @@ def _enqueue(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
     and fail the surrounding task-lifecycle activity.
     """
     try:
-        _enqueue_inner(task_run, kind=kind, body=body)
+        _enqueue_inner(task_run, kind=kind, body=body, cooldown_subject=cooldown_subject)
     except Exception as exc:
         PUSH_DISPATCHER_FAILURES_TOTAL.labels(kind=kind, reason=_failure_reason(exc)).inc()
         logger.warning(
@@ -233,7 +238,7 @@ def _failure_reason(exc: BaseException) -> str:
     return "db_connection" if isinstance(exc, OperationalError | InterfaceError) else "other"
 
 
-def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
+def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str, cooldown_subject: str | None = None) -> None:
     if not settings.TEST:
         close_old_connections()
 
@@ -256,7 +261,7 @@ def _enqueue_inner(task_run: TaskRun, *, kind: PushKind, body: str) -> None:
         user,
         task=task_run.task,
         kind=kind,
-        cooldown_subject=str(task_run.id),
+        cooldown_subject=cooldown_subject or str(task_run.id),
         body=body,
         data={"taskId": str(task_run.task_id), "taskRunId": str(task_run.id)},
     )
@@ -298,6 +303,7 @@ def _enqueue_user(
 
     suppressed = _suppressed_push_token_ids_for_task(user_id=user.id, task_id=task.id)
     data["notificationKind"] = kind
+    data["projectId"] = str(task.team_id)
 
     # on_commit so we never schedule a push for a write that ends up rolling
     # back. Outside an atomic block this fires immediately, which is fine.

@@ -5066,6 +5066,17 @@ class AgentProxyProcessKilledSerializer(serializers.Serializer):
     memory_limit_bytes = serializers.IntegerField(min_value=0, help_text="Sandbox memory limit, in bytes.")
 
 
+class AgentProxyCallbackKind(models.TextChoices):
+    HEARTBEAT = "heartbeat", "Heartbeat"
+    AWAITING_INPUT = "awaiting_input", "Awaiting input"
+    PERMISSION_REQUESTED = "permission_requested", "Permission requested"
+    TURN_FAILED = "turn_failed", "Turn failed"
+    COMMAND_DISPATCHED = "command_dispatched", "Command dispatched"
+    AGENT_ACTIVITY = "agent_activity", "Agent activity"
+    BUDGET_STEER = "budget_steer", "Budget steer"
+    PROCESS_KILLED = "process_killed", "Process killed"
+
+
 class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """Request body for the agent-proxy side-effect callback.
 
@@ -5076,19 +5087,13 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     """
 
     kind = serializers.ChoiceField(
-        choices=[
-            "heartbeat",
-            "awaiting_input",
-            "turn_failed",
-            "command_dispatched",
-            "agent_activity",
-            "budget_steer",
-            "process_killed",
-        ],
+        choices=AgentProxyCallbackKind.choices,
         help_text=(
             "Side effect to dispatch. 'heartbeat' signals the Temporal workflow to reset its "
             "inactivity timer. 'awaiting_input' fires a mobile push notification when an "
-            "interactive run finishes a turn and is waiting for user input. 'turn_failed' fails "
+            "interactive run finishes a turn and is waiting for user input. 'permission_requested' fires a "
+            "'needs your input' push when an interactive run waits on a permission request or a question. "
+            "'turn_failed' fails "
             "the run outright when a pi turn ends in a runtime error. 'command_dispatched' "
             "and 'agent_activity' record boot milestones. 'budget_steer' captures the agent's budget warning. "
             "'process_killed' captures a sandbox memory watchdog kill."
@@ -5132,7 +5137,15 @@ class AgentProxyCallbackRequestSerializer(serializers.Serializer):
     sequence = serializers.IntegerField(
         required=False,
         min_value=1,
-        help_text="Event sequence used to deduplicate a budget steer or a process kill.",
+        help_text=(
+            "Event sequence used to deduplicate a budget steer or a process kill. "
+            "Also sent with 'permission_requested' to identify the event."
+        ),
+    )
+    request_id = serializers.CharField(
+        required=False,
+        max_length=200,
+        help_text="ID of the pending permission request that 'permission_requested' reports.",
     )
     timestamp = serializers.DateTimeField(required=False, help_text="Original event time, preserved across retries.")
     stage = serializers.CharField(required=False, help_text="Budget stage: warn or critical.")
