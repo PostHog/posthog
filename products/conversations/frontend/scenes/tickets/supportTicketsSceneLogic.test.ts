@@ -1,6 +1,9 @@
+import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,7 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
-import { MAX_ASSIGNEE_FILTER_ENTRIES } from '../../components/Assignee'
+import { MAX_ASSIGNEE_FILTER_ENTRIES, assigneeSelectLogic } from '../../components/Assignee'
 import { normalizeAssigneeFilter, type SavedTicketView, type Ticket, type TicketViewFilters } from '../../types'
 import { supportTicketsSceneLogic } from './supportTicketsSceneLogic'
 
@@ -336,6 +339,33 @@ describe('supportTicketsSceneLogic', () => {
             expect(logic.values.statusFilter).toEqual([])
             expect(logic.values.dateFrom).toBe('-7d')
             expect(router.values.searchParams.view).toBeUndefined()
+        })
+    })
+
+    describe('assignee column on a direct visit', () => {
+        let logic: ReturnType<typeof supportTicketsSceneLogic.build>
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/conversations/tickets/': () => [200, { results: [], count: 0 }],
+                },
+            })
+            initKeaTests()
+            logic = supportTicketsSceneLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+        })
+
+        it('loads org members so user assignees resolve without another scene loading them first', async () => {
+            await expectLogic(membersLogic).toDispatchActions(['loadAllMembersSuccess'])
+
+            expect(
+                assigneeSelectLogic.values.resolveAssignee({ type: 'user', id: MOCK_DEFAULT_BASIC_USER.id })
+            ).toEqual(expect.objectContaining({ type: 'user', user: expect.objectContaining({ first_name: 'John' }) }))
         })
     })
 
