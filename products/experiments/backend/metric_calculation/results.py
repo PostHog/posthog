@@ -11,8 +11,9 @@ hide two storage conventions from the callers:
 The calculation key includes the start date, so no reader needs `query_from` to tell a relaunch apart.
 
 Rows written before calculation key version 2 carry the version 1 key (`MetricCalculationConfig.legacy_key`), which
-leaves out several analytical inputs. A one-time conversion after the deploy gives each such row the version 2 key of
-the experiment's current configuration. Until then, every reader falls back to the version 1 key of the current
+leaves out several analytical inputs. A one-time conversion after the deploy (`convert_version_1_rows`, run by the
+`rewrite_experiment_metric_fingerprints` command) gives each such row the version 2 key of the experiment's current
+configuration. Until then, every reader falls back to the version 1 key of the current
 config where no row under the version 2 key covers the same metric, window or day. This includes the reuse check, so
 before the conversion a reuse behaves as it did under version 1. After the conversion no row carries the current
 version 1 key as its fingerprint, and the fallback finds nothing.
@@ -420,6 +421,36 @@ class MetricResultStore:
         ExperimentMetricResult.objects.filter(
             experiment_id=self.experiment_id, metric_uuid=metric_uuid, fingerprint=calculation_key
         ).delete()
+
+    def convert_version_1_rows(self, calculation_configs: Iterable[MetricCalculationConfig], *, apply: bool) -> int:
+        """Count the rows whose fingerprint is the version 1 key of one of `calculation_configs`, bare or salted. With
+        `apply`, give each of them the version 2 key with the same salt, and keep the version 1 key as its display key.
+
+        The conversion assumes that the current settings produced each row. That is false only for a row whose
+        settings changed without a recompute since, and the version 1 fallback of the readers shows such a row as
+        it is today anyway. A row under a version 1 key that no current config gives stays as it is, because no
+        reader shows it. A converted row no longer matches, so a second run counts nothing.
+        """
+        conversions: list[tuple[str, str, str]] = []
+        for calculation_config in calculation_configs:
+            legacy_key, calculation_key = calculation_config.legacy_key(), calculation_config.calculation_key()
+            conversions.append((calculation_config.metric_id, legacy_key, calculation_key))
+            conversions.append(
+                (calculation_config.metric_id, _recalc_fingerprint(legacy_key), _recalc_fingerprint(calculation_key))
+            )
+        under_version_1_keys = Q()
+        for metric_uuid, legacy_key, _ in conversions:
+            under_version_1_keys |= Q(metric_uuid=metric_uuid, fingerprint=legacy_key)
+        rows = ExperimentMetricResult.objects.filter(experiment_id=self.experiment_id)
+        count = rows.filter(under_version_1_keys).count() if conversions else 0
+        if not apply or count == 0:
+            return count
+        return sum(
+            rows.filter(metric_uuid=metric_uuid, fingerprint=legacy_key).update(
+                fingerprint=calculation_key, display_key=legacy_key
+            )
+            for metric_uuid, legacy_key, calculation_key in conversions
+        )
 
     def _record_for_run(
         self,
