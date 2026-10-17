@@ -48,7 +48,7 @@ describe('viewAllFor', () => {
         [
             'a list that searches without the excluded words',
             [chip('feature_flag', 'Feature flag')],
-            'beta -legacy -"old flow"',
+            'beta -legacy -"old flow" !draft - ""',
             'View all feature flags',
             '/feature_flags?search=beta',
         ],

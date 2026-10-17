@@ -9,16 +9,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { FileSystemListQuery, OrganizationMemberType, UserType } from '~/types'
 
-import {
-    FilterOptions,
-    QueryChip,
-    ResolvedQuery,
-    ValueOption,
-    parseToken,
-    queryAsText,
-    tokenize,
-    unquote,
-} from './commandKQuery'
+import { FilterOptions, QueryChip, ResolvedQuery, ValueOption, queryAsText, tokenize, unquote } from './commandKQuery'
 import type { ViewAll } from './commandKSections'
 
 /** Short words people type for a type, on top of its name and key. */
@@ -108,11 +99,14 @@ const LIST_HREF_FALLBACKS: Record<string, (query: FileSystemListQuery) => string
     notebook: () => urls.notebooks(),
 }
 
+const isExcluded = (raw: string): boolean => raw.startsWith('-') || raw.startsWith('!')
+
 const includedWords = (freeText: string): string[] =>
     tokenize(freeText)
         .map((token) => token.raw)
-        .filter((raw) => !parseToken(raw).negated)
+        .filter((raw) => !isExcluded(raw))
         .map(unquote)
+        .filter(Boolean)
 
 const includedNames = (filters: QueryChip[]): string[] =>
     filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
