@@ -1,14 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonLabel, LemonTextArea, Popover } from '@posthog/lemon-ui'
+
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
 export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Element {
     const logic = messageTemplateLogic(props)
     const { agentPromptOpen, templateLoading } = useValues(logic)
-    const { setAgentPromptOpen } = useActions(logic)
+    const { setAgentPromptOpen, copyHtmlFile } = useActions(logic)
+    const loadingReason = templateLoading ? 'Wait for the template to load' : undefined
 
     return (
         <Popover
@@ -23,7 +27,27 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
                 type="primary"
                 size="small"
                 onClick={() => setAgentPromptOpen(!agentPromptOpen)}
-                disabledReason={templateLoading ? 'Wait for the template to load' : undefined}
+                disabledReason={loadingReason}
+                sideAction={{
+                    'data-attr': 'message-template-copy-options',
+                    'aria-label': 'More ways to copy this template',
+                    disabledReason: loadingReason,
+                    dropdown: {
+                        placement: 'bottom-end',
+                        overlay: (
+                            <LemonMenuOverlay
+                                items={[
+                                    {
+                                        label: 'Copy HTML file',
+                                        icon: <IconCopy />,
+                                        onClick: copyHtmlFile,
+                                        'data-attr': 'message-template-copy-html-file',
+                                    },
+                                ]}
+                            />
+                        ),
+                    },
+                }}
             >
                 Edit with your agent
             </LemonButton>

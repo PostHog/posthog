@@ -32,6 +32,7 @@ import {
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { templateCopy } from './templateCopy'
+import { templateHtmlFile } from './templateHtmlFile'
 import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
@@ -137,6 +138,9 @@ export interface messageTemplateLogicActions {
         event: ResourceEditedEvent
     } // resourceEditedLogic
     copyAgentPrompt: () => {
+        value: true
+    }
+    copyHtmlFile: () => {
         value: true
     }
     deleteTemplate: () => {
@@ -453,9 +457,9 @@ export interface messageTemplateLogicMeta {
         isCodeManaged: (originalTemplate: MessageTemplate) => boolean
         templateSource: (originalTemplate: MessageTemplate) => TemplateSource | null
         changePromptStarter: (originalTemplate: MessageTemplate) => string
-        changeSentence: (changeSentenceDraft: any, changePromptStarter: any) => string
-        agentPrompt: (changeSentence: any, originalTemplate: MessageTemplate) => string
-        copyAgentPromptDisabledReason: (changeSentence: any, changePromptStarter: any) => string | undefined
+        changeSentence: (changeSentenceDraft: string | null, changePromptStarter: string) => string
+        agentPrompt: (changeSentence: string, originalTemplate: MessageTemplate) => string
+        copyAgentPromptDisabledReason: (changeSentence: string, changePromptStarter: string) => string | undefined
         agentPromptEventProperties: (originalTemplate: MessageTemplate) => AgentPromptEventProperties
     }
 }
@@ -495,6 +499,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setAgentPromptOpen: (open: boolean) => ({ open }),
         setChangeSentence: (sentence: string) => ({ sentence }),
         copyAgentPrompt: true,
+        copyHtmlFile: true,
     }),
     selectors({
         logicProps: [
@@ -739,6 +744,24 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 'Prompt copied. Paste it into your coding agent. PostHog keeps sending the current version until your app sends or uploads the changed file.'
             )
             actions.setAgentPromptOpen(false)
+        },
+        copyHtmlFile: async () => {
+            const { id, content } = values.originalTemplate
+            const copied = await copyToClipboard(templateHtmlFile(content.email), 'HTML file', { silent: true })
+            if (!copied) {
+                return
+            }
+            const droppedTextPart = !!content.email.text?.trim()
+            posthog.capture('message template html file copied', {
+                template_id: id,
+                dropped_text_part: droppedTextPart,
+            })
+            const textPartNote = droppedTextPart
+                ? ' This file has no plain-text part. The next upload from this file removes the plain-text version.'
+                : ''
+            lemonToast.success(
+                `Copied. Save it as the template's file. PostHog keeps sending the current version until your app sends or uploads the file.${textPartNote}`
+            )
         },
         releaseTemplateSuccess: ({ template }) => {
             posthog.capture('message template released from code', { template_id: template.id })

@@ -579,6 +579,48 @@ describe('messageTemplateLogic', () => {
                 variable_count: 2,
             })
         })
+
+        it.each([
+            {
+                description: 'with a plain-text part',
+                text: 'Hi',
+                toast: "Copied. Save it as the template's file. PostHog keeps sending the current version until your app sends or uploads the file. This file has no plain-text part. The next upload from this file removes the plain-text version.",
+            },
+            {
+                description: 'without a plain-text part',
+                text: ' ',
+                toast: "Copied. Save it as the template's file. PostHog keeps sending the current version until your app sends or uploads the file.",
+            },
+        ])(
+            'copies the published template as its HTML file $description, and sends nothing',
+            async ({ text, toast }) => {
+                logic.unmount()
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/messaging_templates/:id/': {
+                            ...CODE_MANAGED,
+                            content: { ...CODE_MANAGED.content, email: { ...CODE_MANAGED.content.email, text } },
+                        },
+                    },
+                })
+                logic = messageTemplateLogic({ id: 'existing-id' })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+                await expectLogic(logic, () => {
+                    logic.actions.copyHtmlFile()
+                }).toFinishAllListeners()
+
+                expect(writeText).toHaveBeenCalledWith('<head><title>Welcome</title></head><p>Hi</p>')
+                expect(patchBodies).toEqual([])
+                expect(createBodies).toEqual([])
+                expect(mockToast.success).toHaveBeenCalledWith(toast)
+                expect(capture).toHaveBeenCalledWith('message template html file copied', {
+                    template_id: 'existing-id',
+                    dropped_text_part: text.trim() !== '',
+                })
+            }
+        )
     })
 
     describe('make transactional', () => {

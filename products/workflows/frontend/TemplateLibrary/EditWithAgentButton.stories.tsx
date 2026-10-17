@@ -1,5 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { screen } from '@testing-library/dom'
+import { screen, waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
@@ -80,6 +80,12 @@ const OpenAgentPrompt: StoryFn<{ template: MessageTemplate }> = ({ template }) =
     )
 }
 
+const AgentPromptClosed: StoryFn<{ template: MessageTemplate }> = ({ template }) => (
+    <div className="flex justify-end items-start w-160 h-48 p-2">
+        <EditWithAgentButton id={template.id} />
+    </div>
+)
+
 function serving(template: MessageTemplate): Story['decorators'] {
     return [mswDecorator({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })]
 }
@@ -102,5 +108,25 @@ export const FullPromptShown: Story = {
     decorators: serving(WITH_PATH),
     play: async () => {
         await userEvent.click(await screen.findByText('Show full prompt'))
+    },
+}
+
+export const CopyMenuOpen: Story = {
+    render: AgentPromptClosed,
+    args: { template: WITH_PATH },
+    decorators: serving(WITH_PATH),
+    parameters: { testOptions: { waitForSelector: '[data-attr="message-template-copy-html-file"]' } },
+    play: async () => {
+        const copyOptions = await waitFor(
+            () => {
+                const button = screen.getByLabelText('More ways to copy this template')
+                if (button.getAttribute('aria-disabled') !== 'false') {
+                    throw new Error('The template is still loading')
+                }
+                return button
+            },
+            { timeout: 10000 }
+        )
+        await userEvent.click(copyOptions)
     },
 }
