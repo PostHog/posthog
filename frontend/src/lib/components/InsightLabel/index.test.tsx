@@ -7,23 +7,11 @@ import type { ResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import { EventsNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ActionFilter, HogQLMathType } from '~/types'
+import { HogQLMathType, PropertyMathType } from '~/types'
 
 import { InsightLabel } from './index'
 
 const HOGQL_EXPRESSION = 'avg(properties.usd_amount)'
-
-function hogqlAction(overrides: Partial<ActionFilter> = {}): ActionFilter {
-    return {
-        id: '$pageview',
-        name: '$pageview',
-        type: 'events',
-        order: 0,
-        math: 'hogql',
-        math_hogql: HOGQL_EXPRESSION,
-        ...overrides,
-    } as ActionFilter
-}
 
 function hogqlSeries(overrides: Partial<EventsNode> = {}): ResultSeries {
     const node: EventsNode = {
@@ -58,30 +46,30 @@ describe('InsightLabel — hideHogQLTagWhenCustomName', () => {
         )
     }
 
-    it.each<[string, Parameters<typeof InsightLabel>[0]]>([
-        ['a custom name', { action: hogqlAction({ custom_name: 'Revenue' }) }],
-        ['a query series renamed through its name', { series: hogqlSeries({ name: 'Revenue' }) }],
-    ])('hides the SQL expression tag when the flag is on, the series has %s, and math is hogql', (_, props) => {
-        renderLabel({ ...props, hideHogQLTagWhenCustomName: true })
+    it.each<[string, Partial<EventsNode>]>([
+        ['a custom name', { custom_name: 'Revenue' }],
+        ['a rename through its name', { name: 'Revenue' }],
+    ])('hides the SQL expression tag when the flag is on, the series has %s, and math is hogql', (_, overrides) => {
+        renderLabel({ series: hogqlSeries(overrides), hideHogQLTagWhenCustomName: true })
 
         expect(screen.queryByText(HOGQL_EXPRESSION)).not.toBeInTheDocument()
     })
 
     it('keeps the SQL expression tag by default (opt-in), even with a custom name', () => {
-        renderLabel({ action: hogqlAction({ custom_name: 'Revenue' }) })
+        renderLabel({ series: hogqlSeries({ custom_name: 'Revenue' }) })
 
         expect(screen.getByText(HOGQL_EXPRESSION)).toBeInTheDocument()
     })
 
     it('keeps the SQL expression tag when the flag is on but the series has no custom name', () => {
-        renderLabel({ action: hogqlAction(), hideHogQLTagWhenCustomName: true })
+        renderLabel({ series: hogqlSeries(), hideHogQLTagWhenCustomName: true })
 
         expect(screen.getByText(HOGQL_EXPRESSION)).toBeInTheDocument()
     })
 
     it('does not affect non-hogql math tags — a named sum series still shows its tag', () => {
         renderLabel({
-            action: hogqlAction({ custom_name: 'Revenue', math: 'sum', math_property: 'usd_amount' }),
+            series: hogqlSeries({ custom_name: 'Revenue', math: PropertyMathType.Sum, math_property: 'usd_amount' }),
             hideHogQLTagWhenCustomName: true,
         })
 
