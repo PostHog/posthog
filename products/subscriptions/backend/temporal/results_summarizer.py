@@ -28,14 +28,17 @@ def _safe_value(value: Any) -> str:
 
 def build_results_summary(
     query_kind: str,
-    results: list[Any] | None,
+    results: list[Any] | dict[str, Any] | None,
     columns: list[str] | None = None,
     value_format: dict[str, Any] | None = None,
 ) -> str:
     if not results:
         return "No results"
 
-    if query_kind in _TREND_SUMMARY_KINDS:
+    if isinstance(results, dict):
+        # Only time-to-convert funnels return a dict. Any other kind gets the generic one-row summary.
+        text = _summarize_funnels(results) if query_kind == "FunnelsQuery" else _summarize_generic([results], columns)
+    elif query_kind in _TREND_SUMMARY_KINDS:
         text = _summarize_trends(results, _sanitize_value_format(value_format))
     elif summarizer := _SUMMARIZERS.get(query_kind):
         text = summarizer(results)
@@ -116,7 +119,10 @@ def _summarize_boxplot_trend(results: list[dict[str, Any]], value_format: dict[s
     return "\n".join(lines) if lines else "No trend series"
 
 
-def _summarize_funnels(results: list[Any]) -> str:
+def _summarize_funnels(results: list[Any] | dict[str, Any]) -> str:
+    if isinstance(results, dict):
+        return _summarize_funnel_time_to_convert(results)
+
     lines: list[str] = []
 
     steps = results
@@ -124,6 +130,8 @@ def _summarize_funnels(results: list[Any]) -> str:
         steps = results[0]
 
     for i, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
         name = _safe_label(step.get("name") or step.get("custom_name"), f"Step {i + 1}")
         count = step.get("count", 0)
         conversion = step.get("conversion_rate")
@@ -133,6 +141,19 @@ def _summarize_funnels(results: list[Any]) -> str:
             lines.append(f"- Step {i + 1} ({name}): count={_fmt(count)}")
 
     return "\n".join(lines) if lines else "No funnel steps"
+
+
+def _summarize_funnel_time_to_convert(results: dict[str, Any]) -> str:
+    lines: list[str] = []
+    for key, label in (("average_conversion_time", "Average"), ("median_conversion_time", "Median")):
+        value = results.get(key)
+        if isinstance(value, (int, float)) and math.isfinite(value):
+            lines.append(f"- {label} time to convert: {_format_duration(value)}")
+    bins = results.get("bins")
+    if isinstance(bins, list):
+        converted = sum(b[1] for b in bins if isinstance(b, list) and len(b) > 1 and isinstance(b[1], (int, float)))
+        lines.append(f"- Converted users: {_fmt(converted)} across {len(bins)} time bins")
+    return "\n".join(lines) if lines else "No time to convert data"
 
 
 def _summarize_retention(results: list[dict[str, Any]]) -> str:
