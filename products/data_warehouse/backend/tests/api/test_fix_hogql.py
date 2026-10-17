@@ -19,6 +19,26 @@ class TestFixHogQL(APIBaseTest):
 
             assert response.status_code == 200
 
+    def test_create_returns_503_when_fixer_fails(self):
+        with (
+            mock.patch("products.data_warehouse.backend.max_tools.MaxChatOpenAI") as mock_llm,
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.fix_hogql.capture_exception"
+            ) as mock_capture,
+        ):
+            mock_llm.return_value.with_structured_output.return_value.invoke.side_effect = ConnectionError("boom")
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/fix_hogql/",
+                {"query": "select timestam from events", "error": "Unable to resolve field: timestam"},
+            )
+
+        assert response.status_code == 503
+        response_data = response.json()
+        assert response_data["error"].startswith("AI could not fix this query")
+        mock_capture.assert_called_once_with(
+            mock.ANY, {"trace_id": response_data["trace_id"], "has_connection_id": False}
+        )
+
     @parameterized.expand(
         [
             ("without_connection", None, {"hogql_query": "q", "error_message": "e"}),
