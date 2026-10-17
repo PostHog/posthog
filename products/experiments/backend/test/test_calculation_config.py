@@ -1,18 +1,26 @@
+import json
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig, MultipleVariantHandling
+
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig
+from products.experiments.backend.hogql_queries.experiment_query_builder import ExposureQueryParams
 from products.experiments.backend.hogql_queries.utils import BayesianSettings, FrequentistSettings
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
+    MetricCalculationConfig,
+    StoredSpec,
     build_calculation_configs,
 )
 from products.experiments.backend.metric_resolution import MetricRole, MetricSource
@@ -327,3 +335,112 @@ def test_only_real_breakdowns_change_the_key(variant: dict, expected_equal: bool
     base_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=_MEAN).calculation_key()
     variant_key = _SETTINGS.build_metric_config(metric_id="m1", role="primary", definition=variant).calculation_key()
     assert (variant_key == base_key) is expected_equal
+
+
+_FREQUENTIST_SETTINGS = dataclasses.replace(
+    _SETTINGS,
+    start_date=datetime(2026, 1, 5, 10, 30, 15, 250000, tzinfo=ZoneInfo("Europe/Oslo")),
+    aggregation_group_type_index=0,
+    variants=("control", "test"),
+    excluded_variants=("test-2",),
+    exposure=ExposureQueryParams(
+        exposure_config=ExperimentEventExposureConfig(
+            event="$experiment_exposure",
+            properties=[{"key": "plan", "value": ["pro"], "operator": "exact", "type": "event"}],
+        ),
+        activation_config=ActionsNode(id=7, name="Activated"),
+        multiple_variant_handling=MultipleVariantHandling.FIRST_SEEN,
+        filter_test_accounts=True,
+    ),
+    test_account_filters=({"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"},),
+    stats=FrequentistSettings(
+        alpha=0.050000000000000044,
+        difference_type=DifferenceType.ABSOLUTE,
+        sequential_testing_enabled=True,
+        sequential_tuning_parameter=5000,
+    ),
+    cuped=CupedQueryConfig(enabled=True, lookback_days=7),
+    only_count_matured_users=True,
+    timezone="Europe/Oslo",
+    stored_exposure_criteria={"filterTestAccounts": True, "multiple_variant_handling": "first_seen"},
+)
+_DRAFT_SETTINGS = dataclasses.replace(
+    _SETTINGS,
+    start_date=None,
+    exposure=ExposureQueryParams(
+        exposure_config=ActionsNode(id=3),
+        activation_config=None,
+        multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
+        filter_test_accounts=False,
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    "settings,definition",
+    [
+        (_SETTINGS, _MEAN),
+        (_FREQUENTIST_SETTINGS, {**DEFINITIONS["funnel"], "uuid": "m1", "breakdownFilter": {"breakdowns": []}}),
+        (_DRAFT_SETTINGS, {**DEFINITIONS["retention"], "uuid": "m1", "name": "Retention", "fingerprint": "f" * 64}),
+    ],
+    ids=["bayesian_without_exposure", "frequentist_with_exposure_and_filters", "draft_with_action_exposure"],
+)
+def test_a_stored_spec_decodes_to_the_spec_it_stored(
+    settings: ExperimentCalculationSettings, definition: dict[str, Any]
+) -> None:
+    calculation_config = settings.build_metric_config(metric_id="m1", role="secondary", definition=definition)
+    stored = StoredSpec.of(calculation_config)
+
+    decoded = StoredSpec(spec_version=stored.spec_version, payload=json.loads(json.dumps(stored.payload))).decode()
+
+    assert decoded == calculation_config
+    assert decoded.calculation_key() == calculation_config.calculation_key()
+    assert (decoded.metric_id, decoded.role, decoded.definition, decoded.settings.stored_exposure_criteria) == (
+        calculation_config.metric_id,
+        calculation_config.role,
+        calculation_config.definition,
+        calculation_config.settings.stored_exposure_criteria,
+    )
+
+
+# A calculation config in the version 1 stored form, as the `spec` column of result rows holds it. It has the
+# configuration of the ("mean", False, False) case in STORED_KEYS, so it must keep decoding to that key.
+_STORED_VERSION_1_PAYLOAD: dict[str, Any] = {
+    "metric_id": "inline-mean",
+    "role": "secondary",
+    "definition": {**DEFINITIONS["mean"], "uuid": "inline-mean", "name": "inline mean"},
+    "settings": {
+        "team_id": 1,
+        "start_date": "2026-01-05T09:30:00+00:00",
+        "feature_flag_key": "flag",
+        "aggregation_group_type_index": None,
+        "variants": ["control", "test"],
+        "baseline": "control",
+        "excluded_variants": ["test-2"],
+        "exposure": {
+            "exposure_config": {
+                "event": "$feature_flag_called",
+                "kind": "ExperimentEventExposureConfig",
+                "properties": [],
+                "response": None,
+                "version": None,
+            },
+            "activation_config": None,
+            "multiple_variant_handling": "first_seen",
+            "filter_test_accounts": True,
+        },
+        "test_account_filters": [],
+        "stats": {"method": "bayesian", "ci_level": 0.95, "difference_type": "relative"},
+        "cuped": {"enabled": False, "lookback_days": 14},
+        "only_count_matured_users": False,
+        "timezone": "UTC",
+        "stored_exposure_criteria": EXPOSURE,
+    },
+}
+
+
+def test_a_version_1_spec_keeps_decoding_to_its_key() -> None:
+    decoded: MetricCalculationConfig = StoredSpec(spec_version=1, payload=_STORED_VERSION_1_PAYLOAD).decode()
+
+    assert decoded.spec_version == 1
+    assert decoded.calculation_key() == STORED_KEYS[("mean", False, False)]
