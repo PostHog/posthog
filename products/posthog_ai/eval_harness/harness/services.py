@@ -138,10 +138,16 @@ def start_mcp_server(
         # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
         # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
         # being mutually exclusive makes unavoidable — an eval of the legacy tools
-        # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode.
+        # needs its own lever, not this one. workflows-transactional-email-api
+        # gates the code-managed email template tools, which Django already
+        # serves because its flag stub answers true. mcp-exec-skills follows the
+        # run's skill delivery mode.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
-            {"revamped-py-notebooks": True, MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled}
+            {
+                "revamped-py-notebooks": True,
+                "workflows-transactional-email-api": True,
+                MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
+            }
         ),
     }
 
