@@ -201,30 +201,26 @@ pub async fn generate_embedding(
         }
     }
 
-    // All attempts exhausted or non-retryable error
-    match last_status {
+    // All attempts exhausted or non-retryable error. The returned error names the cause
+    // without the provider's response body, because ad hoc callers receive it verbatim.
+    let cause = match last_status {
         Some(status) => {
-            error!(
-                "Failed to generate embeddings, got {} from {}",
-                status,
-                model.provider()
-            );
             if let Some(error_message) = last_error_body {
                 error!("Error message from {}: {}", model.provider(), error_message);
             }
+            format!("got {} from {}", status, model.provider())
         }
-        None => {
-            error!(
-                "Failed to generate embeddings, no response from {}: {}",
-                model.provider(),
-                last_transport_error
-                    .map(|e| e.to_string())
-                    .unwrap_or_else(|| "unknown error".to_string())
-            );
-        }
-    }
+        None => format!(
+            "no response from {}: {}",
+            model.provider(),
+            last_transport_error
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "unknown error".to_string())
+        ),
+    };
+    error!("Failed to generate embeddings, {cause}");
 
-    Err(anyhow::anyhow!("Failed to generate embeddings"))
+    Err(anyhow::anyhow!("Failed to generate embeddings, {cause}"))
 }
 
 // This is here, rather than on the embedding model, to avoid taking a dep on tiktoken in common/types. We
