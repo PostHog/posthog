@@ -785,12 +785,41 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             assert len(page2["results"]) == 100
             assert (
                 unquote(page2["next"])
-                == f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294+00:00"
+                == f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294+00:00|{page2['results'][-1]['id']}"
             )
 
             page3 = self.client.get(page2["next"]).json()
             assert len(page3["results"]) == 50
             assert page3["next"] is None
+
+    @parameterized.expand([("descending", "-timestamp"), ("ascending", "timestamp")])
+    def test_pagination_through_events_sharing_one_timestamp(self, _name, order_by):
+        with time_machine.travel("2021-10-10T12:03:03.829294Z", tick=False):
+            shared_timestamp = timezone.now() - relativedelta(days=2)
+            expected_ids = {
+                _create_event(team=self.team, event="batch event", distinct_id="1", timestamp=shared_timestamp)
+                for _ in range(25)
+            }
+            expected_ids |= {
+                _create_event(
+                    team=self.team,
+                    event="batch event",
+                    distinct_id="1",
+                    timestamp=shared_timestamp + relativedelta(seconds=offset),
+                )
+                for offset in (-1, 1)
+            }
+
+            params = urlencode({"distinct_id": "1", "limit": 10, "after": "-7d", "orderBy": json.dumps([order_by])})
+            next_url: str | None = f"/api/projects/{self.team.id}/events/?{params}"
+            seen_ids: list[str] = []
+            while next_url:
+                response = self.client.get(next_url).json()
+                seen_ids.extend(event["id"] for event in response["results"])
+                next_url = response["next"]
+
+            assert len(seen_ids) == len(expected_ids)
+            assert set(seen_ids) == expected_ids
 
     def test_pagination_bounded_date_range(self):
         with time_machine.travel("2021-10-10T12:03:03.829294Z", tick=False):
