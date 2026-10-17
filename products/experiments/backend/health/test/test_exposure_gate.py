@@ -20,6 +20,7 @@ from products.experiments.backend.facade.contracts import ExperimentHealthFlagCh
 from products.experiments.backend.health.context import (
     BucketingChange,
     BucketingSetting,
+    ConditionsChange,
     FlagHistory,
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
@@ -146,12 +147,16 @@ class TestLoadFlagHistory(BaseTest):
     def test_every_kind_of_change_shares_one_walk(self) -> None:
         first_at = self.launched_at + timedelta(days=1)
         changed_at = [first_at, first_at + timedelta(hours=1), first_at + timedelta(hours=2)]
-        self._log_change(changed_at[0], filters=(_filters(_split(50, 50)), _filters(_split(55, 45))))
+        with_a_second_condition = {
+            **_filters(_split(50, 50)),
+            "groups": [{"properties": [], "rollout_percentage": 100}, {"properties": [], "rollout_percentage": 50}],
+        }
+        self._log_change(changed_at[0], filters=(_filters(_split(50, 50)), with_a_second_condition))
         self._log_change(changed_at[1], bucketing_identifier=("distinct_id", "device_id"))
         self._log_change(
             changed_at[2],
             filters=(
-                {**_filters(_split(55, 45)), "aggregation_group_type_index": None},
+                {**_filters(_split(50, 50)), "aggregation_group_type_index": None},
                 {**_filters(_split(60, 40)), "aggregation_group_type_index": 0},
             ),
         )
@@ -159,8 +164,8 @@ class TestLoadFlagHistory(BaseTest):
         history, query = self._load([False, True])
 
         assert isinstance(history, FlagHistory)
-        self.assertEqual([change.changed_at for change in history.of_kind(SplitChange)], [changed_at[0], changed_at[2]])
-        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[2:])
+        self.assertEqual([change.changed_at for change in history.of_kind(ConditionsChange)], changed_at[:1])
+        self.assertEqual(history.counted(ConditionsChange), ())
         self.assertEqual(
             [(change.changed_at, change.setting) for change in history.counted(BucketingChange)],
             [
@@ -168,6 +173,7 @@ class TestLoadFlagHistory(BaseTest):
                 (changed_at[2], BucketingSetting.AGGREGATION),
             ],
         )
+        self.assertEqual([change.changed_at for change in history.counted(SplitChange)], changed_at[2:])
         self.assertEqual(query.call_count, 2)
 
     def test_each_window_asks_with_the_key_the_flag_had_then(self) -> None:

@@ -11,8 +11,23 @@ from products.experiments.backend.health.checks.forced_variant import (
     forced_variant_release_condition,
     needs_condition_set_traffic,
 )
-from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, parse_flag_state
-from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
+from products.experiments.backend.health.condition_changes import parse_release_conditions
+from products.experiments.backend.health.context import (
+    ConditionsChange,
+    ConditionSetTraffic,
+    FlagHistory,
+    FlagHistoryNotChecked,
+    HealthContext,
+    parse_flag_state,
+)
+from products.experiments.backend.health.test.factories import (
+    DRAFT,
+    ENDED,
+    RUNNING,
+    RUNNING_CONTEXT,
+    Status,
+    flag_history,
+)
 
 EVEN_SPLIT = [{"key": "control", "rollout_percentage": 50}, {"key": "test", "rollout_percentage": 50}]
 SHIPPED_SPLIT = [{"key": "control", "rollout_percentage": 0}, {"key": "test", "rollout_percentage": 100}]
@@ -27,6 +42,8 @@ IOS: dict[str, Any] = {
     "rollout_percentage": 100,
 }
 
+CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
+
 
 def _context(
     groups: list[dict[str, Any]],
@@ -37,14 +54,23 @@ def _context(
     early_exit: bool = False,
     traffic: ConditionSetTraffic | None = None,
     excluded: frozenset[str] = frozenset(),
+    groups_at_launch: list[dict[str, Any]] | None = None,
 ) -> HealthContext:
     return replace(
         RUNNING_CONTEXT,
         **status,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=variants, early_exit=early_exit),
+        flag_history=None if groups_at_launch is None else _history(groups_at_launch, groups),
         condition_set_traffic=traffic,
         excluded_variant_keys=excluded,
     )
+
+
+def _history(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> FlagHistory | FlagHistoryNotChecked:
+    change = ConditionsChange(
+        changed_at=CHANGED_AT, before=parse_release_conditions(before), after=parse_release_conditions(after)
+    )
+    return flag_history([change], launched_at=datetime(2026, 9, 12, 10, 0, tzinfo=UTC))
 
 
 def _traffic(people_by_set: dict[int, int], *, remotely_evaluated: float = 1.0) -> ConditionSetTraffic:
@@ -273,7 +299,33 @@ class TestForcedVariantReleaseCondition(TestCase):
                 _context([{**STAFF, "variant": "holdout"}, EVERYONE], variants=SPLIT_WITH_HOLDOUT),
                 False,
             ),
+            (
+                "an_override_removed_after_launch",
+                _context([STAFF, EVERYONE], groups_at_launch=[{**STAFF, "variant": "test"}, EVERYONE]),
+                True,
+            ),
         ]
     )
     def test_needs_condition_set_traffic(self, _name: str, ctx: HealthContext, expected: bool) -> None:
         self.assertIs(needs_condition_set_traffic(ctx), expected)
+
+    @parameterized.expand(
+        [
+            ("set_after_launch", [STAFF, EVERYONE], True),
+            ("changed_after_launch", [{**STAFF, "variant": "control"}, EVERYONE], True),
+            ("in_place_at_launch", [{**STAFF, "variant": "test"}, EVERYONE, IOS], False),
+        ]
+    )
+    def test_an_override_set_after_launch_carries_its_date(
+        self, _name: str, groups_at_launch: list[dict[str, Any]], expected: bool
+    ) -> None:
+        finding = forced_variant_release_condition(
+            _context([{**STAFF, "variant": "test"}, EVERYONE], groups_at_launch=groups_at_launch)
+        )
+
+        assert finding is not None
+        self.assertEqual(
+            "The override of Set 1 was set on September 12, 2026 at 3:04 PM CEST, after launch, so users it matches "
+            "who were exposed before may have switched variants." in finding.detail,
+            expected,
+        )

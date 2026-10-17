@@ -31,6 +31,8 @@ from products.experiments.backend.health.context import (
 # `finding_variant` on the health finding events.
 NOT_CHECKED = "not_checked"
 
+EvidenceValue = str | int | float | bool | None
+
 
 class _Change(Protocol):
     @property
@@ -77,9 +79,9 @@ def flag_history_not_readable(ctx: HealthContext) -> ExperimentHealthFinding | N
         severity=ExperimentHealthFindingSeverity.INFO,
         title="The flag history was not checked",
         detail=(
-            "This check can't see whether the flag's variant split, key or bucketing changed after launch, "
-            f"because {not_checked_because(history.reason)}. Viewing the history needs viewer access to the "
-            "flag and, with an API key, the activity_log:read scope."
+            "This check can't see whether the flag's variant split, key, bucketing or release conditions "
+            f"changed after launch, because {not_checked_because(history.reason)}. Viewing the history needs "
+            "viewer access to the flag and, with an API key, the activity_log:read scope."
         ),
         evidence={"reason": history.reason.value},
         # The flag history is the page this caller can't open.
@@ -105,7 +107,7 @@ def change_finding(
     severity: ExperimentHealthFindingSeverity,
     title: str,
     sentences: Sequence[str],
-    kind_evidence: Mapping[str, str | int | bool | None],
+    kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
@@ -129,7 +131,7 @@ def not_checked_finding(
     code: ExperimentHealthFindingCode,
     title: str,
     what_changed: Sequence[str],
-    kind_evidence: Mapping[str, str | int | bool | None],
+    kind_evidence: Mapping[str, EvidenceValue],
     diagnostic_ref: str,
 ) -> ExperimentHealthFinding:
     change = the_change(effect.change_count, "the")
@@ -159,9 +161,9 @@ def change_evidence(
     history: FlagHistory | FlagHistoryNotChecked,
     effect: ChangeEffect,
     *,
-    kind_evidence: Mapping[str, str | int | bool | None],
+    kind_evidence: Mapping[str, EvidenceValue],
     exposed_before_change: bool | None,
-) -> dict[str, str | int | bool | None]:
+) -> dict[str, EvidenceValue]:
     return {
         "change_count": effect.change_count,
         "first_changed_at": effect.first.changed_at.astimezone(UTC).isoformat(),

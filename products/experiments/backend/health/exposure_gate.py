@@ -1,6 +1,7 @@
 """
-Loads the changes of a running experiment's flag since launch that can move exposed people: the split and the
-settings that decide the variant draw. Then asks ClickHouse whether anyone was exposed before each change. A change before the first exposure moved nobody, so it does not count.
+Loads the changes of a running experiment's flag since launch that can move exposed people: the split, the
+settings that decide the variant draw, and the release conditions. Then asks ClickHouse whether anyone was exposed
+before each change. A change before the first exposure moved nobody, so it does not count.
 
 The answer for a past window does not change, so it is cached per window and shared by every reader. A slow
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
@@ -52,9 +53,15 @@ from products.experiments.backend.health.bucketing_changes import (
     changes_that_apply,
     conditions_follow_flag_aggregation,
 )
+from products.experiments.backend.health.condition_changes import (
+    ConditionsChangeShape,
+    conditions_change_from_activity,
+    conditions_net_effect,
+)
 from products.experiments.backend.health.context import (
     BucketingChange,
     BucketingSetting,
+    ConditionsChange,
     FlagChange,
     FlagHistory,
     FlagHistoryNotChecked,
@@ -440,12 +447,19 @@ def _exposed_between_set_backs(
         exposed_between[ExperimentHealthFlagChangeKind.BUCKETING] = _exposed_between(
             gate, timeline, start=bucketing.first.changed_at, end=bucketing.last.changed_at
         )
+    conditions = conditions_net_effect(history.counted(ConditionsChange))
+    if conditions and conditions.shape == ConditionsChangeShape.REVERTED:
+        exposed_between[ExperimentHealthFlagChangeKind.RELEASE_CONDITIONS] = _exposed_between(
+            gate, timeline, start=conditions.first.changed_at, end=conditions.last.changed_at
+        )
     return exposed_between
 
 
 _PROJECTED = (
     "before_variants",
     "after_variants",
+    "before_groups",
+    "after_groups",
     "before_aggregation",
     "after_aggregation",
     *(f"{side}_{setting}" for side in ("before", "after") for setting in _SETTING_FIELDS),
@@ -467,6 +481,8 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
             job_type=KT("detail__trigger__job_type"),
             before_variants=_changed(_FILTERS, "before.multivariate.variants"),
             after_variants=_changed(_FILTERS, "after.multivariate.variants"),
+            before_groups=_changed(_FILTERS, "before.groups"),
+            after_groups=_changed(_FILTERS, "after.groups"),
             before_aggregation=_changed(_FILTERS, "before.aggregation_group_type_index"),
             after_aggregation=_changed(_FILTERS, "after.aggregation_group_type_index"),
             **{f"before_{setting}": _changed(field, "before") for setting, field in _SETTING_FIELDS.items()},
@@ -493,6 +509,14 @@ def _flag_changes_since(*, team_id: int, feature_flag_id: int, since: datetime) 
                 after=_settings(row, "after"),
             )
         )
+        conditions_change = conditions_change_from_activity(
+            changed_at=changed_at,
+            job_type=row["job_type"],
+            before_groups=row["before_groups"],
+            after_groups=row["after_groups"],
+        )
+        if conditions_change is not None:
+            changes.append(conditions_change)
     return tuple(changes)
 
 

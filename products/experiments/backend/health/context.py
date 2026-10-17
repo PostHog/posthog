@@ -46,10 +46,25 @@ class BucketingChange:
     after: str | int | bool | None
 
 
+@frozen
+class ReleaseCondition:
+    # The group type and property filters of the condition, as a signature that is equal for two conditions
+    # that match the same people. The rollout is not part of it.
+    criteria: str
+    variant: str | None
+
+
+@frozen
+class ConditionsChange:
+    changed_at: datetime
+    before: tuple[ReleaseCondition, ...]
+    after: tuple[ReleaseCondition, ...]
+
+
 # A change of the flag after launch that can move exposed people. A new kind needs its class here, an
 # `ExperimentHealthFlagChangeKind`, its read and its set-back question in `exposure_gate.py`, its row in
 # `inputs_payload.py`, and its check.
-FlagChange = SplitChange | BucketingChange
+FlagChange = SplitChange | BucketingChange | ConditionsChange
 
 
 def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C]) -> tuple[C, ...]:

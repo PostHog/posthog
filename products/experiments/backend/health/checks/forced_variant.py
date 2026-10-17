@@ -8,7 +8,7 @@ See `get_match` in rust/feature-flags/src/flags/flag_matching.rs and `pinned_var
 """
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 
 from posthog.dataclasses import frozen
@@ -20,7 +20,15 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
-from products.experiments.backend.health.context import ConditionSetTraffic, HealthContext, ReachableCondition, Split
+from products.experiments.backend.health.condition_changes import conditions_net_effect
+from products.experiments.backend.health.context import (
+    ConditionsChange,
+    ConditionSetTraffic,
+    FlagHistory,
+    HealthContext,
+    ReachableCondition,
+    Split,
+)
 from products.experiments.backend.health.split_changes import format_change_time
 
 # pinned: the subcodes are sent as `finding_variant` on the health finding events, so insights group on them.
@@ -68,7 +76,7 @@ class _Pins:
 
 
 @frozen
-class _Measurement:
+class PinnedShareMeasurement:
     most_pinned_variant: str
     pinned_people: int
     # The variant's pinned people, and its weight in the split of the people assigned at random.
@@ -85,10 +93,10 @@ class _Measurement:
 
 
 @frozen
-class _Grade:
+class PinnedShareGrade:
     """The share that sets the severity of SOME_CONDITIONS_PINNED, or the reason it is unknown."""
 
-    measurement: _Measurement | None
+    measurement: PinnedShareMeasurement | None
     share: float | None
     unknown_reason: PinnedShareUnknownReason | None
 
@@ -115,7 +123,7 @@ class _Grade:
         if self.share is not None and measurement is not None:
             return (
                 f" Since {format_change_time(measurement.since, measurement.team_timezone)}, about "
-                f'{_percent(self.share)} of the users who got "{measurement.most_pinned_variant}" matched {them} '
+                f'{percent(self.share)} of the users who got "{measurement.most_pinned_variant}" matched {them} '
                 f"({measurement.pinned_people:,} of about {round(measurement.variant_people):,})."
             )
         if self.unknown_reason == PinnedShareUnknownReason.EVALUATED_OUTSIDE_FLAG_SERVICE:
@@ -127,18 +135,38 @@ class _Grade:
 
 
 def needs_condition_set_traffic(ctx: HealthContext) -> bool:
-    """Whether the check grades SOME_CONDITIONS_PINNED by the users the pinned conditions served."""
-    pins = _pins(ctx)
-    return ctx.is_launched and pins is not None and not pins.all_pinned and bool(pins.weighted)
+    """Whether a check grades its finding by the users that pinned conditions served: this check for
+    SOME_CONDITIONS_PINNED, and the release-condition check for an override removed after launch."""
+    return ctx.is_launched and any(pins.weighted for pins in _graded_pins(ctx))
 
 
 def has_too_few_people(ctx: HealthContext, traffic: ConditionSetTraffic) -> bool:
-    """Whether the check leaves the share of `traffic` unknown only because too few people count."""
-    pins = _pins(ctx)
+    """Whether a check leaves the share of `traffic` unknown only because too few people count."""
+    return any(
+        pins.weighted and _grade(pins, traffic).unknown_reason == PinnedShareUnknownReason.TOO_FEW_PEOPLE
+        for pins in _graded_pins(ctx)
+    )
+
+
+def removed_override_grade(ctx: HealthContext) -> PinnedShareGrade | None:
+    """The share of a variant's users that the overrides removed after launch would serve if they were still in
+    place, which the release-condition check grades them by. None when no removed override has a weight to grade."""
+    pins = _removed_pins(ctx)
+    if pins is None or not pins.weighted:
+        return None
+    return _grade(pins, ctx.condition_set_traffic)
+
+
+def pinned_share_severity(grade: PinnedShareGrade | None) -> ExperimentHealthFindingSeverity | None:
+    """The severity of a finding graded by a pinned share. None when the share is too small for a finding."""
+    if grade is None or grade.share is None:
+        return ExperimentHealthFindingSeverity.INFO
+    if grade.share < _NO_FINDING_BELOW_SHARE:
+        return None
     return (
-        pins is not None
-        and bool(pins.weighted)
-        and _grade(pins, traffic).unknown_reason == PinnedShareUnknownReason.TOO_FEW_PEOPLE
+        ExperimentHealthFindingSeverity.WARNING
+        if grade.share > _WARNING_ABOVE_SHARE
+        else ExperimentHealthFindingSeverity.INFO
     )
 
 
@@ -150,21 +178,23 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
     is_draft = not ctx.is_launched
 
     if not pins.all_pinned:
-        return _some_conditions_pinned(pins, ctx.condition_set_traffic, is_draft)
+        return _some_conditions_pinned(pins, ctx, is_draft)
 
     pinned_numbers = [condition.number for condition in pins.pinned]
     pinned_keys = _variant_keys(pins.pinned)
     # The shipped finding already says that everyone gets this variant.
     if ctx.is_running and is_single_variant_shipped(flag) and pinned_keys == [shipped_variant_key(flag)]:
         return None
+    set_after_launch = _set_after_launch(ctx, pinned_numbers)
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title="No users are randomly assigned to a variant",
-        detail=_all_pinned_detail(pinned_numbers, pinned_keys, is_draft),
+        detail=_all_pinned_detail(pinned_numbers, pinned_keys, is_draft, set_after_launch.sentence),
         pinned_numbers=pinned_numbers,
         pinned_keys=pinned_keys,
         diagnostic_ref="A7b",
+        grade_evidence=set_after_launch.evidence,
     )
 
 
@@ -189,34 +219,102 @@ def _pins(ctx: HealthContext) -> _Pins | None:
     )
 
 
-def _some_conditions_pinned(
-    pins: _Pins, traffic: ConditionSetTraffic | None, is_draft: bool
-) -> ExperimentHealthFinding | None:
+def _removed_pins(ctx: HealthContext) -> _Pins | None:
+    """The overrides removed after launch, as pins on the conditions that held them."""
+    history = ctx.flag_history
+    flag = ctx.flag
+    if not isinstance(history, FlagHistory) or flag is None or flag.deleted or not ctx.is_running or ctx.archived:
+        return None
+    effect = conditions_net_effect(history.counted(ConditionsChange))
+    if effect is None:
+        return None
+    pinned = tuple(
+        ReachableCondition(number=override.condition_number, pinned_variant=override.variant)
+        for override in effect.overrides.removed
+        if override.condition_number is not None and override.variant not in ctx.excluded_variant_keys
+    )
+    if not pinned:
+        return None
+    unweighted_keys = {variant.key for variant in flag.variants if variant.rollout_percentage == 0}
+    return _Pins(
+        pinned=pinned,
+        all_pinned=False,
+        analyzed=pinned,
+        weighted=tuple(condition for condition in pinned if condition.pinned_variant not in unweighted_keys),
+        split=flag.variants,
+        unweighted=tuple(condition for condition in pinned if condition.pinned_variant in unweighted_keys),
+    )
+
+
+def _graded_pins(ctx: HealthContext) -> list[_Pins]:
+    pins = _pins(ctx)
+    removed = _removed_pins(ctx)
+    return [
+        *([pins] if pins is not None and not pins.all_pinned else []),
+        *([removed] if removed is not None else []),
+    ]
+
+
+def _some_conditions_pinned(pins: _Pins, ctx: HealthContext, is_draft: bool) -> ExperimentHealthFinding | None:
     if not pins.analyzed:
         return None
-    grade = None if is_draft or not pins.weighted else _grade(pins, traffic)
+    grade = None if is_draft or not pins.weighted else _grade(pins, ctx.condition_set_traffic)
     share = grade.share if grade is not None else None
     if share is not None and share < _NO_FINDING_BELOW_SHARE and not pins.unweighted:
         return None
     pinned_numbers = [condition.number for condition in pins.analyzed]
     pinned_keys = _variant_keys(pins.analyzed)
+    set_after_launch = _set_after_launch(ctx, pinned_numbers)
     return _finding(
         subcode=SOME_CONDITIONS_PINNED,
         severity=ExperimentHealthFindingSeverity.WARNING
         if share is not None and share > _WARNING_ABOVE_SHARE
         else ExperimentHealthFindingSeverity.INFO,
         title="Some users are not randomly assigned to a variant",
-        detail=_some_pinned_detail(pinned_numbers, pinned_keys, is_draft, grade, _variant_keys(pins.unweighted)),
+        detail=_some_pinned_detail(
+            pinned_numbers, pinned_keys, is_draft, grade, _variant_keys(pins.unweighted), set_after_launch.sentence
+        ),
         pinned_numbers=pinned_numbers,
         pinned_keys=pinned_keys,
         diagnostic_ref="A7",
-        grade_evidence=grade.evidence() if grade is not None else {},
+        grade_evidence={**(grade.evidence() if grade is not None else {}), **set_after_launch.evidence},
     )
 
 
-def _grade(pins: _Pins, traffic: ConditionSetTraffic | None) -> _Grade:
+@frozen
+class _SetAfterLaunch:
+    # One sentence after a leading space, or empty when no override was set after launch.
+    sentence: str
+    evidence: dict[str, str | int | float | None]
+
+
+def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLaunch:
+    """The overrides of these conditions that were set after launch while people were already exposed. The
+    release-condition check leaves them to this finding, so that one override gets one row."""
+    history = ctx.flag_history
+    effect = conditions_net_effect(history.counted(ConditionsChange)) if isinstance(history, FlagHistory) else None
+    added = [] if effect is None else [o for o in effect.overrides.added if o.condition_number in numbers]
+    if history is None or not added:
+        return _SetAfterLaunch(sentence="", evidence={})
+    set_at = max(override.set_at for override in added)
+    at = format_change_time(set_at, history.team_timezone)
+    if len(added) == 1:
+        sentence = (
+            f" The override of Set {added[0].condition_number} was set on {at}, after launch, so users it matches "
+            "who were exposed before may have switched variants."
+        )
+    else:
+        names = _set_names(sorted(override.condition_number for override in added))
+        sentence = (
+            f" The overrides of {names} were set after launch, last on {at}, so users they match who were exposed "
+            "before may have switched variants."
+        )
+    return _SetAfterLaunch(sentence=sentence, evidence={"override_set_at": set_at.astimezone(UTC).isoformat()})
+
+
+def _grade(pins: _Pins, traffic: ConditionSetTraffic | None) -> PinnedShareGrade:
     if traffic is None:
-        return _Grade(measurement=None, share=None, unknown_reason=PinnedShareUnknownReason.NOT_MEASURED)
+        return PinnedShareGrade(measurement=None, share=None, unknown_reason=PinnedShareUnknownReason.NOT_MEASURED)
     measurement = _measure(pins, traffic)
     remotely_evaluated_share = measurement.remotely_evaluated_share
     unknown_reason = (
@@ -225,17 +323,17 @@ def _grade(pins: _Pins, traffic: ConditionSetTraffic | None) -> _Grade:
         else PinnedShareUnknownReason.TOO_FEW_PEOPLE
     )
     if measurement.matched_people < _MIN_MATCHED_PEOPLE:
-        return _Grade(measurement=measurement, share=None, unknown_reason=unknown_reason)
+        return PinnedShareGrade(measurement=measurement, share=None, unknown_reason=unknown_reason)
     share = measurement.share
     clearing_needs_more_calls = (
         remotely_evaluated_share is None or remotely_evaluated_share < _MIN_REMOTELY_EVALUATED_SHARE_TO_CLEAR
     )
     if share < _NO_FINDING_BELOW_SHARE and clearing_needs_more_calls:
-        return _Grade(measurement=measurement, share=None, unknown_reason=unknown_reason)
-    return _Grade(measurement=measurement, share=share, unknown_reason=None)
+        return PinnedShareGrade(measurement=measurement, share=None, unknown_reason=unknown_reason)
+    return PinnedShareGrade(measurement=measurement, share=share, unknown_reason=None)
 
 
-def _measure(pins: _Pins, traffic: ConditionSetTraffic) -> _Measurement:
+def _measure(pins: _Pins, traffic: ConditionSetTraffic) -> PinnedShareMeasurement:
     excluded_numbers = {condition.number for condition in pins.unweighted}
     matched_people = sum(people for number, people in traffic.people_by_set.items() if number not in excluded_numbers)
     pinned_by_variant = dict.fromkeys(_variant_keys(pins.weighted), 0)
@@ -255,7 +353,7 @@ def _measure(pins: _Pins, traffic: ConditionSetTraffic) -> _Measurement:
         return pinned_by_variant[key] / people if people else 0.0
 
     most_pinned_variant = max(pinned_by_variant, key=share)
-    return _Measurement(
+    return PinnedShareMeasurement(
         most_pinned_variant=most_pinned_variant,
         pinned_people=pinned_by_variant[most_pinned_variant],
         variant_people=variant_people(most_pinned_variant),
@@ -280,7 +378,9 @@ def _set_names(numbers: Sequence[int]) -> str:
     return "Sets " + ", ".join(str(number) for number in numbers[:-1]) + f" and {numbers[-1]}"
 
 
-def _all_pinned_detail(numbers: Sequence[int], pinned_keys: Sequence[str], is_draft: bool) -> str:
+def _all_pinned_detail(
+    numbers: Sequence[int], pinned_keys: Sequence[str], is_draft: bool, set_after_launch: str
+) -> str:
     overrides = "the override" if len(numbers) == 1 else "the overrides"
     when = "after launch " if is_draft else ""
     if len(pinned_keys) == 1:
@@ -309,15 +409,16 @@ def _all_pinned_detail(numbers: Sequence[int], pinned_keys: Sequence[str], is_dr
         )
     if is_draft:
         fix = f"Remove {overrides} before launch so users are assigned at random."
-    return f"{fact} {why} {fix}"
+    return f"{fact}{set_after_launch} {why} {fix}"
 
 
 def _some_pinned_detail(
     numbers: Sequence[int],
     pinned_keys: Sequence[str],
     is_draft: bool,
-    grade: _Grade | None,
+    grade: PinnedShareGrade | None,
     unweighted_keys: Sequence[str],
+    set_after_launch: str,
 ) -> str:
     if len(numbers) == 1:
         key = pinned_keys[0]
@@ -356,10 +457,10 @@ def _some_pinned_detail(
     elif unweighted_keys:
         names = " or ".join(f'"{key}"' for key in unweighted_keys)
         fact += f" Nobody gets {names} at random, so their results show only these users."
-    return f"{fact} {why} {fix}"
+    return f"{fact}{set_after_launch} {why} {fix}"
 
 
-def _percent(share: float) -> str:
+def percent(share: float) -> str:
     return f"{share * 100:.1f}".removesuffix(".0") + "%"
 
 
