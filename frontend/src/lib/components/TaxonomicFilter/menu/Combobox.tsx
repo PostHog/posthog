@@ -874,17 +874,18 @@ export function MenuFilterCombobox({
         if (!emptyState || emptyState.body || !trimmed || anyError || anyFetching) {
             return
         }
-        const key = `${telemetryGroupType ?? 'all'}::${trimmed}`
+        const key = `${activeScope}::${trimmed}`
         if (lastEmptyResultKeyRef.current === key) {
             return
         }
         lastEmptyResultKeyRef.current = key
         posthog.capture('taxonomic filter empty result', {
             surface: TAXONOMIC_FILTER_SURFACE,
+            scope: telemetryGroupType ? 'category' : activeScope,
             groupType: telemetryGroupType,
             searchQuery: trimmed,
         })
-    }, [emptyState, searchQuery, telemetryGroupType, anyError, anyFetching])
+    }, [emptyState, searchQuery, telemetryGroupType, activeScope, anyError, anyFetching])
 
     // `taxonomic filter fetch failed` — once per scope+query while the visible list's request
     // keeps failing. Mirrors legacy `lastFetchFailedDedupeKey`: the key is only cleared once the
