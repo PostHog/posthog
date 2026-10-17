@@ -6,6 +6,7 @@ import {
     WorkflowDataSuggestionsView,
     type WorkflowDataSuggestionsData,
     WorkflowListView,
+    WorkflowSendingRulesView,
     type WorkflowData,
     type WorkflowListData,
     WorkflowView,
@@ -143,4 +144,36 @@ export const DataSuggestionsBuilt: Story = {
         />
     ),
     name: 'Data suggestions after a build',
+}
+
+export const SendingRulesNoCap: Story = {
+    render: () => (
+        <WorkflowSendingRulesView
+            data={{
+                project_id: 1,
+                marketing_frequency_cap_max_messages: null,
+                marketing_frequency_cap_window_days: null,
+                email_tracking_consent_mode: 'off',
+                capture_workflows_engagement_events: false,
+            }}
+            onApplyRecommendedCap={() => {}}
+            onEngagementEventsChange={() => {}}
+        />
+    ),
+}
+
+export const SendingRulesWithCap: Story = {
+    render: () => (
+        <WorkflowSendingRulesView
+            data={{
+                project_id: 1,
+                marketing_frequency_cap_max_messages: 1,
+                marketing_frequency_cap_window_days: 2,
+                email_tracking_consent_mode: 'opt_out',
+                capture_workflows_engagement_events: true,
+            }}
+            onApplyRecommendedCap={() => {}}
+            onEngagementEventsChange={() => {}}
+        />
+    ),
 }
