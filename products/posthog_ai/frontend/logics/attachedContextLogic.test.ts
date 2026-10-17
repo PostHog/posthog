@@ -1,8 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import type { AttachedContextItem } from '../types/contextTypes'
+import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import { attachedContextLogic } from './attachedContextLogic'
 
 describe('attachedContextLogic', () => {
@@ -109,5 +110,25 @@ describe('attachedContextLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.undismissContext('hog_flow:1', 'g')
         }).toMatchValues({ contextItems: groupItems('v2') })
+    })
+
+    it.each([
+        { name: 'an ungrouped chip', chip: { type: 'skill', key: 'shared' } as AttachedContextItem },
+        { name: 'a grouped chip', chip: { type: 'insight', key: 'a', dismissGroup: 'viewer' } as AttachedContextItem },
+    ])('dismissing $name hides it only on the page it was closed on', async ({ chip }) => {
+        const otherPageChip = { ...chip, key: chip.dismissGroup ? 'b' : chip.key }
+        router.actions.push('/page-one')
+        logic.actions.registerContext('scene', [chip])
+        logic.actions.dismissContext(attachedContextItemKey(chip), chip.dismissGroup)
+
+        await expectLogic(logic, () => {
+            router.actions.push('/page-two')
+            logic.actions.registerContext('scene', [otherPageChip])
+        }).toMatchValues({ contextItems: [otherPageChip] })
+
+        await expectLogic(logic, () => {
+            router.actions.push('/page-one')
+            logic.actions.registerContext('scene', [chip])
+        }).toMatchValues({ contextItems: [] })
     })
 })

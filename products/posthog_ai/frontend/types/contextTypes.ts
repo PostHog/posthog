@@ -32,7 +32,7 @@ export interface AttachedContextItem {
      * detaches the group's hidden items, so a chip never claims control it doesn't have. Dismissal
      * is recorded against this stable name rather than the dedupe key, which makes it stick for
      * hidden items whose value (and therefore key) changes on every re-registration, e.g. live
-     * editor state.
+     * editor state. It is also scoped to the page it happened on, so pages can reuse a group name.
      */
     dismissGroup?: string
 }

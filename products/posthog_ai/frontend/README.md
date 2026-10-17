@@ -288,8 +288,9 @@ The @-button opens a `TaxonomicPopover` over events/actions/insights/dashboards/
 issues; a selection becomes a flat `{ type, key, label }` ref in `contextPickerLogic` (`api/logics`) — no
 entity loading, the agent fetches details. The chips render **everything** in `contextItems`, whatever
 provider contributed it. Closing a chip the picker owns removes the pick; closing any other provider's chip
-dismisses that key (`attachedContextLogic.dismissContext`), which sticks even while the provider keeps
-re-registering the item — re-picking it through the popover restores it.
+dismisses that key (`attachedContextLogic.dismissContext`) on the current page, which sticks even while the
+provider keeps re-registering the item — re-picking it through the popover restores it. Other pages keep
+showing the same key.
 
 ### React to the agent invoking a tool
 

@@ -54,6 +54,7 @@ export interface newTemplateAgentLogicActions {
     ) => {
         dismissGroup: string | undefined
         key: string
+        page: string
     } // attachedContextLogic
     undismissContext: (
         key: string,
@@ -61,6 +62,7 @@ export interface newTemplateAgentLogicActions {
     ) => {
         dismissGroup: string | undefined
         key: string
+        page: string
     } // attachedContextLogic
     locationChanged: ({
         method,

@@ -91,6 +91,7 @@ export interface contextPickerLogicActions {
     ) => {
         dismissGroup: string | undefined
         key: string
+        page: string
     } // attachedContextLogic
     handleTaxonomicFilterChange: (
         value: number | string,
