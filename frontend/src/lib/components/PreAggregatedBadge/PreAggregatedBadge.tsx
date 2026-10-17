@@ -4,9 +4,11 @@ import { useValues } from 'kea'
 import { IconBolt, IconDatabaseBolt } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
 export type PreAggregatedBadgeVariant = 'preagg' | 'precomputed'
 export type PreAggregatedBadgePosition = 'top-right' | 'bottom-right'
@@ -20,6 +22,10 @@ interface PreAggregatedBadgeProps {
     // Optional opt-out wired by the host (the web analytics page). Keeps this component scene-agnostic:
     // when omitted, the tooltip just drops the "always query live data" shortcut.
     onDisable?: () => void
+    // ISO timestamp of the oldest precomputed window that the response used.
+    computedAt?: string
+    // The response came from expired precomputed data while a background refresh runs.
+    stale?: boolean
 }
 
 const POSITION_CLASS: Record<PreAggregatedBadgePosition, string> = {
@@ -35,11 +41,24 @@ function PreAggregatedTooltip(): JSX.Element {
     )
 }
 
-function PrecomputedTooltip({ onDisable }: { onDisable?: () => void }): JSX.Element {
+function PrecomputedTooltip({
+    onDisable,
+    computedAt,
+    stale,
+}: Pick<PreAggregatedBadgeProps, 'onDisable' | 'computedAt' | 'stale'>): JSX.Element {
     return (
         <div className="flex flex-col gap-1 max-w-xs">
             <span>Loaded from a pre-computed state instead of running a live query against all events.</span>
             <span>It should be very close to live data, but isn't guaranteed to be exact.</span>
+            {computedAt && (
+                <span>
+                    <span>Data as of </span>
+                    <span translate="no">
+                        {`${dayjs(computedAt).fromNow()} (${humanFriendlyDetailedTime(computedAt, 'MMMM DD, YYYY', 'h:mm A', { timestampStyle: 'absolute' })})`}
+                    </span>
+                </span>
+            )}
+            {stale && <span>Newer data is being computed. Reload in a few minutes to see it.</span>}
             <span>
                 <Link to={QUERY_ENGINE_DOCS_URL}>Learn more</Link>
                 {onDisable && (
@@ -57,6 +76,8 @@ export function PreAggregatedBadge({
     variant = 'preagg',
     position = 'top-right',
     onDisable,
+    computedAt,
+    stale,
 }: PreAggregatedBadgeProps = {}): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const isPrecomputed = variant === 'precomputed'
@@ -73,7 +94,13 @@ export function PreAggregatedBadge({
     return (
         <Tooltip
             interactive
-            title={isPrecomputed ? <PrecomputedTooltip onDisable={onDisable} /> : <PreAggregatedTooltip />}
+            title={
+                isPrecomputed ? (
+                    <PrecomputedTooltip onDisable={onDisable} computedAt={computedAt} stale={stale} />
+                ) : (
+                    <PreAggregatedTooltip />
+                )
+            }
         >
             <div className={clsx('absolute z-10', POSITION_CLASS[position])}>
                 <Icon className={iconClassName} />

@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
@@ -1300,6 +1300,41 @@ class TestServeLiveWarmBehind(BaseTest):
             team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
         )
         mock_enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "oldest_of_current_and_previous_in_utc",
+                [
+                    (True, datetime(2024, 1, 15, 11, 0, tzinfo=UTC)),
+                    (True, datetime(2024, 1, 15, 11, 30, tzinfo=timezone(timedelta(hours=2)))),
+                ],
+                "2024-01-15T09:30:00+00:00",
+            ),
+            (
+                "miss_does_not_count",
+                [
+                    (False, datetime(2024, 1, 15, 8, 0, tzinfo=UTC)),
+                    (True, datetime(2024, 1, 15, 11, 0, tzinfo=UTC)),
+                ],
+                "2024-01-15T11:00:00+00:00",
+            ),
+            ("nothing_served", [(False, None)], None),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.record_sticky_warm_shape")
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_runner_reports_oldest_served_computed_at(
+        self, _name, ensures, expected, mock_ensure, _mock_enqueue, _mock_sticky
+    ):
+        runner = WebOverviewQueryRunner(team=self.team, query=_overview())
+        for ready, computed_at in ensures:
+            mock_ensure.return_value = LazyComputationResult(ready=ready, job_ids=[], computed_at=computed_at)
+            web_ensure_precomputed(
+                team=self.team, runner=runner, family="web_overview", ttl_seconds={"default": 3600}, table=None
+            )
+        assert runner.lazy_precompute_computed_at_iso() == expected
 
     @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
     @mock.patch(f"{_COMMON}.ensure_precomputed")
