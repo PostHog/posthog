@@ -1883,7 +1883,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
         # calculate() bypasses the query cache on purpose: the group-by parameters are runner
         # args, not query-model fields, so they can't participate in the cache key.
-        response = runner.calculate()
+        try:
+            response = runner.calculate()
+        except (QueryError, ExposedCHQueryError) as e:
+            # The runner throws on its read and time budgets instead of returning partial counts.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
         results = response.results if isinstance(response.results, dict) else {}
         report_user_action(
