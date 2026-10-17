@@ -1,6 +1,9 @@
+import { useValues } from 'kea'
 import { RefObject, forwardRef, useEffect, useState } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
+
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 interface SceneStickyBarProps {
     children: React.ReactNode
@@ -13,11 +16,14 @@ export const SceneStickyBar = forwardRef<HTMLDivElement, SceneStickyBarProps>(fu
     { children, className, showBorderBottom = true, hasSceneTitleSection = true },
     ref
 ): JSX.Element {
+    const { todayRailEnabled } = useValues(todayShellLogic)
     return (
         <div
             ref={ref}
             className={cn(
                 'scene-sticky-bar @2xl/main-content:sticky z-20 bg-primary @2xl/main-content:top-[34px] space-y-2 py-2 -mx-4 px-4 rounded-t-xl',
+                // The quill scene header is 42px tall (`h-10.5`), so pin the bar 42px minus the 16px scroll padding.
+                todayRailEnabled && '@2xl/main-content:top-6.5',
                 // Without a scene title section the bar pins itself. Sticky offsets start inside the
                 // scroll container's padding, so pull it up by that padding to stop content showing above.
                 !hasSceneTitleSection && '@2xl/main-content:-top-4',
