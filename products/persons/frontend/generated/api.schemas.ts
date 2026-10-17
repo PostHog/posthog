@@ -358,7 +358,7 @@ export interface PersonBulkDeleteResponseApi {
     persons_deleted: number
     /** Number of persons queued for deletion in the background. Their person records and distinct IDs are removed shortly after the request completes. 0 if keep_person was true. */
     persons_queued_for_deletion: number
-    /** Whether event deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
+    /** Whether event deletion was requested for the matched persons. Events are not deleted during this request. A weekly batch job deletes them after Saturday 22:00 UTC, and a request made shortly before a run can wait for the following week's run. Until then the events still appear in queries. Track progress with the deletion_status endpoint. If a deletion was already queued for a person, it will not be duplicated. */
     events_queued_for_deletion: boolean
     /** Whether recording deletion was requested for the matched persons. If a deletion was already queued for a person, it will not be duplicated. */
     recordings_queued_for_deletion: boolean
@@ -394,10 +394,10 @@ export interface AsyncDeletionStatusApi {
     person_uuid: string
     /** When the deletion was requested. */
     created_at: string
-    /** Current status: 'pending' or 'completed'. */
+    /** Current status: 'pending' or 'completed'. 'pending' is expected until the weekly event deletion job has run, which can take up to two weeks after the request. It does not mean the deletion is stuck. */
     readonly status: string
     /**
-     * When the deletion was verified complete. Null if still pending.
+     * When the deletion was verified complete. Null if still pending. Once set, the person's events captured before the request no longer appear in queries.
      * @nullable
      */
     delete_verified_at: string | null

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 7 enabled ops
+ * PostHog API - MCP 8 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -221,6 +221,8 @@ export const PersonsUpdatePropertyCreateBody = () => zod.object({
  * This endpoint allows you to bulk delete persons, either by the PostHog person IDs or by distinct IDs. You can pass in a maximum of 1000 IDs per call. Only events captured before the request will be deleted.
  *
  * Person records are removed in the background shortly after the request returns, so a successful response reports them in `persons_queued_for_deletion` and `persons_deleted` is 0.
+ *
+ * With `delete_events=true`, events are deleted later by a weekly batch job, not during this request. Check progress with the `deletion_status` endpoint.
  */
 export const PersonsBulkDeleteCreateParams = () => zod.object({
     project_id: zod
@@ -272,6 +274,30 @@ export const PersonsCohortsRetrieveParams = () => zod.object({
 export const PersonsCohortsRetrieveQueryParams = () => zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     person_id: zod.string().describe('The person ID or UUID to get cohorts for.'),
+})
+
+/**
+ * List the status of queued event deletions for persons. When you delete a person with `delete_events=true`, an async deletion is queued. Use this endpoint to check whether those deletions are still pending or have been completed.
+ *
+ * Events are deleted by a weekly batch job that runs after Saturday 22:00 UTC. A request made shortly before a run can wait for the following week's run, so a deletion can stay pending for up to two weeks. That is expected and doesn't need a new request. Recording deletions are not tracked here.
+ */
+export const PersonsDeletionStatusListParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const PersonsDeletionStatusListQueryParams = () => zod.object({
+    format: zod.enum(['csv', 'json']).optional(),
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    person_uuid: zod.string().optional().describe('Filter by a specific person UUID.'),
+    status: zod
+        .enum(['all', 'completed', 'pending'])
+        .optional()
+        .describe("Filter by deletion status: 'pending', 'completed', or 'all'."),
 })
 
 /**

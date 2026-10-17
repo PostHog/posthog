@@ -10099,7 +10099,7 @@
         }
     },
     "persons-bulk-delete": {
-        "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible.",
+        "description": "Delete up to 1000 persons by PostHog person UUIDs or distinct IDs. Optionally delete associated events and recordings. Pass either `ids` (person UUIDs) or `distinct_ids`. Returns 202 Accepted. This operation is irreversible. Events are not deleted during the request: a weekly batch job deletes them, which can take up to two weeks. Check progress with persons-deletion-status-list.",
         "category": "Persons",
         "feature": "persons",
         "summary": "Bulk delete persons",
@@ -10119,6 +10119,20 @@
         "summary": "Get person cohorts",
         "title": "Get person cohorts",
         "required_scopes": ["person:read", "cohort:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "persons-deletion-status-list": {
+        "description": "Check whether event deletions queued by persons-bulk-delete with delete_events are still pending or completed. Filter by person_uuid or status. Events are deleted by a weekly batch job after Saturday 22:00 UTC, so a deletion can stay pending for up to two weeks. That is expected and does not need a new request. A deletion is complete when delete_verified_at is set.",
+        "category": "Persons",
+        "feature": "persons",
+        "summary": "List person event deletion status",
+        "title": "List person event deletion status",
+        "required_scopes": ["person:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
