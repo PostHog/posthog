@@ -95,7 +95,11 @@ export interface todayContextPanelLogicMeta {
         panelTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
         floatingActiveTab: (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]) => SidePanelTab
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (activeTab: SidePanelTab, aiFullScreenUrl: any, selectedNotebook: string) => string | null
+        fullScreenUrl: (
+            activeTab: SidePanelTab,
+            aiFullScreenUrl: string | null,
+            selectedNotebook: string
+        ) => string | null
     }
 }
 
