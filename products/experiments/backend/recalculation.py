@@ -112,9 +112,9 @@ def _derive_counters(recalc: ExperimentMetricsRecalculation, results: list[dict]
     the same list is also surfaced to the client.
 
     Inherits the fingerprint-divergence hazard from `get_run_results`: `completed_metrics` can silently drop
-    if experiment fields that feed the fingerprint (start_date, exposure_criteria, stats method,
-    only_count_matured_users) change between the workflow's writes and this read. `failed_metrics` is partly
-    immune because discovery-step failures come from `metric_errors` (stored on the row), not from result rows.
+    if settings that feed the calculation key change between the workflow's writes and this read.
+    `failed_metrics` is partly immune because discovery-step failures come from `metric_errors` (stored on the
+    row), not from result rows.
     """
     rows = results if results is not None else get_run_results(recalc)
     completed = sum(1 for r in rows if r["status"] == ExperimentMetricResult.Status.COMPLETED)
@@ -477,12 +477,12 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
 
     Never returns rows from a previous run or from the timeseries workflow (which uses config fingerprints).
 
-    Divergence hazard: the store finds a run's rows by recomputing each metric's fingerprint from mutable
-    experiment fields (start_date, exposure_criteria, stats method, only_count_matured_users). If any of these
-    change after the run wrote its rows, this can return [] for what is on-disk a successful run, until the
-    experiment fields revert. Symptom: "results disappeared after editing exposure_criteria / start_date / stats
-    config." This is the explicit trade-off of "no FK on ExperimentMetricResult": the snapshot lives in the
-    fingerprint, not in a stored column.
+    Divergence hazard: the store finds a run's rows by recomputing each metric's fingerprint from the current
+    calculation config (start date, exposure criteria, stats and CUPED settings, baseline, variants, test account
+    filters, maturity). If any of these change after the run wrote its rows, this can return [] for what is on-disk
+    a successful run, until the settings revert. Symptom: "results disappeared after editing the experiment."
+    This is the explicit trade-off of "no FK on ExperimentMetricResult": the snapshot lives in the fingerprint, not
+    in a stored column.
     """
     rows = MetricResultStore(experiment_id=recalc.experiment_id).for_run(recalc)
     return [

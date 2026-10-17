@@ -12,6 +12,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db import IntegrityError
 from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -66,6 +67,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
@@ -5309,28 +5311,41 @@ class TestExperimentService(APIBaseTest):
         experiment = service.create_experiment(name="No Start", feature_flag_key="ts-no-start")
 
         with self.assertRaises(ValidationError) as ctx:
-            service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+            service.get_timeseries_results(experiment, metric_uuid="m1")
 
         assert "not been started" in str(ctx.exception)
 
-    def test_get_timeseries_results_pending_when_no_records(self):
-        self._create_flag(key="ts-pending")
+    @parameterized.expand([("metric_on_the_experiment", True), ("metric_not_on_the_experiment", False)])
+    def test_get_timeseries_results_pending_when_no_records(self, _name: str, metric_on_experiment: bool) -> None:
+        self._create_flag(key=f"ts-pending-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Pending",
-            feature_flag_key="ts-pending",
+            feature_flag_key=f"ts-pending-{_name}",
             start_date=timezone.now() - timedelta(days=2),
             end_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if metric_on_experiment else None,
+            allow_unknown_events=True,
         )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
         assert result["status"] == "pending"
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "m1"
         assert len(result["timeseries"]) == 3
 
-    def test_get_timeseries_results_completed(self):
+    @parameterized.expand(
+        [
+            ("current_rows", ("current", "current"), "completed"),
+            # History from before calculation key version 2 renders where no current row covers a day.
+            ("history_before_key_version_2", ("version_1", "current"), "completed"),
+            ("rows_of_earlier_settings", ("earlier_settings", "current"), "partial"),
+        ]
+    )
+    def test_get_timeseries_results_completed(
+        self, _name: str, day_keys: tuple[str, str], expected_status: str
+    ) -> None:
         self._create_flag(key="ts-completed")
         service = self._service()
         now = timezone.now()
@@ -5342,14 +5357,23 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="ts-completed",
             start_date=start_midnight,
             end_date=end_midnight,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
+        calculation_config = get_metric_calculation_config(Experiment.objects.get(pk=experiment.pk), "m1")
+        assert calculation_config is not None
+        keys = {
+            "current": calculation_config.calculation_key(),
+            "version_1": calculation_config.legacy_key(),
+            "earlier_settings": "a" * 64,
+        }
 
         # Create results whose query_to is midnight (exclusive end of each day)
-        for day_offset in range(2):
+        for day_offset, key_family in enumerate(day_keys):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid="m1",
-                fingerprint="fp1",
+                fingerprint=keys[key_family],
                 query_from=start_midnight + timedelta(days=day_offset),
                 query_to=start_midnight + timedelta(days=day_offset + 1),
                 status="completed",
@@ -5357,9 +5381,9 @@ class TestExperimentService(APIBaseTest):
                 completed_at=now,
             )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
-        assert result["status"] == "completed"
+        assert result["status"] == expected_status
         assert result["computed_at"] is not None
 
     def test_get_timeseries_results_strips_step_sessions_and_emits_formatted_results(self):
@@ -5373,6 +5397,8 @@ class TestExperimentService(APIBaseTest):
             feature_flag_key="ts-strip",
             start_date=start_midnight,
             end_date=end_midnight,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
         session = {"event_uuid": "u", "person_id": "p", "session_id": "s", "timestamp": "t"}
@@ -5402,7 +5428,7 @@ class TestExperimentService(APIBaseTest):
             ExperimentMetricResult.objects.create(
                 experiment=experiment,
                 metric_uuid="m1",
-                fingerprint="fp1",
+                fingerprint=_calculation_key(experiment, "m1"),
                 query_from=start_midnight + timedelta(days=day_offset),
                 query_to=start_midnight + timedelta(days=day_offset + 1),
                 status="completed",
@@ -5410,7 +5436,7 @@ class TestExperimentService(APIBaseTest):
                 completed_at=now,
             )
 
-        result = service.get_timeseries_results(experiment, metric_uuid="m1", fingerprint="fp1")
+        result = service.get_timeseries_results(experiment, metric_uuid="m1")
 
         for day_payload in result["timeseries"].values():
             if day_payload is None:
@@ -5441,43 +5467,96 @@ class TestExperimentService(APIBaseTest):
             name="Recalc",
             feature_flag_key="ts-recalc",
             start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
-        result = service.request_timeseries_recalculation(
-            experiment, metric={"uuid": "m1", "kind": "ExperimentMetric"}, fingerprint="fp1"
-        )
+        result = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "m1"
         assert result["status"] == ExperimentTimeseriesRecalculation.Status.PENDING
         assert result["is_existing"] is False
+        request = ExperimentTimeseriesRecalculation.objects.get(id=result["id"])
+        assert (request.fingerprint, request.metric["source"]["event"]) == (
+            _calculation_key(experiment, "m1"),
+            "$pageview",
+        )
 
-    def test_request_timeseries_recalculation_idempotent(self):
-        self._create_flag(key="ts-idempotent")
+    @parameterized.expand(
+        [
+            ("same_request", False, False),
+            # A backfill requested before calculation key version 2 writes the same days, so a second one would race it.
+            ("backfill_requested_before_key_version_2", True, False),
+            # A settings edit changes the key, but the running backfill still writes the same days.
+            ("settings_edited_while_the_backfill_runs", False, True),
+        ]
+    )
+    def test_request_timeseries_recalculation_idempotent(
+        self, _name: str, first_under_legacy_key: bool, edit_settings_after_first: bool
+    ) -> None:
+        self._create_flag(key=f"ts-idempotent-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Idempotent",
-            feature_flag_key="ts-idempotent",
+            feature_flag_key=f"ts-idempotent-{_name}",
             start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
+        )
+        if first_under_legacy_key:
+            calculation_config = get_metric_calculation_config(experiment, "m1")
+            assert calculation_config is not None
+            first_id = ExperimentTimeseriesRecalculation.objects.create(
+                team=self.team,
+                experiment=experiment,
+                metric=calculation_config.definition,
+                fingerprint=calculation_config.legacy_key(),
+                status=ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ).id
+        else:
+            first_id = service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"]
+        if edit_settings_after_first:
+            key_before_edit = _calculation_key(experiment, "m1")
+            experiment.stats_config = {
+                **(experiment.stats_config or {}),
+                "cuped": {"enabled": True, "lookback_days": 21},
+            }
+            experiment.save()
+            assert _calculation_key(experiment, "m1") != key_before_edit
+
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+
+        assert (second["id"], second["is_existing"]) == (first_id, True)
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 1
+        chart = service.get_timeseries_results(experiment, metric_uuid="m1")
+        assert chart["recalculation_status"] is not None
+
+    @parameterized.expand(
+        [("not_started", False, "m1", "hasn't started"), ("unknown_metric", True, "nope", "not on the experiment")]
+    )
+    def test_request_timeseries_recalculation_rejects(
+        self, _name: str, launched: bool, metric_uuid: str, message: str
+    ) -> None:
+        self._create_flag(key=f"ts-{_name}")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Rejected",
+            feature_flag_key=f"ts-{_name}",
+            start_date=timezone.now() if launched else None,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
-        result1 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
-        result2 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
-
-        assert result1["id"] == result2["id"]
-        assert result2["is_existing"] is True
-
-    def test_request_timeseries_recalculation_not_started_raises(self):
-        self._create_flag(key="ts-not-started")
-        service = self._service()
-        experiment = service.create_experiment(name="Not Started", feature_flag_key="ts-not-started")
-
         with self.assertRaises(ValidationError) as ctx:
-            service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+            service.request_timeseries_recalculation(experiment, metric_uuid=metric_uuid)
 
-        assert "hasn't started" in str(ctx.exception)
+        assert message in str(ctx.exception)
 
-    def test_request_timeseries_recalculation_deletes_old_results(self):
+    @parameterized.expand([("created", False), ("creation_failed", True)])
+    def test_request_timeseries_recalculation_deletes_old_results_only_when_created(
+        self, _name: str, creation_fails: bool
+    ) -> None:
         self._create_flag(key="ts-delete-old")
         service = self._service()
         now = timezone.now()
@@ -5485,12 +5564,14 @@ class TestExperimentService(APIBaseTest):
             name="Delete Old",
             feature_flag_key="ts-delete-old",
             start_date=now,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="m1",
-            fingerprint="fp1",
+            fingerprint=_calculation_key(experiment, "m1"),
             query_from=now,
             query_to=now + timedelta(days=1),
             status="completed",
@@ -5499,9 +5580,54 @@ class TestExperimentService(APIBaseTest):
         )
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 1
 
-        service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+        if creation_fails:
+            with (
+                patch.object(
+                    ExperimentTimeseriesRecalculation.objects, "create", side_effect=IntegrityError("insert failed")
+                ),
+                self.assertRaises(IntegrityError),
+            ):
+                service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        else:
+            service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
-        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
+        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == int(
+            creation_fails
+        )
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == int(
+            not creation_fails
+        )
+
+    @parameterized.expand([("inline", False), ("saved", True)])
+    def test_request_timeseries_recalculation_distinguishes_equivalent_metrics(self, _name: str, saved: bool) -> None:
+        self._create_flag(key="ts-equivalent")
+        service = self._service()
+        second_metric = {**self._DEFAULT_METRIC, "uuid": "m2"}
+        experiment = service.create_experiment(
+            name="Equivalent metrics",
+            feature_flag_key="ts-equivalent",
+            start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if saved else [self._DEFAULT_METRIC, second_metric],
+            allow_unknown_events=True,
+        )
+        if saved:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Equivalent metric", query=second_metric
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": "secondary"}
+            )
+
+        first = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m2")
+
+        assert first["fingerprint"] == second["fingerprint"]
+        assert first["id"] != second["id"]
+        assert (first["metric_uuid"], second["metric_uuid"]) == ("m1", "m2")
+        assert not second["is_existing"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"] == first["id"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m2")["id"] == second["id"]
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 2
 
     # ------------------------------------------------------------------
     # Experiment list/querying
@@ -7739,11 +7865,16 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
         experiment = Experiment.objects.create(
-            team=self.team, created_by=self.user, name="E", feature_flag=flag, start_date=timezone.now()
+            team=self.team,
+            created_by=self.user,
+            name="E",
+            feature_flag=flag,
+            start_date=timezone.now(),
+            metrics=[{**self._dw_metric(), "uuid": "dw-metric"}],
         )
         service = ExperimentService(team=self.team, user=self.user)
         with pytest.raises(PermissionDenied):
-            service.request_timeseries_recalculation(experiment, metric=self._dw_metric(), fingerprint="fp1")
+            service.request_timeseries_recalculation(experiment, metric_uuid="dw-metric")
         assert not ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).exists()
 
 

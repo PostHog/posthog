@@ -47001,6 +47001,78 @@ export namespace Schemas {
       prompt_version?: string | null;
     }
 
+    /**
+     * Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result.
+     */
+    export type ExperimentTimeseriesResultsTimeseries = {[key: string]: unknown};
+
+    /**
+     * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+     * @nullable
+     */
+    export type ExperimentTimeseriesResultsErrors = {[key: string]: string} | null;
+
+    /**
+     * * `pending` - Pending
+     * * `completed` - Completed
+     * * `partial` - Partial
+     * * `failed` - Failed
+     */
+    export type ExperimentTimeseriesResultsStatusEnum = typeof ExperimentTimeseriesResultsStatusEnum[keyof typeof ExperimentTimeseriesResultsStatusEnum];
+
+
+    export const ExperimentTimeseriesResultsStatusEnum = {
+      Pending: 'pending',
+      Completed: 'completed',
+      Partial: 'partial',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Day-by-day results of one metric under the experiment's current settings.
+     */
+    export interface ExperimentTimeseriesResults {
+      /** Experiment id. */
+      experiment_id: number;
+      /** UUID of the metric the series belongs to. */
+      metric_uuid: string;
+      /** 'completed' when every day has a result, 'partial' when some do, 'failed' when no day has a result and some failed, 'pending' when no day was calculated yet.
+       *
+       * * `pending` - Pending
+       * * `completed` - Completed
+       * * `partial` - Partial
+       * * `failed` - Failed */
+      status: ExperimentTimeseriesResultsStatusEnum;
+      /** Result per day (YYYY-MM-DD, project timezone) in the ExperimentQueryResponse shape, from the start date to the end date or today. Null for a day without a completed result. */
+      timeseries: ExperimentTimeseriesResultsTimeseries;
+      /**
+         * When the most recent day's result was computed, or null.
+         * @nullable
+         */
+      computed_at: string | null;
+      /** When the oldest stored day was written. */
+      created_at: string;
+      /** When the newest stored day was last written. */
+      updated_at: string;
+      /**
+         * 'pending' or 'in_progress' while a backfill of this series runs, otherwise null.
+         * @nullable
+         */
+      recalculation_status: string | null;
+      /**
+         * When the running backfill was requested, or null.
+         * @nullable
+         */
+      recalculation_created_at: string | null;
+      /** The series as a compact text table, one row per day, for language model consumers. */
+      formatted_results: string;
+      /**
+         * Error message per day (YYYY-MM-DD) whose calculation failed, or null when none failed.
+         * @nullable
+         */
+      errors: ExperimentTimeseriesResultsErrors;
+    }
+
     export interface VariantsExperiment {
       /** The experiment's id. */
       id: number;
@@ -125059,9 +125131,9 @@ export namespace Schemas {
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string;
+    fingerprint?: string;
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */

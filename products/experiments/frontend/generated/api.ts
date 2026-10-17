@@ -38,6 +38,7 @@ import type {
     ExperimentSessionEventDeltaResponseApi,
     ExperimentSetupContextInputApi,
     ExperimentSetupContextResponseApi,
+    ExperimentTimeseriesResultsApi,
     ExperimentWriteApi,
     ExperimentsActivityRetrieveParams,
     ExperimentsListParams,
@@ -1158,11 +1159,14 @@ export const experimentsTimeseriesResultsRetrieve = async (
     id: number,
     params: ExperimentsTimeseriesResultsRetrieveParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<ExperimentTimeseriesResultsApi> => {
+    return apiMutator<ExperimentTimeseriesResultsApi>(
+        getExperimentsTimeseriesResultsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getExperimentsUnarchiveCreateUrl = (projectId: string, id: number) => {

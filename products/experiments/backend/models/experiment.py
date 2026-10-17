@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import Exists, OuterRef, QuerySet
+from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
@@ -474,6 +475,10 @@ class ExperimentMetricResult(models.Model):
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
     fingerprint = models.CharField(max_length=64, null=True, blank=True)  # SHA256 hash is 64 chars
+    # The version 1 key of the calculation config the row was computed from, salted like `fingerprint` on a
+    # recalculation row. It hashes only inputs the experiment owns, so the chart still shows the row after a team
+    # setting moves `fingerprint` away from the current key. No reuse check reads it.
+    display_key = models.CharField(max_length=64, null=True, blank=True)
     query_from = models.DateTimeField()
     query_to = models.DateTimeField()
     status = models.CharField(max_length=20, choices=Status, default=Status.PENDING)
@@ -518,9 +523,11 @@ class ExperimentTimeseriesRecalculation(UUIDModel):
         ]
         constraints = [
             models.UniqueConstraint(
-                fields=["experiment", "fingerprint"],
+                models.F("experiment"),
+                KeyTextTransform("uuid", "metric"),
+                models.F("fingerprint"),
                 condition=models.Q(status__in=["pending", "in_progress"]),
-                name="unique_active_recalculation_per_experiment_metric",
+                name="unique_active_backfill_per_metric_key",
             ),
         ]
         db_table = "posthog_experimenttimeseriesrecalculation"

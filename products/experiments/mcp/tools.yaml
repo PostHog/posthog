@@ -1372,9 +1372,8 @@ tools:
             doing" almost always means, use experiment-metrics-recalculation-latest-retrieve instead.
 
 
-            Requires metric_uuid and fingerprint as query parameters (both available from the experiment's metrics array
-            — each metric has a uuid and the fingerprint is computed from its configuration), so you generally need to
-            fetch the experiment first.
+            Requires metric_uuid as a query parameter, available on each metric in the experiment's metrics array, so
+            you generally need to fetch the experiment first. The fingerprint parameter is ignored and can be left out.
 
 
             Returns a timeseries object keyed by date (YYYY-MM-DD) with per-variant statistical results for each day,

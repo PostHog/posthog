@@ -40,6 +40,11 @@ The write looks the row up on `(experiment, metric_uuid, query_to)` and stores t
 A row that already holds that window under another fingerprint, such as a recalculation result at the same window, is updated in place instead of failing on the unique constraint.
 A failed write is the exception: it leaves a completed row under another fingerprint in place, so a transient failure cannot replace a recalculation result.
 
+The significance notification compares a new daily result with the metric's previous completed point under the same calculation key.
+Without such a point, the latest earlier point under the metric's version 1 key, as fingerprint or display key, stands in.
+That is the point the comparison used before key version 2, so a settings change that version 1 does not cover sends no repeated notification.
+Without any earlier point, every significant variant counts as newly significant, as on the first point of a new experiment.
+
 These workflows used to publish a `timeseries_sync` recalculation row per experiment as well.
 The scheduled recalculation workflow owns that job now, so the publish pass is gated out behind
 `experiment-drop-timeseries-publish-2026-10`.
