@@ -152,8 +152,7 @@ class Dashboard(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin
     @property
     def is_sharing_enabled(self):
         # uses .all and not .first so that prefetching in serializers can be used
-        sharing_configurations = self.sharingconfiguration_set.all()
-        return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
+        return any(config.enabled and config.expires_at is None for config in self.sharingconfiguration_set.all())
 
     @property
     def url(self):
