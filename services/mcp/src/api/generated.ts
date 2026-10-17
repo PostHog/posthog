@@ -3404,6 +3404,41 @@ export namespace Schemas {
       value: string;
     }
 
+    export interface MetricsDashboardVariableSelection {
+      all?: boolean | null;
+      /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+      values: string[];
+    }
+
+    export type MetricsDashboardVariableSource = typeof MetricsDashboardVariableSource[keyof typeof MetricsDashboardVariableSource];
+
+
+    export const MetricsDashboardVariableSource = {
+      Custom: 'custom',
+      Promql: 'promql',
+      Sql: 'sql',
+      Textbox: 'textbox',
+    } as const;
+
+    export interface MetricsDashboardVariable {
+      /** The text that All puts in a PromQL query. `.*` when it is empty. */
+      allValue?: string | null;
+      current?: MetricsDashboardVariableSelection | null;
+      /** The options when `source` is `custom`. */
+      customValues?: string[] | null;
+      includeAll?: boolean | null;
+      /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+      label?: string | null;
+      multi?: boolean | null;
+      /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+      name: string;
+      /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+      query?: string | null;
+      /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+      regex?: string | null;
+      source: MetricsDashboardVariableSource;
+    }
+
     export interface EventPropertyFilter {
       key: string;
       label?: string | null;
@@ -3689,6 +3724,8 @@ export namespace Schemas {
       interval?: IntervalType | null;
       /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
       metricFilters?: MetricsQueryFilter[] | null;
+      /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+      metricVariables?: MetricsDashboardVariable[] | null;
       properties?: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | MetricPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | AccountCustomPropertyFilter | WorkflowVariablePropertyFilter | BehavioralPropertyFilter)[] | null;
     }
 
@@ -58269,6 +58306,18 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    export interface MetricsVariableValue {
+      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`. */
+      all?: boolean | null;
+      allValue?: string | null;
+      values: string[];
+    }
+
+    /**
+     * Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.
+     */
+    export type MetricsQueryVariables = {[key: string]: MetricsVariableValue} | null;
+
     export interface MetricsQuery {
       /** Empty when `language` is `promql` or `sql`. */
       clauses: MetricsQueryClause[];
@@ -58291,6 +58340,8 @@ export namespace Schemas {
       /** HogQL SELECT over the posthog.metric* tables. Used when `language` is `sql`. It must return a `time` and a `value` column; every other column is a series label. `{date_from}`, `{date_to}`, `{interval}` and `{interval_seconds}` are filled in from the date range and interval. */
       sql?: string | null;
       tags?: QueryLogTags | null;
+      /** Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`. */
+      variables?: MetricsQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
@@ -58323,6 +58374,11 @@ export namespace Schemas {
       warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null;
     }
 
+    /**
+     * Values of the dashboard variables that the filters refer to as `$name`.
+     */
+    export type MetricsHistogramQueryVariables = {[key: string]: MetricsVariableValue} | null;
+
     export interface MetricsHistogramQuery {
       /** Defaults to the last 24 hours when omitted; dashboard date filters override it */
       dateRange?: DateRange | null;
@@ -58339,6 +58395,8 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** UCUM unit for the y-axis bounds, e.g. "s", "ms". Presentation only. */
       unit?: string | null;
+      /** Values of the dashboard variables that the filters refer to as `$name`. */
+      variables?: MetricsHistogramQueryVariables;
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
