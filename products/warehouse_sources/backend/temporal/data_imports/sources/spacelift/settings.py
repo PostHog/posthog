@@ -55,7 +55,7 @@ class SpaceliftParentConfig:
     page_size: int = SPACELIFT_PAGE_SIZE
 
 
-@dataclass
+@dataclass(frozen=True)
 class SpaceliftEndpointConfig:
     name: str
     # Top-level GraphQL field, e.g. "searchStacks". Fields prefixed "search" are
@@ -404,7 +404,6 @@ SPACELIFT_ENDPOINTS: dict[str, SpaceliftEndpointConfig] = {
         node_selection=POLICY_EVALUATION_RECORD_SELECTION,
         parent=SpaceliftParentConfig(search_field="searchPolicies", lookup_field="policy", id_column="policyId"),
         page_size=50,
-        order_by=CREATED_AT_DESC,
         primary_keys=["policyId", "key"],
         partition_key=TIMESTAMP,
         partition_mode="datetime",

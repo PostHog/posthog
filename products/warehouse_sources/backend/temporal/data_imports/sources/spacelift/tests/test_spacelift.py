@@ -326,7 +326,8 @@ class TestSpacelift:
 
         assert result.raised is None
         assert result.items == [
-            [{"id": "v1", "moduleId": "mod-a"}, {"id": "v2", "moduleId": "mod-a"}],
+            [{"id": "v1", "moduleId": "mod-a"}],
+            [{"id": "v2", "moduleId": "mod-a"}],
             [{"id": "v3", "moduleId": "mod-c"}],
         ]
         requests = _query_requests(result)
@@ -341,35 +342,49 @@ class TestSpacelift:
         assert requests[2].json()["variables"]["input"]["after"] == "v-1"
         assert requests[4].json()["variables"]["input"]["after"] == "mods-1"
         assert result.saved_states == [
-            SpaceliftResumeConfig(cursor="", completed_parent_id="mod-a"),
-            SpaceliftResumeConfig(cursor="", completed_parent_id="mod-b"),
-            SpaceliftResumeConfig(cursor="mods-1", completed_parent_id="mod-c"),
+            SpaceliftResumeConfig(cursor="", child_parent_id="mod-a", child_cursor="v-1"),
+            SpaceliftResumeConfig(cursor="", completed_parent_ids=["mod-a"]),
+            SpaceliftResumeConfig(cursor="", completed_parent_ids=["mod-a", "mod-b"]),
+            SpaceliftResumeConfig(cursor="mods-1", completed_parent_ids=["mod-c"]),
         ]
 
     @pytest.mark.parametrize(
-        "completed_parent_id, expected_parents",
+        "resume_state, expected_requests",
         [
-            ("mod-a", ["mod-b"]),
-            # The saved parent is gone from the page, so the whole page is read again.
-            ("mod-deleted", ["mod-a", "mod-b"]),
+            (
+                SpaceliftResumeConfig(cursor="mods-1", completed_parent_ids=["mod-a"]),
+                [("mod-b", None)],
+            ),
+            # Parents are skipped by id, so a completed parent that no longer exists changes nothing.
+            (
+                SpaceliftResumeConfig(cursor="mods-1", completed_parent_ids=["mod-a", "mod-deleted"]),
+                [("mod-b", None)],
+            ),
+            # The parent that was partly synced continues from its saved child cursor.
+            (
+                SpaceliftResumeConfig(cursor="mods-1", child_parent_id="mod-a", child_cursor="v-1"),
+                [("mod-a", "v-1"), ("mod-b", None)],
+            ),
         ],
     )
-    def test_child_endpoint_resumes_after_the_last_completed_parent(self, completed_parent_id, expected_parents):
+    def test_child_endpoint_resumes_without_repeating_finished_work(self, resume_state, expected_requests):
         result = _run(
             "module_versions",
             [
                 _response(TOKEN_PAYLOAD),
                 _module_page(["mod-a", "mod-b"]),
-                *[_versions_page([f"v-{parent}"]) for parent in expected_parents],
+                *[_versions_page([f"v-{parent}"]) for parent, _ in expected_requests],
             ],
-            resume_state=SpaceliftResumeConfig(cursor="mods-1", completed_parent_id=completed_parent_id),
+            resume_state=resume_state,
         )
 
         assert result.raised is None
         requests = _query_requests(result)
         assert requests[0].json()["variables"]["input"]["after"] == "mods-1"
-        assert [r.json()["variables"]["id"] for r in requests[1:]] == expected_parents
-        assert [row["moduleId"] for row in result.rows] == expected_parents
+        assert [
+            (r.json()["variables"]["id"], r.json()["variables"]["input"].get("after")) for r in requests[1:]
+        ] == expected_requests
+        assert [row["moduleId"] for row in result.rows] == [parent for parent, _ in expected_requests]
 
     def test_plain_list_endpoint_yields_rows_without_pagination(self):
         result = _run(

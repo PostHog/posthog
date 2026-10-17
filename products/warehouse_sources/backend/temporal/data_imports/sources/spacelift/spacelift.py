@@ -68,13 +68,16 @@ class SpaceliftPermissionError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SpaceliftResumeConfig:
     # Relay `after` cursor of the next page to fetch for the current endpoint. For
     # per-parent endpoints it is the cursor of the parent page being walked.
     cursor: str
-    # Last parent on that parent page whose child rows are all synced.
-    completed_parent_id: str | None = None
+    # Parents on that parent page whose child rows are all synced.
+    completed_parent_ids: list[str] = dataclasses.field(default_factory=list)
+    # Parent whose child rows are partly synced, and the cursor of its next child page.
+    child_parent_id: str | None = None
+    child_cursor: str | None = None
 
 
 def normalize_account_name(account_name: str) -> str:
@@ -484,26 +487,30 @@ def _iter_parent_pages(
             return
 
 
-def _collect_child_rows(
-    client: SpaceliftClient, endpoint_config: SpaceliftEndpointConfig, parent_id: str
-) -> list[dict[str, Any]]:
+def _iter_child_pages(
+    client: SpaceliftClient, endpoint_config: SpaceliftEndpointConfig, parent_id: str, after: str | None
+) -> Iterator[tuple[list[dict[str, Any]], str | None]]:
+    """Yield `(rows, cursor of the next child page or None)` for each child page of one parent."""
     assert endpoint_config.parent is not None
     query = build_child_query(endpoint_config)
     search_input = _build_search_input(endpoint_config)
-    rows: list[dict[str, Any]] = []
+    if after:
+        search_input["after"] = after
 
     while True:
         data = client.execute(query, {"id": parent_id, "input": search_input})
         # A parent deleted after it was listed resolves to null.
         connection = (data.get(endpoint_config.parent.lookup_field) or {}).get(endpoint_config.graphql_field) or {}
-        for edge in connection.get("edges") or []:
-            node = edge.get("node")
-            if node is not None:
-                rows.append({**node, endpoint_config.parent.id_column: parent_id})
+        rows = [
+            {**edge["node"], endpoint_config.parent.id_column: parent_id}
+            for edge in connection.get("edges") or []
+            if edge.get("node") is not None
+        ]
 
         after = _next_cursor(connection.get("pageInfo") or {}, endpoint_config.name)
+        yield rows, after
         if after is None:
-            return rows
+            return
         search_input["after"] = after
 
 
@@ -515,27 +522,39 @@ def _get_child_rows(
     assert endpoint_config.parent is not None
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    skip_until = resume_config.completed_parent_id if resume_config is not None else None
+    completed_parent_ids = list(resume_config.completed_parent_ids) if resume_config is not None else []
+    child_parent_id = resume_config.child_parent_id if resume_config is not None else None
+    child_cursor = resume_config.child_cursor if resume_config is not None else None
     start_cursor = resume_config.cursor if resume_config is not None and resume_config.cursor else None
 
     for page_cursor, parent_ids in _iter_parent_pages(
         client, endpoint_config.parent, start_cursor, endpoint_config.name
     ):
-        # On resume, skip parents of the saved page that already finished. If the saved
-        # parent no longer exists, re-read the whole page; the merge dedupes it.
-        if skip_until is not None and skip_until in parent_ids:
-            parent_ids = parent_ids[parent_ids.index(skip_until) + 1 :]
-        skip_until = None
-
         for parent_id in parent_ids:
-            rows = _collect_child_rows(client, endpoint_config, parent_id)
-            resumable_source_manager.save_state(
-                SpaceliftResumeConfig(cursor=page_cursor or "", completed_parent_id=parent_id)
-            )
-            if rows:
-                yield rows
-            else:
-                resumable_source_manager.safe_point()
+            if parent_id in completed_parent_ids:
+                continue
+
+            after = child_cursor if parent_id == child_parent_id else None
+            for rows, next_after in _iter_child_pages(client, endpoint_config, parent_id, after):
+                if next_after is None:
+                    completed_parent_ids.append(parent_id)
+                resumable_source_manager.save_state(
+                    SpaceliftResumeConfig(
+                        cursor=page_cursor or "",
+                        completed_parent_ids=list(completed_parent_ids),
+                        child_parent_id=parent_id if next_after is not None else None,
+                        child_cursor=next_after,
+                    )
+                )
+                if rows:
+                    yield rows
+                else:
+                    resumable_source_manager.safe_point()
+
+        # The saved progress only applies to the parent page it was recorded on.
+        completed_parent_ids = []
+        child_parent_id = None
+        child_cursor = None
 
 
 def _get_rows(
