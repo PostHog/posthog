@@ -150,7 +150,7 @@ from posthog.tasks.email import (
     send_two_factor_auth_enabled_email,
 )
 from posthog.user_permissions import UserPermissions
-from posthog.utils import render_template, safe_cache_add
+from posthog.utils import get_safe_cache, render_template, safe_cache_set
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -236,8 +236,15 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
 
 
 def _person_properties_refresh_due(user: User) -> bool:
-    key = f"user_person_properties_refreshed:{user.id}:{user.current_organization_id}:{user.current_team_id}"
-    return safe_cache_add(key, True, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
+    # Store the last refreshed project, not one key per project. A project switch through
+    # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
+    # must refresh too.
+    key = f"user_person_properties_refreshed:{user.id}"
+    context = f"{user.current_organization_id}:{user.current_team_id}"
+    if get_safe_cache(key) == context:
+        return False
+    safe_cache_set(key, context, timeout=PERSON_PROPERTIES_REFRESH_INTERVAL_SECONDS)
+    return True
 
 
 class UserSerializer(serializers.ModelSerializer):
