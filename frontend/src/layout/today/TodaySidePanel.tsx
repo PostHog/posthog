@@ -1,19 +1,28 @@
+import { useValues } from 'kea'
+
 import { Resizer } from 'lib/components/Resizer/Resizer'
+import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { cn } from 'lib/utils/css-classes'
 
 import { useSidePanelFrame } from '~/layout/navigation-3000/sidepanel/useSidePanelFrame'
 
 import { TodayContextPanelCard } from './TodayContextPanelCard'
+import { todayShellLogic } from './todayShellLogic'
 
 // The Today layout gives the panel its own grid column, so a wider panel takes the space from the scene.
 const TODAY_SIDE_PANEL_MAX_WIDTH = 720
 // Matches the floating card, so docking keeps the panel's width.
 const TODAY_SIDE_PANEL_DEFAULT_WIDTH = 340
+// The scene keeps at least this much width beside a wide panel, so a narrow window never collapses it.
+const TODAY_SCENE_MIN_WIDTH = 320
 
 export function TodaySidePanel(): JSX.Element | null {
+    const { leftNavWidth } = useValues(todayShellLogic)
+    const { windowSize } = useWindowSize()
+    const roomBesideNav = windowSize.width != null ? windowSize.width - leftNavWidth - TODAY_SCENE_MIN_WIDTH : Infinity
     const { ref, resizerLogicProps, isResizeInProgress, activeTab, width, hasTabs } = useSidePanelFrame({
         defaultWidth: TODAY_SIDE_PANEL_DEFAULT_WIDTH,
-        maxWidth: TODAY_SIDE_PANEL_MAX_WIDTH,
+        maxWidth: Math.min(TODAY_SIDE_PANEL_MAX_WIDTH, roomBesideNav),
     })
 
     if (!hasTabs) {
