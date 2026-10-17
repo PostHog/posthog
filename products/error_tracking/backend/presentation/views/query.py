@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Literal, cast
 
 from django.utils.timezone import now
@@ -7,7 +9,7 @@ from django.utils.timezone import now
 import structlog
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import (
@@ -22,8 +24,10 @@ from posthog.schema import (
 from posthog.hogql.errors import ResolutionError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.query import CONCURRENCY_LIMIT_USER_MESSAGE
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -74,6 +78,15 @@ from products.error_tracking.backend.presentation.views.query_serializers import
 logger = structlog.get_logger(__name__)
 
 
+@contextmanager
+def throttle_on_concurrency_limit() -> Iterator[None]:
+    try:
+        yield
+    except ConcurrencyLimitExceeded as error:
+        logger.warning("error_tracking_query_concurrency_limit_exceeded", detail=str(error))
+        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE) from error
+
+
 class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "error_tracking"
 
@@ -112,7 +125,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        data = query_facade.run_error_tracking_query(self.team, query)
+        with throttle_on_concurrency_limit():
+            data = query_facade.run_error_tracking_query(self.team, query)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         results = [
@@ -166,7 +180,8 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        data = query_facade.run_error_tracking_query(self.team, query)
+        with throttle_on_concurrency_limit():
+            data = query_facade.run_error_tracking_query(self.team, query)
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         if not raw_results:
@@ -254,7 +269,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 tags={"productKey": "error_tracking"},
             ),
         )
-        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY), throttle_on_concurrency_limit():
             response = runner.run(
                 execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=cast(User, request.user)
             )
@@ -308,7 +323,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             offset=offset,
             tags={"productKey": "error_tracking"},
         )
-        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY):
+        with tags_context(product=Product.ERROR_TRACKING, feature=Feature.QUERY), throttle_on_concurrency_limit():
             try:
                 data = (
                     EventsQueryRunner(team=self.team, query=query, user=request.user)
