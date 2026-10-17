@@ -18,6 +18,11 @@ export type ScheduledRequest<T> =
           waitMs: number
       }
 
+type RunScheduledOptions = {
+    configurationRequest: boolean
+    sourcePartitions?: readonly number[]
+}
+
 function blockingReasonForStoppedGrant(grant: Extract<BudgetGrant, { granted: false }>): ImageFetchBlockReason {
     if (grant.reason === 'backoff') {
         return grant.backoffReason ?? 'unknown_backoff'
@@ -40,7 +45,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
     }
 
     public run<T>(url: URL, deadlineMs: number, request: () => Promise<T>): Promise<ScheduledRequest<T>> {
-        return this.runScheduled(url, deadlineMs, true, undefined, request)
+        return this.runScheduled(url, deadlineMs, { configurationRequest: true }, request)
     }
 
     public runImage<T>(
@@ -49,7 +54,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
         request: () => Promise<T>,
         sourcePartitions?: readonly number[]
     ): Promise<ScheduledRequest<T>> {
-        return this.runScheduled(url, deadlineMs, false, sourcePartitions, request)
+        return this.runScheduled(url, deadlineMs, { configurationRequest: false, sourcePartitions }, request)
     }
 
     public get running(): number {
@@ -59,8 +64,7 @@ export class OriginRequestScheduler implements ConfigurationRequestScheduler {
     private async runScheduled<T>(
         url: URL,
         deadlineMs: number,
-        configurationRequest: boolean,
-        sourcePartitions: readonly number[] | undefined,
+        { configurationRequest, sourcePartitions }: RunScheduledOptions,
         request: () => Promise<T>
     ): Promise<ScheduledRequest<T>> {
         const requestKind = configurationRequest ? 'configuration' : 'image'
