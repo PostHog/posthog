@@ -55,6 +55,13 @@ REPORT_CHUNK_BYTES = 1 << 16
 # Keep AppsFlyer's rejection reason short enough to read in a setup error.
 MAX_REJECTION_REASON_CHARS = 300
 _HTML_MARKUP = re.compile(r"<\s*(!doctype|html|head|body)\b", re.IGNORECASE)
+# AppsFlyer answers a used-up daily report quota with a 4xx whose body says "Limit reached for <report>".
+# The status code alone can't tell it apart from a real access problem, so match the body.
+_QUOTA_REACHED = re.compile(r"limit reached", re.IGNORECASE)
+QUOTA_REACHED_MESSAGE = (
+    "Your AppsFlyer daily report limit is reached. Try again after it resets at 00:00 UTC, "
+    "or ask AppsFlyer to raise your account's Pull API quota."
+)
 
 
 @frozen
@@ -97,6 +104,10 @@ class AppsFlyerRetryableError(Exception):
     pass
 
 
+class AppsFlyerQuotaError(Exception):
+    pass
+
+
 class AppsFlyerCredentialsError(Exception):
     """A credential check failed for a reason we can explain to the user (bad token, bad app id)."""
 
@@ -135,6 +146,10 @@ def _rejection_reason(response: requests.Response, api_token: str) -> str | None
     if not reason or reason.startswith("<") or _HTML_MARKUP.search(reason):
         return None
     return reason.replace(_normalize_token(api_token), "[redacted]")[:MAX_REJECTION_REASON_CHARS]
+
+
+def _is_quota_reached(response: requests.Response) -> bool:
+    return bool(_QUOTA_REACHED.search(response.text))
 
 
 def _credentials_error(message: str, response: requests.Response, api_token: str) -> AppsFlyerCredentialsError:
@@ -263,7 +278,10 @@ def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogg
 
     if not response.ok:
         logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+        quota_reached = _is_quota_reached(response)
         response.close()
+        if quota_reached:
+            raise AppsFlyerQuotaError(QUOTA_REACHED_MESSAGE)
         response.raise_for_status()
 
     return response
@@ -310,6 +328,10 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         raise AppsFlyerRetryableError(f"AppsFlyer API error (retryable): status={response.status_code}")
     if response.status_code == 200:
         return True
+    # The probe itself uses one daily_report pull, so a used-up quota shows up here too. AppsFlyer
+    # sends it as a 403, which would otherwise read as an access problem.
+    if _is_quota_reached(response):
+        raise _credentials_error(QUOTA_REACHED_MESSAGE, response, api_token)
     # 401 is an auth failure (bad token); 403 means the token can't reach this app; 404 means
     # the app id is wrong. Surface which one so the user isn't left guessing.
     if response.status_code == 401:

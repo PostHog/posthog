@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.appsflyer import (
+    QUOTA_REACHED_MESSAGE,
     AppsFlyerCredentialsError,
     AppsFlyerRetryableError,
     appsflyer_source,
@@ -106,6 +107,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
+            QUOTA_REACHED_MESSAGE: QUOTA_REACHED_MESSAGE,
             "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com": "AppsFlyer authentication failed. Please check your API token (V2).",
             "403 Client Error: Forbidden for url: https://hq1.appsflyer.com": "AppsFlyer denied access. Please check that your account's subscription includes the report being synced and the app id is correct.",
             "404 Client Error: Not Found for url: https://hq1.appsflyer.com": "AppsFlyer app not found. Please check the app id.",
