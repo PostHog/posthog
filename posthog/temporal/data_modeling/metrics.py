@@ -52,6 +52,17 @@ def get_managed_warehouse_trino_compile_failure_metric(error_code: str) -> Metri
     )
 
 
+def get_managed_warehouse_trino_user_error_metric(error_name: str) -> MetricCounter:
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"error_name": error_name})
+        .create_counter(
+            "managed_warehouse_shadow_trino_user_error",
+            "Number of managed warehouse shadow builds that Trino rejected with a user error, by error name.",
+        )
+    )
+
+
 @frozen
 class _DualMetricCounters:
     managed_warehouse: MetricCounter

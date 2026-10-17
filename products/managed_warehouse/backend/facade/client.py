@@ -232,6 +232,13 @@ async def request_model_alias_reconciliation(team_id: int, saved_query_id: str |
     await request(team_id, saved_query_id)
 
 
+def is_trino_user_error(error: BaseException) -> bool:
+    """Tell if Trino rejected the query itself, for example for a column or table it cannot resolve."""
+    from trino.exceptions import TrinoUserError  # noqa: PLC0415 -- keeps the optional Trino driver off startup paths
+
+    return isinstance(error, TrinoUserError)
+
+
 async def execute_trino_model(
     *,
     organization_id: str,
