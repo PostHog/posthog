@@ -365,6 +365,11 @@ export type queryPerformanceLogicType = MakeLogicType<
     queryPerformanceLogicMeta
 >
 
+// The number input can emit decimals or NaN while the user types. The backend rejects them with a 400.
+export function isPositiveIntegerId(value: string): boolean {
+    return /^[1-9]\d*$/.test(value)
+}
+
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
     path(['scenes', 'experiments', 'queryPerformanceLogic']),
     actions({
@@ -513,10 +518,10 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             {
                 loadSlowestQueries: async () => {
                     const params = new URLSearchParams({ hours: String(values.hoursBack) })
-                    if (values.teamIdFilter) {
+                    if (isPositiveIntegerId(values.teamIdFilter)) {
                         params.append('team_id', values.teamIdFilter)
                     }
-                    if (values.experimentIdFilter) {
+                    if (isPositiveIntegerId(values.experimentIdFilter)) {
                         params.append('experiment_id', values.experimentIdFilter)
                     }
                     if (values.metricTypeFilter) {
