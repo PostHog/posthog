@@ -1455,7 +1455,7 @@ export interface FeatureFlagConditionPropertyAnalysisApi {
     key: string
     /** Comparison operator */
     operator: string
-    /** Expected property value */
+    /** Expected property value. Null when the operator takes no value, for example is_set. */
     value: unknown
     /** Property type (person, group, etc.) */
     type: string
