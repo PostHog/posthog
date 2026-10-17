@@ -149,7 +149,7 @@ export function WizardRunDiffViewer({
                 )
 
                 return (
-                    <Card key={`${file.name}-${file.cacheKey ?? ''}`} flush className="overflow-clip">
+                    <Card key={`${file.name}-${file.cacheKey ?? ''}`} flush className="overflow-clip pt-0">
                         {nonTextChange ? (
                             <>
                                 {header}

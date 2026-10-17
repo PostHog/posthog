@@ -244,7 +244,7 @@ export function WizardRunTable({
                     ))}
                 </div>
             ) : (
-                <Card size="sm" flush className="overflow-hidden">
+                <Card size="sm" flush className="overflow-hidden pt-0">
                     <DataTable
                         columns={columns}
                         data={runs}
