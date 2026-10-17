@@ -4,6 +4,8 @@ import pytest
 
 from django.utils import timezone
 
+from posthog.models import User
+
 from products.wizard.backend.facade.enums import (
     WizardRunDispatchStatus,
     WizardRunEnvironment,
@@ -12,12 +14,16 @@ from products.wizard.backend.facade.enums import (
 )
 from products.wizard.backend.facade.errors import (
     ActiveWizardRunError,
+    ProjectActiveWizardRunError,
     WizardRunDailyLimitError,
     WizardRunHourlyLimitError,
 )
 from products.wizard.backend.logic.programs import program_to_mapping
 from products.wizard.backend.logic.registry.config import POSTHOG_INTEGRATION_PROGRAM
-from products.wizard.backend.logic.runs.admission import enforce_cloud_run_creation_policy
+from products.wizard.backend.logic.runs.admission import (
+    enforce_cloud_run_creation_policy,
+    enforce_project_cloud_run_policy,
+)
 from products.wizard.backend.logic.runs.config import CLOUD_RUN_DAILY_LIMIT, CLOUD_RUN_HOURLY_LIMIT
 from products.wizard.backend.models import WizardRun
 
@@ -72,3 +78,26 @@ def test_cloud_admission_ignores_historical_runs(team, user) -> None:
     _create_cloud_run(team.id, user.id, WizardRunStatus.COMPLETED, timedelta(days=2))
 
     enforce_cloud_run_creation_policy(team.id, user.id)
+
+
+@pytest.mark.parametrize(
+    ("status", "expected_error"),
+    [
+        (WizardRunStatus.CREATED, ProjectActiveWizardRunError),
+        (WizardRunStatus.RUNNING, ProjectActiveWizardRunError),
+        (WizardRunStatus.COMPLETED, None),
+    ],
+)
+@pytest.mark.django_db
+def test_project_admission_counts_active_runs_of_every_user(
+    team, user, status: WizardRunStatus, expected_error: type[Exception] | None
+) -> None:
+    teammate = User.objects.create_and_join(team.organization, "teammate@example.com", "password")
+    _create_cloud_run(team.id, teammate.id, status, timedelta(minutes=5))
+
+    enforce_cloud_run_creation_policy(team.id, user.id)
+    if expected_error is None:
+        enforce_project_cloud_run_policy(team.id)
+    else:
+        with pytest.raises(expected_error):
+            enforce_project_cloud_run_policy(team.id)

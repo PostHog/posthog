@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -67,6 +68,7 @@ def _create_cloud_run(
     *,
     program_id: str = "posthog-integration",
     registry_payload: object = None,
+    branch: str | None = None,
 ) -> WizardRunDTO:
     with (
         patch("posthoganalytics.get_feature_flag_payload", return_value=registry_payload),
@@ -85,7 +87,7 @@ def _create_cloud_run(
                 created_by_id=user_id,
                 environment=WizardRunEnvironment.CLOUD,
                 idempotency_key="test-cloud-activity",
-                workspace=GitRepositoryWorkspace(repository="posthog/posthog"),
+                workspace=GitRepositoryWorkspace(repository="posthog/posthog", branch=branch),
                 program_id=program_id,
             )
         )
@@ -188,9 +190,10 @@ def test_provision_worker_uses_persisted_run_identity(team, user) -> None:
     provision.assert_not_called()
 
 
+@pytest.mark.parametrize("branch", [None, "release/next"])
 @pytest.mark.django_db(transaction=True)
-def test_clone_repository_rechecks_access_before_preparing_workspace(team, user) -> None:
-    run = _create_cloud_run(team.id, user.id)
+def test_clone_repository_rechecks_access_before_preparing_workspace(team, user, branch: str | None) -> None:
+    run = _create_cloud_run(team.id, user.id, branch=branch)
     worker = _worker(run)
 
     with (
@@ -209,7 +212,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user)
     ):
         result = async_to_sync(_run_clone_repository)(worker)
 
-    assert result == _workspace(run)
+    assert result == replace(_workspace(run), base_branch=branch)
     assert wizard_facade.get_run(team.id, run.id).stage == "preparing_workspace"
     resolve_integration.assert_called_once_with(team.id)
     repository_accessible.assert_called_once_with(team.id, 456, "posthog/posthog")
@@ -218,6 +221,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user)
             sandbox_id=worker.sandbox_id,
             github_integration_id=456,
             repository="posthog/posthog",
+            branch=branch,
         )
     )
 

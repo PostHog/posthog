@@ -40,7 +40,12 @@ from products.wizard.backend.logic.runs import (
     cancellation as cancellation_service,
     store,
 )
-from products.wizard.backend.logic.runs.admission import enforce_cloud_run_creation_policy, lock_cloud_run_creation
+from products.wizard.backend.logic.runs.admission import (
+    enforce_cloud_run_creation_policy,
+    enforce_project_cloud_run_policy,
+    lock_cloud_run_creation,
+    lock_project_cloud_run_creation,
+)
 from products.wizard.backend.logic.runs.dispatch import dispatch_created_cloud_wizard_run_to_temporal_worker
 from products.wizard.backend.logic.runs.errors import WizardRunDispatchError
 from products.wizard.backend.logic.runs.fingerprints import create_run_request_fingerprint
@@ -107,6 +112,10 @@ def create_run_with_result(params: CreateWizardRunInput) -> WizardRunCreationRes
 
     with database_transaction.atomic():
         if is_cloud_run:
+            # Take the project lock before the user lock, so two admissions never wait on each other in reverse order.
+            if params.one_active_run_per_project:
+                lock_project_cloud_run_creation(params.team_id)
+                enforce_project_cloud_run_policy(params.team_id, params.idempotency_key)
             lock_cloud_run_creation(params.team_id, params.created_by_id)
             enforce_cloud_run_creation_policy(params.team_id, params.created_by_id, params.idempotency_key)
 
