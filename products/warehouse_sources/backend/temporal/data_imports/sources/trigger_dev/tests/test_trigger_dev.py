@@ -158,15 +158,15 @@ class TestRunsCursorPagination:
         result = _run("waitpoint_tokens", [_json({"data": [token], "pagination": {}})])
         assert result.rows == [{"id": "waitpoint_1", "status": "WAITING", "createdAt": "2026-01-12T00:00:00Z"}]
 
-    def test_checkpoints_current_page_cursor_after_yield(self) -> None:
-        # Resume must re-fetch the last yielded page (checkpoint the CURRENT cursor, not the next one)
-        # so a crash can't skip rows; merge dedupes the re-pulled page.
+    def test_stages_next_page_cursor_before_each_yield(self) -> None:
+        # A resumed full refresh appends without merging, so the state must point at the first unread
+        # page: staging the current cursor would replay a page that was already written.
         responses = [
             _json({"data": [{"id": "r3"}], "pagination": {"next": "r2"}}),
             _json({"data": [{"id": "r1"}], "pagination": {"next": None}}),
         ]
-        result = _run("runs", responses)
-        assert [s.after for s in result.saved_states] == [None, "r2"]
+        result = _run("errors", responses)
+        assert [s.after for s in result.saved_states] == ["r2"]
 
 
 class TestRunEventsFanOut:

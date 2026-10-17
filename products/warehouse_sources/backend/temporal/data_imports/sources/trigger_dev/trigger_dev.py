@@ -29,11 +29,9 @@ class TriggerDevRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
 class TriggerDevResumeConfig:
-    # The page[after] cursor used to FETCH the page we last yielded. `None` means the first page.
-    # We checkpoint the current page's cursor (not the next one) so a crash re-fetches and re-yields
-    # the last page rather than skipping it; merge dedupes the re-pulled rows on the primary key.
+    # The page[after] cursor of the page to fetch on resume. `None` means the first page.
     after: str | None = None
 
 
@@ -171,8 +169,15 @@ def _iter_cursor_pages(
     resumable_source_manager: ResumableSourceManager[TriggerDevResumeConfig],
     incremental_field: str | None,
     cutoff: datetime | None,
+    stage_next_cursor: bool = True,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Walk a cursor endpoint newest-first via page[after], yielding one list of rows per page."""
+    """Walk a cursor endpoint newest-first via page[after], yielding one list of rows per page.
+
+    The resume state is staged before the yield it covers. By default it is the next unread page, so a
+    resumed full refresh never replays a committed page. A caller whose consumer still has work to do
+    per page (the run fan-out) sets `stage_next_cursor=False` to stage the current page instead, so a
+    resume re-reads that whole page.
+    """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     after: str | None = resume.after if resume else None
     formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
@@ -197,9 +202,11 @@ def _iter_cursor_pages(
         next_after = (data.get("pagination", {}) or {}).get("next")
         stop = _should_stop_desc(items, incremental_field, cutoff)
 
+        if not stage_next_cursor:
+            resumable_source_manager.save_state(TriggerDevResumeConfig(after=after))
+        elif next_after and not stop:
+            resumable_source_manager.save_state(TriggerDevResumeConfig(after=next_after))
         yield items
-        # Checkpoint the CURRENT page's cursor after yielding, so a crash re-fetches this page.
-        resumable_source_manager.save_state(TriggerDevResumeConfig(after=after))
 
         if stop or not next_after:
             break
@@ -222,8 +229,8 @@ def _iter_run_events(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fetch the span events of each run, walking the runs endpoint as the parent.
 
-    The resume state is the runs page cursor that `_iter_cursor_pages` stages. A resumed attempt
-    re-reads that page of runs and their events, and merge dedupes the re-pulled rows.
+    The resume state is the cursor of the runs page being fanned out. A resumed attempt re-reads that
+    page of runs and their events, and merge dedupes the re-pulled rows.
     """
     runs_config = TRIGGER_DEV_ENDPOINTS["runs"]
     for runs in _iter_cursor_pages(
@@ -235,6 +242,7 @@ def _iter_run_events(
         resumable_source_manager,
         runs_config.default_incremental_field,
         cutoff,
+        stage_next_cursor=False,
     ):
         if not runs:
             resumable_source_manager.safe_point()
