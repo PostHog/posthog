@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 
@@ -67,6 +68,21 @@ describe('offlineExperimentLogic', () => {
         logic.actions.refresh()
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.cellBatches[0]?.state).toBe('loaded')
+    })
+
+    it.each([
+        [404, 0],
+        [500, 3],
+    ])('reports %s failures from the parallel experiment loads %s times', async (status, reports) => {
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined)
+        readExperiment.mockRejectedValue(new ApiError('Failed', status))
+        readSummaries.mockRejectedValue(new ApiError('Failed', status))
+        readItems.mockRejectedValue(new ApiError('Failed', status))
+        const logic = offlineExperimentLogic({ teamId: 543, experimentId: detailExperiment.id })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.experimentError).toBeTruthy()
+        expect(captureException).toHaveBeenCalledTimes(reports)
     })
 
     it('does not replace cells for a new item page with a late response from the previous page', async () => {
