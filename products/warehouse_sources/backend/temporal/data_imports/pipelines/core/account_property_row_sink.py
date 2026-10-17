@@ -53,6 +53,15 @@ _MISSING_OBJECT_ERROR_NEEDLES = (
 # entry point.
 _LOG_SEGMENT_VERSION_MISMATCH_NEEDLE = "not the same as the specified end version"
 
+# delta-rs raises this TableNotFoundError when the table's _delta_log holds no commit files. A full
+# refresh purges the log before it writes the new first commit, so a read in that window sees an
+# empty log. The condition clears when the refresh commits.
+_EMPTY_LOG_SEGMENT_NEEDLE = "no files in log segment"
+
+
+class AccountPropertyStagingTableNotCommittedError(Exception):
+    """The source view's Delta table has no committed version yet. A later attempt can succeed."""
+
 
 def _is_missing_object_error(error: BaseException) -> bool:
     if not isinstance(error, OSError):
@@ -65,6 +74,12 @@ def _is_stale_pinned_version_error(error: BaseException) -> bool:
     if _is_missing_object_error(error):
         return True
     return isinstance(error, deltalake.exceptions.DeltaError) and _LOG_SEGMENT_VERSION_MISMATCH_NEEDLE in str(error)
+
+
+def _is_empty_log_segment_error(error: BaseException) -> bool:
+    return (
+        isinstance(error, deltalake.exceptions.TableNotFoundError) and _EMPTY_LOG_SEGMENT_NEEDLE in str(error).lower()
+    )
 
 
 class AccountPropertyRowSink:
@@ -172,6 +187,8 @@ class AccountPropertyRowSink:
         try:
             await self._stage_committed_files(table_uri, delta_version)
         except (OSError, deltalake.exceptions.DeltaError) as error:
+            if _is_empty_log_segment_error(error):
+                raise AccountPropertyStagingTableNotCommittedError(str(error)) from error
             if not _is_stale_pinned_version_error(error):
                 raise
             # `delta_version` was pinned right after the materialize run that produced it, but the
@@ -188,7 +205,12 @@ class AccountPropertyRowSink:
                 "re-staging the current committed snapshot instead"
             )
             await self.clear()
-            await self._stage_committed_files(table_uri, delta_version=None)
+            try:
+                await self._stage_committed_files(table_uri, delta_version=None)
+            except deltalake.exceptions.TableNotFoundError as error:
+                if not _is_empty_log_segment_error(error):
+                    raise
+                raise AccountPropertyStagingTableNotCommittedError(str(error)) from error
         return True
 
     async def _stage_committed_files(self, table_uri: str, delta_version: int | None) -> None:

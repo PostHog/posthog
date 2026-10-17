@@ -41,6 +41,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.acc
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.account_property_row_sink import (
     AccountPropertyRowSink,
+    AccountPropertyStagingTableNotCommittedError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_paths import (
     job_staged_prefix as person_property_job_staged_prefix,
@@ -67,6 +68,7 @@ __all__ = [
     "WORKFLOWS",
     "ExternalDataSchemaSyncPausedError",
     "AccountPropertyRowSink",
+    "AccountPropertyStagingTableNotCommittedError",
     "account_property_completion_prefix",
     "account_property_job_staged_prefix",
     "account_property_snapshot_prefix",
