@@ -8,7 +8,7 @@ export function TodayTopBar(): JSX.Element {
     return (
         <header
             data-quill
-            className="TodayTopBar grid grid-cols-[minmax(max-content,1fr)_minmax(10rem,36rem)_minmax(max-content,1fr)] items-center gap-2 bg-[var(--chrome)] pe-2"
+            className="TodayTopBar grid grid-cols-[minmax(max-content,1fr)_minmax(10rem,840px)_minmax(max-content,1fr)] items-center gap-2 bg-[var(--chrome)] pe-2"
         >
             <div className="flex min-w-0 items-center gap-0.5">
                 <TodayProjectMenu />
