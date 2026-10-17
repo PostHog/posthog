@@ -93,6 +93,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.cus
     ClientFactory,
     InvoiceListWithAllLines,
     RateLimitCallback,
+    WebhookObjectRefetcher,
+    WebhookRefetch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     APPEND_ONLY_INCREMENTAL_FIELDS,
@@ -883,6 +885,22 @@ def _build_resources(
     }
 
 
+def _client_factory(
+    api_key: str, account_id: Optional[str], api_version: str
+) -> Callable[[Optional[RateLimitCallback]], StripeClient]:
+    def new_client(on_rate_limited: Optional[RateLimitCallback]) -> StripeClient:
+        return StripeClient(
+            api_key,
+            stripe_account=account_id,
+            stripe_version=api_version,
+            max_network_retries=2,
+            base_addresses=_stripe_base_addresses(),
+            http_client=_tracked_stripe_http_client(on_rate_limited=on_rate_limited),
+        )
+
+    return new_client
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -895,17 +913,8 @@ def get_rows(
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
 ):
-    def new_client(on_rate_limited: Optional[RateLimitCallback] = None) -> StripeClient:
-        return StripeClient(
-            api_key,
-            stripe_account=account_id,
-            stripe_version=api_version,
-            max_network_retries=2,
-            base_addresses=_stripe_base_addresses(),
-            http_client=_tracked_stripe_http_client(on_rate_limited=on_rate_limited),
-        )
-
-    client = new_client()
+    new_client = _client_factory(api_key, account_id, api_version)
+    client = new_client(None)
     default_params = {"limit": DEFAULT_LIMIT}
     resources = _build_resources(client, logger=logger, client_factory=new_client)
 
@@ -1187,7 +1196,7 @@ def _webhook_tie_break(obj: dict) -> int:
     return _INVOICE_STATUS_STAGE.get(obj.get("status") or "", 0)
 
 
-def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+def _latest_webhook_objects(table: pa.Table) -> list[dict[str, Any]]:
     data_col = table.column("data").to_pylist()
     created_col = table.column("created").to_pylist()
 
@@ -1215,8 +1224,70 @@ def _webhook_table_transformer(table: pa.Table) -> pa.Table:
         if existing is None or rank >= existing[0]:
             best_by_id[obj_id] = (rank, obj)
 
-    rows = [_scrub_client_secrets(obj) for _, obj in best_by_id.values()]
-    return table_from_py_list(rows)
+    return [obj for _, obj in best_by_id.values()]
+
+
+def _webhook_table_transformer(table: pa.Table) -> pa.Table:
+    return table_from_py_list([_scrub_client_secrets(obj) for obj in _latest_webhook_objects(table)])
+
+
+def _refetching_webhook_table_transformer(refetcher: WebhookObjectRefetcher) -> Callable[[pa.Table], pa.Table]:
+    def transform(table: pa.Table) -> pa.Table:
+        objects = refetcher.complete(_latest_webhook_objects(table))
+        return table_from_py_list([_scrub_client_secrets(obj) for obj in objects])
+
+    return transform
+
+
+def _lines_truncated(obj: dict[str, Any]) -> bool:
+    lines = obj.get("lines")
+    return isinstance(lines, Mapping) and bool(lines.get("has_more"))
+
+
+def _tiers_missing(obj: dict[str, Any]) -> bool:
+    return obj.get("billing_scheme") == "tiered" and not obj.get("tiers")
+
+
+def _discounts_unexpanded(obj: dict[str, Any]) -> bool:
+    items = (obj.get("items") or {}).get("data") or []
+    discounts = [*(obj.get("discounts") or []), *(d for item in items for d in (item.get("discounts") or []))]
+    return any(isinstance(discount, str) for discount in discounts)
+
+
+def _with_all_lines(obj: dict[str, Any], lines: ListObject[Any]) -> dict[str, Any]:
+    return {**obj, "lines": {**obj["lines"], "data": list(lines.auto_paging_iter()), "has_more": False, "url": None}}
+
+
+# Each entry adds back what the event payload leaves out. Invoices and credit notes keep the event's
+# fields and only fetch their lines, which is one request per object instead of two.
+WEBHOOK_REFETCH: dict[str, WebhookRefetch] = {
+    INVOICE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_lines_truncated,
+        complete=lambda client, invoice: _with_all_lines(
+            invoice, client.invoices.line_items.list(invoice["id"], params={"limit": DEFAULT_LIMIT})
+        ),
+    ),
+    CREDIT_NOTE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_lines_truncated,
+        complete=lambda client, credit_note: _with_all_lines(
+            credit_note, client.credit_notes.line_items.list(credit_note["id"], params={"limit": DEFAULT_LIMIT})
+        ),
+    ),
+    PRICE_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_tiers_missing,
+        complete=lambda client, price: client.prices.retrieve(price["id"], params={"expand": ["tiers"]}),
+    ),
+    PLAN_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_tiers_missing,
+        complete=lambda client, plan: client.plans.retrieve(plan["id"], params={"expand": ["tiers"]}),
+    ),
+    SUBSCRIPTION_RESOURCE_NAME: WebhookRefetch(
+        is_incomplete=_discounts_unexpanded,
+        complete=lambda client, subscription: client.subscriptions.retrieve(
+            subscription["id"], params={"expand": ["discounts", "items.data.discounts"]}
+        ),
+    ),
+}
 
 
 def _webhook_history_table_transformer(table: pa.Table) -> pa.Table:
@@ -1310,6 +1381,7 @@ def stripe_source(
     team_id: Optional[int] = None,
     source_id: Optional[str] = None,
     use_warehouse_parent: bool = False,
+    api_key_provider: Optional[Callable[[], str]] = None,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1332,11 +1404,22 @@ def stripe_source(
         if webhook_enabled:
             # History tables keep every event as its own row; everything else collapses each
             # batch to the latest state per object id and upserts it.
-            table_transformer = (
-                _webhook_history_table_transformer
-                if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME
-                else _webhook_table_transformer
-            )
+            refetch = WEBHOOK_REFETCH.get(endpoint)
+            table_transformer: Callable[[pa.Table], pa.Table]
+            if endpoint == CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME:
+                table_transformer = _webhook_history_table_transformer
+            elif refetch is not None:
+                table_transformer = _refetching_webhook_table_transformer(
+                    WebhookObjectRefetcher(
+                        refetch,
+                        logger,
+                        client_factory_provider=lambda: _client_factory(
+                            api_key_provider() if api_key_provider is not None else api_key, account_id, api_version
+                        ),
+                    )
+                )
+            else:
+                table_transformer = _webhook_table_transformer
             return webhook_source_manager.get_items(table_transformer=table_transformer)
 
         return get_rows(
