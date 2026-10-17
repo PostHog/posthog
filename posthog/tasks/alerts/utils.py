@@ -258,7 +258,7 @@ def send_notifications_for_breaches(
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
-        send_alert_email(
+        email_sent = send_alert_email(
             recipients=email_targets,
             campaign_key=campaign_key,
             subject=subject,
@@ -272,8 +272,9 @@ def send_notifications_for_breaches(
                 "project_name": alert.team.name,
             },
         )
-        accepted_at = datetime.now(UTC).isoformat()
-        deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
+        if email_sent:
+            accepted_at = datetime.now(UTC).isoformat()
+            deliveries.extend(AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets)
 
     # Join with newlines so each breach/investigation line renders on its own line in
     # Slack/Discord/Teams destinations rather than as one run-on comma-separated string.
@@ -317,7 +318,7 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
     error_message = str(error.get("message") or "Unknown error").strip()[:1000] or "Unknown error"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    send_alert_email(
+    email_sent = send_alert_email(
         recipients=email_targets,
         campaign_key=f"alert-evaluation-failed-notification-{idempotency_key}",
         subject=f"PostHog could not evaluate {subject_alert_name}",
@@ -334,6 +335,8 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict, idempo
             "detector_unavailable": error.get("code") == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
         },
     )
+    if not email_sent:
+        return []
     accepted_at = datetime.now(UTC).isoformat()
     return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in email_targets]
 
@@ -708,7 +711,7 @@ def send_notifications_for_disabled(
     campaign_key = f"alert-disabled-notification-{alert.id}-{idempotency_key or timezone.now().timestamp()}"
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
     alert_url = f"{insight_url}?alert_id={alert.id}"
-    send_alert_email(
+    email_sent = send_alert_email(
         recipients=targets,
         campaign_key=campaign_key,
         subject=subject,
@@ -722,5 +725,7 @@ def send_notifications_for_disabled(
             "project_name": alert.team.name,
         },
     )
+    if not email_sent:
+        return []
     accepted_at = datetime.now(UTC).isoformat()
     return [AlertDelivery(channel="email", target=target, at=accepted_at) for target in targets]

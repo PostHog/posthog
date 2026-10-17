@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 
 import pytest
@@ -18,6 +19,7 @@ from posthog.tasks.alerts.utils import (
     dispatch_alert_notification,
     next_check_time,
     send_notifications_for_breaches,
+    send_notifications_for_disabled,
     send_notifications_for_errors,
     trigger_alert_hog_functions,
 )
@@ -293,6 +295,25 @@ class TestSendNotificationsReceipts(APIBaseTest):
 
         assert [(r.channel, r.target, r.status) for r in receipts] == [("email", self.user.email, "accepted")]
         mock_send.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("breaches", lambda alert: send_notifications_for_breaches(alert, ["breach"], idempotency_key="check-1")),
+            ("errors", lambda alert: send_notifications_for_errors(alert, {"message": "boom"}, idempotency_key="c-1")),
+            (
+                "disabled",
+                lambda alert: send_notifications_for_disabled(alert, "bad config", [alert.created_by.email]),
+            ),
+        ]
+    )
+    @patch("posthog.tasks.alerts.utils.trigger_alert_hog_functions", return_value=[])
+    @patch("products.alerts.backend.facade.email.EmailMessage")
+    @patch("products.alerts.backend.facade.email.is_email_available", return_value=False)
+    def test_notifications_skip_email_when_instance_has_no_email(
+        self, _name: str, send: Callable, _mock_available: MagicMock, mock_message: MagicMock, _mock_trigger: MagicMock
+    ) -> None:
+        assert send(self.alert) == []
+        mock_message.assert_not_called()
 
 
 class TestDispatchAlertInsightChart(APIBaseTest):
