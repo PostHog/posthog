@@ -2681,6 +2681,32 @@ describe('hooks', () => {
         expect(code).toMatch(/handler: withToolHooks\(\s*hooks_thingList,\s*async \(context: Context/)
     })
 
+    it('passes the built request body through transformRequestBody', () => {
+        const resolved = makeResolved({
+            method: 'POST',
+            operation: {
+                operationId: 'things_create',
+                parameters: [],
+                requestBody: {
+                    content: { 'application/json': { schema: { properties: { name: { type: 'string' } } } } },
+                },
+            },
+        })
+        const config: ToolConfig = { operation: 'things_create', enabled: true, hooks: 'tool-hooks' }
+
+        const { code } = generateToolCode(
+            'things-create',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(code).toContain('body: await transformRequestBody(hooks_thingsCreate, context, params, body)')
+    })
+
     it('leaves tools without hooks unwrapped', () => {
         const { code } = generate({})
 

@@ -1224,6 +1224,7 @@ function generateToolCode(
             handlerBody += `        body[${JSON.stringify(key)}] = ${JSON.stringify(value)}\n`
         }
     }
+    const transformsBody = hasBody && !!config.hooks
 
     const httpMethod = isSoftDelete ? 'PATCH' : resolved.method
     handlerBody += `        const result = await context.api.request<${responseType ?? 'unknown'}>({\n`
@@ -1231,6 +1232,8 @@ function generateToolCode(
     handlerBody += `            path: ${pathExpr},\n`
     if (isSoftDelete) {
         handlerBody += `            body: { ${softDeleteField}: true },\n`
+    } else if (transformsBody) {
+        handlerBody += `            body: await transformRequestBody(${hooksVarName(toolName)}, context, params, body),\n`
     } else if (hasBody) {
         handlerBody += `            body,\n`
     }
@@ -2093,7 +2096,7 @@ function generateCategoryFile(
     const hookedTools = enabledTools.filter(([, toolConfig]) => toolConfig.hooks)
     const hooksImportLines =
         hookedTools.length > 0
-            ? `import { withToolHooks } from '@/tools/tool-hooks'\n` +
+            ? `import { ${toolCodes.some((code) => code.includes('transformRequestBody(')) ? 'transformRequestBody, ' : ''}withToolHooks } from '@/tools/tool-hooks'\n` +
               hookedTools
                   .map(([name, toolConfig]) => `import ${hooksVarName(name)} from '@/tools/${toolConfig.hooks}'\n`)
                   .join('')
