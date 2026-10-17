@@ -100,39 +100,42 @@ describe("useInboxReportResolveAction", () => {
     });
   });
 
-  it("tracks triage outcomes and blocks overlapping resolve requests", async () => {
-    let finishRequest: ((value: SignalReport) => void) | undefined;
-    mocks.updateState.mockReturnValue(
-      new Promise<SignalReport>((resolve) => {
-        finishRequest = resolve;
-      }),
-    );
-    const { result } = renderHook(
-      () => useInboxReportResolveAction(report, "triage", "triage-1"),
-      { wrapper },
-    );
+  it.each(["fixed_outside_posthog", "no_action_needed"] as const)(
+    "tracks triage outcome %s and blocks overlapping resolve requests",
+    async (reason) => {
+      let finishRequest: ((value: SignalReport) => void) | undefined;
+      mocks.updateState.mockReturnValue(
+        new Promise<SignalReport>((resolve) => {
+          finishRequest = resolve;
+        }),
+      );
+      const { result } = renderHook(
+        () => useInboxReportResolveAction(report, "triage", "triage-1"),
+        { wrapper },
+      );
 
-    act(() => {
-      result.current.resolveWithReason("fixed_outside_posthog");
-      result.current.resolveWithReason("fixed_outside_posthog");
-    });
+      act(() => {
+        result.current.resolveWithReason(reason);
+        result.current.resolveWithReason(reason);
+      });
 
-    await waitFor(() => expect(mocks.updateState).toHaveBeenCalledOnce());
-    expect(mocks.actionTrackerArgs.slice(1)).toEqual(["triage", "triage-1"]);
-    expect(mocks.resultTrackerArgs.slice(1)).toEqual(["triage", "triage-1"]);
-    expect(mocks.trackAction).toHaveBeenCalledWith("resolve", {
-      dismissal_reason: "fixed_outside_posthog",
-    });
+      await waitFor(() => expect(mocks.updateState).toHaveBeenCalledOnce());
+      expect(mocks.actionTrackerArgs.slice(1)).toEqual(["triage", "triage-1"]);
+      expect(mocks.resultTrackerArgs.slice(1)).toEqual(["triage", "triage-1"]);
+      expect(mocks.trackAction).toHaveBeenCalledWith("resolve", {
+        dismissal_reason: reason,
+      });
 
-    await act(async () => finishRequest?.({ ...report, status: "resolved" }));
-    await waitFor(() =>
-      expect(mocks.trackResult).toHaveBeenCalledWith(
-        "resolve",
-        "succeeded",
-        expect.any(Number),
-      ),
-    );
-  });
+      await act(async () => finishRequest?.({ ...report, status: "resolved" }));
+      await waitFor(() =>
+        expect(mocks.trackResult).toHaveBeenCalledWith(
+          "resolve",
+          "succeeded",
+          expect.any(Number),
+        ),
+      );
+    },
+  );
 
   it("updates the list before the request finishes and confirms success", async () => {
     let finishRequest: ((value: SignalReport) => void) | undefined;
@@ -207,22 +210,22 @@ describe("useInboxReportResolveAction", () => {
 
     await user.click(screen.getByText("Open resolve"));
     await user.click(
-      screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+      screen.getByRole("radio", { name: "Implemented manually" }),
     );
     const note = screen.getByPlaceholderText(
-      "Optional: link to the fix or explain what changed",
+      "Add context or a link to the implementation",
     );
     await user.type(note, "Fixed in a separate change");
     await user.click(screen.getByText("Resolve report"));
 
     await waitFor(() =>
       expect(
-        screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+        screen.getByRole("radio", { name: "Implemented manually" }),
       ).toBeChecked(),
     );
     expect(
       screen.getByPlaceholderText(
-        "Optional: link to the fix or explain what changed",
+        "Add context or a link to the implementation",
       ),
     ).toHaveValue("Fixed in a separate change");
   });
@@ -244,11 +247,11 @@ describe("useInboxReportResolveAction", () => {
 
     await user.click(screen.getByText("Open resolve"));
     await user.click(
-      screen.getByRole("radio", { name: "Fixed outside PostHog" }),
+      screen.getByRole("radio", { name: "Implemented manually" }),
     );
     await user.type(
       screen.getByPlaceholderText(
-        "Optional: link to the fix or explain what changed",
+        "Add context or a link to the implementation",
       ),
       "Retain this note",
     );
@@ -259,11 +262,11 @@ describe("useInboxReportResolveAction", () => {
     render(<ResolveActionHarness />, { wrapper: createWrapper(queryClient) });
 
     expect(
-      await screen.findByRole("radio", { name: "Fixed outside PostHog" }),
+      await screen.findByRole("radio", { name: "Implemented manually" }),
     ).toBeChecked();
     expect(
       screen.getByPlaceholderText(
-        "Optional: link to the fix or explain what changed",
+        "Add context or a link to the implementation",
       ),
     ).toHaveValue("Retain this note");
   });

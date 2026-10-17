@@ -64,15 +64,17 @@ export function ResolveReportDialog({
         <DialogHeader>
           <DialogTitle>Resolve report "{title}"?</DialogTitle>
           <DialogDescription>
-            This marks the report as done. If the issue returns, you get a new
-            report linked to this one.
+            This marks a useful report as done. If the issue returns, you get a
+            new report linked to this one.
             {hasOpenPr ? " The open pull request will be closed." : ""}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody>
           <div className="flex flex-col gap-4">
+            <Label>How was this report handled?</Label>
             <RadioGroup
+              aria-label="How was this report handled?"
               value={reason ?? ""}
               onValueChange={(value) =>
                 setReason(value as ResolveReasonOptionValue)
@@ -100,7 +102,7 @@ export function ResolveReportDialog({
                   setReason("other");
                 }
               }}
-              placeholder="Optional: link to the fix or explain what changed"
+              placeholder="Add context or a link to the implementation"
               rows={3}
               maxLength={4000}
               disabled={isSubmitting}
@@ -123,7 +125,7 @@ export function ResolveReportDialog({
             loading={isSubmitting}
             onClick={() => reason && onConfirm({ reason, note })}
           >
-            Resolve report
+            {hasOpenPr ? "Resolve and close PR" : "Resolve report"}
           </Button>
         </DialogFooter>
       </DialogContent>
