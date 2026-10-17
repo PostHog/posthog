@@ -69,7 +69,8 @@ Search matches the account name and external ID as substrings.
 A complete email address also matches accounts that list it under `known_emails`.
 For staff in organizations with `CUSTOMER_ANALYTICS_CSP`, exact email search resolves active US organization memberships by indexed Postgres email lookup, then falls back to the `eu_org_members` warehouse view when US has no match; organization IDs join to `Account.external_id`.
 The member lookup is strictly gated on a valid complete email, so name, ID, partial-email, and bare-domain searches issue no member or warehouse queries.
-A domain (bare, or the domain part of a complete address) matches accounts that own it under `email_domains`.
+The domain part of a complete address matches accounts that own it under `email_domains`.
+Other text that holds only hostname characters (after `parse_company_domain` strips a URL, `www.`, or a leading `@`) matches `email_domains` and `website_domain` as a substring.
 `account_search_q` in `backend/logic/account_filters.py` defines the Postgres predicate, while `backend/logic/account_member_search.py` owns the staff-only member lookup.
 The list query, account search endpoint, and agent entity search share both paths.
 
