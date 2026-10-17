@@ -4,8 +4,8 @@ The training dag is the only place that knows every family's candidate and champ
 picks the set the scoring sweep runs. This module is that choice as pure functions over the
 `metadata.json` records; `training/dag.py` owns the S3 reads, the publishing and the telemetry.
 
-The served entry is the champion of one family, so the served model only ever changes through a
-promotion. The other entries are there so one pass produces several scores: an online paired read
+The served entry is the model the `served.json` pointer names, so the served model changes only
+when a person runs `inbox_ranking_promote_job`. The other entries are there so one pass produces several scores: an online paired read
 and a later interleaving then need no rescoring of the same reports. A pinned entry is there so an
 owner's `served` override can name it.
 """
@@ -18,10 +18,13 @@ from posthog.dataclasses import frozen
 
 from products.signals.backend.artefact_schemas import MAX_RANKING_MODEL_RESULTS
 from products.signals.backend.ranking.model_contract import readable_head_names, trained_head_files
+from products.signals.backend.ranking.model_store import ONNX_PROJECT_VECTOR_KINDS_KEY
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
     DAILY_CANDIDATE_ROLE,
     DEFAULT_MODEL_KIND,
+    ONNX_MODEL_FILE,
+    ONNX_MODEL_KIND,
     PINNED_ROLE,
     SERVED_ROLE,
     ServingManifest,
@@ -34,9 +37,10 @@ from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 
 @frozen
 class FamilyModels:
-    """One family's two records for the partition: the candidate fit that day, and the pointer the
-    sweep would serve. Either can be absent — a family can be registered before its first candidate,
-    and no family has a champion until the first promotion."""
+    """One family's two records for the partition: the candidate fit that day, and the family's
+    `champion.json`. Either can be absent. Nothing writes `champion.json` anymore, so a champion is
+    the last version the retired automatic promotion chose, and it serves only as a cross-family
+    read."""
 
     name: str
     candidate: Mapping[str, Any] | None
@@ -60,61 +64,67 @@ def _entry(
     prefix: str,
 ) -> ServingManifestEntry | None:
     """One manifest entry, or None when the model has no head a store could load. Only the refit
-    boosters are named: the holdout fits grade a promotion and never serve."""
+    models are named: the holdout fits grade a promotion and never serve."""
     heads = sorted(trained_head_files(metadata, HEADS_BY_NAME))
     if not heads:
         return None
     key = model_key(metadata["model_name"], metadata["model_version"])
+    # A model published before the field existed is per-head XGBoost, so the old default reads
+    # as what it is rather than as missing.
+    model_kind = metadata.get("model_kind") or DEFAULT_MODEL_KIND
     return ServingManifestEntry(
         key=key,
         model_name=metadata["model_name"],
         model_version=metadata["model_version"],
-        # A model published before the field existed is per-head XGBoost, so the old default reads
-        # as what it is rather than as missing.
-        model_kind=metadata.get("model_kind") or DEFAULT_MODEL_KIND,
+        model_kind=model_kind,
         roles=list(roles),
         labels=dict(labels),
         prefix=serving_model_prefix(prefix, key),
         heads=heads,
+        model_file=ONNX_MODEL_FILE if model_kind == ONNX_MODEL_KIND else None,
+        reads_project_vectors=bool(metadata.get(ONNX_PROJECT_VECTOR_KINDS_KEY)),
     )
 
 
 def compose_manifest(
     families: Sequence[FamilyModels],
     *,
-    served_family: str,
+    served: Mapping[str, Any] | None,
     prefix: str,
     now: datetime.datetime,
     pinned: Sequence[Mapping[str, Any]] = (),
 ) -> ManifestDecision:
-    """`pinned` holds the metadata of the models the `pin` override keeps. The caller checks that
-    their files exist, because a manifest that names a missing file is never published."""
-    by_name = {family.name: family for family in families}
-    served_models = by_name.get(served_family)
-    if served_models is None:
-        return ManifestDecision(manifest=None, reason=f"served family {served_family} is not registered")
-    if served_models.champion is None:
-        return ManifestDecision(manifest=None, reason=f"served family {served_family} has no champion yet")
-    served = _entry(
-        served_models.champion,
+    """`served` holds the metadata of the model the `served.json` pointer names, and `pinned` the
+    metadata of the models the `pin` override keeps. The caller checks that their files exist,
+    because a manifest that names a missing file is never published."""
+    if served is None:
+        return ManifestDecision(manifest=None, reason="no served pointer")
+    served_family = served["model_name"]
+    served_entry = _entry(
+        served,
         roles=[SERVED_ROLE],
-        labels={"reason": f"champion of the served family {served_family}"},
+        labels={"reason": "named by the served pointer"},
         prefix=prefix,
     )
-    if served is None:
+    if served_entry is None:
         return ManifestDecision(
-            manifest=None, reason=f"served family {served_family} champion has no head booster to load"
+            manifest=None, reason=f"served model {served_family}@{served['model_version']} has no head to load"
         )
 
-    entries = [served]
-    candidate = served_models.candidate
+    entries = [served_entry]
+    served_models = next((family for family in families if family.name == served_family), None)
+    candidate = served_models.candidate if served_models is not None else None
     # A candidate at the champion's own version is the champion, so scoring it twice would only
     # spend the artefact's result budget on a duplicate.
-    if candidate is not None and candidate["model_version"] != served.model_version and readable_head_names(candidate):
+    if (
+        candidate is not None
+        and candidate["model_version"] != served_entry.model_version
+        and readable_head_names(candidate)
+    ):
         daily = _entry(
             candidate,
             roles=[DAILY_CANDIDATE_ROLE],
-            labels={"reason": f"today's {served_family} candidate, paired against the served champion"},
+            labels={"reason": f"today's {served_family} candidate, paired against the served model"},
             prefix=prefix,
         )
         if daily is not None:

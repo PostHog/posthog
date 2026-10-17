@@ -1,7 +1,12 @@
 import pytest
-from unittest import mock
+
+import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.codecov.source import CodecovSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.codecov import (
     CodecovSourceConfig,
 )
@@ -23,21 +28,24 @@ class TestCodecovSource:
         assert [s.name for s in schemas] == ["commits"]
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "status_code, expected_valid, expected_message",
         [
-            ((True, 200), True, None),
-            ((False, 401), False, "Invalid Codecov API token"),
-            ((False, 404), False, "Owner 'acme' not found on Codecov for the selected git provider"),
-            ((False, None), False, "Could not connect to Codecov with the provided credentials"),
+            (200, True, None),
+            (401, False, "Invalid Codecov API token"),
+            (404, False, "Owner 'acme' not found on Codecov for the selected git provider"),
+            (None, False, "Could not connect to Codecov with the provided credentials"),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.codecov.source.validate_codecov_credentials"
-    )
-    def test_validate_credentials(self, mock_validate, mock_return, expected_valid, expected_message):
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(
+        self, status_code: int | None, expected_valid: bool, expected_message: str | None
+    ) -> None:
+        answer = ScriptedResponse(status=status_code) if status_code is not None else requests.ConnectionError("boom")
+        with scripted_network([answer]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
+        assert network.requests_log
+        assert {request.url for request in network.requests_log} == {
+            "https://api.codecov.io/api/v2/github/acme/repos?page_size=1"
+        }

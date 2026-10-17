@@ -1040,6 +1040,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -2271,6 +2272,8 @@ export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
  * * `srm` - Sample Ratio Mismatch
  * * `zero_exposures` - Zero Exposures
  * * `forced_variant_release_condition` - Forced Variant Release Condition
+ * * `flag_variants_mismatch` - Flag Variants Mismatch
+ * * `split_changed_mid_run` - Split Changed Mid Run
  */
 export type ExperimentHealthFindingCodeEnumApi =
     (typeof ExperimentHealthFindingCodeEnumApi)[keyof typeof ExperimentHealthFindingCodeEnumApi]
@@ -2285,6 +2288,8 @@ export const ExperimentHealthFindingCodeEnumApi = {
     Srm: 'srm',
     ZeroExposures: 'zero_exposures',
     ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    FlagVariantsMismatch: 'flag_variants_mismatch',
+    SplitChangedMidRun: 'split_changed_mid_run',
 } as const
 
 /**
@@ -2303,6 +2308,7 @@ export const ExperimentHealthFindingSeverityEnumApi = {
 
 /**
  * * `open_feature_flag` - Open Feature Flag
+ * * `open_feature_flag_history` - Open Feature Flag History
  * * `adjust_distribution` - Adjust Distribution
  * * `use_first_seen_variant` - Use First Seen Variant
  * * `add_primary_metric` - Add Primary Metric
@@ -2315,6 +2321,7 @@ export type ExperimentHealthFindingActionKindEnumApi =
 
 export const ExperimentHealthFindingActionKindEnumApi = {
     OpenFeatureFlag: 'open_feature_flag',
+    OpenFeatureFlagHistory: 'open_feature_flag_history',
     AdjustDistribution: 'adjust_distribution',
     UseFirstSeenVariant: 'use_first_seen_variant',
     AddPrimaryMetric: 'add_primary_metric',
@@ -2326,7 +2333,7 @@ export const ExperimentHealthFindingActionKindEnumApi = {
 /**
  * The values behind the finding, such as the key of a shipped variant or the share of users exposed to multiple variants. The keys depend on the code.
  */
-export type ExperimentHealthFindingApiEvidence = { [key: string]: string | number | null }
+export type ExperimentHealthFindingApiEvidence = { [key: string]: string | number | boolean | null }
 
 export interface ExperimentHealthFindingApi {
     /** Stable identifier of the problem. Each code has one meaning across every surface that reports it.
@@ -2339,7 +2346,9 @@ export interface ExperimentHealthFindingApi {
      * * `no_metric` - No Metric
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
-     * * `forced_variant_release_condition` - Forced Variant Release Condition */
+     * * `forced_variant_release_condition` - Forced Variant Release Condition
+     * * `flag_variants_mismatch` - Flag Variants Mismatch
+     * * `split_changed_mid_run` - Split Changed Mid Run */
     code: ExperimentHealthFindingCodeEnumApi
     /**
      * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -2500,7 +2509,7 @@ export interface ExperimentWriteApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
-    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
@@ -2653,7 +2662,7 @@ export interface ExperimentApi {
     readonly can_freeze_exposure: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event: string
-    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
@@ -2802,7 +2811,7 @@ export interface PatchedExperimentWriteApi {
     readonly can_freeze_exposure?: boolean
     /** The event exposures are actually counted on when the experiment doesn't configure a custom one — `$feature_flag_called`, or `$experiment_exposure` once the team is in the rollout and the experiment started at or after the cutoff. Resolved server-side so clients display the same event the results queries read. For a draft, this is what the experiment would resolve to if launched now. */
     readonly resolved_exposure_event?: string
-    /** Health check diagnostics for this experiment: problems in its configuration and its feature flag that keep it from producing trustworthy results, each with a fix. Read `findings` first when you diagnose an experiment. Null where health checks are not enabled yet. */
+    /** Always null. Read the health findings from `GET /api/projects/{project_id}/experiments/{id}/health/`: problems in this experiment's configuration and its feature flag that keep it from producing trustworthy results, each with a fix. */
     readonly health?: ExperimentHealthApi | null
     /**
      * The effective access level the user has for this object
@@ -3001,6 +3010,427 @@ export interface ExperimentFlagCleanupTaskApi {
     pr_url: string | null
     /** Whether the requesting user can open the task in PostHog Desktop. Cleanup tasks are visible to their creator only, so other viewers should not be shown a task link. */
     can_view_task: boolean
+}
+
+export interface ExperimentHealthInputsReleaseConditionApi {
+    /** The condition's position in the flag, from 1, as the flag page labels it ('Set 2'). */
+    number: number
+    /**
+     * The condition's rollout, in percent. Null when the flag stores no number.
+     * @nullable
+     */
+    rollout_percentage: number | null
+    /**
+     * The number of property filters. Null when the flag stores no list.
+     * @nullable
+     */
+    property_count: number | null
+    /** Whether the condition can serve a request. A condition after one that matches everyone never does. */
+    reachable: boolean
+    /**
+     * The variant that the condition's override serves. Null when the condition is not reachable, has no override, or its override names no variant of the flag.
+     * @nullable
+     */
+    pinned_variant: string | null
+}
+
+export interface ExperimentHealthInputsVariantApi {
+    /**
+     * The variant key. Null when the flag stores no string key.
+     * @nullable
+     */
+    key: string | null
+    /**
+     * The variant's share of the split, in percent. Null when the flag stores no number.
+     * @nullable
+     */
+    rollout_percentage: number | null
+}
+
+export interface ExperimentHealthInputsFlagApi {
+    /** Whether the flag is enabled. */
+    active: boolean
+    /** Whether the flag is deleted. */
+    deleted: boolean
+    /** The flag's release conditions, in evaluation order. */
+    release_conditions: ExperimentHealthInputsReleaseConditionApi[]
+    /** The flag's variants and their split. */
+    variants: ExperimentHealthInputsVariantApi[]
+}
+
+export interface ExperimentHealthInputsSplitChangeApi {
+    /** When the flag's split changed. */
+    changed_at: string
+    /** The split before the change. */
+    before: ExperimentHealthInputsVariantApi[]
+    /** The split after the change. */
+    after: ExperimentHealthInputsVariantApi[]
+    /** Whether the split-change check counts this change: it and every later change count from the first with an exposure before it, or an unknown answer. False for every change when not checked. */
+    counted: boolean
+}
+
+export interface ExperimentHealthInputsSplitHistoryApi {
+    /** Whether the split changes were compared with the exposures. False when not_checked_reason is set. */
+    checked: boolean
+    /**
+     * Why the split changes were not compared with the exposures: 'no_history_access', 'no_query_access', 'exposure_filters', 'exposure_action' or 'exposure_criteria'. Null when they were.
+     * @nullable
+     */
+    not_checked_reason: string | null
+    /** When the experiment launched. */
+    launched_at: string
+    /** The project's time zone, which the finding uses for times. */
+    team_timezone: string
+    /** Every split change since launch. Empty for 'no_history_access', which does not read them. */
+    changes: ExperimentHealthInputsSplitChangeApi[]
+    /**
+     * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
+     * @nullable
+     */
+    exposed_before_first: boolean | null
+    /**
+     * Whether anyone was exposed between the first and the last change. Asked only when the last change restores the split from before the first. Null when not asked or unknown.
+     * @nullable
+     */
+    exposed_between: boolean | null
+}
+
+/**
+ * * `read` - Read
+ * * `not_needed` - Not Needed
+ * * `no_query_access` - No Query Access
+ * * `denied_properties` - Denied Properties
+ * * `no_flag_version` - No Flag Version
+ * * `unknown` - Unknown
+ */
+export type ExperimentHealthInputsTrafficStatusEnumApi =
+    (typeof ExperimentHealthInputsTrafficStatusEnumApi)[keyof typeof ExperimentHealthInputsTrafficStatusEnumApi]
+
+export const ExperimentHealthInputsTrafficStatusEnumApi = {
+    Read: 'read',
+    NotNeeded: 'not_needed',
+    NoQueryAccess: 'no_query_access',
+    DeniedProperties: 'denied_properties',
+    NoFlagVersion: 'no_flag_version',
+    Unknown: 'unknown',
+} as const
+
+export interface ExperimentHealthInputsConditionSetPeopleApi {
+    /** The number of the release condition, from 1. */
+    condition_set: number
+    /** The people whose latest call this condition served. */
+    people: number
+}
+
+export interface ExperimentHealthInputsConditionSetTrafficApi {
+    /** The start of the window: the latest of launch, the flag's last save and 7 days ago. */
+    since: string
+    /** The project's time zone, which the finding uses for times. */
+    team_timezone: string
+    /** People by the release condition that served their latest call of the flag's version. */
+    people_by_set: ExperimentHealthInputsConditionSetPeopleApi[]
+    /** The flag's calls in the window, of any flag version. */
+    calls: number
+    /** The calls that the flag service evaluated. Only those name a condition set. Local evaluation in a server SDK and a bootstrapped value name none. */
+    remotely_evaluated_calls: number
+}
+
+export interface ExperimentHealthInputsReaderAccessApi {
+    /** Whether the reader may read the flag's history, which the split-change check needs. */
+    can_read_flag_history: boolean
+    /** Whether the reader may query events, which the split-change and forced-variant checks need. */
+    can_query_events: boolean
+    /** Event properties the reader is denied. The forced-variant check skips its scan when one of them is a flag call property it reads. */
+    denied_event_properties: string[]
+}
+
+/**
+ * * `ready` - Ready
+ * * `stale` - Stale
+ * * `calculating` - Calculating
+ * * `not_launched` - Not Launched
+ * * `no_query_access` - No Query Access
+ * * `failed` - Failed
+ */
+export type HealthExposureInputsStatusEnumApi =
+    (typeof HealthExposureInputsStatusEnumApi)[keyof typeof HealthExposureInputsStatusEnumApi]
+
+export const HealthExposureInputsStatusEnumApi = {
+    Ready: 'ready',
+    Stale: 'stale',
+    Calculating: 'calculating',
+    NotLaunched: 'not_launched',
+    NoQueryAccess: 'no_query_access',
+    Failed: 'failed',
+} as const
+
+/**
+ * Exposed people by variant. '$multiple' counts the people exposed to more than one variant.
+ */
+export type ExperimentHealthInputsExposureTotalsApiTotalExposures = { [key: string]: number }
+
+export interface ExperimentHealthInputsExposureTotalsApi {
+    /** Exposed people by variant. '$multiple' counts the people exposed to more than one variant. */
+    total_exposures: ExperimentHealthInputsExposureTotalsApiTotalExposures
+    /** How the analysis treats people in several variants: 'exclude' or 'first_seen'. */
+    multiple_variant_handling: string
+    /**
+     * The p-value of the sample ratio test. Null when there was too little data.
+     * @nullable
+     */
+    sample_ratio_mismatch_p_value: number | null
+    /**
+     * Hours from launch to the computation of the answer, as the checks read them.
+     * @nullable
+     */
+    hours_since_launch: number | null
+}
+
+export interface ExperimentHealthInputsExposuresApi {
+    /** Whether a cached answer was read. 'calculating' means no answer is cached and a calculation runs in the background, so a later request reads a fresh answer. 'stale' means the cached answer is past its age: a recalculation runs in the background, or the last one failed and 'error' says why. After a failed calculation, no new one starts for 20 minutes.
+     *
+     * * `ready` - Ready
+     * * `stale` - Stale
+     * * `calculating` - Calculating
+     * * `not_launched` - Not Launched
+     * * `no_query_access` - No Query Access
+     * * `failed` - Failed */
+    status: HealthExposureInputsStatusEnumApi
+    /**
+     * When the answer was computed.
+     * @nullable
+     */
+    computed_at: string | null
+    /** What the exposure checks read. Null without an answer. */
+    totals: ExperimentHealthInputsExposureTotalsApi | null
+    /** The findings of the exposure checks on this answer: zero exposures, SRM and bias risk. */
+    findings: ExperimentHealthFindingApi[]
+    /**
+     * Why the query or its last background calculation failed. Set for 'failed', and for 'stale' when the recalculation failed.
+     * @nullable
+     */
+    error: string | null
+}
+
+/**
+ * * `ok` - Ok
+ * * `skipped` - Skipped
+ * * `timed_out` - Timed Out
+ * * `error` - Error
+ */
+export type SetupContextSectionStatusEnumApi =
+    (typeof SetupContextSectionStatusEnumApi)[keyof typeof SetupContextSectionStatusEnumApi]
+
+export const SetupContextSectionStatusEnumApi = {
+    Ok: 'ok',
+    Skipped: 'skipped',
+    TimedOut: 'timed_out',
+    Error: 'error',
+} as const
+
+export interface ExperimentSetupTeamDefaultsApi {
+    /**
+     * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
+     * @nullable
+     */
+    stats_method: string | null
+    /**
+     * Default confidence level for new experiments, for example 0.95. Null when unset.
+     * @nullable
+     */
+    confidence_level: number | null
+    /**
+     * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
+     * @nullable
+     */
+    minimum_detectable_effect: number | null
+    /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
+    product_default_minimum_detectable_effect: number
+    /** The statistical method that applies when the team has no default. */
+    product_default_stats_method: string
+    /** The confidence level that applies when the team has no default. Both methods use the same one. */
+    product_default_confidence_level: number
+    /** Default for counting only users whose metric window has fully passed. */
+    only_count_matured_users: boolean
+    /** Default for CUPED variance reduction on new experiments. */
+    cuped_enabled: boolean
+    /** Default for sequential testing. Applies only to the frequentist method. */
+    sequential_testing_enabled: boolean
+    /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
+    flags_persistence_default: boolean
+    /** How many filters the team uses to identify internal and test users. */
+    test_account_filter_count: number
+    /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
+    new_experiments_filter_test_accounts: boolean
+    /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
+    default_exposure_event: string
+}
+
+export interface ExperimentSetupTeamDefaultsSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** The team's experiment defaults. */
+    data: ExperimentSetupTeamDefaultsApi | null
+}
+
+/**
+ * * `web` - Web
+ * * `mobile` - Mobile
+ * * `server` - Server
+ * * `other` - Other
+ */
+export type SdkLibCategoryEnumApi = (typeof SdkLibCategoryEnumApi)[keyof typeof SdkLibCategoryEnumApi]
+
+export const SdkLibCategoryEnumApi = {
+    Web: 'web',
+    Mobile: 'mobile',
+    Server: 'server',
+    Other: 'other',
+} as const
+
+export interface ExperimentSetupSdkLibApi {
+    /**
+     * The $lib value of the SDK, for example 'web'.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Multivariate flag calls this SDK sent in the window. */
+    calls: number
+    /** Distinct ids that sent those calls. */
+    distinct_ids: number
+    /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
+    device_id_share: number
+    /**
+     * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
+     * @nullable
+     */
+    locally_evaluated_share: number | null
+    /**
+     * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
+     * @nullable
+     */
+    anonymous_share: number | null
+}
+
+export interface ExperimentSetupLibActivityApi {
+    /**
+     * The $lib value of the SDK, for example 'web'.
+     * @nullable
+     */
+    lib: string | null
+    /** 'web', 'mobile', 'server', or 'other'.
+     *
+     * * `web` - Web
+     * * `mobile` - Mobile
+     * * `server` - Server
+     * * `other` - Other */
+    category: SdkLibCategoryEnumApi
+    /** Events this SDK sent in the window, of any kind. */
+    events: number
+    /** Distinct ids that sent those events. */
+    distinct_ids: number
+}
+
+export interface ExperimentSetupSdkProfileApi {
+    /** Days of flag calls read, ending now. */
+    window_days: number
+    /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
+    source_event: string
+    /** When the numbers were computed. They are cached for hours. */
+    computed_at: string
+    /** One row per SDK, most calls first. */
+    libs: ExperimentSetupSdkLibApi[]
+    /** True when more SDKs sent flag calls than libs lists. */
+    libs_truncated: boolean
+    /** Distinct multivariate flag keys called in the window. */
+    flags_seen: number
+    /** How many of those flag keys were called by both a server SDK and the web SDK. */
+    flags_evaluated_on_server_and_web: number
+    /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
+    evaluated_on_server_and_web: boolean
+    /**
+     * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
+     * @nullable
+     */
+    libs_on_any_event: ExperimentSetupLibActivityApi[] | null
+    /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
+    libs_on_any_event_truncated: boolean
+}
+
+export interface ExperimentSetupSdkProfileSectionApi {
+    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
+     *
+     * * `ok` - Ok
+     * * `skipped` - Skipped
+     * * `timed_out` - Timed Out
+     * * `error` - Error */
+    status: SetupContextSectionStatusEnumApi
+    /** Which SDKs send multivariate flag calls, across the whole project. */
+    data: ExperimentSetupSdkProfileApi | null
+}
+
+export interface ExperimentHealthInputsProjectApi {
+    /** The project's experiment defaults. */
+    team_defaults: ExperimentSetupTeamDefaultsSectionApi
+    /** Which SDKs call feature flags and where flags are evaluated, across the whole project. Skipped for a reader who may not query events. */
+    sdk_profile: ExperimentSetupSdkProfileSectionApi
+}
+
+export interface ExperimentHealthInputsApi {
+    /** Whether the experiment has a start date. */
+    is_launched: boolean
+    /** Whether the experiment is launched and not ended. */
+    is_running: boolean
+    /** Whether the experiment has an end date. */
+    has_ended: boolean
+    /** Whether the experiment is paused. */
+    is_paused: boolean
+    /** Whether the experiment is archived. */
+    archived: boolean
+    /**
+     * The baseline set in the experiment's settings. Null when unset.
+     * @nullable
+     */
+    baseline_variant_key: string | null
+    /** The variants the analysis leaves out of the results. The forced-variant check ignores pins to them. */
+    excluded_variant_keys: string[]
+    /** Single-use primary metrics plus shared metrics linked as primary. */
+    primary_metric_count: number
+    /** Single-use secondary metrics plus shared metrics linked as secondary. */
+    secondary_metric_count: number
+    /** The experiment's feature flag. Null when it has none. */
+    flag: ExperimentHealthInputsFlagApi | null
+    /** The changes of the flag's split since launch. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
+    split_history: ExperimentHealthInputsSplitHistoryApi | null
+    /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
+     *
+     * * `read` - Read
+     * * `not_needed` - Not Needed
+     * * `no_query_access` - No Query Access
+     * * `denied_properties` - Denied Properties
+     * * `no_flag_version` - No Flag Version
+     * * `unknown` - Unknown */
+    condition_set_traffic_status: ExperimentHealthInputsTrafficStatusEnumApi
+    /** The flag's recent calls by condition set. Null unless condition_set_traffic_status is 'read'. */
+    condition_set_traffic: ExperimentHealthInputsConditionSetTrafficApi | null
+    /** What the reader may read, which decides what the checks can load. */
+    reader_access: ExperimentHealthInputsReaderAccessApi
+    /** The exposure query's answer that the exposure checks read, from the cache. */
+    exposures: ExperimentHealthInputsExposuresApi
+    /** Facts about the project that no check reads yet, from the same providers as the setup context. */
+    project: ExperimentHealthInputsProjectApi
 }
 
 /**
@@ -3970,175 +4400,6 @@ export interface ExperimentSetupContextInputApi {
     shared_metrics_limit?: number
 }
 
-/**
- * * `ok` - Ok
- * * `skipped` - Skipped
- * * `timed_out` - Timed Out
- * * `error` - Error
- */
-export type SetupContextSectionStatusEnumApi =
-    (typeof SetupContextSectionStatusEnumApi)[keyof typeof SetupContextSectionStatusEnumApi]
-
-export const SetupContextSectionStatusEnumApi = {
-    Ok: 'ok',
-    Skipped: 'skipped',
-    TimedOut: 'timed_out',
-    Error: 'error',
-} as const
-
-export interface ExperimentSetupTeamDefaultsApi {
-    /**
-     * Default statistical method for new experiments: 'bayesian' or 'frequentist'.
-     * @nullable
-     */
-    stats_method: string | null
-    /**
-     * Default confidence level for new experiments, for example 0.95. Null when unset.
-     * @nullable
-     */
-    confidence_level: number | null
-    /**
-     * The team's default minimum detectable effect, as a percentage. Null when the team has not set one; product_default_minimum_detectable_effect applies then.
-     * @nullable
-     */
-    minimum_detectable_effect: number | null
-    /** The minimum detectable effect, as a percentage, that applies when the team has no default. */
-    product_default_minimum_detectable_effect: number
-    /** The statistical method that applies when the team has no default. */
-    product_default_stats_method: string
-    /** The confidence level that applies when the team has no default. Both methods use the same one. */
-    product_default_confidence_level: number
-    /** Default for counting only users whose metric window has fully passed. */
-    only_count_matured_users: boolean
-    /** Default for CUPED variance reduction on new experiments. */
-    cuped_enabled: boolean
-    /** Default for sequential testing. Applies only to the frequentist method. */
-    sequential_testing_enabled: boolean
-    /** Default for persisting flag values across authentication steps on new flags. It becomes the flag's ensure_experience_continuity. */
-    flags_persistence_default: boolean
-    /** How many filters the team uses to identify internal and test users. */
-    test_account_filter_count: number
-    /** A new experiment filters test accounts this way unless its own exposure criteria say otherwise. It does not follow the project's insight default. */
-    new_experiments_filter_test_accounts: boolean
-    /** The exposure event a new experiment launched now counts by default: '$experiment_exposure' or '$feature_flag_called'. */
-    default_exposure_event: string
-}
-
-export interface ExperimentSetupTeamDefaultsSectionApi {
-    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
-     *
-     * * `ok` - Ok
-     * * `skipped` - Skipped
-     * * `timed_out` - Timed Out
-     * * `error` - Error */
-    status: SetupContextSectionStatusEnumApi
-    /** The team's experiment defaults. */
-    data: ExperimentSetupTeamDefaultsApi | null
-}
-
-/**
- * * `web` - Web
- * * `mobile` - Mobile
- * * `server` - Server
- * * `other` - Other
- */
-export type SdkLibCategoryEnumApi = (typeof SdkLibCategoryEnumApi)[keyof typeof SdkLibCategoryEnumApi]
-
-export const SdkLibCategoryEnumApi = {
-    Web: 'web',
-    Mobile: 'mobile',
-    Server: 'server',
-    Other: 'other',
-} as const
-
-export interface ExperimentSetupSdkLibApi {
-    /**
-     * The $lib value of the SDK, for example 'web'.
-     * @nullable
-     */
-    lib: string | null
-    /** 'web' for the JavaScript web SDK, 'mobile', 'server', or 'other' for libraries not classified.
-     *
-     * * `web` - Web
-     * * `mobile` - Mobile
-     * * `server` - Server
-     * * `other` - Other */
-    category: SdkLibCategoryEnumApi
-    /** Multivariate flag calls this SDK sent in the window. */
-    calls: number
-    /** Distinct ids that sent those calls. */
-    distinct_ids: number
-    /** Share of calls that carry a $device_id. 0 when this SDK never sends one, as server SDKs don't. */
-    device_id_share: number
-    /**
-     * Share of calls evaluated locally in the SDK instead of by the flags service. Null when no call from this SDK reported it, as the web SDK doesn't.
-     * @nullable
-     */
-    locally_evaluated_share: number | null
-    /**
-     * Share of distinct ids that were anonymous, among those that report whether they are identified. Null when no call from this SDK reported it.
-     * @nullable
-     */
-    anonymous_share: number | null
-}
-
-export interface ExperimentSetupLibActivityApi {
-    /**
-     * The $lib value of the SDK, for example 'web'.
-     * @nullable
-     */
-    lib: string | null
-    /** 'web', 'mobile', 'server', or 'other'.
-     *
-     * * `web` - Web
-     * * `mobile` - Mobile
-     * * `server` - Server
-     * * `other` - Other */
-    category: SdkLibCategoryEnumApi
-    /** Events this SDK sent in the window, of any kind. */
-    events: number
-    /** Distinct ids that sent those events. */
-    distinct_ids: number
-}
-
-export interface ExperimentSetupSdkProfileApi {
-    /** Days of flag calls read, ending now. */
-    window_days: number
-    /** The event read: '$experiment_exposure' when the project receives it, otherwise '$feature_flag_called'. Only one is read, because one copies the other, and only multivariate responses count either way. This says what the project's events carry today, so it can differ from team_defaults.default_exposure_event, which says what a new experiment would count. */
-    source_event: string
-    /** When the numbers were computed. They are cached for hours. */
-    computed_at: string
-    /** One row per SDK, most calls first. */
-    libs: ExperimentSetupSdkLibApi[]
-    /** True when more SDKs sent flag calls than libs lists. */
-    libs_truncated: boolean
-    /** Distinct multivariate flag keys called in the window. */
-    flags_seen: number
-    /** How many of those flag keys were called by both a server SDK and the web SDK. */
-    flags_evaluated_on_server_and_web: number
-    /** True when at least one flag key was called by both a server SDK and the web SDK. The same flag decided on the server and read in the browser can bucket one user into two variants. */
-    evaluated_on_server_and_web: boolean
-    /**
-     * Up to 10 SDKs seen on any event over the last day, most events first. Set only when libs is empty, so a project creating its first experiment still says which platforms it sends from. Null when flag calls exist, and null when this extra read timed out.
-     * @nullable
-     */
-    libs_on_any_event: ExperimentSetupLibActivityApi[] | null
-    /** True when more SDKs sent events than libs_on_any_event lists. False when it is null. */
-    libs_on_any_event_truncated: boolean
-}
-
-export interface ExperimentSetupSdkProfileSectionApi {
-    /** 'ok' when data holds the section. 'skipped' when an input the section needs was not passed. 'timed_out' when the query was too expensive to finish. 'error' when the read failed. Every status other than 'ok' leaves data null, and the other sections are still valid.
-     *
-     * * `ok` - Ok
-     * * `skipped` - Skipped
-     * * `timed_out` - Timed Out
-     * * `error` - Error */
-    status: SetupContextSectionStatusEnumApi
-    /** Which SDKs send multivariate flag calls, across the whole project. */
-    data: ExperimentSetupSdkProfileApi | null
-}
-
 export interface ExperimentSetupLibReachApi {
     /**
      * The $lib value that sent the target events.
@@ -4482,7 +4743,7 @@ export interface ExperimentSetupPreviousExperimentApi {
     stats_method: string
     /** Whether the experiment uses a holdout group. */
     has_holdout: boolean
-    /** From the completed result that covers the latest data in the experiment's current run. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that run, which is also the case for older metric definitions that results are never stored for. */
+    /** From the completed result that covers the latest data under the experiment's current configuration. A funnel or a mean primary metric is chosen over a retention or a ratio one, because only its samples are the analyzed population. Null when no result exists for that configuration, for example after a relaunch or a settings edit until the results are recalculated, and for older metric definitions that results are never stored for. */
     outcome: ExperimentSetupOutcomeApi | null
 }
 

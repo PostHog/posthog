@@ -1,87 +1,42 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
-from urllib.parse import urlencode
 
 import pytest
 import time_machine
-from unittest import mock
-from unittest.mock import MagicMock
 
 from parameterized import parameterized
-from requests import Response
 from requests.exceptions import HTTPError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend import mailersend
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mailersend import (
+    MailerSendSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.mailersend import (
     MAILERSEND_ANALYTICS_EVENTS,
     MailerSendResumeConfig,
     _date_window,
     _to_datetime,
     check_credentials,
-    mailersend_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.settings import MAILERSEND_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.mailersend.source import MailerSendSource
 
 BASE = "https://api.mailersend.com/v1"
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.url = BASE
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(MailerSendSource(), MailerSendSourceConfig(api_token="mlsn.token"))
 
 
-def _page(items: list[dict[str, Any]], next_url: str | None = None) -> Response:
-    return _response({"data": items, "links": {"next": next_url}})
-
-
-def _make_manager(resume_state: MailerSendResumeConfig | None = None) -> MagicMock:
-    manager = MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session; return a list capturing each request's url + params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared rather than inspecting it after the run.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> MagicMock:
-        params = dict(request.params or {})
-        snapshots.append({"url": request.url, **params})
-        prepared = MagicMock()
-        prepared.url = request.url + (("?" + urlencode(params)) if params else "")
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: MagicMock, **kw: Any) -> Any:
-    return mailersend_source(
-        api_token="mlsn.token",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        **kw,
-    )
+def _page(items: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": items, "links": {"next": next_url}})
 
 
 class TestToDatetime:
@@ -115,14 +70,6 @@ class TestActivityDateWindow:
 
 
 class TestCheckCredentials:
-    @staticmethod
-    def _session_returning(status_code: int) -> MagicMock:
-        response = MagicMock()
-        response.status_code = status_code
-        session = MagicMock()
-        session.get.return_value = response
-        return session
-
     @pytest.mark.parametrize(
         ("status_code", "schema_name", "expected_ok"),
         [
@@ -133,20 +80,22 @@ class TestCheckCredentials:
             (500, None, False),
         ],
     )
-    def test_status_mapping(
-        self, status_code: int, schema_name: str | None, expected_ok: bool, monkeypatch: Any
-    ) -> None:
-        monkeypatch.setattr(mailersend, "make_tracked_session", lambda *a, **k: self._session_returning(status_code))
-        ok, _error = check_credentials("mlsn.token", schema_name)
-        assert ok is expected_ok
+    def test_status_mapping(self, status_code: int, schema_name: str | None, expected_ok: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            ok, _error = check_credentials("mlsn.token", schema_name)
 
-    def test_network_error_is_not_valid(self, monkeypatch: Any) -> None:
-        session = MagicMock()
-        session.get.side_effect = Exception("boom")
-        monkeypatch.setattr(mailersend, "make_tracked_session", lambda *a, **k: session)
-        ok, error = check_credentials("mlsn.token")
+        assert ok is expected_ok
+        assert {request.path for request in network.requests_log} == {"/v1/domains"}
+        assert network.requests_log[0].param("limit") == "10"
+        assert network.requests_log[0].headers["authorization"] == "Bearer mlsn.token"
+
+    def test_network_error_is_not_valid(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            ok, error = check_credentials("mlsn.token")
+
         assert ok is False
         assert error is not None
+        assert {request.path for request in network.requests_log} == {"/v1/domains"}
 
 
 class TestTopLevelPagination:
@@ -156,96 +105,87 @@ class TestTopLevelPagination:
             ("page_past_the_cap_ends_the_table", 1001, 1, ["r1"]),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_stops_at_the_documented_page_cap(
         self,
         _name: str,
         next_page: int,
         expected_requests: int,
         expected_ids: list[str],
-        MockSession: MagicMock,
     ) -> None:
         # MailerSend accepts pages 1-1000 and rejects page 1001 with a 422, but still advertises a
         # next link on page 1000, so the cap has to end the table instead of following that link.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "recipients",
             [
                 _page([{"id": "r1"}], next_url=f"{BASE}/recipients?page={next_page}&limit=100"),
                 _page([{"id": "r2"}], next_url=None),
             ],
         )
-        manager = _make_manager()
 
-        rows = _rows(_source("recipients", manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert len(result.requests) == expected_requests
+        assert result.params("page") == ([None, "1000"] if next_page == 1000 else [None])
 
-        assert [r["id"] for r in rows] == expected_ids
-        assert session.send.call_count == expected_requests
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_offhost_links_next_rejected_before_send(self, MockSession: MagicMock) -> None:
+    def test_offhost_links_next_rejected_before_send(self) -> None:
         # `links.next` is followed verbatim, so an off-host value must be rejected by the client's
         # host pin before the Bearer token can be replayed to an attacker-controlled host.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "recipients",
             [
                 _page([{"id": "r1"}], next_url="https://evil.example/v1/recipients?page=2"),
                 _page([{"id": "r2"}], next_url=None),
             ],
         )
 
-        with pytest.raises(ValueError, match="disallowed host"):
-            _rows(_source("recipients", _make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert "disallowed host" in str(result.raised)
 
         # Only the on-host first page went out; the off-host next link never reached the network.
-        assert session.send.call_count == 1
+        assert result.paths == ["/v1/recipients"]
 
 
 class TestActivityFanOut:
     @staticmethod
-    def _domains(*ids: str) -> Response:
+    def _domains(*ids: str) -> ScriptedResponse:
         return _page([{"id": i} for i in ids], next_url=None)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_domain(self, MockSession: MagicMock) -> None:
+    def test_resumes_from_saved_domain(self) -> None:
         # State marking d1 complete must skip it and only fetch d2.
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+        result = _driver().run(
+            "activity",
             [self._domains("d1", "d2"), _page([{"id": "a2"}], next_url=None)],
+            resume_state=MailerSendResumeConfig(
+                fanout_state={"completed": ["/activity/d1"], "current": None, "child_state": None}
+            ),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
         )
-        manager = _make_manager(
-            MailerSendResumeConfig(fanout_state={"completed": ["/activity/d1"], "current": None, "child_state": None})
-        )
-        rows = _rows(
-            _source(
-                "activity",
-                manager,
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 6, 1, tzinfo=UTC),
-            )
-        )
-        assert [r["id"] for r in rows] == ["a2"]
-        assert [c["url"] for c in snaps if "/activity/" in c["url"]] == [f"{BASE}/activity/d2"]
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a2"]
+        assert [request.url.split("?", 1)[0] for request in result.requests if "/activity/" in request.path] == [
+            f"{BASE}/activity/d2"
+        ]
 
     @staticmethod
-    def _rejected_window() -> Response:
+    def _rejected_window() -> ScriptedResponse:
         # MailerSend rejects a window reaching past the account's activity retention.
-        return _response({"message": "The given data was invalid."}, status_code=422)
+        return ScriptedResponse(status=422, json={"message": "The given data was invalid."})
 
     @staticmethod
-    def _window_days(snapshot: dict[str, Any]) -> float:
-        return (snapshot["date_to"] - snapshot["date_from"]) / (24 * 60 * 60)
+    def _window_days(request: RecordedRequest) -> float:
+        date_from = request.param("date_from")
+        date_to = request.param("date_to")
+        assert date_from is not None and date_to is not None
+        return (int(date_to) - int(date_from)) / (24 * 60 * 60)
 
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_narrows_the_window_when_the_account_retains_less(self, MockSession: MagicMock) -> None:
+    def test_narrows_the_window_when_the_account_retains_less(self) -> None:
         # Activity retention is 30, 7 or 1 days depending on the plan and no endpoint reports it,
         # so a rejected window must step down a tier rather than fail the whole sync.
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+        result = _driver().run(
+            "activity",
             [
                 self._domains("d1"),
                 self._rejected_window(),
@@ -254,18 +194,15 @@ class TestActivityFanOut:
             ],
         )
 
-        rows = _rows(_source("activity", _make_manager()))
-
-        assert [r["id"] for r in rows] == ["a1"]
-        attempts = [c for c in snaps if "/activity/" in c["url"]]
-        assert [self._window_days(a) for a in attempts] == [30, 7]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a1"]
+        attempts = [request for request in result.requests if "/activity/" in request.path]
+        assert [self._window_days(request) for request in attempts] == [30, 7]
 
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_every_tier_rejected_fails_the_sync(self, MockSession: MagicMock) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+    def test_every_tier_rejected_fails_the_sync(self) -> None:
+        result = _driver().run(
+            "activity",
             [
                 self._domains("d1"),
                 self._rejected_window(),
@@ -276,11 +213,9 @@ class TestActivityFanOut:
             ],
         )
 
-        with pytest.raises(HTTPError):
-            _rows(_source("activity", _make_manager()))
-
-        attempts = [c for c in snaps if "/activity/" in c["url"]]
-        assert [self._window_days(a) for a in attempts] == [30, 7, 1]
+        assert isinstance(result.raised, HTTPError)
+        attempts = [request for request in result.requests if "/activity/" in request.path]
+        assert [self._window_days(request) for request in attempts] == [30, 7, 1]
 
 
 class TestAnalyticsByDate:
@@ -296,21 +231,18 @@ class TestAnalyticsByDate:
         ]
     )
     @time_machine.travel("2026-06-23T00:00:00Z", tick=False)
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_request_window_and_row_shape(
         self,
         _name: str,
         should_use_incremental_field: bool,
         last_value: datetime | None,
         expected_date_from: datetime,
-        MockSession: MagicMock,
     ) -> None:
-        session = MockSession.return_value
-        snaps = _wire(
-            session,
+        result = _driver().run(
+            "analytics_by_date",
             [
-                _response(
-                    {
+                ScriptedResponse(
+                    json={
                         "data": {
                             "date_from": "1782172800",
                             "date_to": "1782259199",
@@ -320,25 +252,19 @@ class TestAnalyticsByDate:
                     }
                 )
             ],
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=last_value,
         )
 
-        rows = _rows(
-            _source(
-                "analytics_by_date",
-                _make_manager(),
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=last_value,
-            )
-        )
-
-        assert rows == [{"date": datetime(2026, 6, 23, tzinfo=UTC), "sent": 4, "opened": 2}]
-        assert len(snaps) == 1
-        request = snaps[0]
-        assert request["url"] == f"{BASE}/analytics/date"
-        assert request["date_from"] == int(expected_date_from.timestamp())
-        assert request["date_to"] == int(datetime(2026, 6, 23, tzinfo=UTC).timestamp())
-        assert request["group_by"] == "days"
-        assert request["event[]"] == list(MAILERSEND_ANALYTICS_EVENTS)
+        assert result.raised is None
+        assert result.rows == [{"date": datetime(2026, 6, 23, tzinfo=UTC), "sent": 4, "opened": 2}]
+        assert len(result.requests) == 1
+        request = result.requests[0]
+        assert request.origin + request.path == f"{BASE}/analytics/date"
+        assert request.param("date_from") == str(int(expected_date_from.timestamp()))
+        assert request.param("date_to") == str(int(datetime(2026, 6, 23, tzinfo=UTC).timestamp()))
+        assert request.param("group_by") == "days"
+        assert request.query["event[]"] == tuple(MAILERSEND_ANALYTICS_EVENTS)
 
 
 class TestLegacyResumeStateCompat:
@@ -351,6 +277,14 @@ class TestLegacyResumeStateCompat:
 
 
 class TestSourceResponseShape:
+    @staticmethod
+    def _response(endpoint: str) -> SourceResponse:
+        body: dict[str, Any] = {"data": {"stats": []}} if endpoint == "analytics_by_date" else {"data": []}
+        result = _driver().run(endpoint, [ScriptedResponse(json=body)])
+        assert result.raised is None
+        assert result.response is not None
+        return result.response
+
     @parameterized.expand(
         [
             "domains",
@@ -365,7 +299,7 @@ class TestSourceResponseShape:
         ]
     )
     def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        resource = _source(endpoint, _make_manager())
+        resource = self._response(endpoint)
         assert resource.name == endpoint
         assert resource.primary_keys == MAILERSEND_ENDPOINTS[endpoint].primary_keys
 
@@ -375,7 +309,7 @@ class TestSourceResponseShape:
 
     @parameterized.expand([("activity", "desc"), ("domains", "asc")])
     def test_sort_mode(self, endpoint: str, expected_sort: str) -> None:
-        assert _source(endpoint, _make_manager()).sort_mode == expected_sort
+        assert self._response(endpoint).sort_mode == expected_sort
 
     @parameterized.expand(
         [
@@ -391,6 +325,6 @@ class TestSourceResponseShape:
         ]
     )
     def test_partitions_on_a_stable_timestamp(self, endpoint: str, expected_key: str) -> None:
-        resource = _source(endpoint, _make_manager())
+        resource = self._response(endpoint)
         assert resource.partition_keys == [expected_key]
         assert resource.partition_mode == "datetime"

@@ -7,7 +7,7 @@ import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playli
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { watchPicksLogic } from './watchPicksLogic'
+import { emptyImpressionsStorageKey, picksShownCountStorageKey, watchPicksLogic } from './watchPicksLogic'
 import { watchPicksVariantFromFlag } from './watchPicksVariant'
 
 describe('watchPicksLogic', () => {
@@ -89,7 +89,24 @@ describe('watchPicksLogic', () => {
 
         it('opens on the picks and reports the impression with its count', () => {
             expect(logic.values.effectiveListMode).toBe('picks')
-            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3 }])
+            expect(shownEvents()).toEqual([{ view: 'list', count: 3, unwatched_count: 3, shown_count: 1 }])
+        })
+
+        it.each([
+            [1, []],
+            [2, [{ view: 'list' }]],
+            [3, []],
+        ])('reports the third impression as its own event (stored count %i)', async (stored, thirdTimeEvents) => {
+            logic.unmount()
+            playlistLogic.unmount()
+            localStorage.setItem(picksShownCountStorageKey(), String(stored))
+            await mountList()
+            expect(
+                captureSpy.mock.calls
+                    .filter(([name]) => name === 'replay_vision_watch_picks_shown_third_time')
+                    .map((call) => call[1])
+            ).toEqual(thirdTimeEvents)
+            expect(localStorage.getItem(picksShownCountStorageKey())).toBe(String(stored + 1))
         })
 
         it.each([
@@ -105,7 +122,32 @@ describe('watchPicksLogic', () => {
         })
 
         it.each([
-            ['the feed is empty', () => feedSpy.mockImplementation(() => [200, { results: [] }]), {}],
+            [0, 'picks', '1'],
+            [1, 'picks', '2'],
+            [2, 'recordings', '2'],
+        ])(
+            'opens an empty feed on the picks until %i untouched impressions, then on the recordings',
+            async (stored, mode, storedAfter) => {
+                logic.unmount()
+                playlistLogic.unmount()
+                feedSpy.mockImplementation(() => [200, { results: [] }])
+                localStorage.setItem(emptyImpressionsStorageKey(), String(stored))
+                await mountList()
+                expect(logic.values.effectiveListMode).toBe(mode)
+                expect(localStorage.getItem(emptyImpressionsStorageKey())).toBe(storedAfter)
+                expect(shownEvents()).toEqual([])
+            }
+        )
+
+        it('starting a scanner from the column keeps the picks open and forgets the empty impressions', async () => {
+            localStorage.setItem(emptyImpressionsStorageKey(), '2')
+            logic.actions.setListMode('recordings')
+            logic.actions.adoptPicksMode()
+            expect(logic.values.effectiveListMode).toBe('picks')
+            expect(localStorage.getItem(emptyImpressionsStorageKey())).toBe('0')
+        })
+
+        it.each([
             ['the feed fails', () => feedSpy.mockImplementation(() => [500, {}]), {}],
             ['the link carries filters', () => {}, { filters: { date_from: '-30d' } }],
             ['the link carries a saved filter', () => {}, { savedFilterId: 'sf-1' }],

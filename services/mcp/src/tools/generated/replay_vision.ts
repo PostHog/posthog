@@ -934,6 +934,9 @@ const visionScannersCreate = (): ToolBase<
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
         }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
+        }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
         }
@@ -1019,6 +1022,9 @@ const visionScannersDraft = (): ToolBase<
         }
         if (params.monthly_credit_budget !== undefined) {
             body['monthly_credit_budget'] = params.monthly_credit_budget
+        }
+        if (params.experiment_id !== undefined) {
+            body['experiment_id'] = params.experiment_id
         }
         const result = await context.api.request<Schemas.DraftScannerResponse>({
             method: 'POST',
@@ -1610,6 +1616,9 @@ const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdate
         if (params.credit_limit !== undefined) {
             body['credit_limit'] = params.credit_limit
         }
+        if (params.free_only !== undefined) {
+            body['free_only'] = params.free_only
+        }
         if (params.provider !== undefined) {
             body['provider'] = params.provider
         }
@@ -1675,6 +1684,7 @@ const visionScannersWatchFeed = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/watch_feed/`,
             query: {
+                created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
                 limit: params.limit,

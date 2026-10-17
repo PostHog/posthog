@@ -47,6 +47,8 @@ from products.review_hog.backend.reviewer.tools.select_perspectives import Persp
 from products.review_hog.backend.temporal.activities import (
     AppendCodeReviewArtefactInput,
     BuildBodyInput,
+    CoordinatorReviewInput,
+    CoordinatorReviewResult,
     DedupResult,
     FetchPRDataInput,
     FlashSessionStats,
@@ -66,6 +68,7 @@ from products.review_hog.backend.temporal.activities import (
     ResolveActingUserInput,
     ReviewChunkInput,
     ReviewMeta,
+    ReviewReactionInput,
     SandboxStageInput,
     SelectPerspectivesInput,
     StatusCommentInput,
@@ -73,11 +76,14 @@ from products.review_hog.backend.temporal.activities import (
     TrackReviewCompletedInput,
     TrackReviewFailedInput,
     TrackReviewStartedInput,
+    TurnEndedInput,
     ValidateChunkInput,
     ValidateChunkResult,
     ValidateIntegrationInput,
+    add_review_reaction_activity,
     append_code_review_artefact_activity,
     build_body_activity,
+    coordinator_review_activity,
     dedup_activity,
     fail_status_comment_activity,
     fetch_pr_data_activity,
@@ -88,9 +94,11 @@ from products.review_hog.backend.temporal.activities import (
     load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
+    nudge_stamphog_activity,
     post_status_comment_activity,
     publish_review_activity,
     record_turn_marker_activity,
+    remove_review_reaction_activity,
     remove_trigger_label_activity,
     resolve_acting_user_activity,
     review_chunk_activity,
@@ -169,6 +177,12 @@ def _non_retryable_cause(exc: BaseException | None) -> ApplicationError | None:
             return exc
         exc = exc.__cause__
     return None
+
+
+def _out_of_attempts() -> bool:
+    info = workflow.info()
+    retry = info.retry_policy
+    return retry is None or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
 
 
 @dataclass
@@ -428,14 +442,7 @@ class ReviewPRWorkflow:
             non_retryable = True
             raise ApplicationError(str(e), non_retryable=True, type=cause.type) from e
         finally:
-            info = workflow.info()
-            retry = info.retry_policy
-            terminal = (
-                completed
-                or non_retryable
-                or retry is None
-                or (retry.maximum_attempts > 0 and info.attempt >= retry.maximum_attempts)
-            )
+            terminal = completed or non_retryable or _out_of_attempts()
             if (
                 workflow.patched("remove-reviewhog-trigger-label-2026-08")
                 and terminal
@@ -634,6 +641,7 @@ class ReviewPRWorkflow:
                         flash_reasoning_effort=acting.flash_reasoning_effort,
                         review_design=review_design,
                         review_design_reason=meta.review_design_reason,
+                        coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_RETRY,
@@ -644,11 +652,14 @@ class ReviewPRWorkflow:
         # One gate, three consumers: the status comment, finalize's deferred idle write, and the
         # stage-7 publish dispatch all key off "this run publishes to a PR".
         publishes_to_pr = inputs.publish and meta.pr_number is not None
+        # The patch keeps a history from before the reactions on its old command sequence.
+        reacts = workflow.patched("reviewhog-pr-reactions-2026-10")
         # The PR's live status comment: posted once every gate has passed, refreshed by the pipeline
         # activities as they persist progress, and rewritten with the outcome below. Publish-path
         # only — eval / CLI / branch-target runs keep zero GitHub footprint. Best-effort throughout:
-        # a status comment must never cost a review.
-        status_comment = publishes_to_pr
+        # a status comment must never cost a review. A Standard turn has none: its 👀 shows that it
+        # runs, and its review, 👍, or failure comment shows the outcome.
+        status_comment = publishes_to_pr and not (reacts and inputs.review_mode == REVIEW_MODE_FLASH)
         if status_comment:
             try:
                 await workflow.execute_activity(
@@ -665,6 +676,9 @@ class ReviewPRWorkflow:
             except ActivityError:
                 workflow.logger.warning("Could not post the status comment; continuing without it")
 
+        eyes_reaction_id: int | None = None
+        if reacts and publishes_to_pr and meta.pr_number is not None:
+            eyes_reaction_id = await self._add_eyes_reaction(inputs.team_id, repository, meta.pr_number)
         publish_result: PublishResult | None = None
         marker: ReviewHogMarker | None = None
         flash_sessions: FlashSessionStats | None = None
@@ -696,6 +710,8 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
+                            coordinator=review_design == REVIEW_DESIGN_SINGLE_AGENT and meta.coordinator,
+                            publishes=publishes_to_pr,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -714,9 +730,17 @@ class ReviewPRWorkflow:
                 review_mode=inputs.review_mode,
                 flash_reasoning_effort=acting.flash_reasoning_effort,
                 review_design=review_design,
+                trigger_source=inputs.trigger_source,
             )
 
-            if review_design == REVIEW_DESIGN_SINGLE_AGENT:
+            # The patch keeps a history from before the coordinator existed on separate sessions when it replays.
+            if (
+                review_design == REVIEW_DESIGN_SINGLE_AGENT
+                and workflow.patched("flash-coordinator-2026-10")
+                and meta.coordinator
+            ):
+                flash_sessions = await self._review_with_coordinator(stage, meta.lens_chunk_count)
+            elif review_design == REVIEW_DESIGN_SINGLE_AGENT:
                 flash_sessions = await self._review_with_single_agent(stage, meta.lens_chunk_count)
             else:
                 await self._review_with_pipeline(stage, acting_user_id)
@@ -789,6 +813,7 @@ class ReviewPRWorkflow:
                         urgency_threshold=urgency_threshold,
                         review_mode=inputs.review_mode,
                         trigger_source=inputs.trigger_source,
+                        capped_lens_parts=meta.lens_chunk_count if meta.lens_chunks_capped else None,
                     ),
                     start_to_close_timeout=_QUICK_TIMEOUT,
                     retry_policy=_GITHUB_POST_RETRY,
@@ -797,11 +822,12 @@ class ReviewPRWorkflow:
                 workflow.logger.info("No PR to publish to (branch target); the review is stored only")
             else:
                 workflow.logger.info("Publishing disabled for this run (publish=False)")
-        except Exception:
+        except Exception as e:
             # A dead run must not read as forever in progress on the PR or in the Code review UI
             # (the activity also returns the report to rest, covering a publish that died with the
             # idle write still deferred); best-effort so the edit can never mask the original error.
-            if status_comment:
+            # A Standard turn without a status comment still needs the idle write and its failure comment.
+            if publishes_to_pr:
                 try:
                     await workflow.execute_activity(
                         fail_status_comment_activity,
@@ -811,12 +837,17 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             review_design=review_design,
                             run_index=meta.run_index,
+                            last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
+                            uses_status_comment=status_comment,
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
                     )
                 except Exception:
                     workflow.logger.warning("Could not mark the status comment as failed")
+                # After the failure is recorded, so a stamphog re-run reads this head as failed.
+                if workflow.patched("reviewhog-nudge-stamphog-2026-10") and meta.pr_number is not None:
+                    await self._nudge_stamphog(repository, meta.pr_number, head_sha)
             # The signal report's log records a failed turn too (a receipt per executed turn,
             # completion or failure); best-effort so it can never mask the original error.
             await self._append_code_review_receipt(
@@ -837,6 +868,7 @@ class ReviewPRWorkflow:
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
+                            last_attempt=_non_retryable_cause(e) is not None or _out_of_attempts(),
                         ),
                         start_to_close_timeout=_QUICK_TIMEOUT,
                         retry_policy=_RETRY,
@@ -844,8 +876,15 @@ class ReviewPRWorkflow:
                 except Exception:
                     workflow.logger.exception("Could not capture the review-failed analytics event")
             raise
+        finally:
+            # Also on cancellation, which is not an Exception, so a stopped turn leaves no 👀 behind.
+            if eyes_reaction_id is not None and meta.pr_number is not None:
+                await self._remove_eyes_reaction(inputs.team_id, repository, meta.pr_number, eyes_reaction_id)
 
         posted = publish_result is not None and publish_result.posted
+        # After publish, so a stamphog re-run finds this turn's findings on the PR.
+        if workflow.patched("reviewhog-nudge-stamphog-2026-10") and publishes_to_pr and meta.pr_number is not None:
+            await self._nudge_stamphog(repository, meta.pr_number, head_sha)
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
         # best-effort — a review must never fail over its own telemetry.
         try:
@@ -1053,6 +1092,37 @@ class ReviewPRWorkflow:
         )
 
     @staticmethod
+    async def _review_with_coordinator(stage: SandboxStageInput, lens_chunk_count: int) -> FlashSessionStats:
+        """Stages 2 and 3 of the single-agent design, with every session a sub-agent of one coordinator session."""
+        workflow.logger.info(f"STAGE 2-3/7 · Coordinated review: the main review and {lens_chunk_count} lens part(s)")
+        started = workflow.now()
+        result: CoordinatorReviewResult = await workflow.execute_activity(
+            coordinator_review_activity,
+            CoordinatorReviewInput(
+                team_id=stage.team_id,
+                user_id=stage.user_id,
+                report_id=stage.report_id,
+                head_sha=stage.head_sha,
+                repository=stage.repository,
+                branch=stage.branch,
+                run_index=stage.run_index,
+                review_mode=stage.review_mode,
+                flash_reasoning_effort=stage.flash_reasoning_effort,
+                review_design=stage.review_design,
+                lens_chunk_count=lens_chunk_count,
+            ),
+            start_to_close_timeout=_SANDBOX_TIMEOUT,
+            heartbeat_timeout=_SANDBOX_HEARTBEAT,
+            retry_policy=_RETRY,
+        )
+        return FlashSessionStats(
+            lens_failures=result.lens_failures,
+            lens_timeouts=0,
+            slowest_session_seconds=round((workflow.now() - started).total_seconds(), 1),
+            coordinator=True,
+        )
+
+    @staticmethod
     async def _review_with_pipeline(stage: SandboxStageInput, acting_user_id: int) -> None:
         """Stages 2 and 3 of the pipeline design: split into chunks, then the perspective wave."""
         workflow.logger.info("STAGE 2/7 · Split into chunks")
@@ -1083,6 +1153,45 @@ class ReviewPRWorkflow:
             id=f"{workflow.info().workflow_id}/review",
             retry_policy=_RETRY,
         )
+
+    @staticmethod
+    async def _add_eyes_reaction(team_id: int, repository: str, pr_number: int) -> int | None:
+        try:
+            return await workflow.execute_activity(
+                add_review_reaction_activity,
+                ReviewReactionInput(team_id=team_id, repository=repository, pr_number=pr_number),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not add the review reaction; continuing without it")
+            return None
+
+    @staticmethod
+    async def _nudge_stamphog(repository: str, pr_number: int, head_sha: str) -> None:
+        try:
+            await workflow.execute_activity(
+                nudge_stamphog_activity,
+                TurnEndedInput(repository=repository, pr_number=pr_number, head_sha=head_sha),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not ask stamphog to re-review")
+
+    @staticmethod
+    async def _remove_eyes_reaction(team_id: int, repository: str, pr_number: int, reaction_id: int) -> None:
+        try:
+            await workflow.execute_activity(
+                remove_review_reaction_activity,
+                ReviewReactionInput(
+                    team_id=team_id, repository=repository, pr_number=pr_number, reaction_id=reaction_id
+                ),
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not remove the review reaction")
 
     @staticmethod
     async def _append_code_review_receipt(

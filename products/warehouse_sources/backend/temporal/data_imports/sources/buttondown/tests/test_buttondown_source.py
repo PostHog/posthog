@@ -1,15 +1,15 @@
 import pytest
-from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.source import ButtondownSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buttondown import (
     ButtondownSourceConfig,
 )
-
-VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.source.validate_buttondown_credentials"
-)
-SOURCE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.source.buttondown_source"
 
 
 class TestButtondownSource:
@@ -32,17 +32,22 @@ class TestButtondownSource:
     def test_validate_credentials(
         self, probe_result: tuple[bool, int | None], schema_name: str | None, expected: tuple[bool, str | None]
     ) -> None:
-        with mock.patch(VALIDATE_PATCH, return_value=probe_result) as mock_validate:
+        status_code = probe_result[1]
+        answer = ScriptedResponse(status=status_code) if status_code is not None else ConnectionError("reset")
+        with scripted_network(always(answer)) as network:
             assert self.source.validate_credentials(self.config, self.team_id, schema_name) == expected
 
-        mock_validate.assert_called_once_with("bd-key", "2026-04-01")
+        assert network.requests_log[0].path == "/v1/accounts/me"
+        assert network.requests_log[0].headers["authorization"] == "Token bd-key"
+        assert network.requests_log[0].headers["x-api-version"] == "2026-04-01"
 
     def test_source_for_pipeline_honors_a_pinned_api_version(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "emails"
-        inputs.api_version = "2025-01-02"
+        result = SourceDriver(self.source, self.config).run(
+            "emails",
+            [ScriptedResponse(json={"count": 1, "next": None, "previous": None, "results": [{"id": "a"}]})],
+            api_version="2025-01-02",
+        )
 
-        with mock.patch(SOURCE_PATCH) as mock_source:
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_source.call_args.kwargs["api_version"] == "2025-01-02"
+        assert result.raised is None
+        assert result.rows == [{"id": "a"}]
+        assert result.requests[0].headers["x-api-version"] == "2025-01-02"

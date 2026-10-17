@@ -1,7 +1,7 @@
 """
-Temporal workflows for autoresearch inference and online validation.
+Temporal workflows for autoresearch inference, online validation, and person property cleanup.
 
-Both workflows are regular Temporal workflows (not TaskRun/agent sandboxes) because
+These workflows are regular Temporal workflows (not TaskRun/agent sandboxes) because
 scoring and validation are deterministic pipelines. Training runs through Task/TaskRun.
 
 Activities are synchronous — Temporal runs them in a thread pool, which is correct
@@ -11,21 +11,23 @@ for Django ORM + HogQL queries. Workflows are async and only orchestrate activit
 from __future__ import annotations
 
 from collections.abc import Awaitable
-from dataclasses import field
+from dataclasses import field, replace
 from datetime import date, timedelta
 from typing import Optional, TypeVar, cast
 
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 with workflow.unsafe.imports_passed_through():
     import asyncio as _asyncio
 
     from django.db import transaction
+    from django.db.models import QuerySet
     from django.utils import timezone as django_timezone
 
+    from posthog.models.team.team import Team
     from posthog.models.user import User
 
     from products.actions.backend.models.action import Action
@@ -38,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         fail_stale_inference_runs,
         find_unscorable_champion,
     )
+    from products.autoresearch.backend.inference.person_property import remove_output_person_property
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
     from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
     from products.autoresearch.backend.models import (
@@ -48,6 +51,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.autoresearch.backend.query import BATCH_QUERY
     from products.autoresearch.backend.training.runner import run_training
+    from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
     from products.tasks.backend.facade.access import get_desktop_access_decision
     from products.tasks.backend.facade.usage import task_run_usage_limited
 
@@ -399,6 +403,150 @@ class AutoresearchValidationWorkflow(PostHogWorkflow):
         )
 
 
+# ── Person property cleanup ───────────────────────────────────────────────────
+
+
+@frozen
+class PropertyCleanupWorkflowInput:
+    pipeline_id: str
+    team_id: int
+    # Carried in the input, because a deleted pipeline has no row to read them from.
+    output_property: str
+    # The pipeline's creation time, so the scan for its prediction events stays bounded.
+    written_since: Optional[str] = None
+    # The AutoresearchRun row the cleanup fills. None for a deleted pipeline.
+    run_id: Optional[str] = None
+    # Who turned the setting off, archived, or deleted, so HogQL applies their access.
+    user_id: Optional[int] = None
+    # The first pass leaves the run open, so the run completes only after the reconcile pass.
+    final_pass: bool = True
+
+
+@frozen
+class PropertyCleanupWorkflowResult:
+    persons_cleared: int
+    status: str
+    stopped: Optional[str] = None
+
+
+# A page reads at most CLEANUP_PAGE_SIZE persons and sends one capture batch, so one attempt covers
+# a large population. The cleanup restarts from the first person that still holds the property.
+_CLEANUP_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(minutes=1))
+_CLEANUP_ATTEMPT_TIMEOUT = timedelta(hours=2)
+# A scoring batch capture accepted just before the opt-out can still be ingesting when the first pass
+# runs, and its $set lands after it. A second pass after this delay removes those.
+_RECONCILE_DELAY = timedelta(hours=1)
+# Two passes of up to three attempts each, plus the delay between them and the retry backoff.
+PROPERTY_CLEANUP_WORKFLOW_TIMEOUT = timedelta(hours=16)
+
+
+@activity.defn(name="autoresearch-property-cleanup.remove_person_property")
+def activity_remove_person_property(inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+    """Send $unset for the pipeline's output property to the persons it wrote it to.
+
+    The run row is updated through the queryset, because deleting the pipeline also deletes its runs.
+    The count continues from the row, so a retry or the reconcile pass adds to what earlier attempts
+    cleared. A failed attempt leaves the run open, and the workflow fails it once retries run out.
+    """
+    with HeartbeaterSync(), team_scope(inp.team_id):
+        _update_cleanup_run(inp.run_id, status=AutoresearchRun.Status.RUNNING, error="", completed_at=None)
+        cleared_before = _cleanup_run_count(inp.run_id)
+        team = Team.objects.get(pk=inp.team_id)
+        user = User.objects.filter(pk=inp.user_id, is_active=True).first() if inp.user_id else None
+        outcome = remove_output_person_property(
+            team=team,
+            pipeline_id=inp.pipeline_id,
+            output_property=inp.output_property,
+            written_since=inp.written_since,
+            user=user,
+            query_context=BATCH_QUERY,
+            on_page=lambda cleared: _update_cleanup_run(inp.run_id, rows_scored=cleared_before + cleared),
+        )
+        cleared = cleared_before + outcome.persons_cleared
+        done = inp.final_pass or outcome.stopped is not None
+        status = AutoresearchRun.Status.COMPLETED if done else AutoresearchRun.Status.RUNNING
+        _update_cleanup_run(
+            inp.run_id,
+            status=status,
+            rows_scored=cleared,
+            metrics={"output_person_property": inp.output_property, "stopped": outcome.stopped},
+            completed_at=django_timezone.now() if done else None,
+        )
+    return PropertyCleanupWorkflowResult(persons_cleared=cleared, status=status, stopped=outcome.stopped)
+
+
+@frozen
+class FailCleanupRunInput:
+    run_id: str
+    error: str
+
+
+@activity.defn(name="autoresearch-property-cleanup.fail_run")
+def activity_fail_cleanup_run(inp: FailCleanupRunInput) -> None:
+    """Fail the run after the cleanup ran out of retries, timed out, or lost its worker."""
+    _update_cleanup_run(
+        inp.run_id, status=AutoresearchRun.Status.FAILED, error=inp.error[:2000], completed_at=django_timezone.now()
+    )
+
+
+def _cleanup_runs(run_id: str) -> QuerySet[AutoresearchRun]:
+    return AutoresearchRun.objects.filter(pk=run_id, run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP)
+
+
+def _update_cleanup_run(run_id: str | None, **fields: object) -> None:
+    if run_id is not None:
+        _cleanup_runs(run_id).update(**fields)
+
+
+def _cleanup_run_count(run_id: str | None) -> int:
+    if run_id is None:
+        return 0
+    return _cleanup_runs(run_id).values_list("rows_scored", flat=True).first() or 0
+
+
+def property_cleanup_workflow_id(pipeline_id: str, request_id: str) -> str:
+    """One workflow per cleanup request, so a request never waits on, or is lost to, an earlier one that is stopping."""
+    return f"autoresearch-property-cleanup-{pipeline_id}-{request_id}"
+
+
+@workflow.defn(name="autoresearch-property-cleanup")
+class AutoresearchPropertyCleanupWorkflow(PostHogWorkflow):
+    """
+    Removes a pipeline's output person property from persons, after someone turns off
+    write_person_property, or archives or deletes a pipeline that had it on. A reconcile pass
+    runs after _RECONCILE_DELAY for scores that were still ingesting during the first pass.
+    """
+
+    inputs_cls = PropertyCleanupWorkflowInput
+
+    @workflow.run
+    async def run(self, inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+        try:
+            first = await self._remove(replace(inp, final_pass=False))
+            if first.stopped is not None:
+                return first
+            await workflow.sleep(_RECONCILE_DELAY)
+            return await self._remove(replace(inp, final_pass=True))
+        except ActivityError as exc:
+            if inp.run_id is not None:
+                await workflow.execute_activity(
+                    activity_fail_cleanup_run,
+                    FailCleanupRunInput(run_id=inp.run_id, error=str(exc.cause or exc)),
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=5),
+                )
+            raise
+
+    async def _remove(self, inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+        return await workflow.execute_activity(
+            activity_remove_person_property,
+            inp,
+            start_to_close_timeout=_CLEANUP_ATTEMPT_TIMEOUT,
+            heartbeat_timeout=_HEARTBEAT_TIMEOUT,
+            retry_policy=_CLEANUP_RETRY,
+        )
+
+
 # ── Coordinator workflow I/O ──────────────────────────────────────────────────
 
 
@@ -483,8 +631,8 @@ def evaluate_pipeline_outcome(
 @frozen
 class KickoffTrainingResult:
     kicked_off: bool
-    # "started" | "budget_exhausted" | "already_running" | "already_ran_today" | "not_eligible"
-    # | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
+    # "explore" | "scheduled" | "not_due" | "manual_only" | "already_running" | "already_ran_today"
+    # | "not_eligible" | "tasks_gated" | "no_creator" | "not_launchable" | "rescue_unscorable" | "rescue_throttled"
     reason: str
     error: Optional[str] = None
     # Why an expected skip happened, without counting it as a failure.
@@ -495,7 +643,7 @@ class KickoffTrainingResult:
 
 _COORDINATOR_RETRY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=5))
 _KICKOFF_RETRY = RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=10))
-# The iterations of a rescue run. It does not come out of the pipeline budget.
+# The iterations of a rescue run, which is shorter than a research run.
 RESCUE_ITERATION_BUDGET = 3
 
 
@@ -561,11 +709,11 @@ def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> 
 
 @activity.defn(name="autoresearch-coordinator.kickoff_training")
 def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResult:
-    """Spend part of the iteration budget on a new agent training run, if the pipeline is eligible.
+    """Start a scheduled agent training run, if the pipeline's research schedule says one is due.
 
-    The deduction, the run row, and its task binding commit together under the pipeline row lock,
-    as in the facade's ``start_training``. A manual start cannot interleave, and a failed launch
-    rolls the deduction back. A launch failure raises, so the activity retry applies.
+    The run row and its task binding commit together under the pipeline row lock, as in the
+    facade's ``start_training``, so a manual start cannot interleave. A launch failure raises,
+    so the activity retry applies.
     """
     # The gates can call out to billing and flags, so they run before the row lock is taken.
     with team_scope(inp.team_id):
@@ -579,17 +727,6 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
         if pipeline.status != AutoresearchPipeline.Status.RUNNING:
             return KickoffTrainingResult(kicked_off=False, reason="not_eligible")
 
-        # The column is nullable (an admin can clear it); read that as exhausted rather
-        # than refunding the budget mid-flight.
-        remaining = pipeline.iteration_budget_remaining or 0
-        # A champion that cannot score stops all predictions, and only a training run can replace
-        # it. So an exhausted pipeline still gets a small rescue run that spends no budget.
-        rescue = remaining <= 0
-        if rescue:
-            champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
-            if find_unscorable_champion(champion) is None:
-                return KickoffTrainingResult(kicked_off=False, reason="budget_exhausted")
-
         if AutoresearchTrainingRun.objects.filter(
             pipeline=pipeline,
             status__in=[AutoresearchTrainingRun.Status.PENDING, AutoresearchTrainingRun.Status.RUNNING],
@@ -598,22 +735,41 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
 
         # At most one scheduled run per UTC day. A retry after a lost activity response must not
         # launch a second paid run once the first has already ended.
-        today = django_timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        now = django_timezone.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         if AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=today).exists():
             return KickoffTrainingResult(kicked_off=False, reason="already_ran_today")
 
-        # At most one rescue run in each window of UNSCORABLE_AFTER_FAILED_DAYS UTC days, so a pipeline
-        # that no candidate can fix costs a bounded amount.
-        rescue_window_start = today - timedelta(days=UNSCORABLE_AFTER_FAILED_DAYS - 1)
-        if (
-            rescue
-            and AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=rescue_window_start).exists()
-        ):
-            return KickoffTrainingResult(kicked_off=False, reason="rescue_throttled")
+        schedule = research_schedule(
+            research_interval_days=pipeline.research_interval_days,
+            pipeline_created_at=pipeline.created_at,
+            runs=schedule_runs_for([pipeline.pk], inp.team_id).get(pipeline.pk, []),
+        )
+        kickoff_reason: AutoresearchTrainingRun.KickoffReason | None = None
+        skip_reason = "not_due"
+        if pipeline.research_interval_days is None:
+            skip_reason = "manual_only"
+        elif schedule.phase == "explore":
+            kickoff_reason = AutoresearchTrainingRun.KickoffReason.EXPLORE
+        elif schedule.is_due(now):
+            kickoff_reason = AutoresearchTrainingRun.KickoffReason.SCHEDULED
+
+        # A champion that cannot score stops all predictions, and only a training run can replace
+        # it. So a pipeline with no research run due still gets a small rescue run.
+        if kickoff_reason is None:
+            champion = AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION).first()
+            if find_unscorable_champion(champion) is None:
+                return KickoffTrainingResult(kicked_off=False, reason=skip_reason)
+            # At most one rescue run in each window of UNSCORABLE_AFTER_FAILED_DAYS UTC days, so a
+            # pipeline that no candidate can fix costs a bounded amount.
+            rescue_window_start = today - timedelta(days=UNSCORABLE_AFTER_FAILED_DAYS - 1)
+            if AutoresearchTrainingRun.objects.filter(pipeline=pipeline, created_at__gte=rescue_window_start).exists():
+                return KickoffTrainingResult(kicked_off=False, reason="rescue_throttled")
+            kickoff_reason = AutoresearchTrainingRun.KickoffReason.RESCUE
 
         # Training runs in a Tasks sandbox that requires a real owning user. CLI-created
-        # pipelines have no creator, so fail before spending budget rather than launching
-        # a run that would crash in the tasks facade.
+        # pipelines have no creator, so fail here rather than launching a run that would
+        # crash in the tasks facade.
         if pipeline.created_by_id is None:
             error = f"Pipeline {inp.pipeline_id} has no creator; training kickoff requires created_by to own the task"
             logger.error(
@@ -622,20 +778,16 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
             )
             return KickoffTrainingResult(kicked_off=False, reason="no_creator", error=error)
 
+        rescue = kickoff_reason == AutoresearchTrainingRun.KickoffReason.RESCUE
         try:
             with transaction.atomic():
-                if rescue:
-                    run_training(
-                        pipeline=pipeline,
-                        iteration_budget=RESCUE_ITERATION_BUDGET,
-                        user_id=pipeline.created_by_id,
-                        rescue=True,
-                    )
-                else:
-                    daily_budget = min(10, remaining)
-                    pipeline.iteration_budget_remaining = remaining - daily_budget
-                    pipeline.save(update_fields=["iteration_budget_remaining"])
-                    run_training(pipeline=pipeline, iteration_budget=daily_budget, user_id=pipeline.created_by_id)
+                run_training(
+                    pipeline=pipeline,
+                    iteration_budget=RESCUE_ITERATION_BUDGET if rescue else pipeline.iterations_per_run,
+                    user_id=pipeline.created_by_id,
+                    rescue=rescue,
+                    kickoff_reason=kickoff_reason,
+                )
         except (ValueError, SandboxInferenceError, Action.DoesNotExist) as exc:
             # run_training refuses a departed creator or an unresolvable target before it writes
             # anything. A retry cannot fix either, so these report instead of raising.
@@ -643,7 +795,7 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     if rescue:
         logger.info("autoresearch_kickoff_training_rescue", pipeline_id=inp.pipeline_id)
         return KickoffTrainingResult(kicked_off=True, reason="rescue_unscorable")
-    return KickoffTrainingResult(kicked_off=True, reason="started")
+    return KickoffTrainingResult(kicked_off=True, reason=kickoff_reason.value)
 
 
 def _sweep_access_block(pipeline: AutoresearchPipeline) -> str | None:

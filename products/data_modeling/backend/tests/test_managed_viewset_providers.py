@@ -30,6 +30,8 @@ from products.data_modeling.backend.facade.models import (
     REVENUE_ANALYTICS_DAG_NAME,
     DataWarehouseManagedViewSet,
     DataWarehouseSavedQuery,
+    Node,
+    NodeType,
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
@@ -97,6 +99,10 @@ class TestManagedViewSetProviders(BaseTest):
         # materialization, nor get a managed (revenue-analytics) DAG.
         mock_schedule.assert_not_called()
         self.assertFalse(DAG.objects.filter(team=self.team, name=REVENUE_ANALYTICS_DAG_NAME).exists())
+        self.assertEqual(
+            list(Node.objects.filter(saved_query=view).values_list("dag", "type")),
+            [(DAG.get_or_create_default(self.team).id, NodeType.VIEW)],
+        )
 
     @patch(SCHEDULE_MATERIALIZATION)
     @patch(SYNC_SAVED_QUERY_TO_DAG)

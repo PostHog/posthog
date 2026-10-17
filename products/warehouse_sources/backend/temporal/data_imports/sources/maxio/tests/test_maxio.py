@@ -1,31 +1,25 @@
-import json
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any, cast
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-from requests import Response
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.maxio import MaxioSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio import (
     MaxioPaginator,
     MaxioResumeConfig,
     format_start_datetime,
     get_resource,
-    maxio_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.settings import PAGE_SIZE
-
-
-def _make_http_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+from products.warehouse_sources.backend.temporal.data_imports.sources.maxio.source import MaxioSource
 
 
 def _customer_page(count: int, start_id: int = 1) -> list[dict[str, Any]]:
@@ -77,73 +71,37 @@ class TestGetResource:
 
 
 class TestMaxioSourceDrive:
-    """End-to-end behaviour of ``maxio_source`` via ``rest_api_resource`` with a mocked session."""
+    """Run Maxio extraction through its pipeline entry point."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[dict[str, Any]], list[list[Any]]]:
-        """Returns ``(sent_params, yielded_pages)``; params are copied at send-time because
-        the paginator mutates the Request in place between pages."""
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = maxio_source(
-                api_key="test-key",
-                subdomain="acme",
-                region="us",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            pages = list(cast(Iterable[Any], resource))
-            return sent_params, pages
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(MaxioSource(), MaxioSourceConfig(subdomain="acme", api_key="test-key", region="us"))
 
     def test_paginates_and_saves_state_after_each_non_terminal_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "customers",
+            [
+                ScriptedResponse(json=_customer_page(PAGE_SIZE)),
+                ScriptedResponse(json=_customer_page(1, start_id=PAGE_SIZE + 1)),
+            ],
+        )
 
-        responses = [
-            _make_http_response(_customer_page(PAGE_SIZE)),
-            _make_http_response(_customer_page(1, start_id=PAGE_SIZE + 1)),
-        ]
-        sent_params, pages = self._drive("customers", manager, responses)
-
-        assert [p["page"] for p in sent_params] == [1, 2]
-        assert all(p["per_page"] == PAGE_SIZE for p in sent_params)
+        assert result.raised is None
+        assert result.params("page") == ["1", "2"]
+        assert result.params("per_page") == [str(PAGE_SIZE), str(PAGE_SIZE)]
         # Rows are unwrapped from the `{"customer": {...}}` envelope by the data selector.
-        assert pages[0][0] == {"id": 1, "created_at": "2024-01-01T00:00:00Z"}
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [MaxioResumeConfig(endpoint="customers", next_page=2)]
+        assert result.items[0][0] == {"id": 1, "created_at": "2024-01-01T00:00:00Z"}
+        assert result.saved_states == [MaxioResumeConfig(endpoint="customers", next_page=2)]
 
     def test_resume_seeds_paginator_with_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = MaxioResumeConfig(endpoint="customers", next_page=5)
+        result = self._driver().run(
+            "customers",
+            [ScriptedResponse(json=_customer_page(1))],
+            resume_state=MaxioResumeConfig(endpoint="customers", next_page=5),
+        )
 
-        sent_params, _ = self._drive("customers", manager, [_make_http_response(_customer_page(1))])
-
-        assert [p["page"] for p in sent_params] == [5]
+        assert result.raised is None
+        assert result.params("page") == ["5"]
 
     @pytest.mark.parametrize(
         ("endpoint", "body", "expected_row"),
@@ -163,37 +121,31 @@ class TestMaxioSourceDrive:
     def test_incremental_run_sends_formatted_watermark(
         self, endpoint: str, body: Any, expected_row: dict[str, Any]
     ) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, pages = self._drive(
+        result = self._driver().run(
             endpoint,
-            manager,
-            [_make_http_response(body)],
-            should_use_incremental_field=True,
+            [ScriptedResponse(json=body)],
+            incremental_field="updated_at",
             db_incremental_field_last_value=datetime(2024, 5, 1, 10, 30, 0, tzinfo=UTC),
         )
 
-        assert pages[0][0] == expected_row
-        assert sent_params[0]["date_field"] == "updated_at"
-        assert sent_params[0]["start_datetime"] == "2024-05-01 10:30:00"
-        assert sent_params[0]["sort"] == "updated_at"
-        assert sent_params[0]["direction"] == "asc"
+        assert result.raised is None
+        assert result.items[0][0] == expected_row
+        assert result.requests[0].param("date_field") == "updated_at"
+        assert result.requests[0].param("start_datetime") == "2024-05-01 10:30:00"
+        assert result.requests[0].param("sort") == "updated_at"
+        assert result.requests[0].param("direction") == "asc"
 
     def test_incremental_events_run_sends_since_id(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        sent_params, pages = self._drive(
+        result = self._driver().run(
             "events",
-            manager,
-            [_make_http_response([{"event": {"id": 101, "key": "signup_success"}}])],
-            should_use_incremental_field=True,
+            [ScriptedResponse(json=[{"event": {"id": 101, "key": "signup_success"}}])],
+            incremental_field="id",
             db_incremental_field_last_value=100,
         )
 
-        assert sent_params[0]["since_id"] == 100
-        assert pages[0][0]["id"] == 101
+        assert result.raised is None
+        assert result.requests[0].param("since_id") == "100"
+        assert result.items[0][0]["id"] == 101
 
 
 class TestValidateCredentials:
@@ -207,15 +159,13 @@ class TestValidateCredentials:
         ],
     )
     def test_status_mapping(self, status_code: int, expected_valid: bool, expected_error_fragment: str | None) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.maxio.maxio.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.get.return_value = response
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
             valid, error = validate_credentials("key", "acme", "us")
 
+        assert {request.path for request in network.requests_log} == {"/customers.json"}
+        assert network.requests_log[0].path == "/customers.json"
+        assert network.requests_log[0].param("page") == "1"
+        assert network.requests_log[0].param("per_page") == "1"
         assert valid is expected_valid
         if expected_error_fragment is None:
             assert error is None

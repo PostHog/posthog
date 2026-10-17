@@ -1,93 +1,37 @@
 import json
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any
 
-import pytest
-from unittest import mock
+import time_machine
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.linode import LinodeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.linode.linode import (
     LinodeResumeConfig,
     _format_filter_value,
-    linode_source,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the linode module.
-LINODE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.linode.linode.make_tracked_session"
-)
-# Skip tenacity's backoff so retry tests don't actually sleep.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.linode.source import LinodeSource
 
 
-def _response(
-    items: Optional[list[dict[str, Any]]],
-    *,
-    page: int = 1,
-    pages: int = 1,
-    status: int = 200,
-    drop_data: bool = False,
-    content: Optional[bytes] = None,
-) -> Response:
-    resp = Response()
-    resp.status_code = status
-    if content is not None:
-        resp._content = content
-        return resp
-    body: dict[str, Any] = {"page": page, "pages": pages, "results": len(items or [])}
-    if not drop_data:
-        body["data"] = items or []
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(LinodeSource(), LinodeSourceConfig(api_token="tok"))
 
 
-def _make_manager(resume_state: LinodeResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and return a list that captures each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the run
-    shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str = "volumes", manager: mock.MagicMock | None = None, **kwargs: Any) -> Any:
-    return linode_source(
-        api_token="tok",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-        **kwargs,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+def _page(items: list[dict[str, Any]], *, page: int = 1, pages: int = 1) -> ScriptedResponse:
+    return ScriptedResponse(json={"page": page, "pages": pages, "results": len(items), "data": items})
 
 
 class TestFormatFilterValue:
@@ -116,16 +60,12 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        response = mock.MagicMock()
-        response.status_code = status_code
-        with mock.patch(LINODE_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = response
+        with scripted_network(always(ScriptedResponse(status=status_code))):
             valid, _message = validate_credentials("tok")
         assert valid is expected_valid
 
     def test_network_error_is_not_valid(self) -> None:
-        with mock.patch(LINODE_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        with scripted_network(always(requests.ConnectionError("boom"))):
             valid, message = validate_credentials("tok")
         assert valid is False
         assert message is not None
@@ -133,164 +73,239 @@ class TestValidateCredentials:
     def test_token_is_registered_for_redaction(self) -> None:
         # The PAT rides in an Authorization header the value-based scrubber can only mask if the token
         # is registered via redact_values; dropping it would leak the credential into HTTP telemetry.
-        response = mock.MagicMock()
-        response.status_code = 200
-        with mock.patch(LINODE_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = response
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("tok")
-        assert mock_session.call_args.kwargs["redact_values"] == ("tok",)
+        assert network.session_options[0]["redact_values"] == ("tok",)
 
     def test_error_status_does_not_leak_response_body(self) -> None:
         # Linode error bodies can echo account data; the persisted validation message must not carry it.
-        response = mock.MagicMock()
-        response.status_code = 500
-        response.text = "secret account details"
-        with mock.patch(LINODE_SESSION_PATCH) as mock_session:
-            mock_session.return_value.get.return_value = response
+        with scripted_network(always(ScriptedResponse(status=500, body=b"secret account details"))):
             _valid, message = validate_credentials("tok")
-        assert message is not None
+        assert message == "Linode API returned 500"
         assert "secret account details" not in message
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        # Only page 2 is wired, so resuming anywhere other than page 2 fails loudly (StopIteration).
-        params = _wire(session, [_response([{"id": 3}], page=2, pages=2)])
+    def test_resumes_from_saved_page(self) -> None:
+        # Only page 2 has a response. A different resume page causes the test to fail.
+        result = _driver().run(
+            "volumes", [_page([{"id": 3}], page=2, pages=2)], resume_state=LinodeResumeConfig(next_page=2)
+        )
 
-        manager = _make_manager(LinodeResumeConfig(next_page=2))
-        rows = _rows(_source(manager=manager))
+        assert result.raised is None
+        assert result.params("page") == ["2"]
+        assert [row["id"] for row in result.rows] == [3]
 
-        assert params[0]["page"] == 2
-        assert [r["id"] for r in rows] == [3]
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_endpoint_attaches_x_filter_with_watermark(self, MockSession: mock.MagicMock) -> None:
+    def test_incremental_endpoint_attaches_x_filter_with_watermark(self) -> None:
         # A regression that stops threading the watermark into the X-Filter would silently revert
         # incremental events to a full refresh; assert the id `+gte` bound is present on the request.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 5}], pages=1)])
-
-        _rows(
-            _source(
-                endpoint="events",
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=4,
-                incremental_field="id",
-            )
+        result = _driver().run(
+            "events",
+            [_page([{"id": 5}])],
+            incremental_field="id",
+            db_incremental_field_last_value=4,
         )
-        assert json.loads(session.headers["X-Filter"]) == {"+order_by": "id", "+order": "asc", "id": {"+gte": 4}}
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_sync_session_registers_token_for_redaction(self, MockSession: mock.MagicMock) -> None:
+        assert result.raised is None
+        assert json.loads(result.requests[0].headers["x-filter"]) == {
+            "+order_by": "id",
+            "+order": "asc",
+            "id": {"+gte": 4},
+        }
+
+    def test_sync_session_registers_token_for_redaction(self) -> None:
         # The PAT rides on the Authorization header of every paginated request, so it must be
         # registered for value-based masking in HTTP telemetry.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], pages=1)])
+        result = _driver().run("volumes", [_page([{"id": 1}])])
 
-        _rows(_source())
-        assert MockSession.call_args.kwargs["redact_values"] == ("tok",)
+        assert result.raised is None
+        assert result.session_options[0]["redact_values"] == ("tok",)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_checkpoint_advances_per_committed_page(self, MockSession: mock.MagicMock) -> None:
+    def test_checkpoint_advances_per_committed_page(self) -> None:
         # Each page is yielded (and committed downstream) before its checkpoint is saved, and the
         # checkpoint points at the NEXT unfetched page — so a crash resumes there without re-fetching
         # committed rows or skipping any (the guarantee the append-only endpoints rely on). The final
         # page has no next page, so it saves nothing.
-        session = MockSession.return_value
-        _wire(
-            session,
+        result = _driver().run(
+            "volumes",
             [
-                _response([{"id": 1}], page=1, pages=3),
-                _response([{"id": 2}], page=2, pages=3),
-                _response([{"id": 3}], page=3, pages=3),
+                _page([{"id": 1}], page=1, pages=3),
+                _page([{"id": 2}], page=2, pages=3),
+                _page([{"id": 3}], page=3, pages=3),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source(manager=manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2, 3]
+        assert result.saved_states == [LinodeResumeConfig(next_page=2), LinodeResumeConfig(next_page=3)]
+        assert result.committed_states == [LinodeResumeConfig(next_page=2), LinodeResumeConfig(next_page=3)]
 
-        assert [r["id"] for r in rows] == [1, 2, 3]
-        assert manager.save_state.call_args_list == [
-            mock.call(LinodeResumeConfig(next_page=2)),
-            mock.call(LinodeResumeConfig(next_page=3)),
+    def test_lke_node_pools_fan_out_per_cluster_and_carry_the_cluster_id(self) -> None:
+        result = _driver().run(
+            "lke_node_pools",
+            [
+                _page([{"id": 7, "label": "prod"}, {"id": 8, "label": "staging"}]),
+                _page([{"id": 70, "count": 3}]),
+                _page([{"id": 80, "count": 1}, {"id": 81, "count": 2}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/v4/lke/clusters", "/v4/lke/clusters/7/pools", "/v4/lke/clusters/8/pools"]
+        assert [(row["cluster_id"], row["id"], row["count"]) for row in result.rows] == [
+            (7, 70, 3),
+            (8, 80, 1),
+            (8, 81, 2),
         ]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_invoice_items_fan_out_per_invoice_and_carry_invoice_fields(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        urls: list[str] = []
+    def test_invoice_items_fan_out_per_invoice_and_carry_invoice_fields(self) -> None:
+        result = _driver().run(
+            "invoice_items",
+            [
+                _page([{"id": 11, "date": "2026-01-01T00:00:00"}, {"id": 12, "date": "2026-02-01T00:00:00"}]),
+                _page([{"label": "Linode 1", "amount": 5.0}]),
+                _page([{"label": "Linode 1", "amount": 5.0}, {"label": "Backups", "amount": 2.0}]),
+            ],
+        )
 
-        def _prepare(request: Any) -> mock.MagicMock:
-            urls.append(request.url)
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = [
-            _response([{"id": 11, "date": "2026-01-01T00:00:00"}, {"id": 12, "date": "2026-02-01T00:00:00"}]),
-            _response([{"label": "Linode 1", "amount": 5.0}]),
-            _response([{"label": "Linode 1", "amount": 5.0}, {"label": "Backups", "amount": 2.0}]),
+        assert result.raised is None
+        assert result.paths == [
+            "/v4/account/invoices",
+            "/v4/account/invoices/11/items",
+            "/v4/account/invoices/12/items",
         ]
-
-        response = _source(endpoint="invoice_items")
-        rows = _rows(response)
-
-        assert [u.rsplit("/v4", 1)[1] for u in urls] == [
-            "/account/invoices",
-            "/account/invoices/11/items",
-            "/account/invoices/12/items",
-        ]
-        assert [(r["invoice_id"], r["invoice_date"], r["label"]) for r in rows] == [
+        assert [(row["invoice_id"], row["invoice_date"], row["label"]) for row in result.rows] == [
             (11, "2026-01-01T00:00:00", "Linode 1"),
             (12, "2026-02-01T00:00:00", "Linode 1"),
             (12, "2026-02-01T00:00:00", "Backups"),
         ]
-        assert response.partition_keys == ["invoice_date"]
+        assert result.response is not None
+        assert result.response.partition_keys == ["invoice_date"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_account_transfer_yields_the_bare_object_as_one_row(self, MockSession: mock.MagicMock) -> None:
-        session = MockSession.return_value
+    def test_account_transfer_yields_the_bare_object_as_one_row(self) -> None:
         transfer = {"quota": 4000, "used": 120, "billable": 0, "region_transfers": []}
-        resp = Response()
-        resp.status_code = 200
-        resp._content = json.dumps(transfer).encode()
-        params = _wire(session, [resp])
+        result = _driver().run("account_transfer", [ScriptedResponse(json=transfer)])
 
-        rows = _rows(_source(endpoint="account_transfer"))
+        assert result.raised is None
+        assert result.rows == [transfer]
+        assert result.requests[0].param("page_size") is None
+        assert len(result.requests) == 1
 
-        assert rows == [transfer]
-        assert "page_size" not in params[0]
-        assert session.send.call_count == 1
+
+_TRANSFER = {"bytes_in": 10, "bytes_out": 20, "bytes_total": 30}
+
+
+def _monthly_transfer_vendor(missing_linode_id: int | None = None, missing_status: int = 404):
+    linodes = [
+        {"id": 1, "created": "2019-06-01T08:00:00"},
+        {"id": 2, "created": "2026-02-10T12:30:00"},
+        {"id": 3, "created": "2018-01-01T00:00:00"},
+    ]
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v4/linode/instances":
+            return _page(linodes)
+        linode_id = int(request.path.split("/")[4])
+        if linode_id == missing_linode_id:
+            return ScriptedResponse(status=missing_status, json={"errors": [{"reason": "Not found"}]})
+        return ScriptedResponse(json=_TRANSFER)
+
+    return respond
+
+
+class TestMonthlyTransfer:
+    @parameterized.expand(
+        [
+            (
+                # A full refresh reads the lookback window and ignores a stale watermark.
+                "full_refresh_reads_the_lookback_window",
+                {"should_use_incremental_field": False, "db_incremental_field_last_value": datetime(2026, 2, 1)},
+                [(2025, month) for month in range(4, 13)] + [(2026, 1)],
+            ),
+            (
+                "first_incremental_sync_reads_the_lookback_window",
+                {"incremental_field": "month_start", "db_incremental_field_last_value": None},
+                [(2025, month) for month in range(4, 13)] + [(2026, 1)],
+            ),
+            (
+                "incremental_sync_starts_at_the_watermark_month",
+                {
+                    "incremental_field": "month_start",
+                    "db_incremental_field_last_value": datetime(2026, 2, 1, tzinfo=UTC),
+                },
+                [],
+            ),
+            (
+                "string_watermark_mid_month",
+                {"incremental_field": "month_start", "db_incremental_field_last_value": "2026-01-20T00:00:00"},
+                [(2026, 1)],
+            ),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 3, 15, 9, 0, tzinfo=UTC), tick=False)
+    def test_walks_months_oldest_first_across_all_linodes(
+        self, _name: str, inputs: dict[str, Any], months_before_february: list[tuple[int, int]]
+    ) -> None:
+        # Linode 2 exists from February 2026, so it gets no request for earlier months.
+        expected = [(linode_id, year, month) for year, month in months_before_february for linode_id in (1, 3)]
+        expected += [(linode_id, 2026, month) for month in (2, 3) for linode_id in (1, 2, 3)]
+
+        result = _driver().run("linode_monthly_transfer", _monthly_transfer_vendor(), **inputs)
+
+        assert result.raised is None
+        assert [(row["linode_id"], row["year"], row["month"]) for row in result.rows] == expected
+        assert result.paths[1:] == [
+            f"/v4/linode/instances/{linode_id}/transfer/{year}/{month}" for linode_id, year, month in expected
+        ]
+        assert [row["month_start"] for row in result.rows] == [
+            datetime(year, month, 1, tzinfo=UTC) for _id, year, month in expected
+        ]
+        assert result.rows[0]["bytes_total"] == 30
+
+    @time_machine.travel(datetime(2026, 3, 15, tzinfo=UTC), tick=False)
+    def test_skips_a_linode_deleted_after_the_listing(self) -> None:
+        result = _driver().run(
+            "linode_monthly_transfer",
+            _monthly_transfer_vendor(missing_linode_id=3),
+            incremental_field="month_start",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [row["linode_id"] for row in result.rows] == [1, 2]
+
+    @time_machine.travel(datetime(2026, 3, 15, tzinfo=UTC), tick=False)
+    def test_other_client_errors_fail_the_sync(self) -> None:
+        result = _driver().run(
+            "linode_monthly_transfer",
+            _monthly_transfer_vendor(missing_linode_id=1, missing_status=403),
+            incremental_field="month_start",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "403" in str(result.raised)
 
 
 class TestRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 503)])
-    @mock.patch(SLEEP_PATCH)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_are_retried_then_reraised(
-        self, _name: str, status_code: int, MockSession: mock.MagicMock, _sleep: mock.MagicMock
-    ) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(None, status=status_code, content=b"{}") for _ in range(5)])
+    def test_retryable_statuses_are_retried_then_reraised(self, _name: str, status_code: int) -> None:
+        result = _driver().run("volumes", always(ScriptedResponse(status=status_code, json={})))
 
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source())
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) == 5
+        assert set(result.paths) == {"/v4/volumes"}
 
-        # 5 attempts before giving up (reraise=True).
-        assert session.send.call_count == 5
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_client_error_message_excludes_response_body(self, MockSession: mock.MagicMock) -> None:
+    def test_client_error_message_excludes_response_body(self) -> None:
         # Error bodies can carry account/billing/audit data; a failing sync must not copy the raw body
         # into the raised (and later persisted) error message.
-        session = MockSession.return_value
-        _wire(session, [_response(None, status=404, content=b'{"errors":[{"reason":"secret account details"}]}')])
+        result = _driver().run(
+            "volumes",
+            [ScriptedResponse(status=404, json={"errors": [{"reason": "secret account details"}]})],
+        )
 
-        with pytest.raises(Exception) as exc_info:
-            _rows(_source())
-        assert "secret account details" not in str(exc_info.value)
+        assert isinstance(result.raised, Exception)
+        assert "secret account details" not in str(result.raised)
 
 
 class TestLinodeSource:
@@ -305,7 +320,11 @@ class TestLinodeSource:
     def test_partitioning_matches_stable_field(
         self, endpoint: str, partition_key: str | None, partitioned: bool
     ) -> None:
-        response = _source(endpoint=endpoint)
+        result = _driver().run(endpoint, [_page([])])
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         if partitioned:
             assert response.partition_keys == [partition_key]
             assert response.partition_mode == "datetime"

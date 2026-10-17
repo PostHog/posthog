@@ -1,13 +1,12 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gleif import GleifSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source import GleifSource
-
-_VALIDATE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source.validate_gleif_credentials"
-)
-_SOURCE_FN_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.gleif.source.gleif_source"
 
 
 class TestGleifSource:
@@ -16,12 +15,10 @@ class TestGleifSource:
         self.team_id = 123
         self.config = GleifSourceConfig()
 
-    @pytest.mark.parametrize(("mock_return", "expected_valid"), [(True, True), (False, False)])
-    @mock.patch(_VALIDATE_PATCH)
-    def test_validate_credentials(self, mock_validate: mock.MagicMock, mock_return: bool, expected_valid: bool) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    @pytest.mark.parametrize(("status_code", "expected_valid"), [(200, True), (500, False)])
+    def test_validate_credentials(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert (error_message is None) is expected_valid

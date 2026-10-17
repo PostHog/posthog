@@ -1,15 +1,17 @@
 import json
 import dataclasses
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, Optional, Required, TypedDict, Union, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.contenttypes.fields import GenericRelation
 from django.contrib.postgres.indexes import GinIndex
 from django.core.exceptions import FieldDoesNotExist, ObjectDoesNotExist
 from django.core.paginator import EmptyPage, Paginator
-from django.db import models, transaction
+from django.db import models, router, transaction
 from django.db.models import QuerySet
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
@@ -121,6 +123,8 @@ ActivityScope = Literal[
     "DashboardWidget",
     "ProductTour",
     "Ticket",
+    "KnowledgeSource",
+    "KnowledgeLibrary",
     "InstanceSetting",
     "SignalReport",
     "SignalScoutConfig",
@@ -490,6 +494,9 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "github_issue_writeback_enabled": "comment back on GitHub issues",
         "pull_request_label_enabled": "label self-driving PRs",
         "pull_request_label": "self-driving PR label",
+        "scout_instructions": "scout instructions",
+        "research_instructions": "research instructions",
+        "implementation_instructions": "implementation instructions",
     },
     "OAuthApplication": {
         "_provisioning_config": "provisioning config",
@@ -574,12 +581,6 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
         "consecutive_failures",
         "state",
     ],
-    "Loop": [
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
-    ],
     "PersonalAPIKey": [
         "last_used_at",
     ],
@@ -601,12 +602,16 @@ signal_exclusions: dict[ActivityScope, list[str]] = {
     # site, so the save that only moves the active version must not add an `updated` row.
     "StreamlitApp": ["active_version", "updated_at"],
     # `last_run_at` is written by the scout coordinator on every tick (~every 15 min per scout),
-    # and the failure streak by the runner on every run outcome. When those are the only
+    # the pre-check fields on every scheduled pre-check, and the failure streak by the runner on
+    # every run outcome. When those are the only
     # change, suppress the activity signal entirely so run bookkeeping never spams the audit
     # log. A breaker trip is NOT suppressed: it moves `status`, which logs like any pause.
     "SignalScoutConfig": [
         "last_run_at",
         "consecutive_failure_count",
+        "last_precheck_at",
+        "last_precheck_outcome",
+        "last_precheck_row_count",
     ],
 }
 
@@ -755,21 +760,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "evidence",
         "score_inputs",
         "payload",
-    ],
-    "Loop": [
-        # FK relations are not JSON-serializable for the change detail (same reason
-        # FeatureFlag/Subscription exclude theirs).
-        "team",
-        "sandbox_environment",
-        # Reverse FKs (LoopTrigger, LoopFire): reading them goes through those models' own
-        # fail-closed TeamScopedManagers with no ambient team scope at signal-handling time.
-        "triggers",
-        "fires",
-        # Run bookkeeping, not user-meaningful config.
-        "last_run_at",
-        "last_run_status",
-        "last_error",
-        "consecutive_failures",
     ],
     "OrganizationDomain": [
         "organization",
@@ -1031,7 +1021,7 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "static_devices",
         "recovery_devices",
         # Reads through UserFacetSettings' own fail-closed TeamScopedManager, which has no
-        # ambient team scope at signal-handling time (same reason Loop excludes triggers/fires).
+        # ambient team scope at signal-handling time.
         "facet_settings",
     ],
     "AlertConfiguration": [
@@ -1341,7 +1331,26 @@ def _report_activity_log_write_failure(e: Exception, error_context: dict, deferr
     ACTIVITY_LOG_WRITE_FAILURES.labels(deferred=str(deferred).lower()).inc()
 
 
-def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: str | None = None, strict: bool = False):
+def _deleted_user_ids(user_ids: set[int]) -> set[int]:
+    if not user_ids:
+        return set()
+    user_model = get_user_model()
+    # The insert checks the foreign key on the writer. A lagging replica can miss a user that the
+    # committed transaction created, or still hold one that it deleted.
+    existing = user_model.objects.using(router.db_for_write(user_model)).filter(pk__in=user_ids)
+    return user_ids - set(existing.values_list("pk", flat=True))
+
+
+def _handle_activity_log_transaction(
+    create_fn: Callable[[bool], Any], error_context: dict, *, using: str | None = None, strict: bool = False
+):
+    """Call `create_fn(deferred)`.
+
+    A deferred write runs after the commit, so the transaction can delete the acting user first.
+    A user who deletes their own account is the actor of the rows that the cascade logs.
+    `on_delete=SET_NULL` covers only rows that exist. When `deferred` is true, `create_fn` must
+    unset a deleted user, or the insert breaks the foreign key.
+    """
     try:
         # Check if we're in a transaction, if yes, defer the activity log creation to the commit signal
         if (
@@ -1353,7 +1362,7 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
             # keeps a slow audit write from failing a request whose data is already durable.
             def _deferred_create():
                 try:
-                    create_fn()
+                    create_fn(True)
                 except Exception as e:
                     _report_activity_log_write_failure(e, error_context, deferred=True)
                     if settings.TEST:
@@ -1362,7 +1371,7 @@ def _handle_activity_log_transaction(create_fn, error_context: dict, *, using: s
             transaction.on_commit(_deferred_create, using=using)
             return None
         else:
-            return create_fn()
+            return create_fn(False)
 
     except Exception as e:
         if strict:
@@ -1475,7 +1484,12 @@ def log_activity(
             "impersonated_by_id": credential.impersonated_by_id if credential else None,
         }
 
-        def _do_log_activity():
+        # Read the id now. When the transaction deletes this same instance, `delete()` sets its pk to None.
+        user_id = user.pk if user is not None else None
+
+        def _do_log_activity(deferred: bool) -> ActivityLog:
+            if deferred and user_id is not None and _deleted_user_ids({user_id}):
+                return ActivityLog.objects.create(**{**fields, "user": None})
             return ActivityLog.objects.create(**fields)
 
         if instance_only:
@@ -1596,7 +1610,13 @@ def bulk_log_activity(
     if not activity_logs:
         return []
 
-    def _do_bulk_create():
+    def _do_bulk_create(deferred: bool) -> list[ActivityLog]:
+        if deferred:
+            deleted_user_ids = _deleted_user_ids({log.user_id for log in activity_logs if log.user_id is not None})
+            for log in activity_logs:
+                if log.user_id in deleted_user_ids:
+                    log.user = None
+
         created_logs = ActivityLog.objects.bulk_create(activity_logs, batch_size=batch_size)
 
         if notify:
@@ -1725,8 +1745,9 @@ def bound_detail_for_internal_event(detail: Any) -> tuple[Any, bool]:
 def activity_log_created(sender, instance: "ActivityLog", created, **kwargs):
     from posthog.api.advanced_activity_logs import ActivityLogSerializer
     from posthog.api.shared import UserBasicSerializer
-    from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
     from posthog.models.activity_logging.utils import activity_visibility_manager
+
+    from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
     if not created:
         return

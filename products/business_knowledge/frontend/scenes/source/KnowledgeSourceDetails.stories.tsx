@@ -1,17 +1,28 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import type { KnowledgeLibrary } from '../../api'
 import type { KnowledgeSource } from '../sources/businessKnowledgeLogic'
 import { KnowledgeSourceDetails } from './KnowledgeSourceDetails'
+
+const LEARNED_LIBRARY_ID = '22222222-2222-2222-2222-222222222222'
+
+const LIBRARIES: KnowledgeLibrary[] = [
+    { id: LEARNED_LIBRARY_ID, name: 'Learned', is_default: true, source_count: 4, repos: [] },
+    { id: '33333333-3333-3333-3333-333333333333', name: 'Product docs', is_default: false, source_count: 2, repos: [] },
+]
 
 const meta: Meta<typeof KnowledgeSourceDetails> = {
     title: 'Scenes-App/BusinessKnowledge/KnowledgeSourceDetails',
     component: KnowledgeSourceDetails,
     parameters: { layout: 'padded', viewMode: 'story', mockDate: '2026-09-24' },
     args: {
+        libraries: LIBRARIES,
         isRefreshing: false,
         isDeleting: false,
+        isSavingLibraries: false,
         onRefresh: () => undefined,
         onDelete: () => undefined,
+        onLibrariesChange: () => undefined,
     },
     decorators: [
         (Story) => (
@@ -55,6 +66,7 @@ function makeSource(overrides: Partial<KnowledgeSource> = {}): KnowledgeSource {
         file_content_type: '',
         file_size_bytes: null,
         always_include: false,
+        library_ids: [],
         ...overrides,
     }
 }
@@ -94,6 +106,7 @@ export const Learned: Story = {
             is_generated: true,
             learned_from_ticket_number: 42,
             learned_from_ticket_url: 'https://us.posthog.com/project/1/support/tickets/42',
+            library_ids: [LEARNED_LIBRARY_ID],
         }),
     },
 }

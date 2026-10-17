@@ -44,7 +44,7 @@ See [Regional forwarding](../README.md#regional-forwarding) for the lane the pro
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{tasks,conversations,error_tracking,review_hog,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/{commands,conversations,error_tracking,review_hog,tasks,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
 The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.
@@ -52,10 +52,15 @@ It scans descriptions for direct issue links and fingerprint permalinks on the c
 Repeated links and deliveries reuse an existing reference.
 Removing a link from a later description does not remove the reference.
 
+The commands consumer reads `@posthog <command>` lines in new pull request comments from repository owners, members and collaborators, and queues one task per command.
+The task checks the commenter's write access with GitHub and their linked PostHog account before any command runs.
+See `products/commands/README.md`.
+
 ### Picking the project
 
 One installation can link to several projects in a region, so `installation.id` never names one project.
 A consumer picks its projects in one of two shapes.
+A consumer that needs the teams behind a delivery's installation calls `installation_integrations()` or `installation_team_ids()` from `posthog/github/installations.py`, never its own `Integration` query.
 
 **Subscriptions.**
 Deliver the event to every project that has its own row for the repository, for example a workflow, a loop trigger, an issue link, or a monitored repository.

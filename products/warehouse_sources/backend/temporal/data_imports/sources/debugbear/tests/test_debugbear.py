@@ -1,16 +1,21 @@
-from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from requests.exceptions import (
     ConnectionError as RequestsConnectionError,
     HTTPError,
 )
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear import (
     _date_only,
     _flatten_page_metrics_item,
@@ -24,6 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.
     _parse_datetime,
     debugbear_source,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.source import DebugbearSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.debugbear import (
+    DebugbearSourceConfig,
 )
 
 
@@ -74,23 +83,19 @@ class TestValidateCredentials:
         [(200, True), (401, False), (403, False), (500, False)],
     )
     def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _response([], status_code=status_code)
+        with scripted_network(always(ScriptedResponse(status=status_code, json=[]))) as network:
             is_valid, error = validate_credentials("test-key")
 
+        assert {request.path for request in network.requests_log} == {"/api/v1/projects"}
         assert is_valid is expected_valid
         if not expected_valid:
             assert error
 
     def test_request_exception_is_reported(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.side_effect = RequestsConnectionError("boom")
+        with scripted_network(always(RequestsConnectionError("boom"))) as network:
             is_valid, error = validate_credentials("test-key")
 
+        assert {request.path for request in network.requests_log} == {"/api/v1/projects"}
         assert is_valid is False
         assert "boom" in str(error)
 
@@ -99,13 +104,10 @@ class TestSessionFactory:
     def test_session_disables_redirects_so_api_key_is_not_replayed(self) -> None:
         # The API key rides in a custom `x-api-key` header, which `requests` would replay
         # across a cross-origin redirect — so the tracked session must never follow redirects.
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_make_session.return_value.get.return_value = _response([])
+        with scripted_network([ScriptedResponse(json=[])]) as network:
             validate_credentials("test-key")
 
-        mock_make_session.assert_called_once_with(redact_values=("test-key",), allow_redirects=False)
+        assert network.session_options == [{"redact_values": ("test-key",), "allow_redirects": False}]
 
 
 class TestIterProjects:
@@ -277,6 +279,13 @@ class TestIterRumMetricsForProject:
         assert list(_iter_rum_metrics_for_project(session, {}, {}, since=None)) == []
         session.get.assert_not_called()
 
+    def test_400_response_raises_a_stable_non_retryable_message(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _response({}, status_code=400)
+
+        with pytest.raises(HTTPError, match="DebugBear rejected the RUM metrics request"):
+            list(_iter_rum_metrics_for_project(session, {}, {"id": "p1"}, since=None))
+
 
 class TestIterRumPageViewsForProject:
     def test_incremental_passes_the_watermark_as_from(self) -> None:
@@ -361,26 +370,28 @@ class TestDebugbearSourceRouting:
             debugbear_source(api_key="key", endpoint="Nope")
 
     def test_page_metrics_items_iterates_all_projects(self) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.debugbear.debugbear.make_tracked_session"
-        ) as mock_make_session:
-            mock_session = mock_make_session.return_value
-            projects_response = _response([{"id": "proj1"}, {"id": "proj2"}])
-            proj1_metrics = _response(
-                [{"page": {"id": "pg1"}, "metrics": {"analysis.date": "2024-01-10T00:00:00.000Z"}}]
-            )
-            proj2_metrics = _response(
-                [{"page": {"id": "pg2"}, "metrics": {"analysis.date": "2024-01-11T00:00:00.000Z"}}]
-            )
-            mock_session.get.side_effect = [
-                projects_response,
-                proj1_metrics,
-                _response([]),
-                proj2_metrics,
-                _response([]),
-            ]
+        driver = SourceDriver(DebugbearSource(), DebugbearSourceConfig(api_key="key"))
+        result = driver.run(
+            "PageMetrics",
+            [
+                ScriptedResponse(json=[{"id": "proj1"}, {"id": "proj2"}]),
+                ScriptedResponse(
+                    json=[{"page": {"id": "pg1"}, "metrics": {"analysis.date": "2024-01-10T00:00:00.000Z"}}]
+                ),
+                ScriptedResponse(json=[]),
+                ScriptedResponse(
+                    json=[{"page": {"id": "pg2"}, "metrics": {"analysis.date": "2024-01-11T00:00:00.000Z"}}]
+                ),
+                ScriptedResponse(json=[]),
+            ],
+        )
 
-            response = debugbear_source(api_key="key", endpoint="PageMetrics")
-            rows = list(cast("Iterable[Any]", response.items()))
-
-        assert [row["project_id"] for row in rows] == ["proj1", "proj2"]
+        assert result.raised is None
+        assert [row["project_id"] for row in result.rows] == ["proj1", "proj2"]
+        assert result.paths == [
+            "/api/v1/projects",
+            "/api/v1/projects/proj1/pageMetrics",
+            "/api/v1/projects/proj1/pageMetrics",
+            "/api/v1/projects/proj2/pageMetrics",
+            "/api/v1/projects/proj2/pageMetrics",
+        ]

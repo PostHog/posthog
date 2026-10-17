@@ -6,9 +6,7 @@ import { IconLetter } from '@posthog/icons'
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -34,14 +32,9 @@ export function ComposeTicketButton({
     onCompose,
 }: ComposeTicketButtonProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openComposeModal } = useActions(composeTicketLogic)
     const [showDisabledPopover, setShowDisabledPopover] = useState(false)
     const conversationsEnabled = !!currentTeam?.conversations_enabled
-
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_CREATE_TICKET]) {
-        return null
-    }
 
     return (
         <>

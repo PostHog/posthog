@@ -3,6 +3,8 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
@@ -31,7 +33,7 @@ def _block_survey_for_member(team: Team, survey: Survey, member: User) -> None:
     )
 
 
-class TestSurveyResultsWidgetConfig(APIBaseTest):
+class TestSurveyResultsWidgetConfig(SimpleTestCase):
     def test_config_defaults_to_unconfigured(self) -> None:
         validated = validate_widget_config(SURVEY_RESULTS_WIDGET_TYPE, {})
         assert validated.get("surveyId") is None

@@ -22,11 +22,16 @@ export type ExperimentHealthFindingCode =
     | 'zero_exposures'
     | 'no_metric'
     | 'forced_variant_release_condition'
+    | 'flag_variants_mismatch'
+    | 'split_changed_mid_run'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
     /** The sub-case of the code, for example the warning key. It must not hold customer text. */
     variant?: string
+    /** Set for a server finding. The separate warnings have none. */
+    severity?: ExperimentHealthFindingApi['severity']
+    reason?: string
 }
 
 // pinned: `open_kind` property values, for the same reason as the codes above.
@@ -37,6 +42,7 @@ export type ExperimentHealthFindingActionKind =
     | 'adjust_distribution'
     | 'use_first_seen_variant'
     | 'open_feature_flag'
+    | 'open_feature_flag_history'
     | 'edit_exposure_criteria'
     | 'edit_release_conditions'
     | 'add_primary_metric'
@@ -57,11 +63,10 @@ export const FLAG_STATE_FINDING_CODES: ReadonlySet<ExperimentHealthFindingCode> 
 // pinned: `health_ui` property values. Insights compare the health panel with the separate warnings on them.
 export type ExperimentHealthUi = 'panel' | 'warnings'
 
-export function experimentHealthUi(experiment: Experiment): ExperimentHealthUi {
-    // The page shows the health panel only when the server sent health findings, which it does for readers
-    // with the experiment-health-findings flag. A legacy experiment opens the legacy view, which shows the
-    // separate warnings even then.
-    return experiment.health && !isLegacyExperiment(experiment) ? 'panel' : 'warnings'
+export function experimentHealthUi(experiment: Experiment, showsServerHealth: boolean): ExperimentHealthUi {
+    // A legacy experiment opens the legacy view, which shows the separate warnings also when the page shows
+    // the server's findings.
+    return showsServerHealth && !isLegacyExperiment(experiment) ? 'panel' : 'warnings'
 }
 
 export function healthFindingForExperimentWarning(warningKey: ExperimentWarningKey): ExperimentHealthFinding {
@@ -92,7 +97,8 @@ export function experimentWarningFromHealth(health: ExperimentHealthApi): Experi
 // `getEventPropertiesForExperiment` in.
 function healthFindingEventProperties(
     experiment: Experiment,
-    finding: ExperimentHealthFinding
+    finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi
 ): Record<string, string | number | null> {
     return {
         experiment_id: experiment.id,
@@ -100,26 +106,43 @@ function healthFindingEventProperties(
         experiment_days_since_start: experiment.start_date ? dayjs().diff(experiment.start_date, 'day') : null,
         finding_code: finding.code,
         finding_variant: finding.variant ?? null,
-        health_ui: experimentHealthUi(experiment),
+        finding_severity: finding.severity ?? null,
+        finding_reason: finding.reason ?? null,
+        health_ui: healthUi,
         surface: 'experiment_page',
         // The value the backend reports for a request from the web app, so one breakdown covers both.
         source: 'web',
     }
 }
 
-export function captureExperimentHealthFindingShown(experiment: Experiment, finding: ExperimentHealthFinding): void {
+export function healthFindingReason(evidence: ExperimentHealthFindingApi['evidence']): string | undefined {
+    return typeof evidence.reason === 'string' ? evidence.reason : undefined
+}
+
+function trackedHealthFinding({ code, subcode, severity, evidence }: ExperimentHealthFindingApi): string {
+    // pinned: `code:subcode:severity:reason`, as on the server's `experiment launched`. Insights split each string
+    // on `:`, so every field is present, empty when the finding has none.
+    return [code, subcode ?? '', severity, healthFindingReason(evidence) ?? ''].join(':')
+}
+
+export function captureExperimentHealthFindingShown(
+    experiment: Experiment,
+    finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi
+): void {
     // pinned: analytics event name, so renaming it breaks insights
-    posthog.capture('experiment health finding shown', healthFindingEventProperties(experiment, finding))
+    posthog.capture('experiment health finding shown', healthFindingEventProperties(experiment, finding, healthUi))
 }
 
 export function captureExperimentHealthFindingOpened(
     experiment: Experiment,
     finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi,
     openKind: ExperimentHealthFindingOpenKind
 ): void {
     // pinned: analytics event name, so renaming it breaks insights
     posthog.capture('experiment health finding opened', {
-        ...healthFindingEventProperties(experiment, finding),
+        ...healthFindingEventProperties(experiment, finding, healthUi),
         open_kind: openKind,
     })
 }
@@ -127,55 +150,56 @@ export function captureExperimentHealthFindingOpened(
 export function captureExperimentHealthFindingActedOn(
     experiment: Experiment,
     finding: ExperimentHealthFinding,
+    healthUi: ExperimentHealthUi,
     actionKind: ExperimentHealthFindingActionKind
 ): void {
     // pinned: analytics event name, so renaming it breaks insights
     posthog.capture('experiment health finding acted on', {
-        ...healthFindingEventProperties(experiment, finding),
+        ...healthFindingEventProperties(experiment, finding, healthUi),
         action_kind: actionKind,
         // A click starts the action. The save that completes it happens in a modal or on another page.
         action_step: 'started',
     })
 }
 
-export interface ExperimentViewedHealthProperties {
-    health_ui: ExperimentHealthUi
-    health_finding_codes: ExperimentHealthFindingApi['code'][] | null
-    health_finding_subcodes: string[] | null
-    health_finding_count: number | null
-    flag_state_browser: string | null
-    flag_state_server: string | null
-    no_metric_browser: boolean
-    no_metric_server: boolean | null
-}
-
 /**
- * The health state of one experiment load, for `experiment viewed`. A `_browser` value is the result of the
- * page's own rule, and a `_server` value is the result of the server's check, so every load compares the two.
- * The server values are null when the server sent no health findings.
+ * Compares the page's own rules with the server's checks for one experiment load. A `_browser` value is the
+ * result of the page's rule, and a `_server` value is the result of the server's check.
+ *
+ * `health` is null when the request failed. The event then has `request_failed` set, and its finding and
+ * `_server` values are null. A failed request still reports `duration_ms`, so a request that times out
+ * counts in the slow tail of the request time.
  */
-export function experimentHealthStateEventProperties(
+export function captureExperimentHealthChecked(
     experiment: Experiment,
+    health: ExperimentHealthApi | null,
+    healthUi: ExperimentHealthUi,
     browserWarning: ExperimentWarning | null,
-    browserNoMetricsWarning: boolean
-): ExperimentViewedHealthProperties {
-    const { health } = experiment
-    const flagStateFinding = health?.findings.find((finding) => FLAG_STATE_FINDING_CODES.has(finding.code))
-    return {
-        health_ui: experimentHealthUi(experiment),
-        health_finding_codes: health ? health.findings.map((finding) => finding.code) : null,
+    browserNoMetricsWarning: boolean,
+    durationMs: number
+): void {
+    const findings = health?.findings ?? null
+    const flagStateFinding = findings?.find((finding) => FLAG_STATE_FINDING_CODES.has(finding.code))
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health checked', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        request_failed: health === null,
+        duration_ms: durationMs,
+        health_finding_codes: findings?.map((finding) => finding.code) ?? null,
         // pinned: `code:subcode`, as on the server's `experiment launched`. The code prefix keeps a subcode
         // unambiguous when two codes use the same subcode.
-        health_finding_subcodes: health
-            ? health.findings.flatMap(({ code, subcode }) => (subcode ? [`${code}:${subcode}`] : []))
-            : null,
-        health_finding_count: health ? health.findings.length : null,
+        health_finding_subcodes:
+            findings?.flatMap(({ code, subcode }) => (subcode ? [`${code}:${subcode}`] : [])) ?? null,
+        health_findings: findings?.map(trackedHealthFinding) ?? null,
+        health_finding_count: findings?.length ?? null,
         flag_state_browser: browserWarning?.key ?? null,
         // The server sends the warning key as the subcode. A finding without one still differs from no finding.
         flag_state_server: flagStateFinding ? (flagStateFinding.subcode ?? flagStateFinding.code) : null,
         no_metric_browser: browserNoMetricsWarning,
-        no_metric_server: health ? health.findings.some((finding) => finding.code === 'no_metric') : null,
-    }
+        no_metric_server: findings ? findings.some((finding) => finding.code === 'no_metric') : null,
+    })
 }
 
 /**

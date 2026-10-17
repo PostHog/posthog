@@ -2,6 +2,10 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hitpay import HitpaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source import HitpaySource
 
@@ -58,13 +62,13 @@ class TestHitpaySource:
         assert kwargs["resumable_source_manager"] is manager
         assert kwargs["db_incremental_field_last_value"] == "2026-01-01"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source.hitpay_source")
-    def test_source_for_pipeline_blank_platform_key_becomes_none(self, mock_hitpay_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_blank_platform_key_becomes_none(self) -> None:
         config = HitpaySourceConfig(api_key="key", platform_api_key="", environment="production")
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Customers"
-        inputs.should_use_incremental_field = False
+        result = SourceDriver(self.source, config).run(
+            "Customers", [ScriptedResponse(json={"data": [], "meta": {"last_page": 1}})]
+        )
 
-        self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
-
-        assert mock_hitpay_source.call_args.kwargs["platform_api_key"] is None
+        assert result.raised is None
+        assert result.paths == ["/v1/customers"]
+        assert "x-platform-key" not in result.requests[0].headers
+        assert result.session_options[0]["redact_values"] == ("key",)

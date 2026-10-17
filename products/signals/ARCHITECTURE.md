@@ -1363,7 +1363,7 @@ Every self-driving pull request opens with no assignee, so it never reaches a Gi
 
 This governs what the rule adds. Nobody is ever unassigned, so a person can still assign three people by hand.
 
-"Assignee" here means GitHub's assignee, the person responsible. GitHub's other field, the requested reviewer, is never written by this code — a separate app requests the owning team for review, which is why both appear on these pull requests.
+"Assignee" here means GitHub's assignee, the person responsible. Each suggested reviewer with a connected GitHub account also receives an individual review request, in bounded batches of 15. The worker does not request a review from the pull request author, an assignee, or an existing requested reviewer. A separate app can still request the owning team for review.
 
 Under the `signals-pr-dri-assignee` flag, the candidates are, most responsible first:
 
@@ -1738,7 +1738,6 @@ products/signals/
 │   │   └── commands/
 │   │       ├── analyze_report.py
 │   │       ├── cleanup_signals.py
-│   │       ├── clear_eval_data.py
 │   │       ├── delete_all_signal_reports_for_team.py
 │   │       ├── enable_signals_autonomy.py  # Sets team default priority + opts in users by email
 │   │       ├── export_session_video.py

@@ -648,6 +648,34 @@ class TestLeaseLockOrder:
         # touched. Plan order would leave an arbitrary subset locked instead.
         assert locked == [index <= self.BLOCKED_INDEX for index in range(len(self.GROUPS))]
 
+    @pytest.mark.asyncio
+    async def test_skip_locked_unlock_releases_free_groups_without_waiting(self, conn, conn_b, _db_url):
+        for team_id, schema_id in self.GROUPS:
+            await _insert_batch(
+                conn, team_id=team_id, schema_id=schema_id, job_id=f"job-{team_id}", run_uuid=f"run-{team_id}"
+            )
+        batches = await _claim(conn, owner=OWNER_A, limit=50)
+
+        blocked_team_id, blocked_schema_id = self.GROUPS[self.BLOCKED_INDEX]
+        blocker = await psycopg.AsyncConnection.connect(_db_url)
+        try:
+            await blocker.execute(
+                f"SELECT 1 FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s FOR UPDATE",
+                (blocked_team_id, blocked_schema_id),
+            )
+            await asyncio.wait_for(
+                BatchQueue.unlock_for_batches(conn_b, batches=batches, owner_token=OWNER_A, skip_locked=True),
+                timeout=10.0,
+            )
+        finally:
+            await blocker.rollback()
+            await blocker.close()
+
+        remaining = [
+            await _lease_count(conn, team_id=team_id, schema_id=schema_id) for team_id, schema_id in self.GROUPS
+        ]
+        assert remaining == [int(index == self.BLOCKED_INDEX) for index in range(len(self.GROUPS))]
+
 
 @pytest.mark.django_db(transaction=True)
 class TestVerifyGroupLeaseSync:
@@ -2504,7 +2532,30 @@ class TestGetQueueDepth:
         # sb_claimable_idx, and the per-run and per-group gates must stay index
         # probes; a predicate edit that widens either falls back to scanning
         # every retained partition on every pod, every reconcile interval.
-        await _insert_batch(conn)
+        #
+        # Seed each probe's population and analyze, so the index pins are
+        # deterministic. With one row the planner rates the partial indexes that
+        # cover each probe on empty statistics, and the failed-run probe can pick
+        # sb_failed_changed_idx instead. Failed batches spread across many runs is
+        # the shape sb_run_gate_idx exists for, and executing batches spread across
+        # many groups is the shape sb_schema_busy_idx exists for. Keep the
+        # claimable set small: with many claimable runs the planner hashes every
+        # failed batch once, which is a correct plan for that shape.
+        await conn.execute(f"""
+            INSERT INTO {BATCH_TABLE} (
+                team_id, schema_id, source_id, job_id, run_uuid, batch_index,
+                s3_path, row_count, byte_size, is_final_batch, sync_type,
+                resource_name, latest_state, state_changed_at
+            )
+            SELECT 1, 'seed-schema-' || (g % 200), 'source-1', 'job-1', 'seed-run-' || (g % 500), g,
+                   's3://bucket/path', 100, 1024, false, 'full_refresh', 'test_resource',
+                   CASE WHEN g <= 2500 THEN 'failed' ELSE 'executing' END,
+                   now() - (g || ' seconds')::interval
+            FROM generate_series(1, 3000) g
+        """)
+        for n in range(3):
+            await _insert_batch(conn, schema_id=f"schema-{n}", run_uuid=f"run-{n}")
+        await conn.execute(f"ANALYZE {BATCH_TABLE}")
         await conn.execute("SET enable_seqscan = off")
         try:
             cur = await conn.execute("EXPLAIN (FORMAT TEXT) " + _queue_depth_sql(), {"top_groups": 5})

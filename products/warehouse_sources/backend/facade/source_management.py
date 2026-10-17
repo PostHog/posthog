@@ -13,6 +13,7 @@ _B = "products.warehouse_sources.backend.temporal.data_imports."
 
 _LAZY = {
     "SourceRegistry": "sources",
+    "load_all_sources_or_raise": "sources",
     "DocsFetchError": "sources.custom.ai_builder",
     "draft_manifest_sync": "sources.custom.ai_builder",
     "fetch_docs_text": "sources.custom.ai_builder",
@@ -55,6 +56,7 @@ _LAZY = {
     "pinned_host_kwargs": "sources.common.mixins",
     "TemporaryHostResolutionError": "sources.common.mixins",
     "SourceSchema": "sources.common.schema",
+    "discover_trino_catalog": "sources.trino.trino",
     "build_default_schemas": "sources.common.schema",
     "build_default_sync_settings": "sources.common.schema",
     "RowFilterValidationError": "sources.common.sql",

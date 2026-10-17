@@ -1,4 +1,5 @@
 import json
+from copy import deepcopy
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
@@ -6,17 +7,23 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.constants import AvailableFeature
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.notifications.backend.facade.testing import stored_notification_for_resource
 from products.signals.backend.models import SignalScoutConfig
 from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -39,6 +46,38 @@ def _trigger_action() -> dict:
     }
 
 
+def _email_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-email"
+    template["name"] = "Email"
+    template["inputs_schema"] = [
+        {"key": "email", "type": "native_email", "label": "Email", "required": True, "templating": "liquid"}
+    ]
+    return template
+
+
+def _email_action() -> dict:
+    return {
+        "id": "email_1",
+        "name": "email_1",
+        "type": "function_email",
+        "config": {
+            "template_id": "template-email",
+            "inputs": {
+                "email": {
+                    "value": {
+                        "to": "{{ person.properties.email }}",
+                        "from": "noreply@example.com",
+                        "subject": "Hello",
+                        "html": "<p>Hello</p>",
+                    },
+                    "templating": "liquid",
+                }
+            },
+        },
+    }
+
+
 def _webhook_action(action_id: str = "action_1", url: str = "https://example.com") -> dict:
     return {
         "id": action_id,
@@ -53,6 +92,7 @@ class TestWorkflowProposals(APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_template_to_db(webhook_template)
+        sync_template_to_db(_email_template())
         # Filing needs the scout's own scope, which no session carries.
         self.producer_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -72,7 +112,8 @@ class TestWorkflowProposals(APIBaseTest):
         team_id = team_id or self.team.id
         create = self.client.post(
             f"/api/projects/{team_id}/hog_flows",
-            {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action()]},
+            {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action(), _email_action()]},
+            format="json",
         )
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
@@ -552,6 +593,23 @@ class TestWorkflowProposals(APIBaseTest):
         assert turned_on.status_code == 409, turned_on.json()
         assert turned_on.json()["code"] == "workflow_not_live"
 
+    def test_a_workflow_with_no_published_email_step_can_be_opted_out_but_not_back_in(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        HogFlow.objects.filter(id=flow_id).update(
+            actions=[_trigger_action(), _webhook_action()],
+            draft={"actions": [_trigger_action(), _webhook_action(), _email_action()]},
+        )
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization"
+
+        turned_off = self.client.post(url, {"enabled": False}, format="json")
+        assert turned_off.status_code == 200, turned_off.json()
+        assert turned_off.json()["enabled"] is False
+
+        turned_on = self.client.post(url, {"enabled": True}, format="json")
+        assert turned_on.status_code == 409, turned_on.json()
+        assert turned_on.json()["code"] == "workflow_has_no_email_step"
+        assert HogFlowOptimization.objects.for_team(self.team.id).get(hog_flow_id=flow_id).enabled is False
+
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
         self.client.post(
@@ -609,7 +667,7 @@ class TestWorkflowProposals(APIBaseTest):
         assert scout is not None
         assert (scout.enabled, scout.write_scopes, scout.enabled_by_id) == (
             True,
-            ["hog_flow_proposal:write"],
+            ["hog_flow_proposal:write", "notebook:write"],
             self.user.id,
         )
 
@@ -693,7 +751,7 @@ class TestWorkflowProposals(APIBaseTest):
             response = self._toggle(flow_id, enabled, headers, team_id=flow_team_id)
 
         scout = self._suggestions_scout()
-        assert scout is None or scout.write_scopes == []
+        assert scout is None or "hog_flow_proposal:write" not in scout.write_scopes
         assert response["scout_status"] == scout_status
         if case == "system_paused":
             assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
@@ -920,23 +978,136 @@ class TestWorkflowProposals(APIBaseTest):
 
     def test_repeat_source_id_returns_the_same_proposal(self, _mock_flag):
         flow_id = self._create_active_flow()
-        first = self._propose(flow_id, source_id="run:1:finding:webhook-url")
+        with patch(
+            "products.workflows.backend.services.proposal_notifications.create_notification",
+            side_effect=RuntimeError("notification store unavailable"),
+        ):
+            first = self._propose(flow_id, source_id="run:1:finding:webhook-url")
 
-        again = self.client.post(
+        for _ in range(2):
+            again = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+                {
+                    "title": "Retry of the same finding",
+                    "rationale": "A retried agent run must not queue a second copy for the human.",
+                    "content": {"actions": [_trigger_action(), _webhook_action()]},
+                    "base_version": 1,
+                    "source_id": "run:1:finding:webhook-url",
+                },
+                format="json",
+                headers={"authorization": f"Bearer {self.producer_key}"},
+            )
+            assert again.status_code == 200, again.json()
+            assert again.json()["id"] == first["id"]
+        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
+        assert stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id).resolved_user_ids == [
+            self.user.id
+        ]
+
+    def _member_who_opts_in(self, flow_id: str) -> User:
+        member = User.objects.create_and_join(self.organization, "opted-in@example.com", None)
+        self.client.force_login(member)
+        self._optimize(flow_id)
+        self.client.force_login(self.user)
+        return member
+
+    @parameterized.expand(
+        [
+            ("the person who turned suggestions on", None, "opted-in@example.com"),
+            ("the creator once that person is deactivated", "deactivate", None),
+            ("the creator once that person leaves the organization", "remove", None),
+            ("the creator when that person can see only this workflow", "object_grant_only", None),
+        ]
+    )
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_a_new_suggestion_notifies(
+        self, _name: str, change: str | None, expected_email: str | None, mock_email, _mock_available, _mock_flag
+    ):
+        flow_id = self._create_active_flow(optimize=False)
+        member = self._member_who_opts_in(flow_id)
+        if change == "deactivate":
+            member.is_active = False
+            member.save()
+        elif change == "remove":
+            OrganizationMembership.objects.filter(user=member).delete()
+        elif change == "object_grant_only":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+            AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=None, access_level="none")
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=flow_id,
+                access_level="viewer",
+                organization_member=OrganizationMembership.objects.get(user=member),
+            )
+        recipient = User.objects.get(email=expected_email) if expected_email else self.user
+        HogFlow.objects.filter(id=flow_id).update(name="Verify at attacker.example.com")
+        Team.objects.filter(id=self.team.id).update(name="Team at attacker.example.com")
+
+        self._propose(flow_id, rationale="The open rate on https://evil.example.com/landing dropped.")
+
+        notification = stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id)
+        assert notification.resolved_user_ids == [recipient.id]
+        assert notification.source_url == f"/project/{self.team.id}/workflows/{flow_id}/self-driving"
+        mock_email.return_value.add_user_recipient.assert_called_once_with(recipient)
+        context = mock_email.call_args.kwargs["template_context"]
+        assert "https://evil.example.com" not in context["suggestion_rationale"]
+        assert "attacker.example.com" not in context["workflow_name"]
+        assert "attacker.example.com" not in context["team_name"]
+
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_a_retry_after_the_recipient_changes_does_not_notify_someone_else(
+        self, mock_email, _mock_available, _mock_flag
+    ):
+        flow_id = self._create_active_flow(optimize=False)
+        member = self._member_who_opts_in(flow_id)
+        proposal = self._propose(flow_id, source_id="run:1:finding:retry-identity")
+        MessagingRecord.objects.create(
+            email_hash=get_email_hash(member.email),
+            campaign_key=f"workflow_suggestion_{proposal['id']}",
+            sent_at=timezone.now(),
+        )
+        member.is_active = False
+        member.save()
+        mock_email.reset_mock()
+
+        retry = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             {
                 "title": "Retry of the same finding",
-                "rationale": "A retried agent run must not queue a second copy for the human.",
+                "rationale": "The producer retried after a timeout.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
                 "base_version": 1,
-                "source_id": "run:1:finding:webhook-url",
+                "source_id": "run:1:finding:retry-identity",
             },
             format="json",
             headers={"authorization": f"Bearer {self.producer_key}"},
         )
-        assert again.status_code == 200, again.json()
-        assert again.json()["id"] == first["id"]
-        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
+        assert retry.status_code == 200, retry.json()
+
+        mock_email.assert_not_called()
+        notification = stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id)
+        assert notification.resolved_user_ids == [member.id]
+
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_turning_the_email_off_keeps_the_in_app_notification(self, mock_email, _mock_available, _mock_flag):
+        self.user.partial_notification_settings = {"workflow_suggestions": False}
+        self.user.save()
+        flow_id = self._create_active_flow()
+
+        self._propose(flow_id)
+
+        assert stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id).resolved_user_ids == [
+            self.user.id
+        ]
+        mock_email.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1275,7 +1446,7 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.status_code == 200, approve.json()
         draft = HogFlow.objects.get(id=flow_id).draft
         assert draft is not None
-        assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1"]
+        assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1", "email_1"]
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
     def test_a_step_carries_only_the_fields_it_changes(self, _mock_flag):

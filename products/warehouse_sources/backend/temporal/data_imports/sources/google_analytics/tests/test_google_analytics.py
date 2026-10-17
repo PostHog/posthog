@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
 
 import pytest
@@ -9,9 +9,15 @@ from django.db import OperationalError
 
 import requests
 from google.auth.exceptions import RefreshError
+from google.oauth2.credentials import Credentials as OAuthCredentials
 
 from posthog.models.integration import Integration
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googleanalytics import (
     GoogleAnalyticsSourceConfig,
 )
@@ -33,6 +39,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ana
     _runreport_backoff_seconds,
     google_analytics_source,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source import (
+    GoogleAnalyticsSource,
+)
 
 TODAY = dt.date(2026, 4, 30)
 
@@ -53,10 +62,10 @@ TODAY = dt.date(2026, 4, 30)
     ],
 )
 def test_resolve_window_start(last_value, expected_start):
-    start, end = _resolve_window(TODAY, last_value)
-    assert start == expected_start
+    window = _resolve_window(TODAY, last_value)
+    assert window.start == expected_start
     # Today's aggregates are still accruing — the window always ends at yesterday.
-    assert end == TODAY - dt.timedelta(days=1)
+    assert window.end == TODAY - dt.timedelta(days=1)
 
 
 @pytest.mark.parametrize(
@@ -389,9 +398,12 @@ def _patch_session(monkeypatch):
     )
 
 
-def _config(custom_reports: str | None = None) -> GoogleAnalyticsSourceConfig:
+def _config(custom_reports: str | None = None, history_days: int | None = None) -> GoogleAnalyticsSourceConfig:
     return GoogleAnalyticsSourceConfig(
-        property_id="123456789", google_analytics_integration_id=1, custom_reports=custom_reports
+        property_id="123456789",
+        google_analytics_integration_id=1,
+        custom_reports=custom_reports,
+        history_days=history_days,
     )
 
 
@@ -432,6 +444,42 @@ def test_source_paginates_within_chunk_and_saves_offsets(monkeypatch):
     assert [(s.chunk_start, s.offset) for s in saved_states] == [("2026-04-23", 2), ("2026-04-30", 0)]
 
 
+@pytest.mark.parametrize(
+    "history_days,expected_first_start",
+    [
+        (None, "2024-04-30"),
+        (0, "2024-04-30"),
+        (90, "2026-01-30"),
+    ],
+)
+def test_source_initial_sync_starts_at_configured_history_window(monkeypatch, history_days, expected_first_start):
+    monkeypatch.setattr(ga, "_today", lambda: TODAY)
+    _patch_session(monkeypatch)
+
+    requested_starts: list[str] = []
+
+    def fake_run_report(session, property_id, start_date, end_date, dimensions, metrics, offset, limit=50000):
+        requested_starts.append(start_date)
+        return {}
+
+    monkeypatch.setattr(ga, "_run_report", fake_run_report)
+
+    manager = mock.MagicMock()
+    manager.can_resume.return_value = False
+
+    response = google_analytics_source(
+        config=_config(history_days=history_days),
+        resource_name="website_overview",
+        team_id=1,
+        resumable_source_manager=manager,
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=None,
+    )
+    list(cast(Iterable[Any], response.items()))
+
+    assert requested_starts[0] == expected_first_start
+
+
 def test_source_resume_past_end_date_yields_nothing(monkeypatch):
     fake_today = dt.date(2026, 4, 30)
     monkeypatch.setattr(ga, "_today", lambda: fake_today)
@@ -456,6 +504,63 @@ def test_source_resume_past_end_date_yields_nothing(monkeypatch):
 
     assert list(cast(Iterable[Any], response.items())) == []
     fake_run_report.assert_not_called()
+
+
+def _quota_after_pages(pages_before_quota: int) -> Callable[[RecordedRequest], ScriptedResponse]:
+    page = ScriptedResponse(json=_report_payload(["20250816", "20250817"], [1, 2], row_count=5))
+    quota = ScriptedResponse(status=429, json={"error": {"status": "RESOURCE_EXHAUSTED"}})
+    answered: list[RecordedRequest] = []
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        answered.append(request)
+        return page if len(answered) <= pages_before_quota else quota
+
+    return answer
+
+
+@pytest.mark.parametrize(
+    "should_use_incremental_field,resume_state,pages_before_quota,expected_rows,expect_raise",
+    [
+        (True, None, 1, 2, False),
+        (True, None, 0, 0, True),
+        (True, GoogleAnalyticsResumeConfig(chunk_start="2025-09-15", offset=0), 0, 0, False),
+        (False, None, 1, 2, True),
+    ],
+)
+def test_source_quota_exhaustion_keeps_rows_only_when_the_watermark_advances(
+    monkeypatch, should_use_incremental_field, resume_state, pages_before_quota, expected_rows, expect_raise
+):
+    monkeypatch.setattr(ga, "_credentials", lambda *args: OAuthCredentials(token="test-token"))
+
+    result = SourceDriver(GoogleAnalyticsSource(), _config()).run(
+        "website_overview",
+        _quota_after_pages(pages_before_quota),
+        resume_state=resume_state,
+        incremental_field="date",
+        should_use_incremental_field=should_use_incremental_field,
+    )
+
+    assert len(result.rows) == expected_rows
+    assert isinstance(result.raised, GoogleAnalyticsQuotaExceededError) is expect_raise
+    if not expect_raise:
+        assert result.raised is None
+
+
+def test_source_next_job_fails_when_quota_runs_out_inside_the_lookback_window(monkeypatch):
+    monkeypatch.setattr(ga, "_credentials", lambda *args: OAuthCredentials(token="test-token"))
+    driver = SourceDriver(GoogleAnalyticsSource(), _config())
+
+    first = driver.run("website_overview", _quota_after_pages(1), incremental_field="date")
+    assert first.raised is None
+
+    second = driver.run(
+        "website_overview",
+        _quota_after_pages(1),
+        incremental_field="date",
+        db_incremental_field_last_value=max(row["date"] for row in first.rows),
+    )
+
+    assert isinstance(second.raised, GoogleAnalyticsQuotaExceededError)
 
 
 def test_source_requests_user_defined_custom_report(monkeypatch):

@@ -29,7 +29,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateProjectModal } = useActions(globalModalsLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
+    const { currentOrganizationProjectCount, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { closeProjectSwitcher, setAccountMenuOpen, setProjectSearchValue } = useActions(newAccountMenuLogic)
     const {
         projectSearchValue: searchValue,
@@ -57,7 +57,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
                         setAccountMenuOpen(false)
                     },
                     {
-                        currentUsage: currentOrganization?.teams?.length,
+                        currentUsage: currentOrganizationProjectCount,
                     }
                 )
                 closeProjectSwitcher()
@@ -77,7 +77,7 @@ export function ProjectSwitcher({ dialog = true }: { dialog?: boolean }): JSX.El
             closeProjectSwitcher,
             guardAvailableFeature,
             showCreateProjectModal,
-            currentOrganization?.teams?.length,
+            currentOrganizationProjectCount,
             setAccountMenuOpen,
             canCreateProject,
         ]

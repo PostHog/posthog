@@ -2,7 +2,7 @@ import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/
 import { isValidRE2 } from 'lib/utils/regexp'
 
 import { Variable } from '~/queries/nodes/DataVisualization/types'
-import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/defaults'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import {
     DataNode,

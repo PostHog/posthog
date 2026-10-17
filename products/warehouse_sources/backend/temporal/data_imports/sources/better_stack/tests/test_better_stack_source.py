@@ -1,12 +1,17 @@
-from unittest import mock
 from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack import (
-    source as better_stack_source_module,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.better_stack.source import BetterStackSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.betterstack import (
+    BetterStackSourceConfig,
+)
 
 
 class TestBetterStackGetSchemas:
@@ -64,12 +69,14 @@ class TestBetterStackValidateCredentials:
     def test_status_mapping(
         self, _name: str, probe_status: int | None, schema_name: str | None, expected_ok: bool
     ) -> None:
-        with mock.patch.object(better_stack_source_module, "probe_credentials", return_value=probe_status):
+        answer = ConnectionError("disconnected") if probe_status is None else ScriptedResponse(status=probe_status)
+        with scripted_network(always(answer)) as network:
             ok, error = BetterStackSource().validate_credentials(
-                MagicMock(api_token="bs_test"), team_id=1, schema_name=schema_name
+                BetterStackSourceConfig(api_token="bs_test"), team_id=1, schema_name=schema_name
             )
         assert ok is expected_ok
         assert (error is None) is expected_ok
+        assert network.requests_log[0].headers["authorization"] == "Bearer bs_test"
 
 
 class TestBetterStackNonRetryableErrors:
@@ -157,14 +164,13 @@ class TestBetterStackResumableAndPipeline:
         expected_mode: str | None,
         expected_sort: str,
     ) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = endpoint
-        inputs.should_use_incremental_field = False
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        response = BetterStackSource().source_for_pipeline(
-            MagicMock(api_token="bs_test"), resumable_source_manager=manager, inputs=inputs
+        result = SourceDriver(BetterStackSource(), BetterStackSourceConfig(api_token="bs_test")).run(
+            endpoint,
+            [ScriptedResponse(json={"data": [], "events": [], "pagination": {"next": None}})],
         )
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected_primary_keys
         assert response.partition_keys == expected_keys

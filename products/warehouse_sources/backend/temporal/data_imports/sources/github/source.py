@@ -4,8 +4,12 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, cast
 
+from posthog.egress.limiter.policies import Priority
+
+from products.warehouse_sources.backend.facade.codebase_detection import detect
+
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 
@@ -155,6 +159,105 @@ class GithubSource(
     WebhookSource[GithubSourceConfig],
     OAuthMixin,
 ):
+    # 'Github' (not 'GitHub') - matches the ExternalDataSourceType value.
+    # Default auth is the GitHub App integration (OAuth), so deep-link.
+    codebase_detection = detect(
+        env=(
+            "^GITHUB_TOKEN$",
+            "^GH_TOKEN$",
+            "^GH_ENTERPRISE_TOKEN$",
+            "^GITHUB_ENTERPRISE_TOKEN$",
+            "^GH_HOST$",
+            "^GITHUB_PERSONAL_ACCESS_TOKEN$",
+            "^GITHUB_PAT$",
+            "^GITHUB_CLIENT_ID$",
+            "^GITHUB_CLIENT_SECRET$",
+            "^GITHUB_ID$",
+            "^GITHUB_SECRET$",
+            "^AUTH_GITHUB_ID$",
+            "^AUTH_GITHUB_SECRET$",
+            "^GHE_HOST$",
+        ),
+        npm=(
+            "@octokit/rest",
+            "@octokit/core",
+            "@octokit/graphql",
+            "octokit",
+            "@octokit/app",
+            "@octokit/request",
+            "@octokit/endpoint",
+            "@octokit/types",
+            "@octokit/webhooks",
+            "@octokit/webhooks-methods",
+            "@octokit/webhooks-types",
+            "@octokit/auth-token",
+            "@octokit/auth-app",
+            "@octokit/auth-oauth-app",
+            "@octokit/auth-oauth-user",
+            "@octokit/auth-oauth-device",
+            "@octokit/auth-action",
+            "@octokit/auth-unauthenticated",
+            "@octokit/auth-callback",
+            "@octokit/auth-basic",
+            "@octokit/oauth-app",
+            "@octokit/oauth-methods",
+            "@octokit/oauth-authorization-url",
+            "@octokit/plugin-rest-endpoint-methods",
+            "@octokit/plugin-paginate-rest",
+            "@octokit/plugin-paginate-graphql",
+            "@octokit/plugin-throttling",
+            "@octokit/plugin-retry",
+            "@octokit/plugin-request-log",
+            "@octokit/plugin-enterprise-rest",
+            "@octokit/plugin-enterprise-server",
+            "@octokit/plugin-enterprise-cloud",
+            "@octokit/plugin-enterprise-compatibility",
+            "@octokit/plugin-create-or-update-text-file",
+            "@octokit/plugin-scim",
+            "@octokit/action",
+            "@octokit/graphql-schema",
+            "github",
+            "@actions/github",
+            "@actions/core",
+            "@actions/artifact",
+            "@actions/cache",
+            "@actions/attest",
+            "probot",
+            "@probot/adapter-github-actions",
+            "@probot/adapter-aws-lambda-serverless",
+            "@probot/adapter-azure-functions",
+            "octokit-auth-probot",
+            "universal-github-app-jwt",
+            "passport-github",
+            "passport-github2",
+            "github-api",
+            "@pulumi/github",
+        ),
+        pypi=("pygithub", "githubkit", "github3-py", "ghapi", "gidgethub", "pulumi-github"),
+        cargo=("octocrab", "octorust", "hubcaps"),
+        cocoapods=("OctoKit.swift", "OctoKit"),
+        composer=("knplabs/github-api", "graham-campbell/github", "league/oauth2-github"),
+        go=(
+            "github.com/google/go-github",
+            "github.com/shurcooL/githubv4",
+            "github.com/octokit/go-sdk",
+            "github.com/octokit/go-octokit",
+            "github.com/bradleyfalzon/ghinstallation",
+            "github.com/cli/go-gh",
+            "github.com/palantir/go-githubapp",
+            "github.com/sethvargo/go-githubactions",
+        ),
+        hex=("tentacat",),
+        maven=(
+            "org.kohsuke:github-api",
+            "com.spotify:github-client",
+            "org.eclipse.mylyn.github:org.eclipse.egit.github.core",
+        ),
+        pub=("github",),
+        rubygems=("octokit", "github_api", "omniauth-github"),
+        swiftpm=("github.com/nerdishbynature/octokit.swift",),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("2022-11-28", "2026-03-10")
     default_version = "2026-03-10"
@@ -419,9 +522,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         # query (server-side) and cap the page — the picker searches as the user types rather than
         # loading every repo at once.
         try:
-            repositories, _has_more = GitHubIntegration(integration).list_cached_repositories(
-                search=search or "", limit=100, offset=0
-            )
+            repositories, _has_more = GitHubIntegration(
+                integration, source="warehouse", priority=Priority.CRITICAL
+            ).list_cached_repositories(search=search or "", limit=100, offset=0)
         except GitHubIntegrationError as e:
             # The refresh talks to GitHub, which can reject the credentials, report a suspended
             # installation, or return a transient non-JSON/5xx body from its edge. None of these are
@@ -498,7 +601,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             raise ValueError("Missing GitHub integration ID")
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
 
-        github_integration = GitHubIntegration(integration)
+        github_integration = GitHubIntegration(integration, source="warehouse", priority=Priority.CRITICAL)
         if github_integration.access_token_expired():
             github_integration.refresh_access_token()
 
@@ -515,7 +618,11 @@ If automatic creation failed with a permissions error, the fix depends on how yo
         if config.auth_method.selection == "pat" or not config.auth_method.github_integration_id:
             return GithubEgressIdentity()
         integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
-        return GithubEgressIdentity(installation_id=GitHubIntegration(integration).github_installation_id)
+        return GithubEgressIdentity(
+            installation_id=GitHubIntegration(
+                integration, source="warehouse", priority=Priority.BATCH
+            ).github_installation_id
+        )
 
     @staticmethod
     def _schema_for_endpoint(endpoint: str, repository: str | None = None) -> SourceSchema:

@@ -3,10 +3,19 @@ from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
 from typing import Any
 
+from django.db import transaction
+
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from rest_framework import serializers, status, viewsets
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    OpenApiResponse,
+    extend_schema,
+    extend_schema_field,
+    extend_schema_view,
+)
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -14,12 +23,16 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.cdp.validation import build_html_wrap_design
-from posthog.event_usage import report_user_action
+from posthog.auth import ProjectSecretAPIKeyAuthentication
+from posthog.event_usage import groups, report_user_action
 from posthog.models import User
+from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
+from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
 from products.messaging.backend.facade.api import (
     UnlayerNotConfiguredError,
     UnlayerRenderError,
@@ -38,8 +51,19 @@ from products.messaging.backend.facade.templates import (
     team_category_id,
     update_template,
 )
+from products.messaging.backend.facade.transactional_email import (
+    DeliveryUnavailable,
+    TransactionalEmailError,
+    check_transactional_update,
+    lock_transactional_workflow_id,
+    make_transactional,
+    send_transactional_email,
+    sync_transactional_workflow,
+)
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
+from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -175,6 +199,12 @@ class MessageTemplateSerializer(serializers.Serializer):
     deleted = serializers.BooleanField(
         required=False, help_text="Soft-delete flag. Set true to remove the template from the library."
     )
+    transactional_hog_flow_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="The workflow that sends this template over the transactional email API. Null until the "
+        "template is made transactional. Each content save writes a new version of it.",
+    )
 
     def validate(self, data: Any) -> Any:
         template_type = data.get("type")
@@ -231,6 +261,88 @@ TEMPLATE_ID_PARAMETER = OpenApiParameter(
 )
 
 
+TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+
+
+class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
+    distinct_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=400,
+        help_text="Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, "
+        "clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email "
+        "address. The template can't read the person's properties, so pass everything it needs in `message_data`.",
+    )
+
+
+class SendTransactionalEmailSerializer(serializers.Serializer):
+    to = serializers.EmailField(help_text="Email address of the recipient.")
+    identifiers = TransactionalEmailIdentifiersSerializer(
+        required=False, help_text="Who the email is for, used to attribute engagement events."
+    )
+    message_data = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        required=False,
+        default=dict,
+        help_text="Data for the template's Liquid placeholders, available as `variables`. "
+        'For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`.',
+    )
+
+
+class MakeTransactionalSerializer(serializers.Serializer):
+    from_integration_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="ID of the verified email sender integration the email is sent from. Defaults to the project's "
+        "default sender.",
+    )
+
+
+class SendTransactionalEmailResponseSerializer(serializers.Serializer):
+    message_id = serializers.CharField(
+        help_text="ID of the queued send. Delivery and engagement are reported against the template asynchronously."
+    )
+
+
+class TransactionalEmailRejected(exceptions.APIException):
+    STATUS_BY_CODE = {"quota_limited": 429}
+    # The caller has to change the request. Without this the error handler reports a server error.
+    default_type = "invalid_request"
+
+    def __init__(self, error: TransactionalEmailError) -> None:
+        self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
+        super().__init__(detail=str(error), code=error.code)
+
+
+class TransactionalEmailUnavailable(exceptions.APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_detail = "The email pipeline is unavailable. Try again shortly."
+    default_code = "delivery_unavailable"
+
+
+class TransactionalEmailBurstThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "transactional_email_burst"
+    rate = "600/minute"
+
+
+class TransactionalEmailSustainedThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
+    scope = "transactional_email_sustained"
+    rate = "20000/hour"
+
+
+class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    """Per-team aggregate across all of a project's secret API keys."""
+
+    scope = "transactional_email_psak_team_burst"
+    rate = "600/minute"
+
+
+class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
+    scope = "transactional_email_psak_team_sustained"
+    rate = "20000/hour"
+
+
 @extend_schema_view(
     retrieve=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
     update=extend_schema(parameters=[TEMPLATE_ID_PARAMETER]),
@@ -244,11 +356,33 @@ class MessageTemplatesViewSet(
 ):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
-    # `design` is a custom write action; list it so programmatic callers (MCP/personal API key) get
-    # hog_flow:write checked instead of being rejected as an action with no declared scope.
-    scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy", "design"]
+    # `design` and `send` are custom write actions; list them so programmatic callers (MCP/personal API key)
+    # get hog_flow:write checked instead of being rejected as an action with no declared scope.
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "design",
+        "send",
+        "make_transactional",
+    ]
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    # A project secret API key can only send. Template CRUD stays session/personal API key/OAuth only.
+    psak_allowed_actions = ["send"]
 
     serializer_class = MessageTemplateSerializer
+
+    def get_throttles(self):
+        if self.action == "send":
+            return [
+                TransactionalEmailBurstThrottle(),
+                TransactionalEmailSustainedThrottle(),
+                TransactionalEmailTeamBurstThrottle(),
+                TransactionalEmailTeamSustainedThrottle(),
+            ]
+        return super().get_throttles()
 
     def dangerously_get_object(self) -> MessageTemplateRow:
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.
@@ -316,9 +450,52 @@ class MessageTemplatesViewSet(
         template = self.get_object()
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        updated = update_template(self.team_id, template.id, serializer.validated_data)
+        # Sends use the workflow's copy, so the template and its new workflow version are saved together,
+        # under a row lock that keeps a concurrent make_transactional from slipping in between.
+        with transaction.atomic():
+            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
+            if hog_flow_id:
+                self._require_workflow_editor(hog_flow_id)
+                try:
+                    check_transactional_update(template.id, self.team_id, serializer.validated_data)
+                except TransactionalEmailError as e:
+                    raise TransactionalEmailRejected(e) from None
+            updated = update_template(self.team_id, template.id, serializer.validated_data)
+            if hog_flow_id and not updated.deleted:
+                self._sync_transactional_workflow(template.id)
+                # The sync unlinks the template when its workflow was deleted.
+                updated = get_template(self.team_id, template.id)
         self._emit_resource_edited(updated)
         return Response(self._serialize(updated))
+
+    def _sync_transactional_workflow(self, template_id: Any) -> None:
+        # Raising rolls back the template save, so the template and its workflow never disagree.
+        try:
+            sync_transactional_workflow(self.team_id, template_id, user_id=self._actor_id())
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
+
+    def _require_workflow_editor(self, hog_flow_id: Any) -> None:
+        # The template's own access rules don't cover the workflow it sends through, which can carry its own.
+        # A project secret API key has no user to check, and its scope already limits it to sending.
+        if is_authenticated_via_project_secret_api_key(self.request):
+            return
+        try:
+            get_workflow(
+                team_id=self.team_id,
+                workflow_id=str(hog_flow_id),
+                user_access_control=self.user_access_control,
+                required_level="editor",
+            )
+        except WorkflowAccessDenied:
+            raise exceptions.PermissionDenied(
+                "You need editor access to this template's transactional email workflow."
+            ) from None
+        except WorkflowNotFound:
+            return
+
+    def _actor_id(self) -> int | None:
+        return self.request.user.id if self.request.user.is_authenticated else None
 
     def _emit_resource_edited(self, instance: MessageTemplateRow) -> None:
         # Realtime "edited elsewhere" signal so an open editor can refresh instead of overwriting a write
@@ -379,7 +556,146 @@ class MessageTemplatesViewSet(
             serializer.is_valid(raise_exception=True)
             return serializer.validated_data["content"]
 
-        locked = edit_template_content(self.team_id, template.id, apply_operations)
+        with transaction.atomic():
+            # Checked under the row lock, so a template made transactional meanwhile is checked too.
+            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
+            if hog_flow_id:
+                self._require_workflow_editor(hog_flow_id)
+            locked = edit_template_content(self.team_id, template.id, apply_operations)
+            if hog_flow_id:
+                self._sync_transactional_workflow(template.id)
+                # The sync unlinks the template when its workflow was deleted.
+                locked = get_template(self.team_id, template.id)
 
         self._emit_resource_edited(locked)
         return Response(self._serialize(locked))
+
+    @validated_request(
+        SendTransactionalEmailSerializer,
+        responses={
+            202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
+            400: OpenApiResponse(
+                description="The template isn't transactional or its email is paused, or the recipient can't be used"
+            ),
+            404: OpenApiResponse(description="Template not found"),
+            429: OpenApiResponse(description="Rate limited, or the project is over its email quota"),
+            503: OpenApiResponse(description="The email pipeline did not confirm the send"),
+        },
+        summary="Send a transactional email",
+        description=(
+            "Send one transactional email from this template to one recipient. The template must be made "
+            "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
+            "Transactional emails skip opt-outs and frequency caps."
+        ),
+        parameters=[TEMPLATE_ID_PARAMETER],
+    )
+    @action(detail=True, methods=["POST"], pagination_class=None)
+    def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        self._require_transactional_email_flag()
+
+        template = self.get_object()
+        if template.transactional_hog_flow_id:
+            self._require_workflow_editor(template.transactional_hog_flow_id)
+        data = request.validated_data
+        outcome: dict[str, Any] = {"outcome": "error"}
+        try:
+            queued = send_transactional_email(
+                self.team,
+                template.id,
+                to=data["to"],
+                distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
+                message_data=data["message_data"],
+            )
+            outcome = {"outcome": "queued"}
+        except TransactionalEmailError as e:
+            outcome = {"outcome": "rejected", "error_code": e.code}
+            raise TransactionalEmailRejected(e)
+        except DeliveryUnavailable:
+            outcome = {"outcome": "unavailable"}
+            raise TransactionalEmailUnavailable() from None
+        finally:
+            self._report_transactional_email_send(request, template, outcome)
+        return Response(
+            SendTransactionalEmailResponseSerializer(queued).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _require_transactional_email_flag(self) -> None:
+        if not posthoganalytics.feature_enabled(
+            TRANSACTIONAL_EMAIL_API_FLAG,
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
+
+    @validated_request(
+        MakeTransactionalSerializer,
+        responses={
+            200: OpenApiResponse(response=MessageTemplateSerializer, description="The transactional template"),
+            400: OpenApiResponse(description="The template can't be sent, or there is no verified sender"),
+            404: OpenApiResponse(description="Template not found"),
+        },
+        summary="Make a template transactional",
+        description=(
+            "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
+            "with its own metrics, run history and versions. Calling it again on a transactional template changes "
+            "nothing."
+        ),
+        parameters=[TEMPLATE_ID_PARAMETER],
+    )
+    @action(detail=True, methods=["POST"], pagination_class=None)
+    def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
+        self._require_transactional_email_flag()
+        template = self.get_object()
+        was_transactional = template.transactional_hog_flow_id is not None
+        # Access to one workflow lets a member through the viewset's checks, but this can create a new one, also
+        # when the linked workflow was deleted.
+        if not self.user_access_control.check_access_level_for_resource("hog_flow", "editor"):
+            raise exceptions.PermissionDenied("You need editor access to workflows to make a template transactional.")
+        try:
+            make_transactional(
+                self.team_id,
+                template.id,
+                user_id=self._actor_id(),
+                from_integration_id=request.validated_data.get("from_integration_id"),
+            )
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
+        updated = self.get_object()
+        if not was_transactional:
+            self._emit_resource_edited(updated)
+            try:
+                report_user_action(
+                    self.request.user,
+                    "message template made transactional",
+                    {"template_id": str(template.id), "team_id": str(self.team_id)},
+                    team=self.team,
+                    organization=self.organization,
+                    request=self.request,
+                )
+            except Exception as e:
+                logger.warning("Failed to capture message template usage event", error=str(e))
+        return Response(self._serialize(updated))
+
+    def _report_transactional_email_send(
+        self, request: Any, template: MessageTemplateRow, outcome: dict[str, Any]
+    ) -> None:
+        # report_user_action drops the synthetic user behind a project secret API key, so capture directly.
+        try:
+            posthoganalytics.capture(
+                distinct_id=request.user.distinct_id,
+                event="transactional email api send",
+                properties={
+                    "template_id": str(template.id),
+                    "team_id": self.team_id,
+                    "auth_method": "project_secret_api_key"
+                    if is_authenticated_via_project_secret_api_key(request)
+                    else "user",
+                    **outcome,
+                },
+                groups=groups(self.organization, self.team),
+            )
+        except Exception as e:
+            logger.warning("Failed to capture transactional email usage event", error=str(e))

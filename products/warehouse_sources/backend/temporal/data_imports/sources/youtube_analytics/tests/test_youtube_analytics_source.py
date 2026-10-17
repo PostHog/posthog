@@ -1,7 +1,7 @@
-from types import SimpleNamespace
-from typing import Any, cast
+from typing import Any
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
@@ -12,17 +12,22 @@ from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.youtubeanalytics import (
     YouTubeAnalyticsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
     CHANNEL_DAILY,
     DEMOGRAPHICS,
-    ENDPOINTS,
+    FULL_REFRESH_PRIMARY_KEYS,
     REVISION_LOOKBACK_SECONDS,
     TOP_VIDEOS,
+    TRAFFIC_SOURCE_DETAILS,
+    YOUTUBE_ANALYTICS_REPORTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.source import (
     YouTubeAnalyticsSource,
@@ -79,7 +84,7 @@ class TestYouTubeAnalyticsSource:
         assert self.source.default_version == "v2"
         assert (self.source.api_docs_url or "").startswith("https://")
 
-    @parameterized.expand([(name,) for name in ENDPOINTS])
+    @parameterized.expand([(name,) for name in YOUTUBE_ANALYTICS_REPORTS])
     def test_every_report_is_incremental_on_day(self, endpoint: str) -> None:
         schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
 
@@ -89,11 +94,20 @@ class TestYouTubeAnalyticsSource:
         # YouTube restates recent days, so incremental runs must re-read a trailing window.
         assert schema.default_incremental_lookback_seconds == REVISION_LOOKBACK_SECONDS
 
+    @parameterized.expand([(name,) for name in FULL_REFRESH_PRIMARY_KEYS])
+    def test_tables_without_a_day_grain_only_full_refresh(self, endpoint: str) -> None:
+        # Their rows carry no `day`, so an incremental sync on it would have no cursor to read.
+        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
+
+        assert schema.supports_incremental is False
+        assert schema.incremental_fields == []
+
     @parameterized.expand(
         [
             (CHANNEL_DAILY, ["day"]),
             (TOP_VIDEOS, ["day", "video"]),
             (DEMOGRAPHICS, ["day", "ageGroup", "gender"]),
+            (TRAFFIC_SOURCE_DETAILS, ["day", "insightTrafficSourceType", "insightTrafficSourceDetail"]),
         ]
     )
     def test_primary_keys_include_every_breakdown_dimension(self, endpoint: str, expected: list[str]) -> None:
@@ -238,39 +252,50 @@ class TestYouTubeAnalyticsSource:
         assert is_valid is False
         assert error is not None and "reconnect" in error.lower()
 
-    def _inputs(self, **overrides: Any) -> SourceInputs:
-        values: dict[str, Any] = {
-            "schema_name": CHANNEL_DAILY,
-            "team_id": self.team_id,
-            "job_id": "job-1",
-            "logger": mock.MagicMock(),
-            "api_version": None,
-            "should_use_incremental_field": True,
-            "incremental_field": "day",
-            "db_incremental_field_last_value": "2026-07-01",
-        }
-        values.update(overrides)
-        return cast(SourceInputs, SimpleNamespace(**values))
-
+    @time_machine.travel("2026-07-26", tick=False)
     def test_source_for_pipeline_hands_the_sync_a_forced_token_refresh(self) -> None:
         # Google tokens expire mid-backfill, so the sync must be able to re-mint one.
-        manager = mock.MagicMock(spec=ResumableSourceManager)
         get_integration, oauth_cls, oauth = self._patch_integration(_integration())
+        report = {"columnHeaders": [{"name": "views"}], "rows": [[7]]}
+        script = [ScriptedResponse(status=401), ScriptedResponse(json=report)]
 
-        with get_integration, oauth_cls, mock.patch(f"{MODULE}.youtube_analytics_source") as mock_source:
-            self.source.source_for_pipeline(self.config, manager, self._inputs())
-            assert oauth.refresh_access_token.call_count == 0
-
-            assert mock_source.call_args.kwargs["refresh_access_token"]() == "access-token"
-            assert oauth.refresh_access_token.call_count == 1
-
-    def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        get_integration, oauth_cls, _ = self._patch_integration(_integration())
-
-        with get_integration, oauth_cls, mock.patch(f"{MODULE}.youtube_analytics_source") as mock_source:
-            self.source.source_for_pipeline(
-                self.config, manager, self._inputs(schema_name=TOP_VIDEOS, should_use_incremental_field=False)
+        with get_integration, oauth_cls:
+            result = SourceDriver(self.source, self.config).run(
+                CHANNEL_DAILY,
+                script,
+                should_use_incremental_field=True,
+                incremental_field="day",
+                db_incremental_field_last_value="2026-07-25",
             )
 
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.raised is None
+        assert oauth.refresh_access_token.call_count == 1
+        assert [request.headers["authorization"] for request in result.requests] == [
+            "Bearer access-token",
+            "Bearer access-token",
+        ]
+
+    @time_machine.travel("2026-07-26", tick=False)
+    def test_source_for_pipeline_drops_watermark_on_full_refresh(self) -> None:
+        get_integration, oauth_cls, _ = self._patch_integration(_integration())
+        config = _config(start_date="2026-07-20")
+        report = ScriptedResponse(json={"columnHeaders": [{"name": "views"}], "rows": []})
+
+        with get_integration, oauth_cls:
+            driver = SourceDriver(self.source, config)
+            full_refresh = driver.run(
+                TOP_VIDEOS,
+                always(report),
+                should_use_incremental_field=False,
+                db_incremental_field_last_value="2026-07-25",
+            )
+            incremental = driver.run(
+                TOP_VIDEOS,
+                always(report),
+                should_use_incremental_field=True,
+                incremental_field="day",
+                db_incremental_field_last_value="2026-07-25",
+            )
+
+        assert full_refresh.requests[0].param("startDate") == "2026-07-20"
+        assert incremental.requests[0].param("startDate") == "2026-07-25"

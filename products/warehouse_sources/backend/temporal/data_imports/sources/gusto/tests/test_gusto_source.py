@@ -1,11 +1,12 @@
 from datetime import date
 from typing import Any
 
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gusto import GustoSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.gusto.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
@@ -80,23 +81,17 @@ class TestGustoSource:
     def test_transient_failures_stay_retryable(self, _name: str, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
-    def _inputs(self, **overrides: Any) -> mock.MagicMock:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "employees"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = None
-        inputs.api_version = None
-        for key, value in overrides.items():
-            setattr(inputs, key, value)
-        return inputs
-
     @parameterized.expand([(GUSTO_API_VERSION_2024_04_01,), (GUSTO_API_VERSION_2026_06_15,)])
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.gusto_source")
-    def test_source_for_pipeline_honors_the_pinned_version(self, pin: str, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_honors_the_pinned_version(self, pin: str) -> None:
         # A source pinned to a still-supported (including deprecated) version syncs under that pin,
         # never silently on the new default.
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), self._inputs(api_version=pin))
-        assert mock_source.call_args.kwargs["api_version"] == pin
+        result = SourceDriver(self.source, self.config).run(
+            "employees",
+            [ScriptedResponse(json={"access_token": "tok-1"}), ScriptedResponse(json={"roles": {}})],
+            api_version=pin,
+        )
+        assert result.raised is None
+        assert result.requests[1].headers["x-gusto-api-version"] == pin
 
     @parameterized.expand(
         [
@@ -104,22 +99,26 @@ class TestGustoSource:
             ("full_refresh_ignores_a_stale_watermark", False, None),
         ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.gusto.source.gusto_source")
     def test_watermark_is_only_used_on_incremental_runs(
         self,
         _name: str,
         should_use_incremental_field: bool,
         expected: Any,
-        mock_source: mock.MagicMock,
     ) -> None:
-        inputs = self._inputs(
-            schema_name="payrolls",
+        result = SourceDriver(self.source, self.config).run(
+            "payrolls",
+            [
+                ScriptedResponse(json={"access_token": "tok-1"}),
+                ScriptedResponse(json={"roles": {"payroll_admin": {"companies": [{"uuid": "c-1"}]}}}),
+                ScriptedResponse(json=[]),
+            ],
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value="2024-05-06",
         )
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] == expected
+        assert result.raised is None
+        assert result.requests[2].param("start_date") == (expected or "2011-01-01")
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        with pytest.raises(ValueError, match="Unknown Gusto schema 'not_a_table'"):
-            self.source.source_for_pipeline(self.config, mock.MagicMock(), self._inputs(schema_name="not_a_table"))
+        result = SourceDriver(self.source, self.config).run("not_a_table", [])
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == "Unknown Gusto schema 'not_a_table'"

@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 
 from django.db import DatabaseError
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
@@ -786,7 +786,7 @@ class TestAppendUnconfirmedAttachmentNotice(unittest.TestCase):
         assert result == text
 
 
-class TestSplitTextForSlack(TestCase):
+class TestSplitTextForSlack(SimpleTestCase):
     # The splitter takes its limit from the caller and behaves the same at any size, so these
     # cases use a small one to keep the fixtures small. Production passes the markdown block cap.
     _LIMIT = 3500

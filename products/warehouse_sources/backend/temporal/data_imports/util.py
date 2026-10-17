@@ -166,6 +166,12 @@ _TRANSIENT_INTERNAL_DB_MARKERS = (
     # Nothing accepts a connection on the port, because the pooler or the database is restarting
     # or its endpoint is being re-pointed.
     "connection refused",
+    # psycopg raises this only while establishing a connection, never mid-query. Every caller here
+    # reconnects to a database it was already talking to moments earlier, so a connect-time timeout
+    # is our own database being momentarily slow to accept, not a config problem. Mirrors
+    # `_is_connect_timeout_error` in products/warehouse_sources_queue/backend/core/batch_consumer.py,
+    # which treats a connect timeout on the queue DB connection the same way.
+    "connection timeout expired",
 )
 
 # The tightest start_to_close timeout among the activities that use this is one minute, so the

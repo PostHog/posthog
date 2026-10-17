@@ -23,6 +23,10 @@ GraphQL routes to `core`. GitHub meters GraphQL by points, which a request count
 ## Lanes and callers
 
 All three budgets use the default reserve ladder.
+Every GitHub client (`GitHubIntegration`, `UserGitHubIntegration`, `GitHubIntegration.first_for_team_repository`) and every `github_request` call must pass `priority` and `source`.
+There is no default lane and no default source, so a new caller has to pick both.
+Pick `CRITICAL` only when a person or a correctness path waits on the call, because the limiter never sheds it.
+Use one stable snake_case `source` per subsystem, so the egress metrics show who spends the installation budget.
 Deferrable background callers construct their client on the `BATCH` lane (`GitHubIntegration(integration, source=..., priority=Priority.BATCH)`; `api_request` also takes a per-call override).
 A shed sweep stops for the cycle and resumes on the next scheduled run.
 A caller that walks pages, such as the warehouse source, paces with `github_installation_pace_seconds` instead of getting denied.
@@ -32,7 +36,7 @@ The repository cache behind repository selection (`posthog/models/integration_re
 The branch picker serves its cached branch list at once. When the list is older than ten minutes, a background task lists the branches again on `BATCH`, waiting for the limiter's pace before each page. Only a repository with no cached list is listed inside the request.
 Engineering analytics downloads one job's log (source `job_logs`) on `NORMAL` when a person opens that job in the CI explorer, and on `BATCH` in the scheduled failed-job log collection.
 Stamphog reads the author-familiarity blame and history (GraphQL) and the pull request's commit messages on `BATCH`, because both signals are advisory: a shed call leaves them out of that review.
-Its merge base read (compare) stays on the default lane, because the review checkout needs it.
+Its merge base read (compare) stays on `CRITICAL`, because the review checkout needs it.
 The Tasks infrastructure admin reads the sandbox version pin and recent image build runs on `NORMAL`, using a regional cache. When the GitHub App is configured, it discovers the `PostHog/posthog` installation and mints an ephemeral token restricted to that repository with Contents and Actions read permissions. Calls share the installation budget. Deployments without App credentials retain the shared-token behavior.
 
 The `BATCH` floor on the `core` resource is **demand-responsive**, because a reserve is only worth holding against traffic that exists.

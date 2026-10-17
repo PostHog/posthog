@@ -9,8 +9,12 @@ from products.workflows.backend.presentation.views import (
     email_drafts,
     hog_flow,
     hog_flow_template,
+    people_imports,
+    workflow_classifications,
+    workflow_data_suggestions,
     workflow_scout_runs,
     workflow_tasks,
+    workflow_vision_requests,
 )
 
 # AWS SES tenant reputation events, delivered EventBridge -> SNS HTTPS subscription. Workflows owns
@@ -29,6 +33,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_tasks", workflow_tasks.WorkflowTaskViewSet, "project_workflow_tasks", ["team_id"]
     )
     routers.projects.register(
+        r"workflow_data_suggestions",
+        workflow_data_suggestions.WorkflowDataSuggestionsViewSet,
+        "project_workflow_data_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
         r"workflow_scout_runs",
         workflow_scout_runs.WorkflowScoutRunViewSet,
         "project_workflow_scout_runs",
@@ -38,6 +48,24 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_email_drafts",
         email_drafts.WorkflowEmailDraftViewSet,
         "project_workflow_email_drafts",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_classifications",
+        workflow_classifications.WorkflowClassificationViewSet,
+        "project_workflow_classifications",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_people_imports",
+        people_imports.WorkflowPeopleImportViewSet,
+        "project_workflow_people_imports",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"workflow_vision_requests",
+        workflow_vision_requests.WorkflowVisionRequestViewSet,
+        "project_workflow_vision_requests",
         ["team_id"],
     )
     routers.projects.register(

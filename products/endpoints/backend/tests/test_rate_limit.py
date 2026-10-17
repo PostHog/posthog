@@ -4,7 +4,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -33,7 +33,7 @@ from products.endpoints.backend.rate_limit import (
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
-class TestMaterializationCache(TestCase):
+class TestMaterializationCache(SimpleTestCase):
     def setUp(self):
         cache.clear()
 

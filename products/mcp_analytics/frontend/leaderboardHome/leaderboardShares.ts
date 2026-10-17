@@ -1,8 +1,7 @@
 import { normalizeBucket } from 'lib/utils/timeBuckets'
 
-import { type HarnessRow, type ToolRow } from '../mcpDashboardOverviewLogic'
-
-export type ModelLab = 'Anthropic' | 'OpenAI' | 'Google' | 'xAI' | 'Cursor' | 'Open weights' | 'Other'
+import { foldedModelLabel, isFoldedModelsLabel, LAB_ORDER, type ModelLab, modelLab, seriesLab } from '../aiLabs'
+import { type HarnessRow, type ModelRow, type ToolRow } from '../mcpDashboardOverviewLogic'
 
 export interface BucketedFacetRow {
     bucket: string
@@ -26,6 +25,9 @@ export interface ShareSeries {
 export interface LabShare {
     lab: ModelLab
     share: number
+    // The lab's calls or users, out of `total`, the denominator of `share`.
+    count: number
+    total: number
 }
 
 export interface LabUsersRow {
@@ -52,30 +54,6 @@ export interface ReliabilitySeries {
 
 const UNKNOWN = 'Unknown'
 const OTHER = 'Other'
-
-// The first matching pattern wins. The SQL for the users query is built from the same list, so the
-// two cannot disagree on which lab a model belongs to.
-const LAB_PATTERNS: [Exclude<ModelLab, 'Other'>, RegExp][] = [
-    [
-        'Open weights',
-        /gpt-oss|deepseek|glm|kimi|qwen|llama|mistral|minimax|gemma|nemotron|olmo|devstral|codestral|mimo|^phi/,
-    ],
-    ['Anthropic', /claude|opus|sonnet|haiku|fable|anthropic/],
-    ['OpenAI', /gpt|^o[1-9]|codex|openai|chatgpt/],
-    ['Google', /gemini|google/],
-    ['xAI', /grok|xai/],
-    ['Cursor', /composer/],
-]
-
-export function modelLab(model: string): ModelLab {
-    const m = model.toLowerCase()
-    return LAB_PATTERNS.find(([, pattern]) => pattern.test(m))?.[0] ?? 'Other'
-}
-
-export function labSqlExpression(modelSql: string): string {
-    const branches = LAB_PATTERNS.map(([lab, pattern]) => `match(lower(${modelSql}), '${pattern.source}'), '${lab}'`)
-    return `multiIf(${modelSql} = '${UNKNOWN}', '${UNKNOWN}', ${branches.join(', ')}, 'Other')`
-}
 
 // `groupOf` returns null to drop a row. The top `limit` groups by total calls keep their own series
 // and the rest fold into one "Other" series, which is always last.
@@ -115,6 +93,32 @@ export function buildShareSeries(
     return series
 }
 
+// The top models keep their own series, and each lab's other models fold into one series per lab. Series
+// are ordered by lab, so a lab's shades stack together and the chart still shows each lab's whole share.
+export function buildModelShareSeries(
+    rows: BucketedFacetRow[],
+    bucketKeys: string[],
+    rowLabels: ReadonlyMap<string, string>
+): ShareSeries[] {
+    const named = rows.filter((row) => row.label !== UNKNOWN)
+    const groupOf = (label: string): string => rowLabels.get(label) ?? foldedModelLabel(label)
+    return buildShareSeries(named, bucketKeys, groupOf, Infinity).sort(
+        (a, b) =>
+            LAB_ORDER.indexOf(seriesLab(a.label)) - LAB_ORDER.indexOf(seriesLab(b.label)) ||
+            Number(isFoldedModelsLabel(a.label)) - Number(isFoldedModelsLabel(b.label)) ||
+            b.data.reduce((total, calls) => total + calls, 0) - a.data.reduce((total, calls) => total + calls, 0) ||
+            a.label.localeCompare(b.label)
+    )
+}
+
+export function modelRowsFromBuckets(rows: BucketedFacetRow[]): ModelRow[] {
+    const callsByModel = new Map<string, number>()
+    for (const row of rows) {
+        callsByModel.set(row.label, (callsByModel.get(row.label) ?? 0) + row.calls)
+    }
+    return [...callsByModel].map(([model, total_calls]) => ({ model, total_calls }))
+}
+
 // Shares are of calls from models that name themselves, so a lab's share is not diluted by "Unknown".
 export function buildLabShares(rows: BucketedFacetRow[]): LabShare[] {
     const callsByLab = new Map<ModelLab, number>()
@@ -128,7 +132,7 @@ export function buildLabShares(rows: BucketedFacetRow[]): LabShare[] {
     return [...callsByLab.entries()]
         .filter(([lab]) => lab !== 'Other')
         .sort(([, a], [, b]) => b - a)
-        .map(([lab, calls]) => ({ lab, share: total > 0 ? (calls / total) * 100 : 0 }))
+        .map(([lab, calls]) => ({ lab, share: total > 0 ? (calls / total) * 100 : 0, count: calls, total }))
 }
 
 // A person can use models from several labs, so these shares do not add up to 100.
@@ -136,7 +140,12 @@ export function buildLabUserShares(rows: LabUsersRow[], namedModelUsers: number)
     return rows
         .filter((row): row is { lab: ModelLab; users: number } => row.lab !== UNKNOWN && row.lab !== 'Other')
         .sort((a, b) => b.users - a.users)
-        .map(({ lab, users }) => ({ lab, share: namedModelUsers > 0 ? (users / namedModelUsers) * 100 : 0 }))
+        .map(({ lab, users }) => ({
+            lab,
+            share: namedModelUsers > 0 ? (users / namedModelUsers) * 100 : 0,
+            count: users,
+            total: namedModelUsers,
+        }))
 }
 
 export function leadingLabs(shares: LabShare[]): ModelLab[] {

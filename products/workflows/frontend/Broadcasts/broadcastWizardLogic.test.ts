@@ -1,7 +1,11 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +13,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types
 
 import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
+import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
 import { DEFAULT_BROADCAST_EMAIL, DELETED_SENDER_ERROR, broadcastWizardLogic } from './broadcastWizardLogic'
 
@@ -144,8 +149,121 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.audienceProperties).toEqual(properties)
         expect(logic.values.name).toEqual('Fix shipped')
         expect(logic.values.entrySource).toEqual('cohort')
-        expect(router.values.searchParams).toEqual({})
+
+        // A reload remounts the wizard from the same URL, and nothing was saved yet.
+        logic.unmount()
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['prefillFromLink'])
+        expect(logic.values.audienceProperties).toEqual(properties)
+        expect(logic.values.name).toEqual('Fix shipped')
     })
+
+    it.each([
+        {
+            link: 'a draft email and one verified sender',
+            email: draftMessage({ kind: 'issue_fixed' }),
+            verified: true,
+            step: 'review',
+        },
+        {
+            link: 'a draft email but no verified sender',
+            email: draftMessage({ kind: 'issue_fixed' }),
+            verified: false,
+            step: 'content',
+        },
+        { link: 'no email', email: undefined, verified: true, step: 'content' },
+    ])('opens a link with $link on the $step step without creating a draft', async ({ email, verified, step }) => {
+        const createDraft = jest.fn()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'email', config: { verified } }],
+                    count: 1,
+                },
+            },
+            post: { '/api/projects/:team_id/hog_flows/': () => createDraft() },
+        })
+        logic.unmount()
+        router.actions.push(
+            urlForNewBroadcastWithAudience({ properties: LOCAL_AUDIENCE, source: 'error_tracking', email })
+        )
+        logic = broadcastWizardLogic({ id: 'new' })
+        logic.mount()
+        integrationsLogic.mount()
+
+        await expectLogic(logic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['landOnStep'])
+
+        expect(logic.values.currentStep).toEqual(step)
+        expect(logic.values.email.subject).toEqual(email?.subject ?? '')
+        expect(createDraft).not.toHaveBeenCalled()
+    })
+
+    it.each([
+        { case: 'untouched', edit: null, fallback: null, subject: 'Written by the model', status: 'applied' },
+        {
+            case: 'edited while it loads',
+            edit: 'Typed by the person',
+            fallback: null,
+            subject: 'Typed by the person',
+            status: null,
+        },
+        { case: 'rate limited', edit: null, fallback: 'rate_limited', subject: null, status: 'failed' },
+    ])(
+        'replaces the link email with the AI draft only when it is $case',
+        async ({ edit, fallback, subject, status }) => {
+            let respond: (value: unknown) => void = () => {}
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/workflow_email_drafts/': () =>
+                        new Promise((resolve) => {
+                            respond = resolve
+                        }).then((body) => [200, body]),
+                },
+            })
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_AI_EMAIL_DRAFT]: true })
+            logic.unmount()
+            router.actions.push(
+                urlForNewBroadcastWithAudience({
+                    properties: LOCAL_AUDIENCE,
+                    source: 'error_tracking',
+                    name: 'We fixed it',
+                    email: draftMessage({ kind: 'issue_fixed' }),
+                    draftSource: { source: 'error_tracking', source_id: 'issue-1' },
+                })
+            )
+            logic = broadcastWizardLogic({ id: 'new' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadAiEmailDraft'])
+            expect(logic.values.aiEmailDraftLoading).toBe(true)
+            if (edit) {
+                logic.actions.setEmail({ ...logic.values.email, subject: edit })
+            }
+            respond({
+                subject: 'Written by the model',
+                preheader: '',
+                html: '<p>Hi there,</p>\n<p>Second paragraph.</p>',
+                text: 'Hi there,\n\nSecond paragraph.',
+                generated_by: fallback ? 'template' : 'ai',
+                template_reason: fallback,
+            })
+            await expectLogic(logic).toDispatchActions(['loadAiEmailDraftSuccess'])
+
+            const applied = status === 'applied'
+            const template = draftMessage({ kind: 'issue_fixed' })
+            expect(logic.values.aiEmailDraftStatus?.status ?? null).toEqual(status)
+            expect(logic.values.email.subject).toEqual(subject ?? template.subject)
+            expect(logic.values.email.text).toEqual(
+                applied ? 'Hi there,\n\nSecond paragraph.' : template.paragraphs.join('\n\n')
+            )
+            // The name was the link's, so it follows the AI subject and stays put otherwise.
+            expect(logic.values.name).toEqual(applied ? 'Written by the model' : 'We fixed it')
+        }
+    )
 
     it('blocks the recipients step until the person chooses, when a link has an audience it cannot use', async () => {
         logic.unmount()
@@ -303,6 +421,81 @@ describe('broadcastWizardLogic', () => {
 
         expect(patchedSubjects).toEqual(['Typed before Continue'])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
+    })
+
+    it('saves an email edit still waiting on its autosave before opening the workflow editor', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed before the handoff' })
+        const capture = jest.spyOn(posthog, 'capture')
+        await expectLogic(logic, () => {
+            logic.actions.openInWorkflowEditorConfirmed()
+        })
+            .toDispatchActions(['saveBroadcastFinished'])
+            .toFinishAllListeners()
+
+        expect(patchedSubjects.at(-1)).toEqual('Typed before the handoff')
+        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+        expect(capture).toHaveBeenCalledWith('broadcast opened in workflow editor', {
+            broadcast_id: 'broadcast-1',
+            step: 'content',
+        })
+    })
+
+    it('saves an email edit made while the workflow editor handoff is saving before it opens the editor', async () => {
+        router.actions.push('/broadcasts/new')
+        logic.actions.setStep('content')
+        releaseCreate()
+        await expectLogic(logic).toDispatchActions(['draftAutosaved', 'showSavedDraftUrl'])
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Saved by the handoff' })
+
+        let releasePatch: () => void = () => {}
+        holdPatch = new Promise((resolve) => {
+            releasePatch = resolve
+        })
+        const patchStarted = new Promise<void>((resolve) => {
+            onPatchStarted = resolve
+        })
+        logic.actions.openInWorkflowEditorConfirmed()
+        await patchStarted
+        holdPatch = null
+        logic.actions.setEmail({ ...DEFAULT_BROADCAST_EMAIL, subject: 'Typed during the handoff' })
+        releasePatch()
+
+        await expectLogic(logic).toDispatchActions(['saveBroadcastFinished']).toFinishAllListeners()
+        expect(patchedSubjects.at(-1)).toEqual('Typed during the handoff')
+        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
+    })
+
+    it('creates the draft and stores its send time when the workflow editor opens before any Continue', async () => {
+        const createdSchedules: Record<string, any>[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/hog_flows/:id/schedules/': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
+                    createdSchedules.push(body)
+                    return [201, { id: 'schedule-1', ...body }]
+                },
+            },
+        })
+        const sendAt = dayjs().add(1, 'day').startOf('minute').toISOString()
+        router.actions.push('/broadcasts/new')
+        logic.actions.setScheduleMode('later')
+        logic.actions.setSendAt(sendAt)
+        logic.actions.setStep('review')
+        releaseCreate()
+
+        await expectLogic(logic, () => {
+            logic.actions.openInWorkflowEditorConfirmed()
+        })
+            .toDispatchActions(['saveBroadcastFinished'])
+            .toFinishAllListeners()
+
+        expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt, rrule: expect.any(String) })])
+        expect(router.values.location.pathname).toContain('/workflows/broadcast-1/workflow')
     })
 
     it('keeps an email edit made while Continue is saving and moves to the draft URL after it saves', async () => {

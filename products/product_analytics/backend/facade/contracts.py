@@ -12,11 +12,21 @@ loses a field surfaces at the facade boundary instead of further down the caller
 (``facade.models``, ``facade.queries``); as they convert, their contracts land here too.
 """
 
-from datetime import datetime
+from dataclasses import field
+from datetime import date, datetime
 from typing import Any
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+from products.product_analytics.backend.facade.enums import (
+    InsightDataCheckAction,
+    InsightDataCheckKey,
+    InsightDataCheckLevel,
+    InsightDataCheckMethod,
+    InsightDataCheckSkipReason,
+    InsightDataChecksStatus,
+)
 
 
 @dataclass(frozen=True)
@@ -49,3 +59,78 @@ class SavedInsightDefinition:
     short_id: str
     name: str | None
     query: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class InsightDataCheck:
+    key: InsightDataCheckKey
+    level: InsightDataCheckLevel
+    skip_reason: InsightDataCheckSkipReason | None = None
+    method: InsightDataCheckMethod | None = None
+    # The affected events on the checked days, scaled up from the sample when `scaled` is true.
+    events: int | None = None
+    share: float | None = None
+    scaled: bool = False
+    action: InsightDataCheckAction | None = None
+    # The most affected values first, so a finding says what is affected as well as how much.
+    top_events: list[str] = field(default_factory=list)
+    top_hosts: list[str] = field(default_factory=list)
+    top_bots: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class InsightDataChecksSample:
+    # The share of the events on the checked days that the sample reads.
+    rate: float
+    events: int
+    distinct_ids: int
+
+
+@dataclass(frozen=True)
+class InsightDataChecksCoverage:
+    date_from: date
+    date_to: date
+    days_in_range: int
+    # The newest days of the range, which are all of it when the range is short.
+    checked_date_from: date
+    checked_date_to: date
+    days_checked: int
+    filters_test_accounts: bool
+    # The events on the checked days, scaled up from the sample when the sample did not read every event.
+    events_checked: int | None
+    sample: InsightDataChecksSample | None
+
+
+@dataclass(frozen=True)
+class InsightDataChecks:
+    status: InsightDataChecksStatus
+    checks: list[InsightDataCheck]
+    coverage: InsightDataChecksCoverage | None
+
+
+@dataclass(frozen=True)
+class TeamEmailAccess:
+    # A match reveals that an email belongs to the team, so each source needs the caller to be allowed to read it.
+    member_emails: bool
+    verified_domains: bool
+
+
+@dataclass(frozen=True)
+class InsightSeries:
+    short_id: str
+    name: str | None
+    series: dict[str, list[tuple[date, float]]]
+    period: str
+    averaged_series: list[str]
+    event_name: str
+    value_format: str | None = None
+    value_prefix: str | None = None
+    value_postfix: str | None = None
+    decimal_places: int | None = None
+
+
+@dataclass(frozen=True)
+class InsightDashboardContext:
+    filters: dict[str, Any]
+    tile_filters: dict[str, Any] | None = None
+    variables: dict[str, Any] | None = None
