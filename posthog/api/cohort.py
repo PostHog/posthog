@@ -2083,6 +2083,16 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         context["basic_cohort_list"] = self._is_basic_list_request()
         return context
 
+    def _filter_queryset_by_parents_lookups(self, queryset: QuerySet) -> QuerySet:
+        # The default project scoping filters on `team__project_id`, a JOIN to `posthog_team`.
+        # With that JOIN, Postgres reads and sorts every cohort of the project before it applies
+        # the page limit. A filter on the project's team IDs lets `cohort_team_created_idx` serve
+        # the `-created_at` page directly.
+        if set(self.parents_query_dict) != {"project_id"}:
+            return super()._filter_queryset_by_parents_lookups(queryset)
+        team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
+        return queryset.filter(team_id__in=team_ids)
+
     def _filter_request(self, request: Request, queryset: QuerySet) -> tuple[QuerySet, bool]:
         # Returns (queryset, search_ordered). `search_ordered` is True only when a non-blank
         # search applied trigram relevance ordering, so the caller knows not to re-impose the
@@ -2152,13 +2162,11 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in one query
         # instead of the extra round-trips `prefetch_related` costs. The list serializer never
-        # reads `cohort.team`, so the list path only `select_related`s `created_by`. Project
-        # scoping still JOINs `posthog_team` to filter on `project_id`, but without hydration that
-        # JOIN reads only the id — not the full team payload (heavy JSON and array columns) each
-        # cohort row would otherwise carry. Detail and write actions do read `cohort.team`, so they
-        # keep the hydrating JOIN but re-apply `.defer(*DEPRECATED_ATTRS)` — mirroring
-        # `TeamManager`'s lazy-load defer — so the deprecated taxonomy columns, which TOAST out to
-        # megabytes per team, stay off it.
+        # reads `cohort.team`, so the list path only `select_related`s `created_by`, and the cohort
+        # SELECT does not read the full team payload (heavy JSON and array columns) per row. Detail
+        # and write actions do read `cohort.team`, so they keep the hydrating JOIN but re-apply
+        # `.defer(*DEPRECATED_ATTRS)` — mirroring `TeamManager`'s lazy-load defer — so the deprecated
+        # taxonomy columns, which TOAST out to megabytes per team, stay off it.
         if self.action == "list":
             queryset = queryset.select_related("created_by")
         else:

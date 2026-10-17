@@ -421,7 +421,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -436,19 +436,17 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
-    def test_list_cohorts_does_not_hydrate_team(self, patch_calculate_cohort, patch_capture):
-        # The list serializer never reads `cohort.team`, so the cohort SELECT must not hydrate the
-        # team payload — the heavy JSON and array columns each row would otherwise carry. Project
-        # scoping still JOINs `posthog_team` to filter on `project_id`, so guard the payload columns
-        # specifically rather than the JOIN. The nplus1 query-count guard would not catch a re-added
-        # `select_related("team")`, since hydrating columns onto that existing JOIN adds no query,
-        # so assert the SQL directly.
+    def test_list_cohorts_does_not_join_team(self, patch_calculate_cohort, patch_capture):
+        # The list serializer never reads `cohort.team`, and project scoping filters on team IDs,
+        # so the cohort SELECT must not JOIN `posthog_team`. A JOIN hydrates the heavy team payload,
+        # or, through a `team__project_id` filter, stops `cohort_team_created_idx` from serving the
+        # ordered page. The query count does not change in either case, so assert the SQL directly.
         self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
@@ -460,11 +458,22 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
 
         cohort_queries = [q["sql"] for q in context.captured_queries if 'FROM "posthog_cohort"' in q["sql"]]
         assert cohort_queries, "expected the list to run a query against posthog_cohort"
-        # These team payload columns are never part of the cohort filter, so their presence would
-        # mean the team row is hydrated onto each cohort row.
         for sql in cohort_queries:
-            for column in ("test_account_filters", "session_replay_config"):
-                assert f'posthog_team"."{column}"' not in sql
+            assert 'JOIN "posthog_team"' not in sql
+
+    @patch("posthog.api.cohort.report_user_action")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
+    def test_list_cohorts_includes_sibling_environments_only(self, patch_calculate_cohort, patch_capture):
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        other_project_team = Team.objects.create(organization=self.organization)
+        own = Cohort.objects.create(team=self.team, name="own")
+        sibling = Cohort.objects.create(team=sibling_team, name="sibling")
+        Cohort.objects.create(team=other_project_team, name="other project")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert {c["id"] for c in response.json()["results"]} == {own.id, sibling.id}
 
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -472,8 +481,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         # Detail and write actions read `cohort.team`, so they keep the hydrating `select_related("team")`
         # JOIN. They must re-apply `.defer(*DEPRECATED_ATTRS)` the way `TeamManager` does on lazy loads, or
         # every retrieve re-reads the deprecated taxonomy columns (`event_names` and siblings) that TOAST
-        # out to megabytes per team. `test_list_cohorts_does_not_hydrate_team` guards only the list query
-        # and only non-deprecated columns, so it cannot catch a dropped defer here. Assert the SQL directly.
+        # out to megabytes per team. `test_list_cohorts_does_not_join_team` guards only the list query,
+        # so it cannot catch a dropped defer here. Assert the SQL directly.
         cohort_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": {"team_id": 5}}]},
