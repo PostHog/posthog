@@ -1895,7 +1895,6 @@ class SignalReportViewSet(
         # `ranking` field, so a bad latest row makes the report unscored rather than older-scored.
         # A stale score (the report was edited after the text it scored) also sorts as unscored.
         # The recommended preset sorts by the score decile alone, so the subquery returns the decile.
-        # The sort then reads the annotation once, not once per branch of a decile CASE around it.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
