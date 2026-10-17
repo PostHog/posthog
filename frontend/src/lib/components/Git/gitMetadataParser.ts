@@ -105,10 +105,11 @@ export class GitMetadataParser {
     private static buildBranchLink(parsedUrl: ParsedRemoteUrl, branch: string): string | undefined {
         switch (parsedUrl.provider) {
             case 'github':
-            case 'bitbucket':
-                return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/tree/${branch}`
+                return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/tree/${encodePathSegments(branch)}`
             case 'gitlab':
-                return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/-/tree/${branch}`
+                return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/-/tree/${encodePathSegments(branch)}`
+            case 'bitbucket':
+                return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/src/${encodePathSegments(branch)}`
             default:
                 return undefined
         }
@@ -117,8 +118,9 @@ export class GitMetadataParser {
     private static buildCommitLink(parsedUrl: ParsedRemoteUrl, commitSha: string): string | undefined {
         switch (parsedUrl.provider) {
             case 'github':
-            case 'bitbucket':
                 return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/commit/${commitSha}`
+            case 'bitbucket':
+                return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/commits/${commitSha}`
             case 'gitlab':
                 return `${parsedUrl.providerUrl}/${parsedUrl.owner}/${parsedUrl.repository}/-/commit/${commitSha}`
             default:
@@ -188,13 +190,13 @@ export class GitMetadataParser {
             return undefined
         }
 
+        const [provider, providerUrl] = this.parseDomain(domain)
         const owner = pathParts[0]
-        let repository = pathParts[1]
+        // GitLab nests projects in subgroups, so everything after the owner names the project.
+        let repository = provider === 'gitlab' ? pathParts.slice(1).join('/') : pathParts[1]
         if (repository.endsWith('.git')) {
             repository = repository.slice(0, -4)
         }
-
-        const [provider, providerUrl] = this.parseDomain(domain)
 
         return { provider, owner, repository, providerUrl }
     }

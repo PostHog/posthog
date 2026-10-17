@@ -12,7 +12,7 @@ import { openReleaseTemplateDialog } from './releaseTemplateDialog'
 export function MessageTemplateMenu(props: MessageTemplateLogicProps): JSX.Element {
     const logic = messageTemplateLogic(props)
     const { duplicateTemplate, deleteTemplate, releaseTemplate } = useActions(logic)
-    const { originalTemplate, templateChanged, templateLoading, isCodeManaged } = useValues(logic)
+    const { originalTemplate, templateChanged, templateLoading, isCodeManaged, isDuplicating } = useValues(logic)
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
     return (
@@ -35,6 +35,7 @@ export function MessageTemplateMenu(props: MessageTemplateLogicProps): JSX.Eleme
                                 data-attr="duplicate-message-template"
                                 fullWidth
                                 onClick={duplicateTemplate}
+                                loading={isDuplicating}
                                 disabledReason={templateChanged ? 'Save your changes before duplicating' : undefined}
                             >
                                 Duplicate

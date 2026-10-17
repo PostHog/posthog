@@ -70,6 +70,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         transactionalHogFlowId,
         transactionalTab,
         isCodeManaged,
+        isDuplicating,
         templateSource,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
@@ -241,7 +242,10 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 {(originalTemplate.key || templateSource) && (
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-secondary">
                         {originalTemplate.key && (
-                            <span className="flex items-center gap-1" data-attr="message-template-key">
+                            <span
+                                className="flex items-center gap-1 min-w-0 max-w-full"
+                                data-attr="message-template-key"
+                            >
                                 <span>Key</span>
                                 <CopyToClipboardInline description="template key" className="font-mono">
                                     {originalTemplate.key}
@@ -259,6 +263,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         action={{
                             children: 'Duplicate',
                             onClick: duplicateTemplate,
+                            loading: isDuplicating,
                             'data-attr': 'message-template-code-managed-duplicate',
                         }}
                     >

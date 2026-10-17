@@ -484,6 +484,21 @@ describe('messageTemplateLogic', () => {
             expect(patchBodies).toEqual([{ managed_by: 'gui' }])
             logic.actions.setTemplateValue('name', 'Edited here')
             await expectLogic(logic).toMatchValues({ isCodeManaged: false, templateChanged: true })
+
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions(['saveTemplateSuccess'])
+                .toFinishAllListeners()
+            expect(patchBodies[1]).toMatchObject({ name: 'Edited here' })
+            const serverOwnedFieldsSent = [
+                'key',
+                'managed_by',
+                'source_repository',
+                'source_path',
+                'source_ref',
+            ].filter((field) => field in patchBodies[1])
+            expect(serverOwnedFieldsSent).toEqual([])
         })
     })
 

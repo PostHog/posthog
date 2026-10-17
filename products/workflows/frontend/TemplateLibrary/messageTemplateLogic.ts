@@ -19,7 +19,7 @@ import { resourceEditedLogic } from 'products/notifications/frontend/resourceEdi
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
 import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
-import { TemplateSource, isCodeManagedTemplate, templateSource } from './codeManagedTemplate'
+import { TemplateSource, isCodeManagedTemplate, templateSource, withoutServerOwnedFields } from './codeManagedTemplate'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { templateCopy } from './templateCopy'
@@ -39,6 +39,7 @@ export interface messageTemplateLogicValues {
     deferredExternalEdit: ResourceEditedEvent | null
     externallyEdited: boolean
     isCodeManaged: boolean
+    isDuplicating: boolean
     isMakingTransactional: boolean
     isSyncingExternalEdit: boolean
     isTemplateSubmitting: boolean
@@ -113,6 +114,9 @@ export interface messageTemplateLogicActions {
         value: true
     }
     duplicateTemplate: () => {
+        value: true
+    }
+    duplicateTemplateDone: () => {
         value: true
     }
     keepMyTemplateVersion: () => {
@@ -419,6 +423,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setTemplate: (template: MessageTemplate) => ({ template }),
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
+        duplicateTemplateDone: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
@@ -479,6 +484,13 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 makeTransactional: () => true,
                 makeTransactionalDone: () => false,
+            },
+        ],
+        isDuplicating: [
+            false,
+            {
+                duplicateTemplate: () => true,
+                duplicateTemplateDone: () => false,
             },
         ],
         transactionalTab: [
@@ -547,7 +559,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 if (template.id === 'new') {
                     return api.messaging.createTemplate(template)
                 }
-                return api.messaging.updateTemplate(template.id, template)
+                return api.messaging.updateTemplate(template.id, withoutServerOwnedFields(template))
             },
             releaseTemplate: () => api.messaging.updateTemplate(props.id, { managed_by: 'gui' }),
         },
@@ -721,14 +733,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         duplicateTemplate: async () => {
             if (values.templateChanged) {
                 lemonToast.error('Please save your changes before duplicating')
+                actions.duplicateTemplateDone()
                 return
             }
             try {
                 const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(values.template))
                 lemonToast.success('Template duplicated successfully')
                 router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
-            } catch {
-                lemonToast.error('Failed to duplicate template')
+            } catch (error: any) {
+                lemonToast.error(error?.detail || 'Failed to duplicate template')
+            } finally {
+                actions.duplicateTemplateDone()
             }
         },
         deleteTemplate: async () => {
