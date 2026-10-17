@@ -7,6 +7,8 @@ import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 
+import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
+
 import { startDetachedElementTracking } from './detachedElementTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
@@ -118,7 +120,7 @@ export function loadPostHogJS(): void {
             metrics: { network: true, serviceName: 'posthog-app' },
             // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
             // `register` would persist the property in storage the main window shares, so it is stamped per event.
-            before_send: isEmbeddedPageFrame() ? stampEmbeddedPageFrame : undefined,
+            before_send: [dropWebMCPToolErrors, ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : [])],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
