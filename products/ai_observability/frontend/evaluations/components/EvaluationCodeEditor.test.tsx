@@ -121,6 +121,19 @@ describe('EvaluationCodeEditor', () => {
         expect(screen.queryByText('Pass')).not.toBeInTheDocument()
     })
 
+    it.each([
+        ['session', true],
+        ['generation', false],
+    ] as const)('links capture docs from an empty %s preview: %s', (target, showsLink) => {
+        logic.actions.loadEvaluationSuccess({ ...baseEvaluation, target })
+        logic.actions.testHogOnSampleSuccess([])
+        logic.actions.setHogTestMessage('Nothing to preview yet.')
+        renderPanel()
+
+        expect(screen.getByText('Nothing to preview yet.', { exact: false })).toBeInTheDocument()
+        expect(!!screen.queryByText('Learn how to capture session IDs')).toBe(showsLink)
+    })
+
     it('describes detector polarity in the authoring tip', () => {
         logic.actions.loadEvaluationSuccess({
             ...baseEvaluation,
