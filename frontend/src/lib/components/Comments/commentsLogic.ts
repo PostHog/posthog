@@ -5,7 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api, { ApiError } from 'lib/api'
+import api from 'lib/api'
 import { JSONContent, RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { slackChannelId } from 'lib/integrations/slackChannel'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -18,9 +18,7 @@ import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/pan
 import { CommentType } from '~/types'
 import type { OrganizationMemberType, UserType } from '~/types'
 
-import { commentsSendToSlackCreate } from 'products/platform_features/frontend/generated/api'
-
-import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
+import { sendCommentToSlack, sendCommentToSlackLogic } from './sendCommentToSlackLogic'
 import { discussionsSlug, getTextContent } from './utils'
 
 export type CommentsLogicProps = {
@@ -43,6 +41,8 @@ export type CommentContext = {
 
 /** Draft slot for the footer composer; thread composers use their thread id (a UUID, so no collision) */
 const FOOTER_COMPOSER_TARGET = 'footer'
+// Comment text renders as markdown, so an attached image is a markdown image
+const MARKDOWN_IMAGE_REGEX = /!\[[^\]]*\]\([^)]+\)/
 
 /** Shared by `loadComments` and `refreshComments`, which differ only in what happens after they land. */
 async function fetchComments(props: CommentsLogicProps): Promise<CommentType[]> {
@@ -610,6 +610,8 @@ export const commentsLogic = kea<commentsLogicType>([
                         composerAnchor && (composerAnchor.type === 'mark' || composerAnchor.type === 'node')
 
                     const isReply = !isNewAnchoredThread && !!values.replyingCommentId
+                    const isTask = asTask && !isReply
+                    const sendsToSlack = values.composerSendToSlack && !isReply && !asTask
 
                     // The composer can remount or retarget while the request is in flight -
                     // the success listener must act on what was true at send time
@@ -628,9 +630,19 @@ export const commentsLogic = kea<commentsLogicType>([
                         source_comment: isNewAnchoredThread ? undefined : (values.replyingCommentId ?? undefined),
                         mentions,
                         slug: discussionsSlug(props.scope, props.item_id),
-                        is_task: asTask && !isReply,
+                        is_task: isTask,
                     })
-                    posthog.capture('comment created', { scope: props.scope, is_reply: isReply, is_emoji: false })
+                    posthog.capture('comment created', {
+                        scope: props.scope,
+                        item_id: props.item_id,
+                        is_reply: isReply,
+                        is_emoji: false,
+                        as_task: isTask,
+                        send_to_slack: sendsToSlack,
+                        mention_count: mentions.length,
+                        character_count: textContent.length,
+                        has_image: MARKDOWN_IMAGE_REGEX.test(textContent),
+                    })
 
                     values.itemContext?.callback?.({ sent: true })
 
@@ -641,34 +653,25 @@ export const commentsLogic = kea<commentsLogicType>([
                         ? slackChannelId(values.composerSlackChannel)
                         : null
                     if (
-                        values.composerSendToSlack &&
-                        !isReply &&
-                        !asTask &&
+                        sendsToSlack &&
                         values.composerSlackIntegrationId &&
                         composerChannelId &&
                         values.currentProjectId
                     ) {
-                        let sentToSlack = false
-                        try {
-                            // The comments API is project-scoped — currentTeamId diverges from the
-                            // project id for non-default environments and 404s.
-                            await commentsSendToSlackCreate(String(values.currentProjectId), newComment.id, {
-                                integration_id: values.composerSlackIntegrationId,
-                                channel_id: composerChannelId,
-                            })
-                            sentToSlack = true
-                            lemonToast.success('Discussion sent to Slack')
-                        } catch (e) {
-                            // Surface the backend's actionable detail (bot not in channel, integration
-                            // missing…) rather than a blanket failure.
-                            const detail = e instanceof ApiError ? e.detail : null
+                        const { sent, detail } = await sendCommentToSlack(
+                            values.currentProjectId,
+                            newComment,
+                            { integrationId: values.composerSlackIntegrationId, channelId: composerChannelId },
+                            'composer'
+                        )
+                        if (!sent) {
                             lemonToast.error(
                                 detail
                                     ? `Comment added, but sending to Slack failed: ${detail}`
                                     : 'Comment added, but sending to Slack failed'
                             )
-                        }
-                        if (sentToSlack) {
+                        } else {
+                            lemonToast.success('Discussion sent to Slack')
                             // Refetch and return the fresh list so the new comment shows its tracked-in-Slack
                             // state. We can't dispatch loadComments() here — it writes the same `comments`
                             // loader value this handler returns, and our return would supersede its result.
@@ -716,6 +719,11 @@ export const commentsLogic = kea<commentsLogicType>([
                         mentions: newMentions,
                         slug: discussionsSlug(props.scope, props.item_id),
                     })
+                    posthog.capture('comment edited', {
+                        scope: props.scope,
+                        item_id: props.item_id,
+                        new_mention_count: newMentions.length,
+                    })
                     return [...existingComments.filter((c) => c.id !== editedComment.id), updatedComment]
                 },
 
@@ -731,6 +739,10 @@ export const commentsLogic = kea<commentsLogicType>([
                                 ])
                             }
                         },
+                    })
+                    posthog.capture('comment deleted', {
+                        scope: props.scope,
+                        is_emoji: !!comment.item_context?.is_emoji,
                     })
 
                     return values.comments?.filter((c) => c.id !== comment.id) ?? null
@@ -760,12 +772,14 @@ export const commentsLogic = kea<commentsLogicType>([
 
                 completeComment: async ({ comment }) => {
                     const updated = await api.comments.complete(comment.id)
+                    posthog.capture('comment task completed', { scope: props.scope })
                     const existing = values.comments ?? []
                     return existing.map((c) => (c.id === updated.id ? updated : c))
                 },
 
                 reopenComment: async ({ comment }) => {
                     const updated = await api.comments.reopen(comment.id)
+                    posthog.capture('comment task reopened', { scope: props.scope })
                     const existing = values.comments ?? []
                     return existing.map((c) => (c.id === updated.id ? updated : c))
                 },
@@ -774,6 +788,9 @@ export const commentsLogic = kea<commentsLogicType>([
     })),
 
     listeners(({ props, values, actions, selectors, cache }) => ({
+        setComposerSendToSlack: ({ enabled }) => {
+            posthog.capture('comment send to slack toggled', { scope: props.scope, enabled })
+        },
         startNewComment: () => {
             if (!values.replyingCommentId) {
                 // No reply to exit, so the footer composer won't remount - deregistering its

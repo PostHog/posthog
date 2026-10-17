@@ -30,7 +30,8 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
 
 export type LemonRichContentEditorProps = {
-    logicKey?: string
+    /** Names where the editor is, as the `editor` property on usage events */
+    surface?: string
     initialContent?: JSONContent | null
     placeholder?: string
     onCreate?: (editor: RichContentEditorType) => void
@@ -100,6 +101,7 @@ export function RichContentPreview({
 }
 
 export function LemonRichContentEditor({
+    surface,
     initialContent,
     placeholder,
     onCreate,
@@ -136,15 +138,22 @@ export function LemonRichContentEditor({
 
     const dropRef = useRef<HTMLDivElement>(null)
 
+    const setPreviewShown = (preview: boolean): void => {
+        if (preview !== isPreviewShown) {
+            posthog.capture('rich text preview toggled', { editor: surface, preview })
+        }
+        setIsPreviewShown(preview)
+    }
+
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
             if (ttEditor) {
                 ttEditor.commands.insertContent(`\n\n![${fileName}](${url})`)
             }
-            posthog.capture('rich text image uploaded', { name: fileName })
+            posthog.capture('rich text image uploaded', { name: fileName, editor: surface })
         },
         onError: (detail) => {
-            posthog.capture('rich text image upload failed', { error: detail })
+            posthog.capture('rich text image upload failed', { error: detail, editor: surface })
             lemonToast.error(`Error uploading image: ${detail}`)
         },
     })
@@ -199,10 +208,12 @@ export function LemonRichContentEditor({
                         <EmojiPickerPopover
                             key="emoj-picker"
                             data-attr="lemon-rich-text-editor-emoji-popover"
+                            onOpen={() => posthog.capture('rich text emoji picker opened', { editor: surface })}
                             onSelect={(emoji: string) => {
                                 if (ttEditor) {
                                     ttEditor.commands.insertContent(emoji)
                                     emojiUsed(emoji)
+                                    posthog.capture('rich text emoji inserted', { editor: surface, emoji })
                                 }
                             }}
                         />
@@ -210,10 +221,10 @@ export function LemonRichContentEditor({
                 </div>
                 <div className="flex items-center gap-0.5">
                     {footerActions}
-                    <LemonButton size="small" active={!isPreviewShown} onClick={() => setIsPreviewShown(false)}>
+                    <LemonButton size="small" active={!isPreviewShown} onClick={() => setPreviewShown(false)}>
                         <IconPencil />
                     </LemonButton>
-                    <LemonButton size="small" active={isPreviewShown} onClick={() => setIsPreviewShown(true)}>
+                    <LemonButton size="small" active={isPreviewShown} onClick={() => setPreviewShown(true)}>
                         <IconEye />
                     </LemonButton>
                 </div>
