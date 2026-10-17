@@ -237,6 +237,9 @@ export function variablesToReload(previous: MetricsDashboardVariable[], next: Me
 
 /** RE2 runs the pattern in linear time, so a saved pattern cannot freeze the dashboard. Throws for an invalid pattern. */
 const MAX_REGEX_SIZE = 10000
+// RE2 rejects counted repeats whose nested counts multiply past this.
+const MAX_REPEAT_COPIES = 1000
+const REPEATS_TOO_MUCH = 'it repeats too much. Use smaller counts in {}.'
 
 /** About how many instructions RE2 compiles the pattern to: a counted repeat such as `{3}` copies what it repeats. */
 /** The index after the `\E` that ends the quote at `index`, or the end of the pattern. */
@@ -245,9 +248,14 @@ function quotedEnd(pattern: string, index: number): number {
     return end < 0 ? pattern.length : end + 2
 }
 
+/** About how many instructions RE2 compiles the pattern to. Throws when counted repeats nest past the 1,000 copies
+ * that RE2 allows. */
 function regexSize(pattern: string): number {
     const groups: number[] = [0]
+    // The most copies that the counted repeats inside each open group make, as RE2 multiplies nested counts.
+    const copies: number[] = [1]
     let last = 0
+    let lastCopies = 1
     let index = 0
     while (index < pattern.length) {
         const char = pattern[index]
@@ -255,21 +263,30 @@ function regexSize(pattern: string): number {
             // `\Q...\E` quotes its text, so a bracket or a count inside it is a literal character.
             const end = quotedEnd(pattern, index)
             last = 1
+            lastCopies = 1
             groups[groups.length - 1] += end - index
             index = end
         } else if (char === '(') {
             groups.push(0)
+            copies.push(1)
             last = 0
             index++
         } else if (char === ')' && groups.length > 1) {
             last = Math.max(groups.pop()!, 1)
+            lastCopies = copies.pop()!
             groups[groups.length - 1] += last
+            copies[copies.length - 1] = Math.max(copies[copies.length - 1], lastCopies)
             index++
         } else if (char === '{' && /^\{\d+(,\d*)?\}/.test(pattern.slice(index))) {
             const counts = /^\{(\d+)(?:,(\d*))?\}/.exec(pattern.slice(index))!
             const most = Math.max(Number(counts[2] || counts[1]), 1)
             groups[groups.length - 1] += last * (most - 1)
             last *= most
+            lastCopies *= most
+            if (lastCopies > MAX_REPEAT_COPIES) {
+                throw new Error(REPEATS_TOO_MUCH)
+            }
+            copies[copies.length - 1] = Math.max(copies[copies.length - 1], lastCopies)
             index += counts[0].length
         } else {
             let end = index + (char === '\\' ? 2 : 1)
@@ -280,6 +297,7 @@ function regexSize(pattern: string): number {
                 end++
             }
             last = 1
+            lastCopies = 1
             groups[groups.length - 1] += 1
             index = end
         }
@@ -287,9 +305,10 @@ function regexSize(pattern: string): number {
     return groups.reduce((total, size) => total + size, 0)
 }
 
-/** RE2JS has no `\C`, which the server's RE2 reads as any byte outside a character class, so the check reads it as
- * any character there. Inside a class both reject it. */
-function withoutAnyByteClass(pattern: string): string {
+/** The pattern in the syntax of RE2JS, for the parts that the server's RE2 reads differently. RE2JS has no `\C`,
+ * which RE2 reads as any byte outside a character class, so the check reads it as any character there. RE2JS also
+ * rejects two groups with the same name, which RE2 accepts, so the check drops the names. */
+function forRE2JS(pattern: string): string {
     let result = ''
     let inClass = false
     for (let index = 0; index < pattern.length; index++) {
@@ -302,6 +321,9 @@ function withoutAnyByteClass(pattern: string): string {
             const next = pattern[index + 1] ?? ''
             result += !inClass && next === 'C' ? '.' : char + next
             index++
+        } else if (!inClass && char === '(' && /^\(\?P?<[A-Za-z_][A-Za-z0-9_]*>/.test(pattern.slice(index, index + 260))) {
+            result += '('
+            index = pattern.indexOf('>', index)
         } else {
             inClass = inClass ? char !== ']' : char === '['
             result += char
@@ -320,9 +342,9 @@ export function compileVariableRegex(regex: string | null | undefined): RE2JS | 
     const flags = slashed?.[2] ?? ''
     // The editor compiles on each edit, so a pattern that expands too far must not block the page.
     if (regexSize(slashed ? slashed[1] : pattern) > MAX_REGEX_SIZE) {
-        throw new Error('it repeats too much. Use smaller counts in {}.')
+        throw new Error(REPEATS_TOO_MUCH)
     }
-    const body = withoutAnyByteClass(slashed ? slashed[1] : pattern)
+    const body = forRE2JS(slashed ? slashed[1] : pattern)
     return RE2JS.compile(
         body,
         (flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0) |

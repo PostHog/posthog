@@ -3,8 +3,8 @@ import type { BeforeSendFn } from 'posthog-js'
 const URL_PROPERTIES = ['$current_url', '$referrer', '$initial_current_url', '$initial_referrer']
 const FILTER_PARAMS = ['filters_override', 'query_filters']
 
-/** Metric variables in a dashboard or insight URL keep only their names and selections, so the queries and option
- * lists of their definitions stay out of analytics. */
+/** Metric variables in a dashboard or insight URL keep only their names, so their queries, options and selected values
+ * stay out of analytics. */
 export function redactMetricVariableUrl(url: string): string {
     if (!url.includes('metricVariables')) {
         return url
@@ -25,7 +25,6 @@ export function redactMetricVariableUrl(url: string): string {
             if (Array.isArray(filters?.metricVariables)) {
                 filters.metricVariables = filters.metricVariables.map((variable: Record<string, unknown> | null) => ({
                     name: variable?.name,
-                    current: variable?.current,
                 }))
                 parsed.searchParams.set(param, JSON.stringify(filters))
             }

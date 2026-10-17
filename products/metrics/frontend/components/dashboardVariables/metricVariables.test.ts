@@ -118,6 +118,8 @@ describe('metricVariables', () => {
         ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
         ['a regex that repeats too much', 'promql', '(a{1000}){1000}', 'regex'],
         ['a quoted regex that looks like it repeats', 'promql', '\\Q(a{1000}){1000}\\E', undefined],
+        ['nested counted repeats past the RE2 limit', 'promql', '(a{50}){50}', 'regex'],
+        ['two groups with the same name', 'promql', '(?P<part>api)(?P<part>web)', undefined],
         ['a regex with the RE2 any-byte class', 'promql', '\\C+', undefined],
         ['a regex with the any-byte class inside a class', 'promql', '[\\C]', 'regex'],
         ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],

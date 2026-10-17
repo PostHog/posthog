@@ -33,7 +33,7 @@ export function MetricVariableSelect({
                     size="xsmall"
                     noPadding
                     icon={<IconWarning className="text-warning" />}
-                    tooltip={error}
+                    tooltip={<span className="ph-no-capture">{error}</span>}
                     disabledReason={loading ? 'Loading values' : undefined}
                     onClick={onRetry}
                     data-attr="dashboard-metric-variable-retry"
@@ -113,6 +113,8 @@ function MetricVariableOptionsSelect({
     const savedValues = isAll ? (variable.multi ? options : [ALL_OPTION]) : (variable.current?.values ?? [])
     // A multi-select keeps its values here while the list is open, so that each click does not refresh the tiles.
     const [pending, setPending] = useState<string[] | null>(null)
+    // New options, such as after a parent changes, drop the picks that are no longer options.
+    useEffect(() => setPending((current) => current && current.filter((value) => options.includes(value))), [options])
     const commit = (values: string[]): void => {
         setPending(null)
         const selection = selectionFromValues(variable, values, options)
@@ -136,7 +138,8 @@ function MetricVariableOptionsSelect({
                 ...options.map((option) => ({ key: option, label: option })),
             ]}
             emptyStateComponent={
-                <div className="flex flex-col items-start gap-1 p-1 max-w-80">
+                // The list renders outside the select, so it needs its own exclusion from autocapture.
+                <div className="ph-no-capture flex flex-col items-start gap-1 p-1 max-w-80">
                     <p className="text-secondary italic m-0">{error ?? 'No values'}</p>
                     {error && (
                         <LemonButton
