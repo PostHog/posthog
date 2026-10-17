@@ -6158,6 +6158,83 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         }
         assert {g["metric"]: g["value"] for g in measured["guardrails"]}["bounce rate"] == 0.02
 
+    @parameterized.expand(
+        [
+            ("closed days", "{start}/{end}", 100, "{start}/{end}"),
+            ("relative", "-7d", 157, "-7d"),
+            ("no offsets", "{start_naive}/{end_naive}", 157, "-7d"),
+            ("ends in the future", "{start}/{future}", 157, "-7d"),
+            ("reversed", "{end}/{start}", 157, "-7d"),
+        ]
+    )
+    @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
+    def test_posthog_measures_the_window_the_suggestion_names(
+        self, _name, window, expected_sends, expected_window, _mock_flag
+    ):
+        HogFlow.objects.filter(id=self.flow.id).update(
+            actions=[{"id": "email_1", "type": "function_email", "name": "Email", "config": {}}], status="active"
+        )
+        self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/optimization", {"enabled": True}, format="json"
+        )
+        now = datetime.now(UTC).replace(minute=0, second=0, microsecond=0)
+        # The row at the interval's end belongs to the next interval.
+        for timestamp, sent in (
+            (now - timedelta(days=3), 100),
+            (now - timedelta(days=1), 7),
+            (now - timedelta(hours=1), 50),
+        ):
+            create_app_metric2(
+                team_id=self.team.id,
+                app_source="hog_flow_version",
+                app_source_id=f"{self.flow.id}/1",
+                instance_id="email_1",
+                timestamp=timestamp,
+                metric_kind="email",
+                metric_name="email_sent",
+                count=sent,
+            )
+        bounds = {
+            "start": (now - timedelta(days=5)).isoformat().replace("+00:00", "Z"),
+            "end": (now - timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+            "start_naive": (now - timedelta(days=5)).replace(tzinfo=None).isoformat(),
+            "end_naive": (now - timedelta(days=1)).replace(tzinfo=None).isoformat(),
+            "future": (now + timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+        }
+        producer_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="producer",
+            user=self.user,
+            secure_value=hash_key_value(producer_key),
+            scopes=["hog_flow:read", "hog_flow_proposal:write"],
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}/proposals/",
+            {
+                "title": "Shorten the subject",
+                "rationale": "Opens are low.",
+                "content": {"exit_condition": "exit_only_at_end"},
+                "step_id": "email_1",
+                "base_version": 1,
+                "evidence": {
+                    "metric": "email_opened",
+                    "current_value": 0.1,
+                    "unit": "rate",
+                    "n": 100,
+                    "guardrails": [],
+                    "window": window.format(**bounds),
+                },
+            },
+            format="json",
+            headers={"authorization": f"Bearer {producer_key}"},
+        )
+
+        assert response.status_code == 201, response.json()
+        measured = response.json()["evidence"]["measured"]
+        assert measured["target"]["n"] == expected_sends
+        assert measured["window"] == expected_window.format(**bounds)
+
     @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=True)
     @patch(
         "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",

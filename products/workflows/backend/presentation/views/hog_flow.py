@@ -16,6 +16,7 @@ from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import models, transaction
 from django.db.models import QuerySet
 from django.http import Http404, HttpResponse
+from django.utils import timezone as django_timezone
 
 import requests
 import structlog
@@ -215,6 +216,7 @@ from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.proposals import (
     HOG_FLOW_VERSION_APP_SOURCE,
     PROPOSAL_MERGE_BY_ID_FIELDS,
+    absolute_window,
     approve_proposal,
     as_the_serializer_stores_it,
     count_proposals,
@@ -3827,10 +3829,11 @@ WORKFLOW_PROPOSAL_EVIDENCE_SCHEMA = {
         "{metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. "
         "PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores "
         "them under `measured`; the page shows that reading and flags a disagreement with yours. "
-        "Also conventional: target_value, window, query, app_source_id. A rate with no denominator "
-        "lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change "
-        "that lifts one number by harming another, and a number under a key of your own reads to a "
-        "person as no evidence at all."
+        "Also conventional: target_value, window (a relative one such as `-7d`, or an ISO 8601 "
+        "interval `start/end` with offsets, which PostHog reads back exactly), query, app_source_id. "
+        "A rate with no denominator lets a reviewer mistake noise for a result, a target with no "
+        "counter-metrics hides a change that lifts one number by harming another, and a number under a "
+        "key of your own reads to a person as no evidence at all."
     ),
 }
 
@@ -5760,19 +5763,24 @@ class HogFlowViewSet(
         """PostHog's own reading of the metrics a suggestion is about, taken when it is filed.
 
         Same read as the outcome's "before" side, over the producer's window when it names a
-        relative one. A read that fails leaves the suggestion filed with the producer's numbers
-        only, which the page labels as unverified."""
+        relative one or an absolute interval. A read that fails leaves the suggestion filed with
+        the producer's numbers only, which the page labels as unverified."""
         window = evidence.get("window") if isinstance(evidence.get("window"), str) else None
-        if not window or not re.fullmatch(r"-\d+[dh]", window):
+        bounds = absolute_window(window, django_timezone.now())
+        if bounds is None and (not window or not re.fullmatch(r"-\d+[dh]", window)):
             window = "-7d"
         try:
-            after_date, _, _ = relative_date_parse_with_delta_mapping(window, self.team.timezone_info)
+            after_date, before_date = bounds or (
+                relative_date_parse_with_delta_mapping(window, self.team.timezone_info)[0],
+                None,
+            )
             tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
             reading = version_outcome(
                 team_id=self.team_id,
                 hog_flow_id=hog_flow.id,
                 versions=[base_version],
                 after=after_date,
+                before=before_date,
                 step_id=step_id,
                 target=target_metric_in(evidence),
             )
