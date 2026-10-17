@@ -13568,10 +13568,10 @@ Today (4): `contacts`, `responses`, `survey_links`, `surveys`
 Diffed against: <https://apidocs.zonkafeedback.com/api/collections/2077940/TVCY7Cby>
 
 - [x] `survey-links` — shareable per-survey link objects from the Survey Links API (GET /survey-links); each carries the URL and tracking code used to attribute a collected response (high)
-- [ ] `workspaces` — lookup resolving the workspace ID carried on surveys and responses; required to segment reporting by workspace (high)
-- [ ] `locations` — lookup resolving the location ID on responses - the standard breakdown dimension for multi-site CX programs (high)
-- [ ] `distribution-logs` — survey send log; pairing it with responses gives delivery, open and response rates instead of responses alone (high)
-- [ ] `users` — lookup resolving the user IDs on tasks and response assignments (medium)
+- [x] `workspaces` — lookup resolving the workspace ID carried on surveys and responses; required to segment reporting by workspace (high)
+- [x] `locations` — lookup resolving the location ID on responses - the standard breakdown dimension for multi-site CX programs (high)
+- [x] `distribution-logs` — survey send log; pairing it with responses gives delivery, open and response rates instead of responses alone (high)
+- [x] `users` — lookup resolving the user IDs on tasks and response assignments (medium)
 - [ ] `tasks` — close-the-loop follow-up tasks raised from responses, with status and assignee (medium)
 - [ ] `contactlist (contact segments)` — contact-to-segment membership, the audience dimension for response analysis (medium)
 - [ ] `devices` — kiosk/device lookup resolving the device ID on offline responses (medium)
