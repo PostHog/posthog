@@ -37,6 +37,9 @@ In percent layouts `value` is a 0..1 fraction; `context.rawValue` holds the orig
 `mode="stack-total"` labels only the stack top.
 For per-segment bar labels, `position="center"` places each label inside its segment, including in horizontal percent stacks.
 The default `position="end"` preserves labels at bar ends.
+Use `background={false}` for unboxed text, `fontSize` (8–32 pixels, default 12), and `rotation` (−90° to 90°, default 0).
+Collision detection accounts for the rotated text bounds; centered text uses the bar color to choose readable contrast.
+These options also work in `config.valueLabels` on time-series charts.
 `series.visibility.valueLabel: false` skips a series.
 On the time-series charts, prefer `config.valueLabels` so the chart sizes its margins for the labels.
 

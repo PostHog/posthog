@@ -2551,6 +2551,7 @@ export interface CredentialApi {
  * * `CosmosDB` - CosmosDB
  * * `PlanetScaleMySQL` - PlanetScaleMySQL
  * * `PlanetScalePostgres` - PlanetScalePostgres
+ * * `Plane` - Plane
  * * `SapHana` - SapHana
  * * `Rippling` - Rippling
  * * `HiBob` - HiBob
@@ -3737,6 +3738,8 @@ export interface CredentialApi {
  * * `Wise` - Wise
  * * `LaravelCloud` - LaravelCloud
  * * `Northbeam` - Northbeam
+ * * `NaverAds` - NaverAds
+ * * `ChannelIO` - ChannelIO
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -3940,6 +3943,7 @@ export const ExternalDataSourceTypeEnumApi = {
     CosmosDB: 'CosmosDB',
     PlanetScaleMySQL: 'PlanetScaleMySQL',
     PlanetScalePostgres: 'PlanetScalePostgres',
+    Plane: 'Plane',
     SapHana: 'SapHana',
     Rippling: 'Rippling',
     HiBob: 'HiBob',
@@ -5126,6 +5130,8 @@ export const ExternalDataSourceTypeEnumApi = {
     Wise: 'Wise',
     LaravelCloud: 'LaravelCloud',
     Northbeam: 'Northbeam',
+    NaverAds: 'NaverAds',
+    ChannelIO: 'ChannelIO',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {

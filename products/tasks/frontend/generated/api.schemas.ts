@@ -5025,7 +5025,7 @@ export interface SlackThreadContextRunApi {
      */
     task_processing_workflow_url: string | null
     /**
-     * Temporal workflow id of the Slack mention that dispatched this run (`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs created before this field was persisted.
+     * Temporal workflow id of the Slack mention that dispatched this run (`slack-app-mention-processing-<workspace>:<event_id_or_channel:ts>`). Null for runs created before this field was persisted.
      * @nullable
      */
     mention_workflow_id: string | null
