@@ -90,8 +90,9 @@ When all partitions have reported, Django stamps the cohort ready, and feature f
   Reconcile re-emits from the state the processor holds, so it repairs lost output, not lost state.
   [Processor runtime](processor-runtime.md#delivery-semantics) lists each path's guarantee.
 - **The processor runs as a single pod.**
-  Each pod owns a fixed share of the partitions, and keeps their state in a local RocksDB store that never moves between pods.
-  A second replica refuses to start unless `COHORT_POD_COUNT` is raised, every store is wiped and the old split's stamps on the broker are cleared, and then every slice starts without its history.
+  Each pod owns a fixed share of the partitions, and keeps their state in a local RocksDB store.
+  More pods need a reshard, as [ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) describes.
+  With checkpoints enabled, a reshard keeps the history of every slice.
 - **Most of the pipeline is off by default.**
   The processor writes to a shadow output topic unless configured otherwise, and seed apply, reconcile, cascades, durable restore, the seeder's completion driver and Django's finalizer each have their own switch.
   The pages name the switch where each behavior is described.

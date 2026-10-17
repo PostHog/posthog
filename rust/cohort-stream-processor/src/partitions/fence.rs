@@ -81,8 +81,9 @@ impl InputCommits {
 /// The last commits on a set of partitions, on every enabled group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitLedger {
-    /// Every pod reads the events group, so it alone says whether a takeover finished. A follower
-    /// group can be enabled after the takeover, with stamps the old split left.
+    /// Every pod reads the events group, so it alone says whether another split still runs and
+    /// whether a takeover finished. A follower group can be enabled after a reshard, with stamps
+    /// that an older split left.
     events: InputCommits,
     followers: Vec<InputCommits>,
 }
@@ -115,7 +116,9 @@ impl CommitLedger {
     /// - A child takes over only once its parent has stamped one of its own partitions under the
     ///   new split. A StatefulSet runs one pod per ordinal, so no process runs the old split at the
     ///   parent's ordinal after that.
-    /// - A child whose events partitions all carry its own split finished its takeover before.
+    /// - A child with its own split on any events partition finished its takeover before, because
+    ///   only its claim and its later commits write that stamp. An offset reset removes the stamp
+    ///   from a partition, so the rule cannot require it on every partition.
     fn admit(&self, claim: &SplitClaim) -> Result<StoreSource, FenceBlock> {
         self.check_stamps(claim)?;
         let ownership = claim.ownership();
@@ -124,7 +127,7 @@ impl CommitLedger {
         };
         if ownership
             .partitions()
-            .all(|partition| self.events.carries(partition, ownership))
+            .any(|partition| self.events.carries(partition, ownership))
         {
             Ok(StoreSource::Own)
         } else if parent_now
@@ -139,13 +142,16 @@ impl CommitLedger {
 
     /// Refuses a stamp on an owned partition that `claim` does not accept. An owned partition may
     /// carry no stamp, this pod's split, or during a reshard the parent's. A child accepts no stamp
-    /// because its partitions belonged to the parent, which may have run a build without stamps.
+    /// because its partitions belonged to the parent, which may have run a build without stamps. A
+    /// follower partition may also carry any split that covers this pod, because a pod of that
+    /// split that still runs also commits the events group.
     fn check_stamps(&self, claim: &SplitClaim) -> Result<(), FenceBlock> {
         let ownership = claim.ownership();
         let parent = match claim.role() {
             Role::Steady => None,
             Role::Parent { parent } | Role::Child { parent, .. } => Some(parent),
         };
+        let events = self.events.topic();
         for (topic, partition, stamp) in self.stamps() {
             if !ownership.owns(partition) {
                 continue;
@@ -153,6 +159,7 @@ impl CommitLedger {
             match stamp {
                 Stamp::Unstamped => {}
                 Stamp::Split(found) if *found == ownership || Some(*found) == parent => {}
+                Stamp::Split(found) if topic != events && found.covers(&ownership) => {}
                 Stamp::Split(found) => {
                     return Err(FenceBlock::ForeignSplit {
                         topic: topic.clone(),
@@ -478,7 +485,7 @@ mod tests {
     }
 
     #[test]
-    fn the_fence_admits_a_split_only_over_its_own_its_parents_or_no_stamps() {
+    fn the_fence_admits_a_split_only_over_its_own_its_ancestors_or_no_stamps() {
         let unstamped = || Some(Stamp::Unstamped);
         let unreadable = || Some(Stamp::Unrecognized("other-tool".to_owned()));
         type Row = (
@@ -519,6 +526,13 @@ mod tests {
                 }),
             ),
             (
+                "steady over a follower that was off through a reshard",
+                claim(2, 1, None),
+                [by(2, 0), by(2, 1), by(2, 0), by(2, 1)],
+                [by(1, 0), by(1, 0), by(1, 0), by(1, 0)],
+                Ok(StoreSource::Own),
+            ),
+            (
                 "parent over its own, its old split's and no stamps",
                 claim(2, 0, Some(1)),
                 [by(2, 0), by(1, 0), unstamped(), by(1, 0)],
@@ -537,16 +551,17 @@ mod tests {
                 }),
             ),
             (
-                "child whose events partitions all carry its split finished its takeover",
+                "child with its split on an events partition finished its takeover, though an \
+                 offset reset removed it from another",
                 claim(2, 1, Some(1)),
-                [by(1, 0), by(2, 1), by(1, 0), by(2, 1)],
+                [by(2, 0), by(2, 1), by(2, 0), unstamped()],
                 [by(1, 0), by(1, 0), by(1, 0), unstamped()],
                 Ok(StoreSource::Own),
             ),
             (
                 "child takes over once its parent stamped under the new split",
                 claim(2, 1, Some(1)),
-                [by(2, 0), unstamped(), by(1, 0), by(2, 1)],
+                [by(2, 0), unstamped(), by(1, 0), by(1, 0)],
                 [by(2, 0), by(1, 0), by(1, 0), by(1, 0)],
                 Ok(StoreSource::TakeOver {
                     parent: split(1, 0),

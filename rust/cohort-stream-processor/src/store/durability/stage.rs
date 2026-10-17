@@ -206,8 +206,7 @@ impl PendingRestore {
         &self.record.source
     }
 
-    /// When the restored checkpoint read its positions. Every output version its source pod
-    /// emitted lies before it.
+    /// When the restored checkpoint read its positions.
     pub fn captured_at(&self) -> DateTime<Utc> {
         self.record.manifest.captured_at()
     }

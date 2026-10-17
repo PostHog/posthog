@@ -179,21 +179,22 @@ A wiped store does the same.
 
 ## Ownership and the single-pod deployment
 
-State never moves between pods.
-A pod's store holds the slices of the partitions it owns, and nothing hands a slice to another pod.
+A pod's store holds the slices of the partitions it owns, and only a reshard hands a slice to another pod.
 The store records the split it was written under in `cf_meta[pod_partitions]`: the pod count, the ordinal and the partition count.
 A store from before that record takes the configured split as its own the first time it opens.
 A split covers another when it owns every partition the other owns.
-A store written under a split that covers the pod's opens and records the pod's split.
-A store written under any other split refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
+A store opens when its recorded split covers the pod's split, and then records the pod's split.
+Any other store refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
 With durable restore enabled, boot deletes the slices of partitions the pod does not own, so a single pod deletes nothing.
 
 The store record cannot stop a pod on an empty volume, so the **ownership fence** keeps a second record on the broker.
-Every offset commit on every input group carries the committer's split as Kafka commit metadata, for example `cohort-split/1:2:0:64` for pod 0 of 2 over 64 partitions.
+Every offset commit on every input group carries the committer's split as Kafka commit metadata, its stamp, for example `cohort-split/1:2:0:64` for pod 0 of 2 over 64 partitions.
 The pod reads these stamps three times:
 
 1. Before the store opens, it reads the last commit of every group on each partition it owns.
-   A stamp from another split, or metadata it cannot read, holds the boot.
+   A stamp from another split, or metadata it cannot read, holds the boot, because the pods of that split may still run.
+   During [a reshard](#raising-the-pod-count), the parent's stamp passes too.
+   On a follower group, the stamp of a split that covers the pod's also passes, because a pod of that split that still runs also commits the events group.
    The pod retries after 30 seconds, doubling the wait up to 5 minutes, and meanwhile `/_ready` reads not ready and `ownership_fence_blocked{reason}` is 1.
    A commit without a stamp passes, because older builds and standard Kafka tools, such as an offset reset, write none.
    A checkpoint restore waits for the same check again before it commits the follower positions.
@@ -206,14 +207,40 @@ The pod reads these stamps three times:
 
 Two processes of the same split, such as two pods with the same ordinal, write the same stamp, so the fence cannot tell them apart.
 
-So changing `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
+### Raising the pod count
+
+`COHORT_RESHARD_FROM_POD_COUNT` marks a reshard and names the old pod count.
+`COHORT_POD_COUNT` must be a larger whole multiple of it, or the pod refuses to start.
+
+- A pod whose ordinal is below the old count is a parent.
+  It reopens its store, and boot deletes the slices it gave away.
+- Every other pod is a child, and takes its partitions over from the parent at its ordinal modulo the old count.
+  It waits, with the `parent_running` reason, until the parent has stamped a partition under the new split.
+  It then deletes a live store that holds no pending restore, and restores the newest checkpoint in the parent's S3 lineage that covers it, counted in `checkpoint_restore_total{source="parent_s3"}`.
+  With no usable checkpoint, it creates its store behind the coverage fence.
+- Once one of a child's events partitions carries the child's stamp, the takeover is over, and later boots open its store as usual.
+
+To reshard:
+
+1. Scale the processor to 0, and wait until every pod has stopped after its final checkpoint.
+2. Set `COHORT_POD_COUNT` to the new count, `COHORT_RESHARD_FROM_POD_COUNT` to the old count, and the replicas to the new count.
+3. Check `owned_partitions` on each pod, `ownership_fence_blocked` at 0, and one `parent_s3` restore for each child.
+4. Remove `COHORT_RESHARD_FROM_POD_COUNT` in a later change.
+
+If step 1 is skipped, each child waits until its parent restarts, and the old split keeps every partition until then.
+Deleting the parent pods moves the reshard on.
+After its takeover, a child searches only its own lineage.
+So a child that loses its volume before its first upload finishes creates its store behind the coverage fence, even though its parent's checkpoint still covers it.
+
+### Lowering the pod count
+
+Nothing merges two stores, so lowering `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
 That volume keeps its old record, so when a later change brings that split back, it opens with slices another pod has moved past.
-With checkpoints enabled, keep the checkpoints: a restore passes over one whose split does not cover the pod.
-The old split's stamps also hold every pod of the new split at boot.
-An offset reset of each input group to its current offsets clears them, because it commits without a stamp.
-Run it only after every pod of the old split has stopped, or the fence admits the new split while the old one still commits.
-Each slice without a covering checkpoint then begins again behind the coverage fence and holds no history until a backfill runs.
-Nothing moves a slice between pods yet, so one pod that owns every partition is the supported deployment.
+With checkpoints enabled, also delete every pod's checkpoints, local and in S3.
+While no pod runs, reset every group's offsets to their current positions, because the stamps of the larger split hold every boot and a standard offset reset writes no stamp.
+Each slice then begins again behind the coverage fence and holds no history until a backfill runs.
+
+More than one pod needs chart changes that are not done yet, so one pod that owns every partition is the supported deployment.
 
 ## Startup
 
