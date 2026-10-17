@@ -109,7 +109,7 @@ enum Unusable {
     MetadataFormat { found: u32 },
     #[error("manifest format {found}")]
     ManifestFormat { found: u32 },
-    #[error("the broker no longer holds what it lacks on any partition")]
+    #[error("the broker no longer holds what it lacks on any partition this pod owns")]
     NothingToReplay,
     #[error("its manifest's split, {found}, does not cover this pod's partitions")]
     OtherSplit { found: PartitionOwnership },
@@ -600,7 +600,7 @@ impl<W: ReplayWindow> Restore<'_, W> {
     fn replay_plan(&self, manifest: &OffsetManifest) -> Result<Admission, RestoreBlocked> {
         let plan = RestorePlan::check(manifest, self.window, self.partition_count)
             .map_err(RestoreBlocked::Positions)?;
-        if !plan.resumes_any() {
+        if !plan.resumes_any(&self.ownership) {
             // Older candidates hold older positions, which the broker deletes first, so retrying
             // cannot help.
             return Ok(Admission::Rejected(Unusable::NothingToReplay));

@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use cohort_stream_processor::config::Config;
 use cohort_stream_processor::partitions::{
-    AdmittedSplit, Committed, InputGroups, OwnershipAudit, PartitionOwnership, ResumeOffset, Stamp,
+    AdmittedSplit, Committed, InputGroups, OwnershipAudit, PartitionOwnership, PositionsError,
+    ResumeOffset, Stamp,
 };
 use cohort_stream_processor::store::durability::PodOrdinal;
 use cohort_stream_processor::sweep::Sweeper;
@@ -199,7 +200,8 @@ async fn commit_stamps_round_trip_on_every_group() {
 
 /// The audit lets a commit without a stamp pass, as an operator's offset reset writes one, and stops
 /// the pod when another split commits one of its partitions. It also revokes the pod's commits, so
-/// the final commits of the stop cannot cover the foreign stamp, and the next boot holds.
+/// the final commits of the stop cannot cover the foreign stamp, and the next boot holds. A
+/// checkpoint then refuses that position.
 #[tokio::test]
 #[ignore = "requires a running Kafka broker (KAFKA_HOSTS); run with --ignored against a local stack"]
 async fn the_audit_stops_a_pod_whose_partition_another_split_commits() {
@@ -252,6 +254,11 @@ async fn the_audit_stops_a_pod_whose_partition_another_split_commits() {
     assert!(
         AdmittedSplit::try_admit(split(1, 0), &groups).is_err(),
         "the next boot holds in the fence",
+    );
+    let captured = groups.owned_positions(&claimed, &every_partition());
+    assert!(
+        matches!(captured, Err(PositionsError::Foreign { partition: 3, .. })),
+        "a checkpoint takes no position another split committed: {captured:?}",
     );
 
     inputs.delete().await;
