@@ -157,12 +157,19 @@
 
     .quill-select__separator {
         height: 1px;
-
-        /* Select groups pad themselves, so a margin here would double the gap around the line. */
-        margin-block: 0;
+        margin-block: 0.25rem;
         margin-inline: -0.25rem;
         pointer-events: none;
         background-color: color-mix(in oklab, var(--border) 50%, transparent);
+    }
+
+    /* A group pads itself, so a margin on the side that faces a group doubles the gap. */
+    .quill-select__group + .quill-select__separator {
+        margin-top: 0;
+    }
+
+    .quill-select__separator:has(+ .quill-select__group) {
+        margin-bottom: 0;
     }
 
     .quill-select__scroll-button {
