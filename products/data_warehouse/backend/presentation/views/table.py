@@ -34,6 +34,7 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.data_warehouse.backend.facade.api import get_s3_client
+from products.data_warehouse.backend.presentation.table_activity import log_table_activity, snapshot_table
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,
     FILE_FORMAT_TO_TABLE_FORMAT,
@@ -352,6 +353,7 @@ class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSeriali
             table.save()
         except Exception as err:
             raise serializers.ValidationError(str(err))
+        log_table_activity(table, "created")
 
         validate_data_warehouse_table_columns.delay(self.context["team_id"], str(table.id))
 
@@ -537,6 +539,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         instance.soft_delete()
+        log_table_activity(instance, "deleted")
         _delete_hosted_upload_file(instance)
 
         return response.Response(status=status.HTTP_204_NO_CONTENT)
@@ -544,6 +547,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     def perform_update(self, serializer):
         instance = serializer.instance
         validated_data = serializer.validated_data
+        before = snapshot_table(instance)
 
         credential_data = validated_data.pop("credential", None)
         if credential_data:
@@ -580,6 +584,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             instance.save()
         except Exception as err:
             raise serializers.ValidationError(str(err))
+        log_table_activity(instance, "updated", before=before, credential_changed=bool(credential_data))
 
     @action(methods=["POST"], detail=True)
     def update_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -594,6 +599,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST, data={"message": "The table must be a manually linked table"}
             )
 
+        before = snapshot_table(table)
         columns = table.columns or {}
         column_keys = list(columns.keys())
         for key in updates.keys():
@@ -629,6 +635,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
 
         table.columns = columns
         table.save()
+        log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -647,6 +654,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
     @action(methods=["POST"], detail=True, required_scopes=["warehouse_table:write"])
     def refresh_schema(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         table: DataWarehouseTable = self.get_object()
+        before = snapshot_table(table)
 
         # get_columns surfaces read failures as a plain Exception carrying a user-facing message.
         # Without this it reaches the handler as a 500, the same way TableSerializer.create avoids.
@@ -655,6 +663,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
         except Exception as err:
             raise serializers.ValidationError(str(err))
         table.save()
+        log_table_activity(table, "updated", before=before)
 
         return response.Response(status=status.HTTP_200_OK)
 
@@ -859,6 +868,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 data={"message": _file_read_error_message(file_format)},
             )
         table.save()
+        log_table_activity(table, "created")
 
         validate_data_warehouse_table_columns.delay(self.team_id, str(table.id))
 
@@ -937,6 +947,7 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             )
 
         created_table = table is None
+        before = snapshot_table(table) if table is not None else None
 
         # Create the table record
         try:
@@ -994,6 +1005,8 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
                 # the URL above is always scoped to this team's own managed/ prefix, never taken
                 # verbatim from request input the way the PATCH endpoint's url_pattern field is.
                 table.save(internally_computed_url_pattern=True)
+                # A re-upload replaces the data even when no metadata changes, so it is always logged.
+                log_table_activity(table, "created" if created_table else "updated", before=before, force_save=True)
 
                 # Validate columns in background
                 validate_data_warehouse_table_columns.delay(team_id, str(table.id))

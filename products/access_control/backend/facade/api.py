@@ -569,13 +569,15 @@ def set_object_access_control(
     team = Team.objects.only("id", "organization_id").get(id=team_id)
     resource = _validate_object_access_control(organization_id=team.organization_id, input=input)
     if input.access_level is None:
-        AccessControl.objects.filter(
+        # Deleted one by one because a queryset delete writes no activity log row.
+        for rule in AccessControl.objects.filter(
             team_id=team_id,
             resource=resource,
             resource_id=input.resource_id,
             organization_member_id=input.organization_member_id,
             role_id=cast(UUID | str, input.role_id),
-        ).delete()
+        ):
+            rule.delete()
         return None
 
     rule, _created = AccessControl.objects.update_or_create(

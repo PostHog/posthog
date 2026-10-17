@@ -120017,6 +120017,9 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -120128,6 +120131,9 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       WarehouseSuggestion: 'WarehouseSuggestion',
+      AccessControl: 'AccessControl',
+      DataWarehouseTable: 'DataWarehouseTable',
+      DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',
@@ -120225,6 +120231,9 @@ export namespace Schemas {
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
      * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
@@ -120324,6 +120333,9 @@ export namespace Schemas {
       DataQualityCheck: 'DataQualityCheck',
       DataQualityCheckSchedule: 'DataQualityCheckSchedule',
       WarehouseSuggestion: 'WarehouseSuggestion',
+      AccessControl: 'AccessControl',
+      DataWarehouseTable: 'DataWarehouseTable',
+      DataWarehouseJoin: 'DataWarehouseJoin',
       Billing: 'Billing',
       Loop: 'Loop',
       StamphogRepoConfig: 'StamphogRepoConfig',

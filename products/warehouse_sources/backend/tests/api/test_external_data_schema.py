@@ -4669,6 +4669,27 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         schema.refresh_from_db()
         assert schema.row_filters == filters
 
+    @parameterized.expand(
+        [
+            ("enabled_columns", ["id", "name"]),
+            ("row_filters", [{"column": "id", "operator": ">", "value": 10}]),
+        ]
+    )
+    def test_selection_change_is_written_to_the_activity_log(self, field: str, value: Any):
+        schema = self._create()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={field: value}
+        )
+        assert response.status_code == 200, response.json()
+
+        log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+        assert log.user == self.user
+        assert log.detail is not None
+        assert [c for c in log.detail["changes"] if c["field"] == field] == [
+            {"type": "ExternalDataSchema", "field": field, "action": "created", "before": None, "after": value}
+        ]
+
     def test_null_clears_row_filters(self):
         schema = self._create()
         schema.row_filters = [{"column": "id", "operator": ">", "value": 1}]
