@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.types import Table
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import TLSOptions
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
     CLIENT_DEADLINE_ERROR,
@@ -3450,13 +3451,19 @@ class TestInvalidSSLNegotiationResponse:
     def test_detects_invalid_ssl_negotiation_message(self, message, expected):
         assert _is_invalid_ssl_negotiation_response(psycopg.OperationalError(message)) is expected
 
-    def test_invalid_negotiation_is_not_wrapped_as_ssl_required(self):
-        # require_ssl=True, but the message is a wrong-port/non-Postgres signal — it must surface
-        # raw (so get_non_retryable_errors can give an accurate message), not as the misleading
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "received invalid response to SSL negotiation: I",
+            "SSL error: certificate verify failed",
+            "SSL error: tlsv13 alert certificate required",
+        ],
+    )
+    def test_ssl_mentioning_errors_are_not_wrapped_as_ssl_required(self, message):
+        # require_ssl=True, and the message mentions SSL, but the server does speak TLS here. It must
+        # surface raw so get_non_retryable_errors can give an accurate message, not the misleading
         # SSLRequiredError "enable SSL on your server".
-        connect_mock = mock.MagicMock(
-            side_effect=psycopg.OperationalError("received invalid response to SSL negotiation: I")
-        )
+        connect_mock = mock.MagicMock(side_effect=psycopg.OperationalError(message))
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             connect_mock,
@@ -3466,7 +3473,28 @@ class TestInvalidSSLNegotiationResponse:
                     host="db", port=41667, database="railway", user="postgres", password="x", require_ssl=True
                 )
         assert not isinstance(exc_info.value, SSLRequiredError)
-        assert "received invalid response to SSL negotiation" in str(exc_info.value)
+        assert message in str(exc_info.value)
+
+    def test_tls_options_replace_the_unverified_defaults(self):
+        connect_mock = mock.MagicMock()
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
+            _connect_to_postgres(
+                host="db",
+                port=5432,
+                database="db",
+                user="postgres",
+                password="x",
+                require_ssl=True,
+                tls=TLSOptions(verify=True, verify_hostname=True, ca_certificate="CA PEM"),
+            )
+
+        kwargs = connect_mock.call_args.kwargs
+        assert kwargs["sslmode"] == "verify-full"
+        assert kwargs["sslrootcert"] != "/tmp/no.txt"
+        assert "tls" not in kwargs
 
     def test_genuine_unsupported_ssl_still_raises_ssl_required(self):
         connect_mock = mock.MagicMock(

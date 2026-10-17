@@ -28,6 +28,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import (
+    CERTIFICATE_ERRORS,
+    ca_certificate_field,
+    verify_server_certificate_field,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redshift import (
     RedshiftSourceConfig,
@@ -67,6 +72,7 @@ _HOST_UNREACHABLE_VALIDATION_ERROR = (
 )
 
 RedshiftErrors = {
+    **CERTIFICATE_ERRORS,
     "password authentication failed for user": "Invalid user or password",
     "could not translate host name": _DNS_RESOLUTION_VALIDATION_ERROR,
     "Is the server running on that host and accepting TCP/IP connections": _HOST_UNREACHABLE_VALIDATION_ERROR,
@@ -175,6 +181,8 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
                         placeholder="Leave blank to import all schemas",
                         secret=False,
                     ),
+                    verify_server_certificate_field(),
+                    ca_certificate_field(),
                     SourceFieldSSHTunnelConfig(name="ssh_tunnel", label="Use SSH tunnel?"),
                 ],
             ),
@@ -202,6 +210,7 @@ class RedshiftSource(SQLSource[RedshiftSourceConfig], SSHTunnelMixin, ValidateDa
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             **self.default_non_retryable_errors(),
+            **CERTIFICATE_ERRORS,
             "NoSuchTableError": None,
             "is not permitted to log in": None,
             "could not translate host name": None,

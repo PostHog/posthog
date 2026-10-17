@@ -3,6 +3,7 @@ import datetime
 from collections.abc import Generator, Iterator
 from contextlib import contextmanager
 from decimal import Decimal
+from pathlib import Path
 from typing import cast
 
 import pytest
@@ -27,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
@@ -3017,6 +3019,15 @@ class TestMySQLSourceValidateCredentials:
                 ),
                 "Could not reach the host. Check the host is correct and that PostHog's IP addresses are allowed through your firewall.",
             ),
+            # pymysql wraps the TLS failure in the generic 2003 error, so it must not get the firewall advice.
+            (
+                pymysql.err.OperationalError(
+                    2003,
+                    "Can't connect to MySQL server on 'db.example.com' ([SSL: CERTIFICATE_VERIFY_FAILED] "
+                    "certificate verify failed: unable to get local issuer certificate (_ssl.c:1032))",
+                ),
+                CERTIFICATE_ERRORS["certificate verify failed"],
+            ),
             # Server error 1049: the host/port/credentials are fine but the named database
             # doesn't exist. Previously fell through to capture as an unexpected error.
             (
@@ -3315,6 +3326,24 @@ class TestConnectCertificateVerification:
         assert kwargs["ssl_verify_cert"] is expected_cert
         assert kwargs["ssl_verify_identity"] is expected_identity
         assert refuses_plaintext is (expected_cert is True)
+
+    def test_custom_authority_and_client_certificate_reach_pymysql(self, mocker):
+        seen: dict[str, str] = {}
+
+        def read_files(**kwargs):
+            seen.update({name: Path(kwargs[name]).read_text() for name in ("ssl_ca", "ssl_cert", "ssl_key")})
+            seen["verify"] = kwargs["ssl_verify_cert"]
+            return MagicMock()
+
+        mocker.patch(f"{_MYSQL_MODULE}._TLSRequiredConnection", side_effect=read_files)
+        config = _make_config(
+            using_ssl="false", ca_certificate="CA PEM", client_certificate="CERT PEM", client_key="KEY PEM"
+        )
+
+        with MySQLImplementation().connect(config):
+            pass
+
+        assert seen == {"ssl_ca": "CA PEM", "ssl_cert": "CERT PEM", "ssl_key": "KEY PEM", "verify": True}
 
     @pytest.mark.parametrize("capabilities,refused", [(0, True), (CLIENT.SSL, False)])
     def test_authentication_against_a_server_that_advertises_tls_or_not(self, mocker, capabilities, refused):

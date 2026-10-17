@@ -13,3 +13,7 @@ class PlanetScalePostgresSourceConfig(config.Config):
     port: int = config.value(converter=int)
     connection_string: str | None = None
     schema: str | None = None
+    verify_server_certificate: bool = config.value(default=config.str_to_bool("false"), converter=config.str_to_bool)
+    ca_certificate: str | None = None
+    client_certificate: str | None = None
+    client_key: str | None = None

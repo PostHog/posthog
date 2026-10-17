@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     HostNotAllowedError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import CERTIFICATE_ERRORS
 
 # Server requires (or rejects) an encrypted connection. Kept specific so a transient
 # "SSL connection has been closed unexpectedly" stays a retryable connection failure.
@@ -134,6 +135,8 @@ def classify_postgres_cdc_error(exc: BaseException) -> CDCErrorCategory | None:
         return CDCErrorCategory.PERMISSION_DENIED
 
     if isinstance(exc, psycopg.OperationalError):
+        if any(marker in message for marker in CERTIFICATE_ERRORS):
+            return CDCErrorCategory.CERTIFICATE_REJECTED
         if any(marker in message for marker in _IP_NOT_ALLOWED_MARKERS):
             return CDCErrorCategory.HOST_UNREACHABLE
         if any(marker in message for marker in _SSL_REQUIRED_MARKERS):

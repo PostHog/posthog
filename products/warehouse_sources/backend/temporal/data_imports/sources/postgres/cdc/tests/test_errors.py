@@ -35,6 +35,16 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.SSL_REQUIRED,
             ),
             (
+                "server_certificate_failed_verification",
+                psycopg.OperationalError("connection failed: SSL error: certificate verify failed"),
+                CDCErrorCategory.CERTIFICATE_REJECTED,
+            ),
+            (
+                "client_certificate_rejected",
+                psycopg.OperationalError("connection failed: SSL error: tlsv13 alert certificate required"),
+                CDCErrorCategory.CERTIFICATE_REJECTED,
+            ),
+            (
                 "ssl_close_is_connection_not_ssl_required",
                 psycopg.OperationalError("SSL connection has been closed unexpectedly"),
                 CDCErrorCategory.CONNECTION_FAILED,

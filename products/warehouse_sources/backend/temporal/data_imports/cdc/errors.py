@@ -25,6 +25,7 @@ MAX_FRIENDLY_MESSAGE_LENGTH = 500
 class CDCErrorCategory(enum.StrEnum):
     AUTH_FAILED = "auth_failed"
     SSL_REQUIRED = "ssl_required"
+    CERTIFICATE_REJECTED = "certificate_rejected"
     CONNECTION_FAILED = "connection_failed"
     HOST_UNREACHABLE = "host_unreachable"
     QUOTA_EXCEEDED = "quota_exceeded"
@@ -94,6 +95,12 @@ _CATEGORY_DEFAULTS: dict[CDCErrorCategory, tuple[str, bool]] = {
     CDCErrorCategory.SSL_REQUIRED: (
         "Could not establish a required encrypted (SSL) connection to the source database. Check "
         "that the database accepts SSL connections, then re-enable change data capture.",
+        False,
+    ),
+    CDCErrorCategory.CERTIFICATE_REJECTED: (
+        "The TLS certificate check failed. Either the source database's certificate did not pass "
+        "verification, or the database rejected the client certificate. Check the TLS settings of the "
+        "source, then re-enable change data capture.",
         False,
     ),
     CDCErrorCategory.CONNECTION_FAILED: (
