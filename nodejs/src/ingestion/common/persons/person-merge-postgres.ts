@@ -367,6 +367,51 @@ export class PostgresPersonMerge {
     }
 
     /**
+     * Writes the identified flag at the call for an outcome that leaves the target row untouched, when the
+     * committed row lacks it: the flush would carry it seconds later, and a merge on another pod that reads the
+     * row before then attaches a second user to it. Returns the survivor as the batch sees it and the produce ack.
+     */
+    private async identifyTarget(target: InternalPerson): Promise<[InternalPerson, Promise<void>]> {
+        if (!this.lockedOutcomeEnabled()) {
+            return [target, Promise.resolve()]
+        }
+        const identified: MergePersonUpdate = { is_identified: true }
+        let committed: AttachOutcome
+        try {
+            committed = await this.inTransaction('mergeDistinctIds-Identify', async (tx) => {
+                const row = (
+                    await this.lockMergeRows(
+                        tx,
+                        target,
+                        [],
+                        () => new TargetPersonNotFoundError('Person was deleted before the merge could identify it')
+                    )
+                ).get(target.id)
+                if (row === undefined || row.is_identified) {
+                    return [target, null, []] as const
+                }
+                const [survivor, messages, written] = await tx.updatePersonForMerge(
+                    row,
+                    identified,
+                    this.targetDistinctId
+                )
+                return [survivor, written ? identified : null, messages] as const
+            })
+        } catch (error) {
+            // A row over the properties size limit rejects the write; the flag rides the flush, as for an attach.
+            if (!(error instanceof MergeOutcomeOversizedError)) {
+                throw error
+            }
+            return [target, Promise.resolve()]
+        }
+        const [row, update, messages] = committed
+        const survivor = update
+            ? this.store.takeMergedRow(row, this.targetDistinctId, update, null, this.batchId)
+            : target
+        return [survivor, this.produceMessages(messages)]
+    }
+
+    /**
      * Target wins over sources, earlier sources over later; the event's ops apply on top. Returns the pending
      * changes each row's view took, so the entries can be settled against them after the commit.
      */
@@ -587,8 +632,9 @@ export class PostgresPersonMerge {
                 // Same person already; re-emit in case a crashed prior merge never
                 // produced the pair's mapping.
                 const { kafkaAck } = await this.reemitSatisfiedMappings([otherPersonDistinctId, mergeIntoDistinctId])
+                const [survivor, flagAck] = await this.identifyTarget(mergeIntoPerson)
                 return {
-                    survivor: mergeIntoPerson,
+                    survivor,
                     results: [
                         {
                             sourceDistinctId: otherPersonDistinctId,
@@ -596,7 +642,7 @@ export class PostgresPersonMerge {
                             sourcePersonUuid: otherPerson.uuid,
                         },
                     ],
-                    kafkaAck,
+                    kafkaAck: joinAcks(kafkaAck, flagAck),
                 }
             }
 
@@ -849,8 +895,14 @@ export class PostgresPersonMerge {
 
         if (mergeSources.length === 0 && missingSources.length === 0) {
             const { kafkaAck: reemitAck } = await this.reemitSatisfiedMappings(noopSourceDistinctIds)
-            const kafkaAck = this.bootstrapAck ? joinAcks(this.bootstrapAck, reemitAck) : reemitAck
-            return { survivor: target, results: outcomes, kafkaAck }
+            // An illegal pair identifies nobody; any other outcome names the target as a user.
+            const [survivor, flagAck] = outcomes.some((outcome) => outcome.outcome !== 'skipped_illegal')
+                ? await this.identifyTarget(target)
+                : [target, Promise.resolve()]
+            const kafkaAck = this.bootstrapAck
+                ? joinAcks(this.bootstrapAck, reemitAck, flagAck)
+                : joinAcks(reemitAck, flagAck)
+            return { survivor, results: outcomes, kafkaAck }
         }
 
         const currentTarget = target
@@ -1000,8 +1052,9 @@ export class PostgresPersonMerge {
             // A replay of a committed createTargetBesideIdentifiedSource lands here, so re-emit
             // the target's mapping in case the crash came before its produce.
             const { kafkaAck } = await this.reemitSatisfiedMappings([mergeIntoDistinctId])
+            const [survivor, flagAck] = await this.identifyTarget(mergeInto)
             return {
-                survivor: mergeInto,
+                survivor,
                 results: [
                     {
                         sourceDistinctId: otherPersonDistinctId,
@@ -1009,7 +1062,7 @@ export class PostgresPersonMerge {
                         sourcePersonUuid: otherPerson.uuid,
                     },
                 ],
-                kafkaAck,
+                kafkaAck: joinAcks(kafkaAck, flagAck),
             }
         }
 
