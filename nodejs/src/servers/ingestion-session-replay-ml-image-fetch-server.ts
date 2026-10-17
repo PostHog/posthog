@@ -34,6 +34,7 @@ import {
     assertImageFetchBatchTarget,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
 import { HttpImageFetcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetcher'
+import type { FetchedImageSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-sink'
 import { OriginRequestScheduler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/origin-request-scheduler'
 import { assertUrlPolicyLoaded } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/politeness-key'
 import { createPoolWindowBatchHandler } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/pool-window-batch-handler'
@@ -111,7 +112,8 @@ export function buildFrontierPublisher(
 export function buildFetchRunner(
     config: IngestionSessionReplayMlMirrorServerConfig,
     publisher: FrontierPublisher,
-    topHogMetrics: ImageFetchTopHogMetrics
+    topHogMetrics: ImageFetchTopHogMetrics,
+    imageSink: FetchedImageSink = publisher
 ): FetchRunner {
     const webBotAuthSigner = createWebBotAuthRequestSigner(config.WEB_BOT_AUTH_PRIVATE_KEYS)
     const budget = new HostBudget({
@@ -166,7 +168,8 @@ export function buildFetchRunner(
                 : undefined,
         },
         publisher,
-        topHogMetrics
+        topHogMetrics,
+        imageSink
     )
 }
 
