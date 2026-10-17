@@ -193,7 +193,12 @@ class TestZonkaFeedbackSourceResponse:
         assert result.params("page") == expected_pages
 
 
+def _state(survey_id: str, channel: str, page: int, end_date: str = "2026-06-01") -> ZonkaFeedbackResumeConfig:
+    return ZonkaFeedbackResumeConfig(next_page=page, survey_id=survey_id, channel=channel, end_date=end_date)
+
+
 class TestDistributionLogs:
+    @time_machine.travel("2026-06-01T23:30:00Z", tick=False)
     def test_walks_every_survey_and_channel(self) -> None:
         result = _run(_zonka_account, endpoint="distribution_logs")
 
@@ -218,8 +223,29 @@ class TestDistributionLogs:
             LOG_EMAIL_SECOND,
             {"surveyId": "s3", "channel": "whatsapp", **LOG_WHATSAPP_NO_KEYS},
         ]
-        assert result.committed_states[0] == ZonkaFeedbackResumeConfig(next_page=2, survey_id="s1", channel="email")
+        # A pair with no rows still moves the saved cursor on to the next pair.
+        assert result.committed_states == [
+            _state("s1", "email", 2),
+            _state("s1", "email", 3),
+            _state("s1", "sms", 1),
+            _state("s1", "whatsapp", 1),
+            _state("s2", "email", 1),
+            _state("s2", "sms", 1),
+            _state("s2", "whatsapp", 1),
+            _state("s3", "email", 1),
+            _state("s3", "sms", 1),
+            _state("s3", "whatsapp", 1),
+            _state("s3", "whatsapp", 2),
+        ]
         assert result.completed_state is None
+
+    @time_machine.travel("2026-06-01T23:30:00Z", tick=False)
+    def test_resume_keeps_the_saved_end_date(self) -> None:
+        result = _run(_zonka_account, endpoint="distribution_logs", resume_state=_state("s1", "email", 2, "2026-05-30"))
+
+        assert result.raised is None
+        log_requests = [request for request in result.requests if request.path == "/distribution-logs"]
+        assert {request.param("endDate") for request in log_requests} == {"2026-05-30"}
 
     @parameterized.expand(
         [

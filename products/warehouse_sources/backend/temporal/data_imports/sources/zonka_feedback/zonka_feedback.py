@@ -1,7 +1,8 @@
-import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -48,7 +49,7 @@ DEFAULT_PROBE_PATH = "/surveys"
 DISTRIBUTION_LOGS_EARLIEST_DATE = date(2010, 1, 1)
 
 
-@dataclasses.dataclass
+@frozen
 class ZonkaFeedbackResumeConfig:
     # Next page to fetch (1-indexed). Page-number pagination is deterministic, so a crashed
     # full-refresh sync resumes from the page after the last one yielded; merge dedupes on `id`.
@@ -56,6 +57,9 @@ class ZonkaFeedbackResumeConfig:
     # `distribution_logs` only: the survey and channel that `next_page` belongs to.
     survey_id: Optional[str] = None
     channel: Optional[str] = None
+    # `distribution_logs` only: the `endDate` the saved page was fetched under. New sends enter the
+    # front of each descending result, so resuming under a later `endDate` would shift the saved page.
+    end_date: Optional[str] = None
 
 
 def base_url(data_center: str) -> str:
@@ -125,13 +129,23 @@ def _distribution_logs(
         )
         if start_index < len(pairs) and pairs[start_index] == (resume.survey_id, resume.channel):
             first_page = resume.next_page
+        if resume.end_date:
+            end_date = date.fromisoformat(resume.end_date)
+
+    def checkpoint(page: int, survey_id: str, channel: str) -> None:
+        manager.save_state(
+            ZonkaFeedbackResumeConfig(
+                next_page=page, survey_id=survey_id, channel=channel, end_date=end_date.isoformat()
+            )
+        )
 
     next_page: dict[str, Optional[int]] = {}
 
     def remember_next_page(state: Optional[dict[str, Any]], _has_next_page: bool) -> None:
         next_page["page"] = int(state["page"]) if state and state.get("page") is not None else None
 
-    for survey_id, channel in pairs[start_index:]:
+    for index in range(start_index, len(pairs)):
+        survey_id, channel = pairs[index]
         for rows in client.paginate(
             path="/distribution-logs",
             params={
@@ -151,10 +165,14 @@ def _distribution_logs(
                 continue
             page = next_page.get("page")
             if page is not None:
-                manager.save_state(ZonkaFeedbackResumeConfig(next_page=page, survey_id=survey_id, channel=channel))
+                checkpoint(page, survey_id, channel)
             # The request already names the survey and channel; fill them in so the key is never null.
             yield [{"surveyId": survey_id, "channel": channel, **row} for row in rows]
         first_page = FIRST_PAGE
+        if index + 1 < len(pairs):
+            # Save the next pair so a run of pairs with no rows still makes durable progress.
+            checkpoint(FIRST_PAGE, *pairs[index + 1])
+            manager.safe_point()
 
 
 def _distribution_logs_response(
