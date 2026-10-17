@@ -1,4 +1,5 @@
 import json
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
@@ -21,6 +22,7 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.settings import api_settings
 
 from posthog.api.app_metrics2 import AppMetricsMixin
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -580,6 +582,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
+        if not isinstance(data, Mapping):
+            message = self.error_messages["invalid"].format(datatype=type(data).__name__)
+            raise serializers.ValidationError({api_settings.NON_FIELD_ERRORS_KEY: [message]}, code="invalid")
         # Copy before filling in defaults below: `data` is `request.data` itself, and injecting
         # inputs/inputs_schema/filters into it made every metadata-only PATCH look to the viewset like
         # a config edit. It also means a form-encoded (immutable QueryDict) payload no longer 500s.
@@ -1230,7 +1235,11 @@ class HogFunctionViewSet(
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
 
-        if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
+        if not (
+            self.action == "partial_update"
+            and isinstance(self.request.data, Mapping)
+            and self.request.data.get("deleted") is False
+        ):
             # We only want to include deleted functions if we are un-deleting them
             queryset = queryset.filter(deleted=False)
 
