@@ -1,3 +1,4 @@
+import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from functools import cached_property
@@ -31,10 +32,12 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
+from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.ph_client import ph_scoped_capture
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
@@ -80,6 +83,15 @@ logger = structlog.get_logger(__name__)
 
 MAX_EXECUTION_TIME = 600
 MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY = 37 * 1024 * 1024 * 1024  # 37 GB
+
+CACHE_MISS_EVENT = "experiment results cache miss"
+
+
+def _precompute_state(ready: bool, freshly_built: bool) -> str:
+    """`rebuilt` means the read built the coverage inline or waited on another build of it."""
+    if not ready:
+        return "not_ready"
+    return "rebuilt" if freshly_built else "hit"
 
 
 class ExperimentResultsCacheMixin:
@@ -179,6 +191,10 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.hogql: str | None = None
         self._is_precomputed: bool = False  # exposures precompute
         self._metric_events_precomputed: bool = False
+        # Read-path telemetry for the cache miss event. States: skipped, hit, rebuilt, not_ready, failed.
+        self._exposures_precompute_state = "skipped"
+        self._metric_events_precompute_state = "skipped"
+        self._precompute_wait_ms = 0.0
 
     def _get_breakdowns_for_builder(self) -> list | None:
         breakdown_filter = getattr(self.metric, "breakdownFilter", None)
@@ -317,9 +333,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
         # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
         if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
+            precompute_start = time.monotonic()
+            self._exposures_precompute_state = "failed"
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
+                self._exposures_precompute_state = _precompute_state(result.ready, result.freshly_built)
                 if result.ready:
                     exposure_job_ids = [str(job_id) for job_id in result.job_ids]
                     self._is_precomputed = True
@@ -339,12 +358,17 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 )
 
             if self._metric_events_precompute_applicable():
+                self._metric_events_precompute_state = "failed"
                 try:
                     with tags_context(
                         experiment_query_surface="precompute_build", experiment_precompute_table="metric_events"
                     ):
                         if isinstance(self.metric, ExperimentRatioMetric):
                             ratio_result = self._ensure_ratio_metric_events_precomputed(builder)
+                            self._metric_events_precompute_state = _precompute_state(
+                                ratio_result.ready,
+                                ratio_result.numerator.freshly_built or ratio_result.denominator.freshly_built,
+                            )
                             # Both sides or neither: a half-served read would report a
                             # metric_events_path that is neither precomputed nor direct_scan.
                             if ratio_result.ready:
@@ -353,6 +377,9 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                                 self._metric_events_precomputed = True
                         else:
                             metric_result = self._ensure_metric_events_precomputed(builder)
+                            self._metric_events_precompute_state = _precompute_state(
+                                metric_result.ready, metric_result.freshly_built
+                            )
                             if metric_result.ready:
                                 metric_events_job_ids = [str(job_id) for job_id in metric_result.job_ids]
                                 self._metric_events_precomputed = True
@@ -368,6 +395,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                             "metric_type": self.metric.metric_type,
                         },
                     )
+            self._precompute_wait_ms = (time.monotonic() - precompute_start) * 1000
 
         return builder.build_query(
             precomputation_context=ExperimentPrecomputationContext(
@@ -482,6 +510,17 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
+        # The query runner calls _calculate only on a result cache miss, a stale entry, or a forced refresh.
+        start = time.monotonic()
+        succeeded = False
+        try:
+            result = self._calculate_results()
+            succeeded = True
+            return result
+        finally:
+            self._capture_cache_miss_event(succeeded=succeeded, duration_ms=(time.monotonic() - start) * 1000)
+
+    def _calculate_results(self) -> ExperimentQueryResponse:
         variant_results = self._prepare_variant_results()
 
         if self._has_breakdown(variant_results):
@@ -500,6 +539,41 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         result.is_precomputed = self._is_precomputed
 
         return result
+
+    def _capture_cache_miss_event(self, *, succeeded: bool, duration_ms: float) -> None:
+        """Record how long a person waited for a metric that the result cache did not serve.
+
+        Uses the same gate as the terminal error event: internal callers (recalculation, warming,
+        canary) are not person-facing reads. Telemetry must never fail the read.
+        """
+        if not self.error_event_context or not self.user_facing:
+            return
+        try:
+            skip_reason = self._precompute_skip_reason()
+            distinct_id = self.user.distinct_id if self.user is not None and self.user.distinct_id else None
+            with ph_scoped_capture() as capture:
+                capture(
+                    distinct_id=distinct_id or f"team_{self.team.id}",
+                    event=CACHE_MISS_EVENT,
+                    properties={
+                        "experiment_id": self.experiment.id,
+                        "team_id": self.team.id,
+                        "metric_uuid": self.metric.uuid,
+                        "metric_kind": self.metric.metric_type,
+                        "context": self.error_event_context,
+                        "succeeded": succeeded,
+                        "duration_ms": round(duration_ms),
+                        "precompute_wait_ms": round(self._precompute_wait_ms),
+                        "exposures_precompute": self._exposures_precompute_state,
+                        "metric_events_precompute": self._metric_events_precompute_state,
+                        "precompute_skip_reason": skip_reason.value if skip_reason is not None else None,
+                    },
+                    groups=groups(organization=self.team.organization, team=self.team),
+                )
+        except Exception:
+            logger.warning(
+                "experiment_cache_miss_event_capture_failed", experiment_id=self.experiment.id, exc_info=True
+            )
 
     def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
         sorted_results, columns = self._evaluate_experiment_query()
