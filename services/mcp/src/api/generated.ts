@@ -87347,8 +87347,14 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to apply to the ticket. How they combine with the current tags depends on tags_mode. */
       tags?: string[];
+      /** How tags apply: 'set' replaces all current tags, 'add' keeps the current tags and adds these, 'remove' deletes only these. Defaults to 'set'.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      tags_mode?: BulkUpdateTagsActionEnum;
     }
 
     export interface PatchedTicketView {
@@ -112830,8 +112836,14 @@ export namespace Schemas {
          * @nullable
          */
       snoozed_until?: string | null;
-      /** Tag names to set on the ticket. */
+      /** Tag names to apply to the ticket. How they combine with the current tags depends on tags_mode. */
       tags?: string[];
+      /** How tags apply: 'set' replaces all current tags, 'add' keeps the current tags and adds these, 'remove' deletes only these. Defaults to 'set'.
+       *
+       * * `add` - add
+       * * `remove` - remove
+       * * `set` - set */
+      tags_mode?: BulkUpdateTagsActionEnum;
     }
 
     export interface TolerationPileupEntry {
