@@ -338,17 +338,23 @@ describe('messageTemplateLogic', () => {
         })
     })
 
-    describe('code-managed source', () => {
-        const CODE_MANAGED = {
-            id: 'existing-id',
-            name: 'Welcome',
-            key: 'welcome',
-            managed_by: 'code',
-            source_repository: 'github.com/example/app',
-            source_path: 'emails/welcome.html',
-            source_ref: '3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
-        }
+    const CODE_MANAGED = {
+        id: 'existing-id',
+        name: 'Welcome',
+        description: 'Sent after signup',
+        content: {
+            templating: 'liquid',
+            email: { subject: 'Welcome', html: '<p>Hi</p>', text: 'Hi', design: null, from: '', to: '' },
+        },
+        key: 'welcome',
+        managed_by: 'code',
+        source_repository: 'github.com/example/app',
+        source_path: 'emails/welcome.html',
+        source_ref: '3f2c1ab9d4e5f60718293a4b5c6d7e8f90a1b2c3',
+        content_hash: 'v1:0000000000000000000000000000000000000000000000000000000000000000',
+    }
 
+    describe('code-managed source', () => {
         it.each([
             {
                 description: 'a template made in PostHog has no source',
@@ -412,6 +418,72 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions(['loadTemplateSuccess'])
                 .toMatchValues({ isCodeManaged, templateSource })
+        })
+    })
+
+    describe('code-managed template', () => {
+        let patchBodies: Record<string, unknown>[]
+        let createBodies: Record<string, unknown>[]
+
+        beforeEach(async () => {
+            patchBodies = []
+            createBodies = []
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': CODE_MANAGED },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        patchBodies.push(await request.json())
+                        return [200, { ...CODE_MANAGED, managed_by: 'gui' }]
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/messaging_templates/': async ({ request }: { request: Request }) => {
+                        createBodies.push(await request.json())
+                        return [201, { id: 'copy-id' }]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+        })
+
+        it('keeps its fields and never saves when they change', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setTemplateValue('content.email.subject', 'Edited here')
+                logic.actions.setTemplateValues({ name: 'Renamed here' })
+                logic.actions.submitTemplate()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ templateChanged: false })
+            expect(logic.values.template.name).toBe('Welcome')
+            expect(patchBodies).toEqual([])
+        })
+
+        it('duplicates as a copy without its key, ownership, source or hash', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateTemplate()
+            }).toFinishAllListeners()
+
+            expect(createBodies).toEqual([
+                { name: 'Welcome (copy)', description: 'Sent after signup', content: CODE_MANAGED.content },
+            ])
+        })
+
+        it('becomes editable once released', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.releaseTemplate()
+            })
+                .toDispatchActions(['releaseTemplateSuccess'])
+                .toFinishAllListeners()
+
+            expect(patchBodies).toEqual([{ managed_by: 'gui' }])
+            logic.actions.setTemplateValue('name', 'Edited here')
+            await expectLogic(logic).toMatchValues({ isCodeManaged: false, templateChanged: true })
         })
     })
 

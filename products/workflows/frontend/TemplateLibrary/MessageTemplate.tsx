@@ -5,11 +5,9 @@ import { LemonBanner, LemonButton, LemonDivider, LemonTag, Spinner, SpinnerOverl
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
-import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { AI_FIRST_COMPOSER_OVERRIDE } from 'scenes/max/aiFirstCreate/aiFirstMode'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -26,10 +24,12 @@ import { CodeManagedSource } from './CodeManagedSource'
 import { CodeManagedTag } from './CodeManagedTag'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
+import { MessageTemplateMenu } from './MessageTemplateMenu'
 import { MessageTemplateSceneLogicProps, messageTemplateSceneLogic } from './messageTemplateSceneLogic'
 import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { ReadOnlyTemplatePreview } from './ReadOnlyTemplatePreview'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
 import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
@@ -52,7 +52,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         resetTemplate,
         setTemplateValue,
         duplicateTemplate,
-        deleteTemplate,
         setTemplatePickerOpen,
         syncExternalEdit,
         keepMyTemplateVersion,
@@ -75,8 +74,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
-
-    const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
 
     const testSendLogic = messageTemplateTestSendLogic(props)
     const { isModalOpen: isSendTestEmailModalOpen } = useValues(testSendLogic)
@@ -112,6 +109,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             {isSyncingExternalEdit && <SpinnerOverlay />}
             {(messageLoading || templateLoading) && !isSyncingExternalEdit ? (
                 <Spinner className="text-lg" />
+            ) : isCodeManaged ? (
+                <ReadOnlyTemplatePreview email={originalTemplate.content.email} />
             ) : (
                 <EmailTemplater
                     value={template?.content.email}
@@ -131,7 +130,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
             className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
             tabs={[
                 // Unmounting the editor would drop a canvas edit it hasn't exported yet.
-                { key: 'design', label: 'Design', content: editor, keepMounted: true },
+                { key: 'design', label: isCodeManaged ? 'Preview' : 'Design', content: editor, keepMounted: true },
                 transactionalHogFlowId
                     ? {
                           key: 'metrics',
@@ -178,7 +177,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     name={template.name}
                     description={template.description}
                     resourceType={{ type: 'template' }}
-                    canEdit
+                    canEdit={!isCodeManaged}
                     descriptionAlwaysVisible
                     isLoading={messageLoading || templateLoading}
                     onNameChange={(name) => setTemplateValue('name', name)}
@@ -205,7 +204,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             >
                                 Send test
                             </LemonButton>
-                            {templateChanged && (
+                            {templateChanged && !isCodeManaged && (
                                 <LemonButton
                                     data-attr="cancel-message-template"
                                     type="secondary"
@@ -215,62 +214,26 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     Discard changes
                                 </LemonButton>
                             )}
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                form="template"
-                                onClick={submitTemplate}
-                                loading={isTemplateSubmitting || templateLoading}
-                                disabledReason={
-                                    !templateChanged && props.id !== 'new'
-                                        ? 'No changes to save'
-                                        : !template.name
-                                          ? 'Name is required'
-                                          : undefined
-                                }
-                                size="small"
-                            >
-                                {props.id === 'new' ? 'Create' : 'Save'}
-                            </LemonButton>
-                            <More
-                                size="small"
-                                overlay={
-                                    <>
-                                        <LemonButton
-                                            data-attr="save-as-new-template"
-                                            fullWidth
-                                            onClick={() => setIsSaveTemplateModalOpen(true)}
-                                        >
-                                            Save as new template
-                                        </LemonButton>
-                                        {props.id !== 'new' && (
-                                            <>
-                                                <LemonButton
-                                                    data-attr="duplicate-message-template"
-                                                    fullWidth
-                                                    onClick={duplicateTemplate}
-                                                    disabledReason={
-                                                        templateChanged
-                                                            ? 'Save your changes before duplicating'
-                                                            : undefined
-                                                    }
-                                                >
-                                                    Duplicate
-                                                </LemonButton>
-                                                <LemonDivider />
-                                                <LemonButton
-                                                    data-attr="delete-message-template"
-                                                    status="danger"
-                                                    fullWidth
-                                                    onClick={deleteTemplate}
-                                                >
-                                                    Delete
-                                                </LemonButton>
-                                            </>
-                                        )}
-                                    </>
-                                }
-                            />
+                            {!isCodeManaged && (
+                                <LemonButton
+                                    type="primary"
+                                    htmlType="submit"
+                                    form="template"
+                                    onClick={submitTemplate}
+                                    loading={isTemplateSubmitting || templateLoading}
+                                    disabledReason={
+                                        !templateChanged && props.id !== 'new'
+                                            ? 'No changes to save'
+                                            : !template.name
+                                              ? 'Name is required'
+                                              : undefined
+                                    }
+                                    size="small"
+                                >
+                                    {props.id === 'new' ? 'Create' : 'Save'}
+                                </LemonButton>
+                            )}
+                            <MessageTemplateMenu {...props} />
                         </>
                     }
                 />
@@ -292,15 +255,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                 {isCodeManaged && (
                     <LemonBanner
                         type="info"
+                        className="shrink-0"
                         action={{
                             children: 'Duplicate',
                             onClick: duplicateTemplate,
-                            disabledReason: templateChanged ? 'Discard your changes before duplicating' : undefined,
                             'data-attr': 'message-template-code-managed-duplicate',
                         }}
                     >
-                        This template is managed by code, so changes made here can't be saved. To change it, edit the
-                        file and upload it again. To edit it here, duplicate it.
+                        This template is managed by code, so it can't be changed here. To change it, edit the file and
+                        upload it again. To edit it here, duplicate it or stop managing it in code.
                     </LemonBanner>
                 )}
 
