@@ -12,12 +12,10 @@ logger = logging.getLogger(__name__)
 _MISS_REFRESH_INTERVAL_SECONDS = 60
 
 
-def usable_team_github_integrations(team_id: int) -> QuerySet[Integration]:
+def working_team_github_integrations(team_id: int) -> QuerySet[Integration]:
     """The team's GitHub installations that can still mint a token, in the order the team prefers them."""
     return (
         Integration.objects.filter(team_id=team_id, kind="github")
-        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
         # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
         # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
         .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
@@ -27,15 +25,23 @@ def usable_team_github_integrations(team_id: int) -> QuerySet[Integration]:
     )
 
 
+def usable_team_github_integrations(team_id: int) -> QuerySet[Integration]:
+    """The working installations that can reach at least one repository, as far as the cache knows."""
+    # Skip integrations whose installation has been synced and confirmed empty (0 repos)
+    return working_team_github_integrations(team_id).exclude(
+        repository_cache=[], repository_cache_updated_at__isnull=False
+    )
+
+
 def team_github_integration_for_repositories(team_id: int, repositories: Iterable[str]) -> Integration | None:
-    """The first usable team installation that reaches every one of ``repositories``.
+    """The first working team installation that reaches every one of ``repositories``.
 
     The cache answers first. An installation that has never synced its cache comes next, because its
     access is unknown rather than missing. Only then does GitHub confirm the miss, so a cache that
     predates a repository does not fail task creation.
     """
     wanted = {repository.lower() for repository in repositories}
-    integrations = list(usable_team_github_integrations(team_id))
+    integrations = list(working_team_github_integrations(team_id))
     for integration in integrations:
         if wanted <= _cached_full_names(integration):
             return integration

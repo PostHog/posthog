@@ -680,15 +680,23 @@ class TestTask(TestCase):
         [
             (
                 "github_now_lists_the_repository",
+                ["acme/other"],
                 {"return_value": [{"id": 9, "name": "posthog", "full_name": "PostHog/posthog"}]},
             ),
-            ("github_listing_fails", {"side_effect": ConnectionError("GitHub unavailable")}),
+            ("github_listing_fails", ["acme/other"], {"side_effect": ConnectionError("GitHub unavailable")}),
+            (
+                "empty_cache_then_github_lists_the_repository",
+                [],
+                {"return_value": [{"id": 9, "name": "posthog", "full_name": "PostHog/posthog"}]},
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_confirms_a_cache_miss_with_github(self, _name, github_listing, mock_execute_workflow):
+    def test_create_and_run_confirms_a_cache_miss_with_github(
+        self, _name, cached_repositories, github_listing, mock_execute_workflow
+    ):
         user = User.objects.create(email="test@test.com")
-        installation = self._create_github_installation("install-0", ["acme/other"])
+        installation = self._create_github_installation("install-0", cached_repositories)
         Integration.objects.filter(id=installation.id).update(
             repository_cache_updated_at=django_timezone.now() - timedelta(minutes=10)
         )
