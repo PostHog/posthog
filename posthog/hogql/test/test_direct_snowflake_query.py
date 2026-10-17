@@ -21,6 +21,8 @@ from posthog.hogql.snowflake_connection_cache import (
     clear_thread_local_snowflake_connections,
 )
 
+from posthog.cache_utils import OrjsonJsonSerializer
+
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 if TYPE_CHECKING:
@@ -196,6 +198,34 @@ class TestDirectSnowflakeQuery(APIBaseTest):
         self.assertEqual(response.results, [(1, "100.50")])
         # FIXED with scale 0 → Int64; scale 2 → Decimal (the bug that showed C_ACCTBAL as String).
         self.assertEqual(response.types, [("C_ID", "Int64"), ("C_ACCTBAL", "Decimal")])
+
+    def test_execute_encodes_binary_values_so_the_response_serializes(self):
+        source = self._create_source()
+
+        executor = HogQLQueryExecutor(
+            query="SELECT ID, PAYLOAD FROM BLOBS",
+            team=self.team,
+            connection_id=str(source.id),
+            send_raw_query=True,
+        )
+
+        implementation, _ = self._mock_snowflake_connection(
+            rows=[(1, bytearray(b"\xff")), (2, None)],
+            description=[
+                ("ID", FIXED, None, None, None, 0, None),
+                ("PAYLOAD", BINARY, None, None, None, None, None),
+            ],
+        )
+
+        with patch(
+            "posthog.hogql.direct_sql.snowflake_adapter.SnowflakeAdapter.validate_source_config",
+            return_value=(implementation, MagicMock()),
+        ):
+            response = executor.execute()
+
+        self.assertEqual(response.results, [(1, "/w=="), (2, None)])
+        self.assertEqual(response.types, [("ID", "Int64"), ("PAYLOAD", "String")])
+        OrjsonJsonSerializer({}).dumps(response.results)
 
     def test_execute_rejects_result_over_row_cap(self):
         source = self._create_source()
