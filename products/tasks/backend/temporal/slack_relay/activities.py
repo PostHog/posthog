@@ -55,6 +55,7 @@ def _append_unconfirmed_attachment_notice(
 
 
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+_MIN_FENCED_CODE_BODY_CAPACITY = 100
 
 
 class _SlackChunkPacker:
@@ -122,16 +123,26 @@ class _SlackChunkPacker:
         Every chunk repeats the fence pair, so it comes out of that chunk's own budget.
         A break lands on a line boundary when one falls inside the remaining room.
         """
-        room = max(1, self._limit - len(fence_open) - len(fence_close))
+        overhead = len(fence_open) + len(fence_close)
+        room = self._limit - overhead
+        if room < max(overhead, _MIN_FENCED_CODE_BODY_CAPACITY):
+            fence_open = "```\n"
+            overhead = len(fence_open) + len(fence_close)
+            room = self._limit - overhead
+        if room < max(overhead, _MIN_FENCED_CODE_BODY_CAPACITY):
+            # Too little body room amplifies the number of chunks even when the fence itself
+            # is short. Plain-text packing keeps output growth bounded.
+            self._pack_lines(body)
+            return
         cursor = 0
         while cursor < len(body):
             end = min(cursor + room, len(body))
             if end < len(body):
                 newline = body.rfind("\n", cursor, end)
                 if newline > cursor:
-                    end = newline
+                    end = newline + 1
             self._chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
-            cursor = end + 1 if end < len(body) and body[end] == "\n" else end
+            cursor = end
 
     def _add_code_block(self, language: str, body: str) -> None:
         fence_open = f"```{language}\n" if language else "```\n"
