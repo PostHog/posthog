@@ -92,6 +92,11 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
     return { error_type: 'unknown', status_code: statusCode }
 }
 
+// kea-loaders passes the thrown value's `message`, which is undefined when a non-Error value is thrown.
+function failureMessage(error: string | undefined, errorObject: unknown): string {
+    return error || (typeof errorObject === 'string' && errorObject) || 'Unknown error'
+}
+
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
     const result: Record<string, string> = {}
     for (const attributeKey of Object.keys(attributes)) {
@@ -611,7 +616,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             {
                 fetchLogs: () => null,
                 fetchLogsSuccess: () => null,
-                fetchLogsFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
+                fetchLogsFailure: (state, { error, errorObject }) => {
+                    const message = failureMessage(error, errorObject)
+                    return isUserInitiatedError(message) ? state : message
+                },
             },
         ],
         sparklineError: [
@@ -619,7 +627,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             {
                 fetchSparkline: () => null,
                 fetchSparklineSuccess: () => null,
-                fetchSparklineFailure: (state, { error }) => (isUserInitiatedError(error) ? state : error),
+                fetchSparklineFailure: (state, { error, errorObject }) => {
+                    const message = failureMessage(error, errorObject)
+                    return isUserInitiatedError(message) ? state : message
+                },
             },
         ],
         liveTailRunning: [
@@ -1054,7 +1065,8 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 actions.runQuery()
             }
         },
-        fetchLogsFailure: ({ error, errorObject }) => {
+        fetchLogsFailure: ({ error: rawError, errorObject }) => {
+            const error = failureMessage(rawError, errorObject)
             if (isUserInitiatedError(error)) {
                 return
             }
@@ -1066,7 +1078,8 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 error_message: String(error),
             })
         },
-        fetchNextLogsPageFailure: ({ error, errorObject }) => {
+        fetchNextLogsPageFailure: ({ error: rawError, errorObject }) => {
+            const error = failureMessage(rawError, errorObject)
             if (isUserInitiatedError(error)) {
                 return
             }
@@ -1079,7 +1092,8 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 error_message: String(error),
             })
         },
-        fetchSparklineFailure: ({ error, errorObject }) => {
+        fetchSparklineFailure: ({ error: rawError, errorObject }) => {
+            const error = failureMessage(rawError, errorObject)
             if (isUserInitiatedError(error)) {
                 return
             }
