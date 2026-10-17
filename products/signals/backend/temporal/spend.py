@@ -18,6 +18,8 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.signals.backend.spend_metadata import confirm_signal_spend_metadata, publish_signal_spend_metadata
 
+SIGNAL_SPEND_NOT_VISIBLE_ERROR_TYPE = "SignalSpendNotVisible"
+
 
 @activity.defn
 @asyncify
@@ -30,7 +32,9 @@ def update_signal_spend_activity(input: SignalSpendUpdate) -> SignalSpendPublica
 @asyncify
 def confirm_signal_spend_activity(input: SignalSpendPublication) -> None:
     if not confirm_signal_spend_metadata(input):
-        raise ApplicationError("Signal spend metadata is not yet visible in ClickHouse", type="SignalSpendNotVisible")
+        raise ApplicationError(
+            "Signal spend metadata is not yet visible in ClickHouse", type=SIGNAL_SPEND_NOT_VISIBLE_ERROR_TYPE
+        )
 
 
 @workflow.defn(name="update-signal-spend")
