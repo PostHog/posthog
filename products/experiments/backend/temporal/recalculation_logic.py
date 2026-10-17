@@ -28,6 +28,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags
 from posthog.event_usage import groups
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.query_failure_handling import captured_elsewhere
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
 from posthog.sync import database_sync_to_async_pool
@@ -872,7 +873,9 @@ def _calculate_experiment_metric_for_recalculation_sync(
             is_last_attempt = is_final_attempt or attempt >= max_attempts
             # validation_error = the user's metric config is broken (e.g. HogQL referencing a
             # column outside an aggregate) — a stored failure, not a platform error to track.
-            if error_type != "validation_error":
+            # A query failure breaker replay repeats a failure that error tracking already holds.
+            reportable = error_type != "validation_error" and not captured_elsewhere(e)
+            if reportable:
                 capture_exception(
                     e,
                     additional_properties={
@@ -920,16 +923,16 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     },
                     trigger=state.trigger,
                 )
+            # The activity interceptor captures any error that escapes, which would undo the
+            # capture skip above. The non-reportable variant keeps the failure out of error tracking.
+            error_class = ApplicationError if reportable else NonReportableApplicationError
             if is_permanent:
-                if error_type == "validation_error":
-                    # The activity interceptor captures any ApplicationError that escapes, which
-                    # would undo the capture skip above. The non-reportable variant keeps the
-                    # stored failure out of error tracking.
-                    raise NonReportableApplicationError(message, type=error_type, non_retryable=True) from e
-                raise ApplicationError(message, type=error_type, non_retryable=True) from e
+                raise error_class(message, type=error_type, non_retryable=True) from e
             if is_last_attempt and not is_final_attempt:
                 # The error class cap is below MAX_METRIC_ATTEMPTS, so stop the RetryPolicy from retrying further.
-                raise ApplicationError(message, type=error_type, non_retryable=True) from e
+                raise error_class(message, type=error_type, non_retryable=True) from e
+            if not reportable:
+                raise NonReportableApplicationError(message, type=type(e).__name__) from e
             raise
 
 

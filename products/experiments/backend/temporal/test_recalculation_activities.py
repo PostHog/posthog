@@ -1028,6 +1028,30 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
+            ("retry", 1, False),
+            ("class_cap", TIMEOUT_MAX_METRIC_ATTEMPTS, True),
+        ]
+    )
+    def test_breaker_replay_stays_out_of_error_tracking(self, name: str, attempt: int, non_retryable: bool):
+        exp = self._experiment(flag_key=f"calc-breaker-replay-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        replay = ClickHouseQueryTimeOut()
+        replay.served_from_query_failure_cache = True  # type: ignore[attr-defined]
+
+        with (
+            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+        ):
+            mock_runner.return_value.run.side_effect = replay
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=attempt)
+
+        mock_capture.assert_not_called()
+        assert isinstance(exc_info.value, NonReportableError)
+        assert exc_info.value.non_retryable is non_retryable
+
+    @parameterized.expand(
+        [
             ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
             ("byte_limit", ServerException("too many bytes", code=307), "byte_limit"),
             ("validation_error", ValidationError("bad metric config"), "validation_error"),
