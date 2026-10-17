@@ -79,6 +79,8 @@ function supportFailureContext(): Record<string, any> {
         session_id: posthog.get_session_id?.() ?? null,
         session_replay_url: posthog.get_session_replay_url?.({ withTimestamp: true, timestampLookBack: 30 }) ?? null,
         current_url: window.location.href,
+        // Tells a dropped connection apart from a support backend fault
+        browser_online: navigator.onLine,
     }
 }
 
