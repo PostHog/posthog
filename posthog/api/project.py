@@ -4,7 +4,7 @@ from functools import cached_property
 from typing import Any, Optional, cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.db.models import Model
 from django.db.models.functions import Trim
 from django.shortcuts import get_object_or_404
@@ -156,6 +156,21 @@ from products.notifications.backend.facade.api import (
 logger = structlog.get_logger(__name__)
 
 MAX_ALLOWED_PROJECTS_PER_ORG = 2000
+
+
+def save_project_or_team_unless_deleted(project: Project, obj: Project | Team, update_fields: list[str]) -> None:
+    try:
+        # The savepoint keeps an outer transaction usable for the existence checks below.
+        with transaction.atomic():
+            obj.save(update_fields=update_fields)
+    except DatabaseError:
+        # A project deletion can remove the row after this request loaded it. Then the UPDATE
+        # matches no rows and Django raises. Tell the client the project is gone instead of a 500.
+        if type(obj).objects.filter(pk=obj.pk).exists():
+            raise
+        if Project.objects.filter(pk=project.pk, is_pending_deletion=True).exists():
+            raise Conflict("This project is being deleted.")
+        raise exceptions.NotFound("Project not found.")
 
 
 # --- Backward-compatibility logic for the /api/projects/ surface ---
@@ -1399,7 +1414,7 @@ class ProjectBackwardCompatSerializer(
             updated_team_fields.append("name")
 
         if updated_project_fields:
-            instance.save(update_fields=updated_project_fields)
+            save_project_or_team_unless_deleted(instance, instance, updated_project_fields)
         # Merge conversations_settings under a lock; a null clear still keeps the managed keys.
         if conversations_lock_applied:
             locked_conversations = merge_conversations_settings_locked(
@@ -1410,7 +1425,7 @@ class ProjectBackwardCompatSerializer(
             team_before_update["conversations_enabled"] = locked_conversations["conversations_enabled"]
         elif updated_team_fields:
             # auto_now fields only refresh when included in update_fields
-            team.save(update_fields=[*updated_team_fields, "updated_at"])
+            save_project_or_team_unless_deleted(instance, team, [*updated_team_fields, "updated_at"])
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()

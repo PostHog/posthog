@@ -561,6 +561,31 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "Updated Name")
 
+    @parameterized.expand(
+        [
+            ("team_gone", False, status.HTTP_404_NOT_FOUND),
+            ("project_pending_deletion", True, status.HTTP_409_CONFLICT),
+        ]
+    )
+    def test_update_project_when_team_is_deleted_mid_request(
+        self, _name: str, project_pending_deletion: bool, expected_status: int
+    ) -> None:
+        real_validate = ProjectBackwardCompatSerializer.validate
+
+        def validate_then_delete_team(serializer: ProjectBackwardCompatSerializer, attrs: Any) -> Any:
+            validated = real_validate(serializer, attrs)
+            if project_pending_deletion:
+                Project.objects.filter(pk=self.project.pk).update(is_pending_deletion=True)
+            Team.objects.filter(pk=self.team.pk).delete()
+            return validated
+
+        with patch.object(
+            ProjectBackwardCompatSerializer, "validate", autospec=True, side_effect=validate_then_delete_team
+        ):
+            response = self.client.patch(f"/api/projects/{self.project.id}/", {"anonymize_ips": True})
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
     @patch("posthog.temporal.delete_teams.dispatch.start_delete_project_data_workflow")
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""
