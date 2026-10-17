@@ -105,6 +105,17 @@ class TestBuildCampaignLookup:
         assert lookup["brand-us-typo"] == CampaignMatch("Brand_US", MatchType.MAPPED)
         assert lookup["brnd_us"] == CampaignMatch("Brand_US", MatchType.MAPPED)
 
+    def test_includes_aliases_keyed_by_id_when_preference_is_id(self):
+        mappings = TeamMappings(
+            source_to_integration={},
+            campaign_aliases={"12345": {"brand_q1"}},
+            field_preferences={"google": "campaign_id"},
+        )
+
+        lookup = build_campaign_lookup([_campaign("Brand_US", "12345", "google")], mappings)
+
+        assert lookup["brand_q1"] == CampaignMatch("Brand_US", MatchType.MAPPED)
+
     def test_first_campaign_wins_on_collision(self):
         # Cross-platform name collisions are detected separately by the audit's
         # second pass — this lookup is deliberately last-write-loses.

@@ -187,6 +187,17 @@ def get_match_value(campaign: Campaign, mappings: TeamMappings) -> str:
     return normalize_campaign_name(get_match_value_raw(campaign, mappings))
 
 
+def campaign_alias_keys(campaign: Campaign, mappings: TeamMappings) -> set[str]:
+    """Raw `utm_campaign` values that a `campaign_name_mappings` entry maps to this campaign.
+
+    A source that matches on id keys its mappings by campaign id, so the lookup checks
+    the match value as well as the campaign name.
+    """
+    aliases = set(mappings.campaign_aliases.get(normalize_campaign_name(campaign.campaign_name), set()))
+    aliases.update(mappings.campaign_aliases.get(get_match_value(campaign, mappings), set()))
+    return aliases
+
+
 def group_campaigns_by_source(campaigns: list[Campaign]) -> dict[str, list[Campaign]]:
     """Campaigns keyed by normalized `source_name`, skipping any that don't name one.
 
@@ -215,10 +226,9 @@ def build_campaign_lookup(
     lookup: dict[str, CampaignMatch] = {}
     for campaign in campaigns:
         match_value = get_match_value(campaign, mappings)
-        campaign_name_lower = normalize_campaign_name(campaign.campaign_name)
         if match_value not in lookup:
             lookup[match_value] = CampaignMatch(campaign.campaign_name, MatchType.AUTO)
-        for alias in mappings.campaign_aliases.get(campaign_name_lower, set()):
+        for alias in campaign_alias_keys(campaign, mappings):
             if alias not in lookup:
                 lookup[alias] = CampaignMatch(campaign.campaign_name, MatchType.MAPPED)
     return lookup
