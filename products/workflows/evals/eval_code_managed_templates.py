@@ -45,7 +45,7 @@ TEMPLATE_ID_PLACEHOLDER: Final = "{code_managed_template_id}"
 
 
 def sidebar_prompt_on_code_managed_page(seed: dict[str, Any]) -> str:
-    return SIDEBAR_PROMPT.read_text().replace(TEMPLATE_ID_PLACEHOLDER, seed["code_managed_template_id"])
+    return SIDEBAR_PROMPT.read_text().rstrip("\n").replace(TEMPLATE_ID_PLACEHOLDER, seed["code_managed_template_id"])
 
 
 async def eval_code_managed_templates(ctx: EvalContext) -> None:

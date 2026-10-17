@@ -884,6 +884,29 @@ describe('messageTemplateLogic', () => {
             await expectLogic(logic).toMatchValues({ changeRunError: null })
         })
 
+        // A reload that points at another file resets the sentence, so a refusal about the old file must go too.
+        it('drops a refusal when the sentence is discarded', async () => {
+            await mountServing()
+            useMocks({ post: { '/api/projects/:team_id/messaging_templates/:id/request_change/': () => [500, {}] } })
+            logic.actions.setChangeSentence(DESCRIBED)
+
+            await expectLogic(logic, () => {
+                logic.actions.runWithPostHogCode()
+            }).toFinishAllListeners()
+            logic.actions.discardChangeSentence()
+
+            await expectLogic(logic).toMatchValues({ changeRunError: null })
+        })
+
+        // The route counts characters, as Python does, so an emoji is one character, not two.
+        it('takes a change of exactly 2,000 characters that ends in an emoji', async () => {
+            await mountServing()
+            const filler = 'x'.repeat(2000 - [...DESCRIBED].length - 1)
+            logic.actions.setChangeSentence(`${DESCRIBED}${filler}🎨`)
+
+            await expectLogic(logic).toMatchValues({ runWithPostHogCodeDisabledReason: undefined })
+        })
+
         // The person can close the prompt while the request runs, and must still learn that nothing started.
         it('shows a refusal in a toast when the prompt is closed', async () => {
             await mountServing()

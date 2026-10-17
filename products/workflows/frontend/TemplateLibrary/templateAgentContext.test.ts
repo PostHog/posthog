@@ -1,7 +1,14 @@
 import { readFileSync } from 'fs'
 import path from 'path'
 
-import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from 'products/posthog_ai/frontend/api/logics'
+import { initKeaTests } from '~/test/init'
+
+import {
+    AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
+    attachedContextItemKey,
+    attachedContextLogic,
+    wrapWithPosthogContext,
+} from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import {
@@ -114,13 +121,24 @@ describe('templateAgentContext', () => {
             expect(untrusted).toContain('"managed_by: code; key: welcome; source_path: emails/welcome.html"')
         })
 
-        // A dismissal is global and never resets, so closing one template's chip must not strip another's context.
-        it('gives each template its own dismiss group', () => {
-            const groups = (template: MessageTemplate): Set<string | undefined> =>
-                new Set(buildCodeManagedTemplateContext(template)?.map((item) => item.dismissGroup))
+        // A dismissal is global and never resets, so closing a chip on one template's page must not strip the
+        // context another template's page attaches, or the new-template page's skill chip.
+        it("keeps other pages' context when the person closes a chip on one template", () => {
+            initKeaTests()
+            const store = attachedContextLogic()
+            store.mount()
+            const one = buildCodeManagedTemplateContext(CODE_MANAGED) ?? []
+            const other = buildCodeManagedTemplateContext({ ...CODE_MANAGED, id: 'tpl-3' }) ?? []
+            store.actions.registerContext('template-page', one)
+            for (const chip of one.filter((item) => !item.hidden && item.dismissible !== false)) {
+                store.actions.dismissContext(attachedContextItemKey(chip), chip.dismissGroup)
+            }
 
-            expect(groups(CODE_MANAGED)).toEqual(new Set(['code-managed-email-template:tpl-2']))
-            expect(groups({ ...CODE_MANAGED, id: 'tpl-3' })).toEqual(new Set(['code-managed-email-template:tpl-3']))
+            store.actions.registerContext('template-page', other)
+            store.actions.registerContext('new-template-page', buildNewTemplateComposerContext(null))
+
+            const keys = (items: AttachedContextItem[]): Set<string> => new Set(items.map(attachedContextItemKey))
+            expect(keys(store.values.contextItems)).toEqual(keys([...other, ...buildNewTemplateComposerContext(null)]))
         })
 
         it('renders the first sidebar message the code-managed template eval sends', () => {
@@ -129,7 +147,7 @@ describe('templateAgentContext', () => {
                 ...(buildCodeManagedTemplateContext(EVAL_CODE_MANAGED) ?? []),
             ])
 
-            expect(sent).toEqual(readFileSync(EVAL_SIDEBAR_PROMPT, 'utf8'))
+            expect(sent).toEqual(readFileSync(EVAL_SIDEBAR_PROMPT, 'utf8').trimEnd())
         })
 
         it.each([

@@ -143,7 +143,8 @@ export function buildCodeManagedTemplateContext(template: MessageTemplate): Atta
     const dismissGroup = codeManagedDismissGroup(template)
     return [
         { ...CODE_MANAGED_INSTRUCTIONS, dismissGroup },
-        { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup, dismissible: true },
+        // Not dismissible: closing a chip also dismisses its key everywhere, and every page shares this skill's key.
+        { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup },
         {
             type: 'email_template',
             key: template.id,

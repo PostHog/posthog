@@ -728,6 +728,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 requestChangeRun: () => null,
                 requestChangeRunFailure: (_, { error }) => error,
                 setChangeSentence: () => null,
+                discardChangeSentence: () => null,
             },
         ],
         // Another channel (the PostHog AI agent, the API, another tab) saved this template while the form
@@ -812,7 +813,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 if (!integrations.some((integration) => integration.kind === 'github')) {
                     return 'Connect GitHub to run PostHog Code'
                 }
-                if (changeSentence.length > messagingTemplatesRequestChangeCreateBodyInstructionMax) {
+                // Code points, as the route counts them: an emoji is one character, not two UTF-16 units.
+                if ([...changeSentence].length > messagingTemplatesRequestChangeCreateBodyInstructionMax) {
                     return `Shorten the change to ${messagingTemplatesRequestChangeCreateBodyInstructionMax.toLocaleString('en-US')} characters`
                 }
                 return copyAgentPromptDisabledReason

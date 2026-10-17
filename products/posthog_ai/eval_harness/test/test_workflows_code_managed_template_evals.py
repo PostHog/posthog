@@ -65,7 +65,7 @@ class TestCodeManagedTemplateSeeder(APIBaseTest):
         }
         assert code_managed["change_prompt_context"]
         sidebar_prompt = sidebar_prompt_on_code_managed_page(seed)
-        assert f"- email_template {seed['code_managed_template_id']} (" in sidebar_prompt
+        assert f'- email_template {seed["code_managed_template_id"]} ("{code_managed["name"]}")' in sidebar_prompt
         assert (
             f"key: {code_managed['key']}; source_repository: {code_managed['source_repository']}; "
             f"source_path: {code_managed['source_path']}; source_ref: {code_managed['source_ref']}"
