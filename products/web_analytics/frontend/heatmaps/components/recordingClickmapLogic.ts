@@ -476,11 +476,7 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
         },
         loadElementStatsSuccess: ({ elementStats, payload }) => {
             actions.recomputeClickmap()
-            if (
-                !payload?.limit &&
-                elementStats?.next &&
-                values.featureFlags[FEATURE_FLAGS.HEATMAPS_CLICKMAP_PAGINATION]
-            ) {
+            if (!payload?.limit && elementStats?.next) {
                 actions.loadElementStats(CLICKMAP_STATS_AUTO_LOAD_LIMIT)
             }
         },
