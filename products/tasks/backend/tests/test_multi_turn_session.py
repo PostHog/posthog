@@ -13,6 +13,7 @@ from django.db import OperationalError, transaction
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import BaseModel, Field, JsonValue
+from temporalio.client import WorkflowExecutionStatus
 
 from posthog.models import Integration, Organization, Team
 from posthog.models.user import User
@@ -35,7 +36,9 @@ from products.tasks.backend.logic.services.custom_prompt_internals import (
 )
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import (
     _EMPTY_TURN_RETRY_NUDGE,
+    ContextLimitReplyError,
     MultiTurnSession,
+    SessionClosedError,
 )
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.agent_log_fixtures import (
@@ -1886,11 +1889,15 @@ class TestMultiTurnSessionStartFallback:
     model (empty, prose, or malformed JSON) via fallback_from_text, instead of failing the
     whole run. Without a fallback — or on a cancellation — it still fails and ends the run."""
 
-    def _fake_session(self) -> MultiTurnSession:
+    def _fake_session(
+        self, workflow_status: WorkflowExecutionStatus = WorkflowExecutionStatus.RUNNING
+    ) -> MultiTurnSession:
+        handle = AsyncMock()
+        handle.describe.return_value = MagicMock(status=workflow_status)
         session = MultiTurnSession(
             task=object(),  # type: ignore[arg-type]
             task_run=FakeTaskRun(),  # type: ignore[arg-type]
-            _workflow_handle=AsyncMock(),
+            _workflow_handle=handle,
         )
         session.end = AsyncMock()  # type: ignore[method-assign]
         return session
@@ -2020,6 +2027,66 @@ class TestMultiTurnSessionStartFallback:
 
         fallback.assert_not_called()
         assert session.end.await_args.kwargs.get("status") == "failed"  # type: ignore[attr-defined]
+
+    @parameterized.expand(
+        [
+            (
+                "closed_workflow",
+                WorkflowExecutionStatus.COMPLETED,
+                "prose only",
+                False,
+                SessionClosedError,
+                "session_closed",
+            ),
+            ("closed_workflow_salvages", WorkflowExecutionStatus.COMPLETED, "prose only", True, None, None),
+            (
+                "context_limit_reply",
+                WorkflowExecutionStatus.RUNNING,
+                "Prompt is too long",
+                True,
+                ContextLimitReplyError,
+                "context_limit",
+            ),
+            (
+                "context_limit_api_413",
+                WorkflowExecutionStatus.COMPLETED,
+                "API Error: 413 Request Entity Too Large",
+                False,
+                ContextLimitReplyError,
+                "context_limit",
+            ),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_json_retry_skipped_when_it_cannot_succeed(
+        self, _name, workflow_status, first_reply, with_fallback, expected_error, expected_error_type
+    ):
+        session = self._fake_session(workflow_status)
+        followup_mock = AsyncMock()
+        session.send_followup_raw = followup_mock  # type: ignore[method-assign]
+        fallback = MagicMock(side_effect=lambda text: _Resp(value=text)) if with_fallback else None
+
+        with patch.object(MultiTurnSession, "start_raw", new=AsyncMock(return_value=(session, first_reply))):
+            if expected_error is None:
+                _, parsed = await MultiTurnSession.start(
+                    prompt="x", context=MagicMock(), model=_Resp, json_retry_prompt="JSON", fallback_from_text=fallback
+                )
+                assert parsed == _Resp(value=first_reply)
+            else:
+                with pytest.raises(expected_error):
+                    await MultiTurnSession.start(
+                        prompt="x",
+                        context=MagicMock(),
+                        model=_Resp,
+                        json_retry_prompt="JSON",
+                        fallback_from_text=fallback,
+                    )
+                end_kwargs = session.end.await_args.kwargs  # type: ignore[attr-defined]
+                assert (end_kwargs["status"], end_kwargs["error_type"]) == ("failed", expected_error_type)
+                if fallback is not None:
+                    fallback.assert_not_called()
+
+        followup_mock.assert_not_awaited()
 
 
 class TestPollForTurnConnectionDrop:

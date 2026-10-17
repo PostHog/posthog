@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import asyncio
 import logging
@@ -9,6 +10,7 @@ from typing import TYPE_CHECKING, Any, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, JsonValue, ValidationError
+from temporalio.client import WorkflowExecutionStatus
 
 from products.tasks.backend.facade.api import record_run_failure_cause
 from products.tasks.backend.facade.contracts import SessionFile
@@ -37,6 +39,31 @@ _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching 
 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
+# Mirrored from isPromptTooLongError in packages/agent/packages/agent/src/adapters/error-classification.ts.
+_CONTEXT_LIMIT_REPLY_PATTERN = re.compile(
+    r"prompt is too long|exceeded this model context window limit|API Error:\s*413\b", re.IGNORECASE
+)
+# The context-limit reply is one short line. A real answer that quotes the phrase is longer.
+_CONTEXT_LIMIT_REPLY_MAX_CHARS = 500
+
+
+class ContextLimitReplyError(RuntimeError):
+    """The agent ended its turn with a context-limit reply instead of an answer.
+
+    The same session cannot recover, because every further turn sends a longer transcript.
+    """
+
+
+class SessionClosedError(RuntimeError):
+    """The sandbox workflow closed before a follow-up turn, so a signal to it cannot land."""
+
+
+def _is_context_limit_reply(text: str | None) -> bool:
+    if not text:
+        return False
+    stripped = text.strip()
+    return len(stripped) <= _CONTEXT_LIMIT_REPLY_MAX_CHARS and bool(_CONTEXT_LIMIT_REPLY_PATTERN.search(stripped))
+
 
 def _required_model_keys(model: type[BaseModel]) -> set[str]:
     """Names a `model` instance cannot be built without, so the extractor can spot the answer object.
@@ -51,6 +78,10 @@ def _required_model_keys(model: type[BaseModel]) -> set[str]:
 def turn_failure_error_type(error: BaseException) -> str | None:
     if isinstance(error, TurnPollTimeout):
         return "poll_timeout"
+    if isinstance(error, ContextLimitReplyError):
+        return "context_limit"
+    if isinstance(error, SessionClosedError):
+        return "session_closed"
     if isinstance(error, (EmptyAgentTurnError, ValidationError, ValueError)):
         return "output_parse_failed"
     return None
@@ -126,7 +157,11 @@ class MultiTurnSession:
         `json_retry_prompt`, if given, is sent once as a follow-up turn on the same
         session when the first turn does not parse/validate against `model`. The agent
         keeps its context, so it can restate its answer as JSON without a new sandbox
-        run. `fallback_from_text` applies only if the retry turn fails too.
+        run. `fallback_from_text` applies only if the retry turn fails too. When the
+        sandbox workflow has already closed, the retry is skipped: `fallback_from_text`
+        salvages the text if given, else `SessionClosedError` is raised.
+
+        A context-limit reply raises `ContextLimitReplyError`. It is never retried or salvaged.
         """
         session, last_message = await cls.start_raw(
             prompt=prompt,
@@ -155,11 +190,21 @@ class MultiTurnSession:
         # A retry turn that fails to run is not a parse failure, so it must never reach the salvage path.
         salvageable = True
         try:
+            if _is_context_limit_reply(last_message):
+                salvageable = False
+                raise ContextLimitReplyError(
+                    f"Agent hit its context limit for run={session.task_run.id}: {last_message.strip()}"
+                )
             try:
                 parsed = cls._parse_and_validate(last_message, model, label="initial turn")
             except Exception as e:
                 if json_retry_prompt is None:
                     raise
+                # A run that ended with the turn (e.g. the agent server stopped) cannot take the retry signal.
+                if not await session._workflow_is_running():
+                    raise SessionClosedError(
+                        f"Sandbox workflow closed before the JSON retry for run={session.task_run.id}"
+                    ) from e
                 logger.warning(
                     "multi_turn: end-turn did not validate against %s for run=%s, asking for JSON once (%s)",
                     model.__name__,
@@ -425,6 +470,15 @@ class MultiTurnSession:
         if self._workflow_handle is None:
             raise RuntimeError("Workflow handle is not available in this session.")
         return self._workflow_handle
+
+    async def _workflow_is_running(self) -> bool:
+        """Whether the sandbox workflow can still take a signal. True when the check itself fails."""
+        try:
+            description = await self.workflow_handle.describe()
+        except Exception:
+            logger.warning("multi_turn: failed to describe workflow run=%s", self.task_run.id, exc_info=True)
+            return True
+        return description.status == WorkflowExecutionStatus.RUNNING
 
     @staticmethod
     def _parse_and_validate(
