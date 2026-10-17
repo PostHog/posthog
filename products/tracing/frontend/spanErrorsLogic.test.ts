@@ -1,8 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
@@ -78,14 +75,10 @@ describe('spanErrorsLogic', () => {
         } as AppContext
     }
 
-    // The access level is read from the app context when the flag selector first runs, so a
+    // The access level is read from the app context when the access selector first runs, so a
     // test that changes it has to build the logics again afterwards.
     const mountLogics = (): void => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
-            [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-        })
         dataLogic = tracingDataLogic()
         dataLogic.mount()
         logic = spanErrorsLogic()
@@ -234,19 +227,11 @@ describe('spanErrorsLogic', () => {
 
     // The endpoint refuses a person without Error Tracking access, so this gate is what keeps the
     // badges from showing an error state to them. It also spares every other team the scan.
-    it.each([
-        ['the feature flag is off', (): void => featureFlagLogic.actions.setFeatureFlags([], {})],
-        [
-            'the person has no Error Tracking access',
-            (): void => {
-                logic.unmount()
-                dataLogic.unmount()
-                setErrorTrackingAccess(AccessControlLevel.None)
-                mountLogics()
-            },
-        ],
-    ])('queries nothing and scans no rows while %s', async (_name, disable) => {
-        disable()
+    it('queries nothing and scans no rows while the person has no Error Tracking access', async () => {
+        logic.unmount()
+        dataLogic.unmount()
+        setErrorTrackingAccess(AccessControlLevel.None)
+        mountLogics()
         await loadFirstPage([spanWithIds('span-1', TRACE_A, SPAN_1, 'session-a')])
 
         expect(mockCountsCreate).not.toHaveBeenCalled()

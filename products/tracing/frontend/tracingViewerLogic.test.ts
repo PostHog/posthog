@@ -171,17 +171,12 @@ describe('tracingViewerLogic', () => {
             expect(logic.values.traceIdentity).toEqual({ distinctId: null, sessionId: null })
         })
 
-        // The Errors tab needs the session without the person, so it follows the error badge flag.
-        // Reading the person flag instead would leave the tab empty on a team that has only badges.
-        it.each([
-            ['the error badge flag', FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES, 'session-1'],
-            ['the person and replay flag', FEATURE_FLAGS.TRACING_SESSION_PERSON_LINKS, null],
-        ])('resolves traceSessionId under %s', (_name, flag, expected) => {
-            featureFlagLogic.actions.setFeatureFlags([flag], { [flag]: true })
-
+        // The Errors tab needs the session without the person, so it must not follow the person flag.
+        // Reading the person flag would leave the tab empty on a team that does not have it.
+        it('resolves traceSessionId without the person and replay flag', () => {
             openCompleteTrace({ posthogDistinctId: 'user-1', sessionId: 'session-1' })
 
-            expect(logic.values.traceSessionId).toBe(expected)
+            expect(logic.values.traceSessionId).toBe('session-1')
         })
 
         // A badge sits on one row and resolves that row's session. A trace touching two sessions
@@ -193,9 +188,6 @@ describe('tracingViewerLogic', () => {
             ['the prefetched list', false],
             ['the list when the fetched trace page omits it', true],
         ])('resolves traceSessionId from the anchored span in %s', (_name, tracePageOmitsAnchor) => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES], {
-                [FEATURE_FLAGS.TRACING_SPAN_ERROR_BADGES]: true,
-            })
             const spanA = makeSpan({
                 uuid: 'span-0',
                 span_id: 'span-0',
