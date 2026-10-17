@@ -142,7 +142,7 @@ For each, suggest one of: **investigate** (`investigating-error-issue`), **assig
 ## Tips
 
 - A single deploy often surfaces several related new issues. If multiple new issues
-  share a `properties.$lib_version` (or `properties.$exception_releases` when the
+  share a `properties.$lib_version` (or `properties.$exception_release.version` when the
   SDK is configured to populate it), present them grouped — a rollback decision
   rests on the cluster, not any one issue.
 - "Users" is the right severity proxy for user-facing apps. For backend services
