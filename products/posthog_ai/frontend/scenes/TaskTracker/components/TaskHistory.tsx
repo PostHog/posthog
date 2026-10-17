@@ -161,7 +161,6 @@ function TaskHistoryCard({ task, onOpen }: TaskHistoryRowProps): JSX.Element {
     )
 }
 
-/** The full task history with a way back to the composer. */
 export function TaskHistoryPanel(): JSX.Element {
     return useThreadSkin() === 'quill' ? <QuillTaskHistoryPanel /> : <LemonTaskHistoryPanel />
 }

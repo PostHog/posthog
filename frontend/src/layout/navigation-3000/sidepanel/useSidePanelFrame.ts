@@ -13,7 +13,6 @@ import { sidePanelStateLogic } from './sidePanelStateLogic'
 export const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
 
 export interface SidePanelFrameOptions {
-    /** The width before the user resizes the panel. */
     defaultWidth: number
     maxWidth?: number
 }
@@ -25,7 +24,6 @@ export interface SidePanelFrame {
     /** The open tab, once the scene offers it. */
     activeTab: SidePanelTab | null
     width: number
-    /** Whether the scene offers any tab at all. */
     hasTabs: boolean
 }
 

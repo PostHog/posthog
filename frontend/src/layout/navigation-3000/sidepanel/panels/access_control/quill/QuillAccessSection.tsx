@@ -17,10 +17,8 @@ interface QuillAccessSectionProps {
     subject: 'member' | 'role'
     emptyText: string
     children: React.ReactNode[]
-    /** The plan feature that adding a rule here needs. */
     feature: AvailableFeature
     placeholder: string
-    /** Shown in the picker when nothing is left to add. */
     nothingToAddText: string
     options: AddAccessOption[]
     onAdd: (keys: string[], level: AccessControlLevel) => Promise<void>
