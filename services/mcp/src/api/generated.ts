@@ -60467,6 +60467,7 @@ export namespace Schemas {
     }
 
     /**
+     * * `internal_users` - Internal and test users
      * * `local_development` - Local development events
      * * `bot_traffic` - Bot and crawler traffic
      * * `duplicate_events` - Events sent twice
@@ -60475,6 +60476,7 @@ export namespace Schemas {
 
 
     export const InsightDataCheckKeyEnum = {
+      InternalUsers: 'internal_users',
       LocalDevelopment: 'local_development',
       BotTraffic: 'bot_traffic',
       DuplicateEvents: 'duplicate_events',
@@ -60503,6 +60505,8 @@ export namespace Schemas {
      * * `memory_limit` - The check needed more memory than it is allowed
      * * `too_few_sampled_events` - The sample has too few events to give a share
      * * `filtered_by_traffic_type` - The insight already filters on traffic type
+     * * `hidden_property` - A property the check reads is hidden from you
+     * * `invalid_filter` - The project's internal and test users filter cannot run
      */
     export type InsightDataCheckSkipReasonEnum = typeof InsightDataCheckSkipReasonEnum[keyof typeof InsightDataCheckSkipReasonEnum];
 
@@ -60514,6 +60518,8 @@ export namespace Schemas {
       MemoryLimit: 'memory_limit',
       TooFewSampledEvents: 'too_few_sampled_events',
       FilteredByTrafficType: 'filtered_by_traffic_type',
+      HiddenProperty: 'hidden_property',
+      InvalidFilter: 'invalid_filter',
     } as const;
 
     /**
@@ -60529,18 +60535,21 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `filter_internal_users` - Turn on the internal and test users filter for the insight
      * * `open_filter_settings` - Change the project's internal and test users filter
      */
     export type InsightDataCheckActionEnum = typeof InsightDataCheckActionEnum[keyof typeof InsightDataCheckActionEnum];
 
 
     export const InsightDataCheckActionEnum = {
+      FilterInternalUsers: 'filter_internal_users',
       OpenFilterSettings: 'open_filter_settings',
     } as const;
 
     export interface InsightDataCheck {
       /** Which check this is.
        *
+       * * `internal_users` - Internal and test users
        * * `local_development` - Local development events
        * * `bot_traffic` - Bot and crawler traffic
        * * `duplicate_events` - Events sent twice */
@@ -60559,7 +60568,9 @@ export namespace Schemas {
        * * `time_limit` - The check took longer than it is allowed
        * * `memory_limit` - The check needed more memory than it is allowed
        * * `too_few_sampled_events` - The sample has too few events to give a share
-       * * `filtered_by_traffic_type` - The insight already filters on traffic type */
+       * * `filtered_by_traffic_type` - The insight already filters on traffic type
+       * * `hidden_property` - A property the check reads is hidden from you
+       * * `invalid_filter` - The project's internal and test users filter cannot run */
       skip_reason: InsightDataCheckSkipReasonEnum | null;
       /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
        *
@@ -60578,8 +60589,9 @@ export namespace Schemas {
       share: number | null;
       /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
       scaled: boolean;
-      /** The change that fixes it. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+      /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
        *
+       * * `filter_internal_users` - Turn on the internal and test users filter for the insight
        * * `open_filter_settings` - Change the project's internal and test users filter */
       action: InsightDataCheckActionEnum | null;
       /** The event names the check found most often, most affected first. */
@@ -60635,7 +60647,7 @@ export namespace Schemas {
       /** True when the insight filters out the project's internal and test users. */
       filters_test_accounts: boolean;
       /**
-         * How many events the insight reads on the days checked, scaled up from the sample when the sample did not read every event. Null when the sample did not run.
+         * How many events the insight reads on the days checked. Counted exactly, or scaled up from the sample when the days hold too many events to count. Null when neither ran.
          * @nullable
          */
       events_checked: number | null;
