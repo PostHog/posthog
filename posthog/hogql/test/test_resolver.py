@@ -406,9 +406,6 @@ class TestResolver(BaseTest):
     def test_resolve_lambda_style_dialect_guard(self):
         expr = self._select("SELECT lambda x: x + 1")
 
-        resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="clickhouse"))
-        assert isinstance(resolved.select[0], ast.Lambda)
-
         resolved = cast(ast.SelectQuery, resolve_types(expr, self.context, dialect="postgres"))
         assert isinstance(resolved.select[0], ast.Lambda)
 
@@ -1727,6 +1724,19 @@ class TestResolver(BaseTest):
         field_type = expr.type.type if isinstance(expr.type, ast.FieldAliasType) else expr.type
         assert isinstance(field_type, ast.FieldType)
         assert field_type.name == "event"
+
+    @parameterized.expand(
+        [
+            ("where_clause", "SELECT event FROM events WHERE x -> x LIKE '%a%'"),
+            ("parenthesized", "SELECT (x -> x + 1) FROM events"),
+            ("nested_in_operator", "SELECT arrayMap(x -> x, [1]) FROM events WHERE 1 = (y -> y)"),
+            ("function_param", "SELECT quantile(x -> x)(1) FROM events"),
+        ]
+    )
+    def test_lambda_outside_function_argument_raises(self, _name: str, query: str):
+        with self.assertRaises(QueryError) as e:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        assert "can only be a function argument" in str(e.exception)
 
     def test_lambda_scope(self):
         query = "SELECT arrayMap(a -> e.timestamp, [1]) as a FROM events e"
