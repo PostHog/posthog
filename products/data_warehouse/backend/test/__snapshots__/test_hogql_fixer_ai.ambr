@@ -55,6 +55,7 @@
   - $virt_traffic_category (string)
   - $virt_bot_name (string)
   - $virt_bot_operator (string)
+  - $virt_mcp_harness (string)
   '''
 # ---
 # name: test_get_system_prompt
@@ -180,6 +181,7 @@
   - $virt_traffic_category (string)
   - $virt_bot_name (string)
   - $virt_bot_operator (string)
+  - $virt_mcp_harness (string)
   
   Below is the current HogQL query and the error message
   

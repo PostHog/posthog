@@ -42,4 +42,5 @@ ORDER BY calls DESC
 ```
 
 The activity feed and recent calls table explicitly request logos for their Client and Model columns with `withIcon(label, mark)`.
-Other queries keep plain string values unless they request rich formatting.
+SQL results also add a harness logo automatically when you select `properties.$virt_mcp_harness` directly, including with an `AS` alias.
+The value stays a string for grouping and filtering. Nested queries do not yet carry the display hint.
