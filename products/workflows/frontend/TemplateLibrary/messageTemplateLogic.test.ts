@@ -745,6 +745,10 @@ describe('messageTemplateLogic', () => {
             jest.clearAllMocks()
             changeRequests = []
             capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: { hog_flow: 'editor' },
+            } as typeof window.POSTHOG_APP_CONTEXT
             served = {
                 template: CODE_MANAGED,
                 integrations: [{ id: 7, kind: 'github', display_name: 'example' }],
@@ -875,6 +879,33 @@ describe('messageTemplateLogic', () => {
                 template_id: 'existing-id',
                 code,
             })
+
+            logic.actions.setChangeSentence(`${DESCRIBED}Make it darker.`)
+            await expectLogic(logic).toMatchValues({ changeRunError: null })
+        })
+
+        // The person can close the prompt while the request runs, and must still learn that nothing started.
+        it('shows a refusal in a toast when the prompt is closed', async () => {
+            await mountServing()
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/messaging_templates/:id/request_change/': () => [
+                        403,
+                        {
+                            code: 'posthog_code_not_available',
+                            detail: 'PostHog Code is not available.',
+                            fix: 'Edit it.',
+                        },
+                    ],
+                },
+            })
+            logic.actions.setChangeSentence(DESCRIBED)
+
+            await expectLogic(logic, () => {
+                logic.actions.runWithPostHogCode()
+            }).toFinishAllListeners()
+
+            expect(mockToast.error).toHaveBeenCalledWith('PostHog Code is not available. Edit it.')
         })
 
         it.each([
@@ -903,16 +934,27 @@ describe('messageTemplateLogic', () => {
                 reason: "PostHog doesn't know this template's GitHub repository",
             },
             {
-                description: 'the repository is not on GitHub',
-                template: { ...CODE_MANAGED, source_repository: 'gitlab.com/example/app' },
-                reason: "PostHog doesn't know this template's GitHub repository",
+                description: 'the person may not edit workflows',
+                accessLevel: 'viewer',
+                reason: expect.stringContaining("You don't have sufficient permissions"),
+            },
+            {
+                description: 'the change is longer than the route takes',
+                sentence: `${DESCRIBED}${'x'.repeat(2000)}`,
+                reason: 'Shorten the change to 2,000 characters',
             },
             {
                 description: 'the project has no GitHub integration',
                 integrations: [{ id: 8, kind: 'slack', display_name: 'Slack' }],
                 reason: 'Connect GitHub to run PostHog Code',
             },
-        ])('sends nothing when $description', async ({ sentence, template, integrations, reason }) => {
+        ])('sends nothing when $description', async ({ sentence, template, integrations, accessLevel, reason }) => {
+            if (accessLevel) {
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    resource_access_control: { hog_flow: accessLevel },
+                } as typeof window.POSTHOG_APP_CONTEXT
+            }
             await mountServing({ template, integrations })
             logic.actions.setChangeSentence(sentence ?? DESCRIBED)
 

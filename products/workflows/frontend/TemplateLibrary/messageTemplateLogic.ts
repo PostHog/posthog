@@ -10,6 +10,7 @@ import type { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { EDITOR_MODE_PARAM, EDITOR_MODE_VALUE } from 'scenes/max/aiFirstCreate/aiFirstMode'
@@ -25,22 +26,24 @@ import type {
     TemplateErrorApi,
     TemplateManagedByEnumApi,
 } from 'products/messaging/frontend/generated/api.schemas'
+import { messagingTemplatesRequestChangeCreateBodyInstructionMax } from 'products/messaging/frontend/generated/api.zod'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 import { desktopAccessRetrieve } from 'products/tasks/frontend/generated/api'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
-import type {
-    HogFunctionType,
-    IntegrationType,
-    ResourceEditedEvent,
-    UserBasicType,
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    type HogFunctionType,
+    type IntegrationType,
+    type ResourceEditedEvent,
+    type UserBasicType,
 } from '../../../../frontend/src/types'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import {
     TemplateSource,
     isChangeDescribed,
     isCodeManagedTemplate,
-    isGitHubRepository,
     templateSource,
     withoutServerOwnedFields,
 } from './codeManagedTemplate'
@@ -62,6 +65,8 @@ export interface ChangeRunError {
     detail: string
     fix: string | null
 }
+
+export const CHANGE_RUN_STARTED = "PostHog Code is working on it. It opens a pull request when it's done."
 
 function changeRunError(error: ApiError | null | undefined): ChangeRunError {
     if (!error?.detail) {
@@ -544,7 +549,8 @@ export interface messageTemplateLogicMeta {
         runWithPostHogCodeDisabledReason: (
             originalTemplate: MessageTemplate,
             integrations: any,
-            copyAgentPromptDisabledReason: string | undefined
+            copyAgentPromptDisabledReason: string | undefined,
+            changeSentence: string
         ) => string | undefined
         agentPromptEventProperties: (originalTemplate: MessageTemplate) => AgentPromptEventProperties
     }
@@ -721,6 +727,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             {
                 requestChangeRun: () => null,
                 requestChangeRunFailure: (_, { error }) => error,
+                setChangeSentence: () => null,
             },
         ],
         // Another channel (the PostHog AI agent, the API, another tab) saved this template while the form
@@ -781,13 +788,22 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 isChangeDescribed(changeSentence, changePromptStarter) ? undefined : 'Describe the change first',
         ],
         runWithPostHogCodeDisabledReason: [
-            (s) => [s.originalTemplate, s.integrations, s.copyAgentPromptDisabledReason],
+            (s) => [s.originalTemplate, s.integrations, s.copyAgentPromptDisabledReason, s.changeSentence],
             (
                 originalTemplate: MessageTemplate,
                 integrations: IntegrationType[] | null,
-                copyAgentPromptDisabledReason: string | undefined
+                copyAgentPromptDisabledReason: string | undefined,
+                changeSentence: string
             ): string | undefined => {
-                if (!isGitHubRepository(originalTemplate.source_repository)) {
+                const accessDisabledReason = getAccessControlDisabledReason(
+                    AccessControlResourceType.Workflow,
+                    AccessControlLevel.Editor
+                )
+                if (accessDisabledReason) {
+                    return accessDisabledReason
+                }
+                // Presence only: the route decides which repositories PostHog Code can work in, and says why not.
+                if (!originalTemplate.source_repository) {
                     return "PostHog doesn't know this template's GitHub repository"
                 }
                 if (integrations === null) {
@@ -795,6 +811,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 }
                 if (!integrations.some((integration) => integration.kind === 'github')) {
                     return 'Connect GitHub to run PostHog Code'
+                }
+                if (changeSentence.length > messagingTemplatesRequestChangeCreateBodyInstructionMax) {
+                    return `Shorten the change to ${messagingTemplatesRequestChangeCreateBodyInstructionMax.toLocaleString('en-US')} characters`
                 }
                 return copyAgentPromptDisabledReason
             },
@@ -941,9 +960,14 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.requestChangeRunFailure(changeRunError(apiError))
             }
         },
+        requestChangeRunFailure: ({ error }) => {
+            if (!values.agentPromptOpen) {
+                lemonToast.error([error.detail, error.fix].filter(Boolean).join(' '))
+            }
+        },
         requestChangeRunSuccess: ({ changeRun }) => {
             actions.setAgentPromptOpen(false)
-            lemonToast.success("PostHog Code is working on it. It opens a pull request when it's done.", {
+            lemonToast.success(CHANGE_RUN_STARTED, {
                 button: {
                     label: 'Open task',
                     action: () => router.actions.push(urls.taskDetail(changeRun.task_id)),

@@ -40,12 +40,6 @@ export function isChangeDescribed(sentence: string, starter: string): boolean {
     return described !== '' && described !== starter.trim()
 }
 
-const GITHUB_REPOSITORY = /^github\.com\/[A-Za-z0-9-]+\/[A-Za-z0-9._-]+?(\.git)?$/i
-
-export function isGitHubRepository(repository: string | null | undefined): boolean {
-    return GITHUB_REPOSITORY.test(repository ?? '')
-}
-
 function shortRef(ref: string): string {
     return GitMetadataParser.isCommitSha(ref) ? ref.slice(0, 7) : ref
 }
