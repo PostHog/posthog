@@ -16832,12 +16832,14 @@ export namespace Schemas {
      * * `later` - Skipped for later
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
+     * * `connector` - Signed up through an OAuth connector
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
-        | "provisioned";
+        | "provisioned"
+        | "connector";
     /**
      * * `1` - member
      * * `8` - administrator
