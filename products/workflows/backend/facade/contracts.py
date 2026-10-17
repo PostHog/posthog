@@ -13,6 +13,7 @@ from products.workflows.backend.facade.enums import (
     HogFlowScheduleStatus,
     HogFlowTemplateExitCondition,
     HogFlowTemplateScope,
+    SetupStepKey,
     WorkflowProposalStatus,
 )
 
@@ -778,3 +779,11 @@ class EmailDraft:
     text: str
     generated_by: EmailDraftOrigin
     fallback_reason: EmailDraftFallbackReason | None = None
+
+
+@frozen
+class SetupStep:
+    """One messaging setup step and whether the project has done it."""
+
+    key: SetupStepKey
+    done: bool
