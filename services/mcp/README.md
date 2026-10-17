@@ -367,6 +367,27 @@ x-posthog-mcp-mode: tools
 The header wins when both the header and the query parameter are set.
 An explicit value always wins over the client auto-detection; any other value is ignored and the auto-detection takes over.
 
+Pin which MCP resources are advertised at connection time with either a query parameter or a header:
+
+```text
+https://mcp.posthog.com/mcp?resources=none
+https://mcp.posthog.com/mcp?resources=skills,docs
+```
+
+```http
+x-posthog-mcp-resources: none
+x-posthog-mcp-resources: skills,apps
+```
+
+| Value | Behavior |
+| ----- | -------- |
+| `none` | No `resources` capability; `resources/list` is empty. |
+| `skills` | Context-mill entries under `posthog://skills/…` only. |
+| `docs` | Context-mill entries under `posthog://docs/…` only. |
+| `apps` | UI app stubs under `ui://posthog/…` only. |
+
+Comma-separate values to include multiple families (for example `skills,apps`). The header wins when both the header and the query parameter are set. Any other value is ignored and the full catalog is advertised.
+
 The cli-mode command surface is documented publicly on [posthog.com/docs/model-context-protocol/tools](https://posthog.com/docs/model-context-protocol/tools), which embeds `schema/exec-command-reference.md` at build time.
 That fragment is generated from the templates in `src/templates/sections/` by `scripts/generate-exec-docs.ts` (part of `hogli build:openapi`); edit the templates, not the fragment.
 

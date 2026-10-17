@@ -24,6 +24,7 @@ import { mapErrorToAuthResponse } from '@/lib/auth-errors'
 import { isLegacyDialectOnlyClient } from '@/lib/client-detection'
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { McpSessionResetRequiredError, SESSION_RESET_REQUIRED_REASON } from '@/lib/errors'
+import { mcpResourcesFor, type McpResourcesSelection } from '@/lib/mcp-resources'
 import { resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import { getPublicUrl } from '@/lib/routing'
@@ -89,15 +90,26 @@ const CACHEABLE_RESULT_TTL_MS = process.env.NODE_ENV === 'production' ? 60_000 :
 
 const METHOD_NOT_FOUND = Symbol('method-not-found')
 
-const SERVER_CAPABILITIES = {
+const BASE_SERVER_CAPABILITIES = {
     tools: { listChanged: false },
-    resources: { listChanged: false },
     prompts: { listChanged: false },
     extensions: {
         // Tokens the authorization server issues for an enterprise IdP's ID-JAG are accepted here.
         'io.modelcontextprotocol/enterprise-managed-authorization': {},
     },
 } as const
+
+function buildServerCapabilities(resourcesSelection: McpResourcesSelection): typeof BASE_SERVER_CAPABILITIES & {
+    resources?: { listChanged: false }
+} {
+    if (resourcesSelection.policy === 'none') {
+        return BASE_SERVER_CAPABILITIES
+    }
+    return {
+        ...BASE_SERVER_CAPABILITIES,
+        resources: { listChanged: false },
+    }
+}
 
 function isRequest(msg: JSONRPCMessage): msg is JSONRPCRequest {
     return (
@@ -434,9 +446,9 @@ class McpDispatcher {
                         : undefined
                 )
             case Method.ResourcesList:
-                return this.resourceCatalog.getResourcesList()
+                return this.resourceCatalog.getResourcesList(mcpResourcesFor(props.mcpResources))
             case Method.ResourcesRead:
-                return await this.resourceCatalog.readResource(params)
+                return await this.resourceCatalog.readResource(params, mcpResourcesFor(props.mcpResources))
             case Method.PromptsList:
                 return this.resourceCatalog.getPromptsList()
             case Method.PromptsGet:
@@ -486,7 +498,7 @@ class McpDispatcher {
 
         return {
             protocolVersion,
-            capabilities: SERVER_CAPABILITIES,
+            capabilities: buildServerCapabilities(mcpResourcesFor(props.mcpResources)),
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
@@ -504,7 +516,7 @@ class McpDispatcher {
             // Advertising legacy versions here would invite modern clients to
             // select one via `_meta`, which we reject.
             supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
-            capabilities: SERVER_CAPABILITIES,
+            capabilities: buildServerCapabilities(mcpResourcesFor(props.mcpResources)),
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }
