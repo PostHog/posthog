@@ -48,7 +48,7 @@ from two_factor.utils import default_device
 
 from posthog.schema import UserUIConfiguration
 
-from posthog.api.email_verification import email_verification_code_verifier
+from posthog.api.email_verification import EmailVerificationFailure, email_verification_code_verifier
 from posthog.api.notification_settings import validate_notification_settings
 from posthog.api.oauth.toolbar_service import (
     ToolbarOAuthError,
@@ -82,6 +82,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import INVITE_DAYS_VALIDITY, PERMITTED_FORUM_DOMAINS, AvailableFeature
 from posthog.email import is_email_available
 from posthog.event_usage import (
+    report_email_verification_failed,
     report_user_deleted_account,
     report_user_email_change_requested,
     report_user_identity_change_refused,
@@ -188,6 +189,24 @@ class PendingInviteSerializer(serializers.Serializer):
     organization_id = serializers.CharField()
     organization_name = serializers.CharField()
     created_at = serializers.DateTimeField()
+
+
+VERIFY_EMAIL_FAILURE_MESSAGES: dict[EmailVerificationFailure, str] = {
+    EmailVerificationFailure.INVALID_CODE: "This code is incorrect. Check that you entered the code from your newest email.",
+    EmailVerificationFailure.CODE_REPLACED: "This code was replaced by a newer one. Use the code from your newest email.",
+    EmailVerificationFailure.CODE_EXPIRED: "This code has expired. Request a new code and try again.",
+    EmailVerificationFailure.TOO_MANY_ATTEMPTS: "Too many incorrect attempts. Try again later.",
+}
+
+
+def verify_email_failure_message(user: User, failure: EmailVerificationFailure) -> str:
+    if failure == EmailVerificationFailure.TOO_MANY_ATTEMPTS:
+        # A new code does not reset the attempt budget, so tell the user when to retry instead.
+        minutes = email_verification_code_verifier.lockout_minutes_left(user)
+        if minutes:
+            unit = "minute" if minutes == 1 else "minutes"
+            return f"Too many incorrect attempts. Try again in {minutes} {unit}."
+    return VERIFY_EMAIL_FAILURE_MESSAGES[failure]
 
 
 class VerifyEmailRequestSerializer(serializers.Serializer):
@@ -1249,21 +1268,22 @@ class UserViewSet(
 
         if not user:
             raise serializers.ValidationError(
-                {"code": ["This code is invalid or has expired."]},
-                code="invalid_code",
+                {"code": [VERIFY_EMAIL_FAILURE_MESSAGES[EmailVerificationFailure.INVALID_CODE]]},
+                code=EmailVerificationFailure.INVALID_CODE,
             )
         attempts = email_verification_code_verifier.reserve_attempt(user)
+        failure: EmailVerificationFailure | None
         if email_verification_code_verifier.attempts_exceeded(attempts):
             # Refuse until the budget expires, but keep the code: anyone with the uuid can
             # reach this endpoint, and deleting the code here would let them block the user.
+            failure = EmailVerificationFailure.TOO_MANY_ATTEMPTS
+        else:
+            failure = email_verification_code_verifier.check_code(user, code)
+        if failure:
+            report_email_verification_failed(user, failure, attempts)
             raise serializers.ValidationError(
-                {"code": ["Too many incorrect attempts. Try again later."]},
-                code="too_many_attempts",
-            )
-        if not email_verification_code_verifier.check_code(user, code):
-            raise serializers.ValidationError(
-                {"code": ["This code is invalid or has expired."]},
-                code="invalid_code",
+                {"code": [verify_email_failure_message(user, failure)]},
+                code=failure,
             )
         email_verification_code_verifier.invalidate(user)
 

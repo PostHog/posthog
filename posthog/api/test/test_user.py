@@ -3544,6 +3544,7 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["code"], "too_many_attempts")
+        self.assertEqual(response.json()["detail"], "Too many incorrect attempts. Try again in 30 minutes.")
 
         email_verification_code_verifier._clear_attempts_for_test(self.user)
         cache.clear()
@@ -3606,7 +3607,28 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         with time_machine.travel(timezone.now() + datetime.timedelta(minutes=31), tick=False):
             response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "invalid_code")
+        self.assertEqual(response.json()["code"], "code_expired")
+
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_code_from_an_older_email_is_reported_as_replaced(self, mock_capture):
+        now = timezone.now()
+        with time_machine.travel(now, tick=False):
+            old_code = self._request_code()
+        with time_machine.travel(now + datetime.timedelta(minutes=2), tick=False):
+            new_code = self._request_code()
+            assert old_code != new_code
+
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": old_code})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(response.json()["code"], "code_replaced")
+            mock_capture.assert_called_once_with(
+                distinct_id=self.user.distinct_id,
+                event="email verification failed",
+                properties={"reason": "code_replaced", "attempt": 1, "flow": "signup"},
+            )
+
+            response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": new_code})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_code_is_single_use(self):
         code = self._request_code()
