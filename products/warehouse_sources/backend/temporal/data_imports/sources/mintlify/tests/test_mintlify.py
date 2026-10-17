@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime
 from typing import Any
 
@@ -32,8 +33,8 @@ def config() -> MintlifySourceConfig:
 @pytest.mark.parametrize(
     ("incremental", "watermark", "expected"),
     [
-        (True, datetime(2026, 1, 1, tzinfo=UTC), "2026-01-01T00:00:00+00:00"),
-        (True, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00Z"),
+        (True, datetime(2026, 1, 1, 0, 0, 0, 500055, tzinfo=UTC), "2026-01-01T00:00:00Z"),
+        (True, "2026-01-01T02:00:00.123+02:00", "2026-01-01T00:00:00Z"),
         (True, None, None),
         (False, "2026-01-01T00:00:00Z", None),
     ],
@@ -57,6 +58,9 @@ def test_incremental_date_filter(
     assert result.rows == [{"id": "turn-1"}]
     assert result.params("cursor") == [None, "cursor-2"]
     assert result.params("dateFrom") == [expected, expected]
+    date_to = result.params("dateTo")
+    assert date_to[0] == date_to[1]
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", date_to[0])
     if incremental:
         assert result.response is not None
         assert result.response.sort_mode == "desc"
@@ -80,7 +84,9 @@ def test_resume_preserves_window(
     result = SourceDriver(MintlifySource(), config).run(
         endpoint,
         [ScriptedResponse(json={selector: [], "nextCursor": None, "hasMore": False})],
-        resume_state=MintlifyResumeConfig(paginator_state=state, date_to="2026-01-02T00:00:00Z", date_from=None),
+        resume_state=MintlifyResumeConfig(
+            paginator_state=state, date_to="2026-01-02T00:00:00.500055+00:00", date_from=None
+        ),
     )
     assert result.raised is None
     assert result.params(parameter) == [value]

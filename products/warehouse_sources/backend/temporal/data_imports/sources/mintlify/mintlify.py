@@ -41,6 +41,14 @@ class MintlifyResumeConfig:
     date_from: str | None = None
 
 
+def format_date(value: datetime | str) -> str:
+    parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    # Mintlify validates dates strictly, so send whole seconds in UTC with a "Z" suffix.
+    return parsed.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 class MintlifyOffsetPaginator(OffsetPaginator):
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
         super().update_state(response, data)
@@ -86,19 +94,15 @@ def mintlify_source(
     incremental = should_use_incremental_field and endpoint_name in INCREMENTAL_FIELDS
     date_from = None
     if incremental and db_incremental_field_last_value is not None:
-        date_from = (
-            db_incremental_field_last_value.isoformat()
-            if isinstance(db_incremental_field_last_value, datetime)
-            else db_incremental_field_last_value
-        )
-    date_to = datetime.now(UTC).isoformat()
+        date_from = format_date(db_incremental_field_last_value)
+    date_to = format_date(datetime.now(UTC))
     initial_state = None
     if resumable_source_manager.can_resume():
         saved = resumable_source_manager.load_state()
         if saved is not None:
             initial_state = saved.paginator_state
-            date_from = saved.date_from
-            date_to = saved.date_to
+            date_from = format_date(saved.date_from) if saved.date_from is not None else None
+            date_to = format_date(saved.date_to)
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
