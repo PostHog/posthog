@@ -48,6 +48,7 @@ from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -2689,7 +2690,7 @@ class SignalReportViewSet(
             "One page of the open, actionable reports for the current user, and how many there are in "
             "total, in the inbox priority order: priority, then status, then most recently updated. Uses the "
             "same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
-            "on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the "
+            "on screen and follow `next` or pass `offset` to get the next page. Pass `include_unowned=false` to leave out the "
             "P0 reports nobody owns, which belong to the project rather than to this person."
         ),
     )
@@ -2703,12 +2704,16 @@ class SignalReportViewSet(
             self.filter_queryset(self.get_queryset()).filter(id__in=for_person.values("id")).exclude(id__in=excluded)
         )
         offset = query["offset"]
-        reports = list(queryset[offset : offset + query["limit"]])
+        limit = query["limit"]
+        reports = list(queryset[offset : offset + limit + 1])
+        has_more = len(reports) > limit
+        reports = reports[:limit]
         counts = open_report_counts(
             team_id=self.team_id, user=user, exclude_report_ids=excluded, include_unowned=query["include_unowned"]
         )
         rows = self._render_report_rows(reports, include_source_metadata=True)
-        return Response({"results": rows, "count": counts.for_person})
+        next_url = replace_query_param(request.build_absolute_uri(), "offset", offset + limit) if has_more else None
+        return Response({"results": rows, "count": counts.for_person, "next": next_url})
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",

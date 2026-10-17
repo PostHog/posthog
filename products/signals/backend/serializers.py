@@ -1967,6 +1967,13 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
             "`include_unowned` too."
         ),
     )
+    next = serializers.URLField(
+        allow_null=True,
+        help_text=(
+            "The URL of the next page, or null when this page holds the last matching report. "
+            "The URL preserves the current query parameters and advances the offset."
+        ),
+    )
 
 
 # One list page, with room for a next page's ids that have not loaded yet.
