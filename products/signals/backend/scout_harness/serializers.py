@@ -1574,7 +1574,10 @@ class EmitReportRequestSerializer(serializers.Serializer):
         help_text="The observations backing the report — each becomes a bound signal. At least one.",
     )
     actionability_explanation = serializers.CharField(
-        help_text="2-3 sentence evidence-grounded justification for the actionability call below.",
+        help_text=(
+            "2-3 sentence evidence-grounded justification for the actionability call below. For "
+            "`requires_human_input`, name the decision a person must make before code can change."
+        ),
     )
     actionability = serializers.ChoiceField(
         choices=[(c.value, c.value) for c in ActionabilityChoice],
@@ -1892,7 +1895,10 @@ class EditReportRequestSerializer(serializers.Serializer):
     actionability_explanation = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.",
+        help_text=(
+            "2-3 sentence evidence-grounded justification for `actionability`. Required when you set it. "
+            "For `requires_human_input`, name the decision a person must make before code can change."
+        ),
     )
     already_addressed = serializers.BooleanField(
         required=False,

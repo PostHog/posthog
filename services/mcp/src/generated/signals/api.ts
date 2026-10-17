@@ -2843,7 +2843,9 @@ export const SignalsScoutEditReportBody = () => zod
         actionability_explanation: zod
             .string()
             .nullish()
-            .describe('2-3 sentence evidence-grounded justification for `actionability`. Required when you set it.'),
+            .describe(
+                '2-3 sentence evidence-grounded justification for `actionability`. Required when you set it. For `requires_human_input`, name the decision a person must make before code can change.'
+            ),
         already_addressed: zod
             .boolean()
             .nullish()
@@ -2989,7 +2991,9 @@ export const SignalsScoutEmitReportBody = () => zod
             .describe('The observations backing the report — each becomes a bound signal. At least one.'),
         actionability_explanation: zod
             .string()
-            .describe('2-3 sentence evidence-grounded justification for the actionability call below.'),
+            .describe(
+                '2-3 sentence evidence-grounded justification for the actionability call below. For `requires_human_input`, name the decision a person must make before code can change.'
+            ),
         actionability: zod
             .enum(['immediately_actionable', 'requires_human_input', 'not_actionable'])
             .describe(
