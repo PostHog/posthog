@@ -69,6 +69,7 @@ from products.signals.backend.ranking.overrides import read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import (
     DEFAULT_MODEL_KIND,
     ServingManifest,
+    model_key,
     serving_manifest_key,
     serving_project_vectors_key,
 )
@@ -117,6 +118,12 @@ from products.signals.dags.inbox_ranking.training.heads import (
     HEADS_BY_NAME,
 )
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
+from products.signals.dags.inbox_ranking.training.recipe import (
+    RECIPE_HASH_KEY,
+    model_recipe,
+    recipe_mismatch,
+    with_recipe,
+)
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, ManifestDecision, compose_manifest
 from products.signals.dags.inbox_ranking.training.telemetry import (
     HeadExampleCounts,
@@ -256,6 +263,40 @@ def _put_json(client, bucket: str, key: str, payload: dict[str, Any]) -> None:
 def read_served_pointer(client, bucket: str, prefix: str) -> dict[str, Any] | None:
     """The `served.json` record, or None before the first promotion."""
     return _read_json_if_exists(client, bucket, served_object_key(prefix))
+
+
+def previous_recipe_metadata(
+    client, bucket: str, prefix: str, model_name: str, partition_key: str
+) -> dict[str, Any] | None:
+    """The `metadata.json` of the newest version of `model_name` before `partition_key` that carries a
+    recipe hash, or None. A version written before the hash existed is passed over."""
+    folder = f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/dt="
+    versions = [
+        common["Prefix"][len(folder) :].rstrip("/")
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=folder, Delimiter="/")
+        for common in page.get("CommonPrefixes", [])
+    ]
+    for version in sorted((version for version in versions if version < partition_key), reverse=True):
+        metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, version, METADATA_FILE))
+        if metadata is not None and metadata.get(RECIPE_HASH_KEY):
+            return metadata
+    return None
+
+
+def check_recipe(
+    client, bucket: str, prefix: str, model_name: str, partition_key: str, recipe: Mapping[str, Any]
+) -> None:
+    """Fail the run, without a retry, when `recipe` is not the recipe `model_name` was trained with."""
+    mismatch = recipe_mismatch(
+        model_name, recipe, previous_recipe_metadata(client, bucket, prefix, model_name, partition_key)
+    )
+    if mismatch is not None:
+        raise dagster.Failure(description=mismatch, allow_retries=False)
+
+
+def booster_recipe(feature_set: FeatureSet) -> dict[str, Any]:
+    """The recipe of a per-head XGBoost family fit on `feature_set`."""
+    return model_recipe(model_kind=DEFAULT_MODEL_KIND, feature_set=feature_set, heads=HEADS, learner_params=XGB_PARAMS)
 
 
 def snapshot_dates(partition_key: str, lookback_days: int) -> list[datetime.date]:
@@ -538,7 +579,7 @@ def candidate_metadata(
     run_id: str,
     windows: Mapping[str, Mapping[str, object]] | None = None,
 ) -> dict[str, Any]:
-    return {
+    metadata = {
         "model_name": model_name,
         "model_version": partition_key,
         "dataset_version": DATASET_VERSION,
@@ -573,6 +614,7 @@ def candidate_metadata(
         # Heads with nothing to fit on this partition; recorded so the per-head series has no gap.
         "skipped_heads": skipped,
     }
+    return with_recipe(metadata, booster_recipe(feature_set))
 
 
 def paired_champion_grades(
@@ -615,6 +657,9 @@ def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> Non
     partition_key = context.partition_key
     bucket, prefix, client = dataset_bucket(), settings.INBOX_RANKING_DATASET_S3_PREFIX, s3_client()
 
+    # Every family's recipe is checked before any family trains, so a refused run writes nothing.
+    for family in families_trained_in(MAIN_LOCATION):
+        check_recipe(client, bucket, prefix, family.name, partition_key, booster_recipe(family.feature_set))
     metadata: dict[str, dagster.MetadataValue] = {}
     for family in families_trained_in(MAIN_LOCATION):
         metadata |= _train_candidate(context, client, bucket, prefix, partition_key, family)
@@ -867,6 +912,8 @@ def decide_family_champion(
                 incumbent_champion_version=incumbent_champion_version,
                 champion_aucs=champion_aucs,
                 champion_eces=champion_eces,
+                recipe_hash=candidate.get(RECIPE_HASH_KEY),
+                incumbent_recipe_hash=(champion or {}).get(RECIPE_HASH_KEY),
             )
         ],
     )
@@ -1001,6 +1048,13 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
                 present_keys=publication.present,
                 bytes_copied=publication.bytes_copied,
                 mirror_published=mirror_published,
+                recipe_hashes={
+                    model_key(metadata["model_name"], metadata["model_version"]): metadata.get(RECIPE_HASH_KEY)
+                    for metadata in (
+                        *pinned,
+                        *(record for family in families for record in (family.candidate, family.champion) if record),
+                    )
+                },
             )
         ],
     )
