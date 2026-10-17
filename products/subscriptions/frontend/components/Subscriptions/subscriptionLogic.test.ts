@@ -1080,4 +1080,47 @@ describe('subscriptionLogic', () => {
         await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
         expect(capturedBody?.delivery_config?.post_all_insights_in_main_message).toBe(expected)
     })
+
+    it.each<[string, Blob, Record<string, string | number>]>([
+        ['an empty body', new Blob([], { type: 'image/png' }), { content_type: 'image/png', size: 0 }],
+        ['a non-image body', new Blob(['<html></html>'], { type: 'text/html' }), { content_type: 'text/html' }],
+    ])('shows a retryable error when the preview content is %s', async (_label, body, expectedProperties) => {
+        const asset = { id: 9, export_format: 'image/png', has_content: true }
+        useMocks({ post: { '/api/environments/:team/exports': () => [200, asset] } })
+        const realFetch = window.fetch
+        const fetchSpy = jest
+            .spyOn(window, 'fetch')
+            .mockImplementation((input: RequestInfo | URL, init?: RequestInit) =>
+                String(input).includes('/exports/9/content')
+                    ? Promise.resolve(new Response(body, { status: 200 }))
+                    : realFetch(input, init)
+            )
+        try {
+            existingLogic.actions.setSubscriptionValues({ insight: 1 })
+            existingLogic.actions.generatePreview()
+            await expectLogic(existingLogic).toFinishListeners()
+        } finally {
+            fetchSpy.mockRestore()
+        }
+
+        expect(existingLogic.values.previewImageUrl).toBeNull()
+        expect(existingLogic.values.previewError).toEqual(expect.any(String))
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'subscription preview failed',
+            expect.objectContaining({ reason: 'invalid_content', export_id: 9, ...expectedProperties })
+        )
+    })
+
+    it('swaps a preview image the browser cannot render for a retryable error', async () => {
+        existingLogic.actions.setPreviewImageUrl('blob:preview')
+        existingLogic.actions.previewImageRenderFailed()
+        await expectLogic(existingLogic).toFinishListeners()
+
+        expect(existingLogic.values.previewImageUrl).toBeNull()
+        expect(existingLogic.values.previewError).toEqual(expect.any(String))
+        expect(posthog.capture).toHaveBeenCalledWith(
+            'subscription preview failed',
+            expect.objectContaining({ reason: 'render_error' })
+        )
+    })
 })
