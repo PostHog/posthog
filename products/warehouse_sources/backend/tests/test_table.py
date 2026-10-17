@@ -245,6 +245,14 @@ class TestWarehouseReadErrorClassification:
                 "isn't in your files any more",
             ),
             (
+                ServerException(
+                    "DB::Exception: Bucket name length is out of bounds in virtual hosted style S3 URI: "
+                    "'https://console.aws.amazon.com/s3/buckets/example-bucket'",
+                    code=36,
+                ),
+                "copied a link from the AWS console",
+            ),
+            (
                 ServerException("DB::Exception: A failure shape nobody has classified yet.", code=999),
                 None,
             ),
