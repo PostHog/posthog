@@ -10893,7 +10893,10 @@ version = "0.1.0"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
+ "hkdf",
+ "hmac 0.12.1",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
 
