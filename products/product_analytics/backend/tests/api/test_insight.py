@@ -3422,6 +3422,24 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert isinstance(response["query"]["source"], dict)
         assert response["query"]["source"]["dateRange"]["date_from"] == "-7d"
 
+    def test_insight_filters_override_with_unknown_key_returns_400(self) -> None:
+        insight = Insight.objects.create(
+            filters={},
+            query={
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"event": "$pageview", "kind": "EventsNode"}]},
+            },
+            team=self.team,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/",
+            data={"short_id": insight.short_id, "filters_override": json.dumps({"display": "ActionsLineGraph"})},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "filters_override"
+
     def test_tile_filters_merge_with_dashboard_filters_in_returned_query(self) -> None:
         insight = Insight.objects.create(
             filters={},
