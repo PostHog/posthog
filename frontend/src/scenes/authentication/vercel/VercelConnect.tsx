@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
@@ -31,6 +32,64 @@ interface SessionInfo {
     organizations: Organization[]
 }
 
+type SessionErrorReason = 'missing_session' | 'not_logged_in' | 'session_invalid' | 'server_error' | 'network_error'
+
+interface SessionError {
+    reason: SessionErrorReason
+    message: string
+    status?: number
+    detail?: string
+}
+
+const VERCEL_DASHBOARD_URL = 'https://vercel.com/dashboard'
+
+class SessionFetchError extends Error {
+    constructor(public sessionError: SessionError) {
+        super(sessionError.message)
+    }
+}
+
+async function readErrorDetail(res: Response): Promise<string | null> {
+    try {
+        const data = await res.json()
+        return typeof data?.detail === 'string' ? data.detail : null
+    } catch {
+        return null
+    }
+}
+
+async function toSessionError(res: Response): Promise<SessionError> {
+    const detail = await readErrorDetail(res)
+    if (res.status === 401 || res.status === 403) {
+        return {
+            reason: 'not_logged_in',
+            status: res.status,
+            message: 'Log in to PostHog to continue linking your Vercel account.',
+        }
+    }
+    if (res.status === 400) {
+        return {
+            reason: 'session_invalid',
+            status: res.status,
+            message: detail || "This link session expired or isn't valid. Start again from Vercel.",
+        }
+    }
+    return {
+        reason: 'server_error',
+        status: res.status,
+        detail: detail || undefined,
+        message: `PostHog couldn't load this link session (error ${res.status}). Try again, or start again from Vercel.`,
+    }
+}
+
+function startAgainFromVercel(): void {
+    // Vercel opens this page in a popup, so closing it returns the user to Vercel.
+    window.close()
+    if (!window.closed) {
+        window.location.href = VERCEL_DASHBOARD_URL
+    }
+}
+
 export function VercelConnect(): JSX.Element {
     const { searchParams } = useValues(router)
     const sessionKey = searchParams.session
@@ -38,6 +97,7 @@ export function VercelConnect(): JSX.Element {
     const [loading, setLoading] = useState(true)
     const [linking, setLinking] = useState(false)
     const [error, setError] = useState<string | null>(null)
+    const [sessionError, setSessionError] = useState<SessionError | null>(null)
     const [success, setSuccess] = useState(false)
     const [sessionInfo, setSessionInfo] = useState<SessionInfo | null>(null)
     const [selectedOrg, setSelectedOrg] = useState<string | null>(null)
@@ -53,16 +113,28 @@ export function VercelConnect(): JSX.Element {
     const [linkedOrgName, setLinkedOrgName] = useState<string>('')
 
     useEffect(() => {
-        if (!sessionKey) {
-            setError('Missing session parameter. Please try again from Vercel.')
+        const failSession = (failure: SessionError): void => {
+            posthog.capture('vercel link page failed', {
+                stage: 'session',
+                reason: failure.reason,
+                status: failure.status,
+            })
+            setSessionError(failure)
             setLoading(false)
+        }
+
+        if (!sessionKey) {
+            failSession({
+                reason: 'missing_session',
+                message: 'This link has no session. Start again from Vercel.',
+            })
             return
         }
 
         fetch(`/api/vercel/connect/session?session=${encodeURIComponent(sessionKey)}`)
-            .then((res) => {
+            .then(async (res) => {
                 if (!res.ok) {
-                    throw new Error('Session expired or invalid')
+                    throw new SessionFetchError(await toSessionError(res))
                 }
                 return res.json()
             })
@@ -72,11 +144,21 @@ export function VercelConnect(): JSX.Element {
                 if (available.length === 1) {
                     setSelectedOrg(available[0].id)
                 }
+                posthog.capture('vercel link page loaded', {
+                    organization_count: data.organizations.length,
+                    available_organization_count: available.length,
+                })
                 setLoading(false)
             })
             .catch((err) => {
-                setError(err.message || 'Failed to load session')
-                setLoading(false)
+                failSession(
+                    err instanceof SessionFetchError
+                        ? err.sessionError
+                        : {
+                              reason: 'network_error',
+                              message: "PostHog couldn't load this link session. Check your connection and try again.",
+                          }
+                )
             })
     }, [sessionKey])
 
@@ -120,12 +202,14 @@ export function VercelConnect(): JSX.Element {
             .then((res) => {
                 if (!res.ok) {
                     return res.json().then((data) => {
+                        posthog.capture('vercel link page failed', { stage: 'complete', status: res.status })
                         throw new Error(data.detail || data.attr?.session || 'Failed to link')
                     })
                 }
                 return res.json()
             })
             .then((data) => {
+                posthog.capture('vercel link succeeded')
                 setLinkedOrgName(data.organization_name)
                 setSuccess(true)
                 setLinking(false)
@@ -181,14 +265,36 @@ export function VercelConnect(): JSX.Element {
         )
     }
 
-    if (error && !sessionInfo) {
+    if (sessionError) {
+        const loginUrl = `/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`
+        const canRetry = sessionError.reason === 'server_error' || sessionError.reason === 'network_error'
         return (
             <BridgePage view="vercel-connect">
-                <h2 className="text-center">Something went wrong</h2>
-                <p className="text-center text-danger mb-6">{error}</p>
-                <LemonButton fullWidth type="secondary" center onClick={() => window.close()}>
-                    Close
-                </LemonButton>
+                <h2 className="text-center">
+                    {sessionError.reason === 'not_logged_in' ? 'Log in to continue' : "Couldn't load your Vercel link"}
+                </h2>
+                <p className="text-center text-danger mb-6">{sessionError.message}</p>
+                {sessionError.detail && <p className="text-center text-muted text-xs mb-6">{sessionError.detail}</p>}
+                <div className="flex flex-col gap-2">
+                    {sessionError.reason === 'not_logged_in' && (
+                        <LemonButton fullWidth type="primary" center to={loginUrl} disableClientSideRouting>
+                            Log in
+                        </LemonButton>
+                    )}
+                    {canRetry && (
+                        <LemonButton fullWidth type="primary" center onClick={() => window.location.reload()}>
+                            Try again
+                        </LemonButton>
+                    )}
+                    <LemonButton
+                        fullWidth
+                        type={sessionError.reason === 'not_logged_in' || canRetry ? 'secondary' : 'primary'}
+                        center
+                        onClick={startAgainFromVercel}
+                    >
+                        Start again from Vercel
+                    </LemonButton>
+                </div>
             </BridgePage>
         )
     }
