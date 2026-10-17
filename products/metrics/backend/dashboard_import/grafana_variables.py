@@ -172,12 +172,40 @@ def _size_bound(variable: Variable) -> int:
     return 4 * sum(len(part) for part in parts) + len(parts) + 2
 
 
+def _in_loops(parents: dict[str, set[str]]) -> set[str]:
+    """The variables in a loop of queries, which the dashboard cannot load in order."""
+
+    def peel(edges: dict[str, set[str]]) -> set[str]:
+        # Remove the variables that wait on nothing left, until only the loops and what they block stay.
+        waiting = {name: len(names) for name, names in edges.items()}
+        blocked: dict[str, list[str]] = {}
+        for name, names in edges.items():
+            for other in names:
+                blocked.setdefault(other, []).append(name)
+        ready = [name for name, count in waiting.items() if count == 0]
+        while ready:
+            for name in blocked.get(ready.pop(), ()):
+                waiting[name] -= 1
+                if waiting[name] == 0:
+                    ready.append(name)
+        return {name for name, count in waiting.items() if count > 0}
+
+    after_loops = peel(parents)
+    # The same pass over the reversed graph leaves out the variables that only depend on a loop.
+    children: dict[str, set[str]] = {name: set() for name in after_loops}
+    for name in after_loops:
+        for parent in parents[name] & after_loops:
+            children[parent].add(name)
+    return peel(children)
+
+
 def _resolvable(
     live: dict[str, MetricsDashboardVariable], variables: dict[str, Variable]
 ) -> dict[str, MetricsDashboardVariable]:
     """The live variables whose queries refer only to live variables or to variables with a saved value.
 
-    A query that the saved values of static variables would make longer than the options API accepts is static too.
+    A query that the saved values of static variables would make longer than the options API accepts is static too,
+    and so is a variable in a loop of queries.
     """
     valued = [name for name, variable in variables.items() if variable.values or variable.is_all]
     if len(valued) > _MAX_MARKERS:
@@ -193,9 +221,11 @@ def _resolvable(
     size: dict[str, int] = {}
     bounds = {name: _size_bound(variable) for name, variable in variables.items()}
     static: list[str] = []
+    parents: dict[str, set[str]] = {}
     for name, definition in live.items():
         substitution = substitute_promql(definition.query or "", stand_ins)
         references[name] = Counter(markers[char] for char in substitution.text if char in markers)
+        parents[name] = {other for other in [*substitution.unresolved, *references[name]] if other in live}
         size[name] = len(definition.query or "") + sum(
             count * bounds[other] for other, count in references[name].items() if other not in live
         )
@@ -206,6 +236,7 @@ def _resolvable(
         for other in references[name]:
             if other in live:
                 soft.setdefault(other, []).append(name)
+    static.extend(_in_loops(parents))
     # Each variable becomes static at most once, so the work grows with the number of references.
     removed: set[str] = set()
     while static:
