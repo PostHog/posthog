@@ -513,10 +513,6 @@ describe('preserveGroupTargetingFilters', () => {
         { key: 'name', type: 'group', group_type_index: 0, operator: 'icontains', value: 'acme' },
         { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
     ]
-    const twoGroupTypeCandidates = [
-        { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
-        { key: 'name', type: 'group', group_type_index: 1, operator: 'exact', value: 'globex' },
-    ]
 
     // The set aggregates on person, so the candidates decide the type. The operator picks
     // between two candidates that share a key, and the value picks between those. Without a
@@ -539,13 +535,16 @@ describe('preserveGroupTargetingFilters', () => {
         },
         {
             name: 'the value matches one of two group candidates with the same operator',
-            stored: twoGroupTypeCandidates,
+            stored: [
+                { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+                { key: 'name', type: 'group', group_type_index: 1, operator: 'exact', value: 'globex' },
+            ],
             operator: 'exact',
             value: 'globex',
             expected: { type: 'group', group_type_index: 1 },
         },
     ])(
-        'picks a duplicate-key candidate by operator when $name',
+        'picks a duplicate-key candidate by operator and value when $name',
         ({ stored = personAndCohortCandidates, operator, value = 'acme', expected }) => {
             const existing = { groups: [{ properties: stored, rollout_percentage: 100 }] }
             const incoming = {

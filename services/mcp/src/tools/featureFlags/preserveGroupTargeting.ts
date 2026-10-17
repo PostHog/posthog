@@ -180,9 +180,17 @@ function hasSameKeySet(incoming: ReadonlyMap<string, unknown>, existing: Readonl
     return incoming.size === existing.size && [...incoming.keys()].every((key) => existing.has(key))
 }
 
+/** The flag evaluator reads a missing operator as `exact`. */
+function matchesFilter(stored: FlagProperty, incoming: FlagProperty): boolean {
+    return (
+        (stored.operator ?? 'exact') === (incoming.operator ?? 'exact') &&
+        isDeepStrictEqual(stored.value, incoming.value)
+    )
+}
+
 /**
  * The filters under each key compare as a multiset of operator and value pairs, so a removed, added,
- * or changed filter on a key is a change. The flag evaluator reads a missing operator as `exact`.
+ * or changed filter on a key is a change.
  */
 function keepsFilters(incoming: FlagConditionGroup, source: ExistingSet): boolean {
     return [...indexProperties(incoming.properties)].every(([key, props]) => {
@@ -190,11 +198,7 @@ function keepsFilters(incoming: FlagConditionGroup, source: ExistingSet): boolea
         return (
             props.length === unmatched.length &&
             props.every((prop) => {
-                const match = unmatched.findIndex(
-                    (stored) =>
-                        (stored.operator ?? 'exact') === (prop.operator ?? 'exact') &&
-                        isDeepStrictEqual(stored.value, prop.value)
-                )
+                const match = unmatched.findIndex((stored) => matchesFilter(stored, prop))
                 if (match === -1) {
                     return false
                 }
@@ -229,10 +233,12 @@ function pickCandidate(
     usableType: (type: unknown) => boolean
 ): FlagProperty | undefined {
     const usable = (candidates ?? []).filter((candidate) => usableType(candidate.type))
-    const byOperator = incoming.operator ? usable.filter((candidate) => candidate.operator === incoming.operator) : []
     // Two group filters on one key can share an operator and differ only in group type and value.
-    const pool = byOperator.length > 0 ? byOperator : usable
-    return pool.find((candidate) => isDeepStrictEqual(candidate.value, incoming.value)) ?? pool[0]
+    return (
+        usable.find((candidate) => matchesFilter(candidate, incoming)) ??
+        (incoming.operator ? usable.find((candidate) => candidate.operator === incoming.operator) : undefined) ??
+        usable[0]
+    )
 }
 
 function mergeProperty(
