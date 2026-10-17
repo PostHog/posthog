@@ -165,6 +165,15 @@ describe('heatmapToolbarMenuLogic', () => {
                 null,
             ],
             [
+                'returns null when the node is gone and the selector matches more than one area',
+                (element: HTMLElement) => {
+                    element.remove()
+                    document.body.insertAdjacentHTML('beforeend', '<nav data-testid="second"></nav>')
+                    return { element, selector: 'nav' }
+                },
+                null,
+            ],
+            [
                 'returns null when the node is gone and no selector was derived',
                 (element: HTMLElement) => {
                     element.remove()
@@ -189,6 +198,19 @@ describe('heatmapToolbarMenuLogic', () => {
             const resolved = resolveAreaElement(filter)
 
             expect(resolved?.dataset.testid ?? null).toBe(expectedTestId)
+        })
+
+        it('follows a replaced node that lives inside a shadow root', () => {
+            document.body.innerHTML = '<div id="host"></div>'
+            const shadowRoot = (document.getElementById('host') as HTMLElement).attachShadow({ mode: 'open' })
+            shadowRoot.innerHTML = '<nav id="tracked"></nav>'
+            const tracked = shadowRoot.getElementById('tracked') as HTMLElement
+            tracked.remove()
+            shadowRoot.innerHTML = '<nav id="tracked" data-testid="replacement"></nav>'
+
+            const resolved = resolveAreaElement({ element: tracked, selector: 'nav#tracked' })
+
+            expect(resolved?.dataset.testid).toBe('replacement')
         })
     })
 

@@ -1,6 +1,7 @@
 import {
     asNonEmptyString,
     containsUnstableGeneratedId,
+    elementToAreaSelector,
     elementToQuery,
     joinWithUiHost,
     safeFetch,
@@ -161,6 +162,72 @@ describe('utils', () => {
             const element = document.querySelector('[data-id="sidebar-viewport"]') as HTMLElement
             const selector = elementToQuery(element, [])
             expect(selector).toContain('[data-id="sidebar-viewport"]')
+        })
+    })
+
+    describe('elementToAreaSelector', () => {
+        afterEach(() => {
+            document.body.innerHTML = ''
+        })
+
+        it.each([
+            [
+                'a configured data attribute',
+                '<div class="a b"><section data-attr="pricing" data-testid="target"></section></div>',
+                ['data-attr'],
+                '[data-attr="pricing"]',
+            ],
+            [
+                'a stable id',
+                '<div class="a"><div class="b c" id="content" data-testid="target"></div></div>',
+                [],
+                '#content',
+            ],
+            [
+                'a unique landmark tag',
+                '<div class="a"><div class="b"><main data-testid="target"></main></div></div>',
+                [],
+                'main',
+            ],
+            [
+                'a unique role',
+                '<div class="a"><div class="b" role="navigation" data-testid="target"></div></div>',
+                [],
+                '[role="navigation"]',
+            ],
+            [
+                'an aria-label when the landmark tag repeats',
+                '<nav aria-label="Primary" data-testid="target"></nav><nav aria-label="Footer"></nav>',
+                [],
+                'nav[aria-label="Primary"]',
+            ],
+            [
+                'a stable data attribute before a positional path',
+                '<div><div></div><div class="x" data-section="hero" data-testid="target"></div></div>',
+                [],
+                '[data-section="hero"]',
+            ],
+        ])('prefers %s', (_name, html, dataAttributes, expected) => {
+            document.body.innerHTML = html
+            const element = document.querySelector('[data-testid="target"]') as HTMLElement
+
+            expect(elementToAreaSelector(element, dataAttributes)).toBe(expected)
+        })
+
+        it('skips a useId-derived id', () => {
+            document.body.innerHTML = '<main><div id=":r5:" class="panel"></div></main>'
+            const element = document.querySelector('.panel') as HTMLElement
+
+            expect(elementToAreaSelector(element, [])).not.toContain(':r5:')
+        })
+
+        it('counts matches inside shadow roots when it checks uniqueness', () => {
+            document.body.innerHTML = '<div id="host"></div><main class="light"></main>'
+            const shadowRoot = (document.getElementById('host') as HTMLElement).attachShadow({ mode: 'open' })
+            shadowRoot.innerHTML = '<main></main>'
+            const element = document.querySelector('main.light') as HTMLElement
+
+            expect(elementToAreaSelector(element, [])).not.toBe('main')
         })
     })
 

@@ -8,7 +8,7 @@ import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { finder } from '~/toolbar/vendor/finder'
-import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
+import { Experiment, ActionStepType, ElementType, ExperimentStatus } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
@@ -52,6 +52,7 @@ export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): P
 }
 
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
+const AREA_LANDMARK_TAGS = ['nav', 'main', 'header', 'footer', 'aside', 'section', 'article', 'form']
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
 export const LOCALSTORAGE_KEY = '_postHogToolbarParams'
 export const OAUTH_LOCALSTORAGE_KEY = '_postHogToolbarOAuth'
@@ -214,6 +215,80 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
         captureToolbarException(error, 'element_selector_computation')
         return undefined
     }
+}
+
+// containers rarely carry the attributes finder looks for, so it falls back to long class or
+// nth-child paths. Try short attributes that a container usually keeps across deploys first.
+export function elementToAreaSelector(element: HTMLElement, dataAttributes: string[]): string | undefined {
+    const tagName = element.tagName.toLowerCase()
+    const candidates: [escaped: string, unescaped: string][] = []
+    const addAttribute = (name: string, value: string | null, prefix = ''): void => {
+        if (value && value.length < 100 && !/["\\]/.test(value) && !containsUnstableGeneratedId(value)) {
+            candidates.push([`${prefix}[${CSS.escape(name)}="${CSS.escape(value)}"]`, `${prefix}[${name}="${value}"]`])
+        }
+    }
+
+    for (const name of dataAttributes) {
+        addAttribute(name, element.getAttribute(name))
+    }
+    const id = element.getAttribute('id')
+    if (id && CSS.escape(id) === id && !containsUnstableGeneratedId(id)) {
+        candidates.push([`#${id}`, `#${id}`])
+    }
+    if (AREA_LANDMARK_TAGS.includes(tagName)) {
+        candidates.push([tagName, tagName])
+    }
+    addAttribute('role', element.getAttribute('role'))
+    addAttribute('aria-label', element.getAttribute('aria-label'), tagName)
+    for (const { name, value } of Array.from(element.attributes)) {
+        if (name.startsWith('data-') && !dataAttributes.includes(name)) {
+            addAttribute(name, value)
+        }
+    }
+
+    for (const [escaped, unescaped] of candidates) {
+        try {
+            const matches = querySelectorAllDeep(escaped)
+            if (matches.length === 1 && matches[0] === element) {
+                return unescaped
+            }
+        } catch {
+            continue
+        }
+    }
+    return elementToQuery(element, dataAttributes)
+}
+
+export function toElementsChain(element: HTMLElement, includeText = true): ElementType[] {
+    const chain: HTMLElement[] = []
+    let currentElement: HTMLElement | null | undefined = element
+    while (currentElement && currentElement !== document.documentElement) {
+        chain.push(currentElement)
+        currentElement = currentElement.parentElement
+    }
+    return chain.map(
+        (element, index) =>
+            ({
+                attr_class: element.getAttribute('class')?.split(' '),
+                attr_id: element.getAttribute('id') || undefined,
+
+                attributes: Array.from(element.attributes).reduce(
+                    (acc, attr) => {
+                        if (!acc[attr.name]) {
+                            acc[attr.name] = attr.value
+                        } else {
+                            acc[attr.name] += ` ${attr.value}`
+                        }
+                        return acc
+                    },
+                    {} as Record<string, string>
+                ),
+
+                href: element.getAttribute('href') || undefined,
+                tag_name: element.tagName.toLowerCase(),
+                text: includeText && index === 0 ? element.innerText : undefined,
+            }) as ElementType
+    )
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
