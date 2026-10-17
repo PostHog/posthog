@@ -48,6 +48,8 @@ import {
 } from '~/types'
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
+import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
+import { InsightDataChecksState } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecksState'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -552,6 +554,7 @@ export function InsightVizDisplay({
     }
 
     const showComputationMetadata = !disableLastComputation || !!samplingFactor
+    const showsDataChecks = !!context?.showDataChecks && !inSharedMode
 
     // Web Analytics insights don't use themes, so allow them to render without waiting for theme to load
     if (!theme && activeView !== InsightType.WEB_ANALYTICS) {
@@ -598,6 +601,7 @@ export function InsightVizDisplay({
                                     <div className="flex items-center gap-2">
                                         {isPaths && <PathCanvasLabel />}
                                         {isFunnels && <FunnelCanvasLabel />}
+                                        {showsDataChecks && <InsightDataChecks insightProps={insightProps} />}
                                     </div>
                                 </div>
                             )}
@@ -625,6 +629,7 @@ export function InsightVizDisplay({
                     </>
                 )}
             </div>
+            {showsDataChecks && <InsightDataChecksState insightProps={insightProps} />}
             <ResultCustomizationsModal />
             {renderAIAnalysisSection()}
             {renderTable()}
