@@ -8,6 +8,8 @@ import gspread
 import requests
 from google.auth import exceptions as google_auth_exceptions
 
+from posthog.credentials_service.errors import CredentialsServiceFailure
+
 from products.warehouse_sources.backend.models.external_data_schema import SCHEMA_RESOURCE_ID_METADATA_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.googlesheets import (
     GoogleSheetsSourceConfig,
@@ -15,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     _REQUEST_TIMEOUT_SECONDS,
     GOOGLE_SHEETS_API_VERSION_V4,
+    GoogleSheetsServiceAccountKeyInvalidError,
     _assert_unique_normalized_column_names,
     _get_worksheet,
     _retry_on_transient_api_error,
@@ -749,13 +752,32 @@ def test_validate_credentials_maps_google_auth_error(auth_error, expect_retry_hi
         assert "try again in a moment" not in (error_message or "").lower()
 
 
-def test_validate_credentials_handles_malformed_service_account_key():
-    with mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source.google_sheets_client",
-        side_effect=ValueError("No key could be detected."),
+@pytest.fixture
+def malformed_service_account_key():
+    module = "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets"
+    with (
+        mock.patch(f"{module}.credentials_service.get_secrets", side_effect=lambda keys: dict.fromkeys(keys, "x")),
+        mock.patch(
+            f"{module}.service_account.Credentials.from_service_account_info",
+            side_effect=ValueError("No key could be detected."),
+        ),
     ):
-        config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
-        is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
+        yield
+
+
+@pytest.mark.usefixtures("malformed_service_account_key")
+def test_google_sheets_client_raises_non_reportable_error_for_malformed_service_account_key():
+    with pytest.raises(GoogleSheetsServiceAccountKeyInvalidError) as exc_info:
+        google_sheets_client()
+
+    assert isinstance(exc_info.value, CredentialsServiceFailure)
+    assert exc_info.value.reportable is False
+
+
+@pytest.mark.usefixtures("malformed_service_account_key")
+def test_validate_credentials_handles_malformed_service_account_key():
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+    is_valid, error_message = GoogleSheetsSource().validate_credentials(config, team_id=1)
 
     assert is_valid is False
     assert "isn't configured correctly on this PostHog instance" in (error_message or "")

@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
     GOOGLE_SHEETS_API_VERSION_V4,
+    GoogleSheetsServiceAccountKeyInvalidError,
     discover_worksheet_schemas,
     google_sheets_client,
     google_sheets_source,
@@ -163,9 +164,8 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
     ) -> tuple[bool, str | None]:
         try:
             client = google_sheets_client()
-        except ValueError:
-            # google-auth raises ValueError when this instance's service account key is malformed,
-            # for example not valid PEM. The user can't fix that, so return a clear message, not a 500.
+        except GoogleSheetsServiceAccountKeyInvalidError:
+            # The user can't fix this instance's service account key, so return a clear message, not a 500.
             logger.exception("google_sheets_service_account_key_invalid", team_id=team_id)
             return (
                 False,
