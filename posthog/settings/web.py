@@ -1056,6 +1056,9 @@ ALLOW_DEV_LOGIN = get_from_env("ALLOW_DEV_LOGIN", False, type_cast=str_to_bool)
 # shows the full value of the seeded dev personal API key in the UI (also requires DEBUG)
 ALLOW_DEV_API_KEY_REVEAL = get_from_env("ALLOW_DEV_API_KEY_REVEAL", False, type_cast=str_to_bool)
 
+# admits the click-to-source server of frontend/vite.config.mts in the dev CSP (also requires DEBUG)
+DEV_CODE_INSPECTOR = get_from_env("DEV_CODE_INSPECTOR", False, type_cast=str_to_bool)
+
 ####
 # Random/temporary
 # Everything that is supposed to be removed eventually

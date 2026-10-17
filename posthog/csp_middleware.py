@@ -335,9 +335,11 @@ class CSPMiddleware:
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
 
-            # Port 5678 is the code-inspector-plugin server in frontend/vite.config.mts. The click-to-source
-            # request goes to it, and the policy refuses that request when the port is not listed here.
-            connect_debug_url = "ws://localhost:8234 http://localhost:5678" if settings.DEBUG or settings.TEST else ""
+            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            if settings.DEBUG and settings.DEV_CODE_INSPECTOR:
+                # Port 5678 is the opt-in code-inspector-plugin server in frontend/vite.config.mts. The
+                # click-to-source request goes to it, and the policy refuses that request without this source.
+                connect_debug_url += " http://localhost:5678"
             object_storage_source = object_storage_upload_source()
             csp_parts = [
                 # Firefox checks <link rel="modulepreload"> against default-src instead of script-src,
