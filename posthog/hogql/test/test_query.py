@@ -35,13 +35,16 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLQuerySettings
+from posthog.hogql.batch import BatchQueryResult
+from posthog.hogql.constants import HogQLGlobalSettings, HogQLQuerySettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.multi_query import MultiQueryPlanner
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.query_stats import query_stats_scope, record
+from posthog.hogql.sharing_rules import CountFusionRule, SameAggregationTopNRule
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
     json_dynamic_read_sql,
@@ -69,6 +72,112 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
+
+    @parameterized.expand(
+        [
+            ("direct", "events"),
+            ("projection", "(SELECT event, distinct_id FROM events) AS source"),
+            ("property", "(SELECT properties.tool AS event, distinct_id FROM events) AS source"),
+            ("empty", "events"),
+            (
+                "nullable",
+                "(SELECT if(event = 'action_a', NULL, event) AS event, distinct_id FROM events) AS source",
+            ),
+        ]
+    )
+    @patch(
+        "posthog.hogql.multi_query.posthoganalytics.feature_enabled",
+        side_effect=lambda key, *args, **kwargs: key == "hogql-query-sharing",
+    )
+    def test_prepared_top_n_queries_share_execution_without_changing_results(
+        self, _name: str, source: str, flag: mock.Mock
+    ) -> None:
+        for event, person in (("action_a", "one"), ("action_a", "one"), ("action_b", "one"), ("action_b", "two")):
+            if _name != "empty":
+                _create_event(team=self.team, event=event, distinct_id=person, properties={"tool": event})
+        flush_persons_and_events()
+        base = (
+            "SELECT event, count() AS calls, uniqExact(distinct_id) AS people FROM "
+            + source
+            + " WHERE ifNull(event, '') != {excluded} GROUP BY event HAVING calls > 0"
+        )
+        queries = [base + " ORDER BY calls DESC, event LIMIT 1", base + " ORDER BY people DESC, event LIMIT 2"]
+        excluded = "unused' OR 1=1 --"
+        executors = [
+            HogQLQueryExecutor(query=query, team=self.team, placeholders={"excluded": ast.Constant(value=excluded)})
+            for query in queries
+        ]
+        prepared = [
+            executor.prepare_for_sharing(query_id=str(i), scope_key="test-refresh")
+            for i, executor in enumerate(executors)
+        ]
+        plan = MultiQueryPlanner([SameAggregationTopNRule()]).plan(prepared)
+        self.assertEqual(len(plan.groups), 1, plan.rejections)
+        combined = execute_hogql_query(plan.groups[0].query, team=self.team)
+        self.assertIsNone(combined.error)
+        assert combined.columns is not None and combined.types is not None
+        split = plan.groups[0].split(
+            BatchQueryResult(
+                columns=tuple(combined.columns),
+                types=tuple(t[1] for t in combined.types),
+                rows=tuple(tuple(row) for row in combined.results),
+            )
+        )
+        for index, query in enumerate(queries):
+            original = execute_hogql_query(
+                query, team=self.team, placeholders={"excluded": ast.Constant(value=excluded)}
+            )
+            assert original.columns is not None and original.types is not None
+            self.assertEqual(split[str(index)].rows, tuple(tuple(row) for row in original.results))
+            self.assertEqual(split[str(index)].columns, tuple(original.columns))
+            self.assertEqual(split[str(index)].types, tuple(t[1] for t in original.types))
+        if _name == "empty":
+            self.assertEqual(split["0"].rows, ())
+            self.assertEqual(split["1"].rows, ())
+        elif _name == "nullable":
+            self.assertEqual(split["0"].rows, (("action_b", 2, 2),))
+            self.assertEqual(split["1"].rows, (("action_b", 2, 2), (None, 2, 1)))
+        else:
+            self.assertEqual(split["0"].rows, (("action_a", 2, 1),))
+            self.assertEqual(split["1"].rows, (("action_b", 2, 2), ("action_a", 2, 1)))
+        incompatible = HogQLQueryExecutor(
+            query=queries[1],
+            team=self.team,
+            placeholders={"excluded": ast.Constant(value=excluded)},
+            settings=HogQLGlobalSettings(max_execution_time=1),
+        ).prepare_for_sharing(query_id="different-budget", scope_key="test-refresh")
+        self.assertEqual(
+            len(MultiQueryPlanner([SameAggregationTopNRule()]).plan([prepared[0], incompatible]).groups), 2
+        )
+        flag.side_effect = None
+        flag.return_value = False
+        disabled = executors[1].prepare_for_sharing(query_id="disabled", scope_key="test-refresh")
+        self.assertEqual(len(MultiQueryPlanner([SameAggregationTopNRule()]).plan([prepared[0], disabled]).groups), 2)
+        if _name == "direct":
+            sql = pretty_print_in_tests(combined.clickhouse, self.team.pk)
+            assert "\n".join(line.rstrip() for line in sql.strip().splitlines()) == self._schema_snapshot(
+                use_new_events_schema_snapshot=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+            )
+
+    @patch(
+        "posthog.hogql.multi_query.posthoganalytics.feature_enabled",
+        side_effect=lambda key, *args, **kwargs: key == "hogql-query-sharing",
+    )
+    def test_prepared_unlimited_counts_can_share_execution(self, _flag: mock.Mock) -> None:
+        prepared = [
+            HogQLQueryExecutor(query=query, team=self.team).prepare_for_sharing(
+                query_id=str(index), scope_key="test-refresh"
+            )
+            for index, query in enumerate(
+                ("SELECT count() FROM events", "SELECT count() FROM events WHERE event = 'signup'")
+            )
+        ]
+
+        plan = MultiQueryPlanner([CountFusionRule()]).plan(prepared)
+
+        self.assertEqual(len(plan.groups), 1, plan.rejections)
+        self.assertEqual(plan.groups[0].query_ids, ("0", "1"))
+        self.assertIsNone(plan.groups[0].query.limit)
 
     @parameterized.expand(
         [
