@@ -7,6 +7,9 @@ from asgiref.sync import async_to_sync
 
 from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import SandboxSnapshot
+from products.tasks.backend.temporal.process_task.activities import (
+    get_sandbox_for_repository as get_sandbox_for_repository_module,
+)
 from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
     GetSandboxForRepositoryInput,
     get_sandbox_for_repository,
@@ -19,6 +22,11 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
 class TestGetSandboxForRepositoryActivity:
+    # Real-sandbox tests: posthog_code runs fail without an AI gateway, which CI does not configure.
+    @pytest.fixture(autouse=True)
+    def _no_gateway_env(self, monkeypatch):
+        monkeypatch.setattr(get_sandbox_for_repository_module, "run_gateway_env_vars", lambda *_args, **_kwargs: {})
+
     def _create_context(self, github_integration, test_task, test_task_run) -> TaskProcessingContext:
         return TaskProcessingContext(
             task_id=str(test_task.id),

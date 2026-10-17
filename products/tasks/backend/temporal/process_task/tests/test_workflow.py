@@ -36,6 +36,7 @@ from products.tasks.backend.temporal.constants import (
 )
 from products.tasks.backend.temporal.process_task import (
     credential_refresh as credential_refresh_module,
+    utils as process_task_utils,
     workflow as process_task_workflow_module,
 )
 from products.tasks.backend.temporal.process_task.activities import (
@@ -59,6 +60,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     create_sandbox_for_repository,
     emit_progress_activity,
     forward_pending_user_message,
+    get_sandbox_for_repository as get_sandbox_for_repository_module,
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
     invalidate_resume_snapshot,
@@ -66,6 +68,7 @@ from products.tasks.backend.temporal.process_task.activities import (
     mark_repo_ready,
     post_permission_delivery_failure_notice,
     prepare_sandbox_for_repository,
+    provision_sandbox as provision_sandbox_module,
     read_sandbox_logs,
     send_permission_denial_guidance,
     send_permission_response_to_sandbox,
@@ -190,6 +193,12 @@ class TestProcessTaskWorkflow:
     The workflow now starts an agent-server and waits for a completion signal
     or timeout. Tests verify the workflow starts correctly and handles signals.
     """
+
+    # Real-sandbox tests: posthog_code runs fail without an AI gateway, which CI does not configure.
+    @pytest.fixture(autouse=True)
+    def _no_gateway_env(self, monkeypatch):
+        for module in (process_task_utils, provision_sandbox_module, get_sandbox_for_repository_module):
+            monkeypatch.setattr(module, "run_gateway_env_vars", lambda *_args, **_kwargs: {})
 
     @pytest.fixture
     def sandbox_task_api(self, settings, test_task_run: TaskRun) -> Callable[[SandboxBase], None]:
