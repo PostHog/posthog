@@ -892,6 +892,19 @@ def test_scalar_cte_chains_preserve_results(depth: int) -> None:
         assert connection.execute(sql).fetchall() == [(2**depth,)]
 
 
+def test_wide_subquery_scalar_cte_references_stay_within_budget() -> None:
+    columns = ", ".join(f"user_id AS c{i}" for i in range(60))
+    references = ", ".join("total" for _ in range(60))
+    sql, _ = prepare_and_print_ast(
+        parse_select(
+            f"WITH wide AS (SELECT {columns} FROM users), (SELECT count() FROM wide) AS total SELECT {references}"
+        ),
+        _context_with_trino_table(),
+        "trino",
+    )
+    assert sql.count('(SELECT count(*) FROM "wide")') == 60
+
+
 def test_rejects_excessive_scalar_cte_expansion() -> None:
     ctes = ["1 AS c0", *[f"c{i - 1} + c{i - 1} AS c{i}" for i in range(1, 15)]]
     with pytest.raises(TrinoLoweringError, match="TRINO_AST_EXPANSION_LIMIT"):

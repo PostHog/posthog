@@ -231,9 +231,10 @@ class TestTrinoPersonsSemantics(SimpleTestCase):
             PersonsOnEventsMode.DISABLED,
             PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS,
             PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            "person_id_override_properties_joined",
         ):
             with self.subTest(mode=mode):
-                context = self._context(HogQLQueryModifiers(personsOnEventsMode=mode))
+                context = self._context(HogQLQueryModifiers.model_construct(personsOnEventsMode=mode))  # type: ignore[arg-type]  # team modifiers can hold a raw string
 
                 with self.assertRaisesRegex(
                     TrinoLoweringError,

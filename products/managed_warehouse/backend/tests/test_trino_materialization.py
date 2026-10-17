@@ -13,6 +13,7 @@ from posthog.models import Team
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.managed_warehouse.backend.facade.client import execute_trino_shadow_materialization
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeTableResult,
@@ -84,6 +85,7 @@ class TestTrinoShadowMaterialization(BaseTest):
             HogQLQuery.model_validate(self.query),
             team=self.team,
             bypass_warehouse_access_control=True,
+            allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
             expansion_mode=TrinoExpansionMode.DJANGO,
             select_transform=None,
         )
