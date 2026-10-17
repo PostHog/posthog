@@ -15270,6 +15270,18 @@ snapshots:
         hash: v1.k794b7964.327140e7888b473bf72795b84b3524a8effa471cdf5da775e81e9b060ae5ae5b.DyCRhAUTLZNQm4YUA_GDmPQ-FXb0z7XI0x0p8me4E8s
     scenes-other-billing--billing-on-startup-plan--light:
         hash: v1.k794b7964.b086982ce16a9753467cb3c1f0211f6237645e32c9b8c7ae6ef7354d42fca71d.8l6mR6Mwd61jrzB0Y3FpRm9oUetB1MxkF5hNmfnDYe8
+    scenes-other-billing--billing-on-yc-plan--dark:
+        hash: v1.k794b7964.302e21de5c6b81b0d707034a5c4bb294018b68cb8f2a53342a0c4d5bba2bc6b7.JWB4raEImsa_59LNB7nOQTtATxIn2eOY8zFwSv5YIik
+    scenes-other-billing--billing-on-yc-plan--light:
+        hash: v1.k794b7964.3e8a055a5d3c033741786e9ceaae94c1bb3339307b94d7b519d8a710790ffc4a.ptlX46z4SQyFBTCPaW8_vnN35Aibwo36_T6Th1Ad_mE
+    scenes-other-billing--billing-on-yc-plan-with-credits-not-renewing--dark:
+        hash: v1.k794b7964.26aae4f066c654970de77e9783ad66d1405cebb2b4abd4a6ef3b04748a3fe110.5LnGbERpDzCmq_qlYjllKJjdXQCXMJ1T49y-ZT-wVlE
+    scenes-other-billing--billing-on-yc-plan-with-credits-not-renewing--light:
+        hash: v1.k794b7964.614a3155163025e600ce7dc4b31edc7a77b9c40264c75197f611a09603620810.18chGQ73kcIS9whWslXPH_FxVXvVs2ymVRdv4w1Qs44
+    scenes-other-billing--billing-on-yc-plan-with-credits-used--dark:
+        hash: v1.k794b7964.cbe4f589cb40058f9676be2b06e4b1ff658978df294928bc3f15de111505a6ec.U8AaG-5zxOVvr3-lQ1226t-uHsPeCc5Wt11zLHwhiq4
+    scenes-other-billing--billing-on-yc-plan-with-credits-used--light:
+        hash: v1.k794b7964.d3bff33a7811045c39561f41df630a1053d0b65a5618d6ec37eeac8dc1d2ce92.kh5CoCE0LhWbSy2fzhCbQ8YqdOcTk36r8JYB8JohWdk
     scenes-other-billing--billing-purchase-credits-modal--dark:
         hash: v1.k794b7964.6e796c6b85111be979b53ee5eea0a61da0816a519d8b7262607eb5a02ee90b17.1Ir7Y5HD9bAF0h5L3F-TYo73R5sg36-11r1cyIIHInw
     scenes-other-billing--billing-purchase-credits-modal--light:

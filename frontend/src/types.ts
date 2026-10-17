@@ -2514,6 +2514,8 @@ export interface BillingType {
     billing_plan: BillingPlan | null
     startup_program_label?: StartupProgramLabel | null
     startup_program_label_previous?: StartupProgramLabel | null
+    /** False when the YC credits do not renew, for example after a YC program block */
+    startup_program_credits_renew?: boolean
     is_annual_plan_customer?: boolean | null
     account_owner?: {
         email?: string
