@@ -4,31 +4,37 @@ import { router } from 'kea-router'
 import { IconFolder } from '@posthog/icons'
 import { Text } from '@posthog/quill'
 
+import { ReleaseStageBadge } from 'lib/components/ReleaseStageTag/ReleaseStageBadge'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
 import { libraryLogic } from 'scenes/library/libraryLogic'
 import { libraryListHref, libraryTypeForPath } from 'scenes/library/libraryUtils'
-import { libraryRowProductLabels, toolHrefForPath, toolLabel } from 'scenes/tools/toolsUtils'
+import { libraryRowProductLabels, toolHrefForPath } from 'scenes/tools/toolsUtils'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
 import { TodayPaneRow } from './TodayPaneRow'
 import { matchesPaneQuery, viewTypesForPaneSearch } from './todayPaneSearch'
 import { TodayPaneSearchList } from './TodayPaneSearchList'
 import { TodayProductsViewsHint } from './TodayProductsViewsHint'
-import { todayToolsLogic } from './todayToolsLogic'
+import { TodayProductRow, libraryRecentKey, recentKeyPath } from './todayRecentProducts'
+import { todayRecentProductsLogic } from './todayRecentProductsLogic'
+import { TodayProductSection, todayToolsLogic } from './todayToolsLogic'
 
 /** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
 export function TodayProductsSidebar(): JSX.Element {
-    const { tools, toolGroups, recentTools, search } = useValues(todayToolsLogic)
+    const { tools, productPages, productSections, recentProducts, search } = useValues(todayToolsLogic)
     const { setSearch } = useActions(todayToolsLogic)
+    const { pickProduct } = useActions(todayRecentProductsLogic)
     const { objectTypes } = useValues(libraryLogic)
     const { location } = useValues(router)
     const path = removeProjectIdIfPresent(location.pathname)
     const activeHref = toolHrefForPath(path, tools)
+    // Recently viewed also lists Library pages, so its highlight matches against every product page.
+    const activeRecentHref = toolHrefForPath(path, productPages)
     const objectPageType = libraryTypeForPath(path)
 
     const showAllObjects = matchesPaneQuery('All objects', search)
@@ -37,33 +43,33 @@ export function TodayProductsSidebar(): JSX.Element {
     )
     const showLibrary = showAllObjects || libraryTypes.length > 0
     const searchedViewTypes = viewTypesForPaneSearch(search)
-    const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
-    const categorySections = toolGroups.map((group) => ({
-        key: group.category,
-        label: group.category,
-        tools: group.tools,
-    }))
-    const hasProducts = !!recentSection || showLibrary || categorySections.length > 0
-    // A tool can show in Recently viewed and in its own group, so the group keeps the two rows apart on the keyboard path.
-    const optionValue = (groupKey: string, tool: FileSystemImport): string => `${groupKey}:${tool.href ?? ''}`
+    const recentSection: TodayProductSection | null = recentProducts.length
+        ? { key: 'recent', label: 'Recently viewed', rows: recentProducts }
+        : null
+    const isActive = (sectionKey: string, row: TodayProductRow): boolean =>
+        sectionKey === 'recent'
+            ? recentKeyPath(row.key) === path || row.key === activeRecentHref
+            : !!row.href && row.href === activeHref
+    const hasProducts = !!recentSection || showLibrary || productSections.length > 0
 
-    const renderToolSection = (section: (typeof categorySections)[number], first: boolean): JSX.Element => (
+    const renderProductSection = (section: TodayProductSection, first: boolean): JSX.Element => (
         <div key={section.key}>
             <TodayPaneGroupLabel first={first}>{section.label}</TodayPaneGroupLabel>
-            {section.tools.map((tool) => {
-                const href = tool.href ?? ''
-                return (
-                    <TodayPaneRow
-                        key={href}
-                        value={optionValue(section.key, tool)}
-                        label={toolLabel(tool)}
-                        icon={iconForType((tool.iconType ?? tool.type) as FileSystemIconType, tool.iconColor)}
-                        to={href}
-                        active={!!href && href === activeHref}
-                        dataAttr={section.key === 'recent' ? 'today-tool-recent' : 'today-tool'}
-                    />
-                )
-            })}
+            {section.rows.map((row) => (
+                <TodayPaneRow
+                    key={row.key}
+                    // A product can show in Recently viewed and in its own group, so the group keeps the two rows apart on the keyboard path.
+                    value={`${section.key}:${row.key}`}
+                    label={row.label}
+                    icon={iconForType(row.iconType, row.iconColor)}
+                    // Unreleased products sit in their own group, so only alpha and beta get a badge.
+                    badge={row.stage && row.stage !== 'internal' ? <ReleaseStageBadge stage={row.stage} /> : null}
+                    to={row.href}
+                    active={isActive(section.key, row)}
+                    dataAttr={section.key === 'recent' ? 'today-tool-recent' : 'today-tool'}
+                    onClick={() => pickProduct(row.key)}
+                />
+            ))}
         </div>
     )
 
@@ -80,7 +86,7 @@ export function TodayProductsSidebar(): JSX.Element {
                         No products match that search.
                     </Text>
                 )}
-                {recentSection && renderToolSection(recentSection, true)}
+                {recentSection && renderProductSection(recentSection, true)}
                 {showLibrary && (
                     <div>
                         <TodayPaneGroupLabel first={!recentSection}>Library</TodayPaneGroupLabel>
@@ -107,12 +113,13 @@ export function TodayProductsSidebar(): JSX.Element {
                                 }
                                 action={<LibraryCreateButton objectType={type.value} />}
                                 dataAttr="today-library-type"
+                                onClick={() => pickProduct(libraryRecentKey(type.value))}
                             />
                         ))}
                     </div>
                 )}
-                {categorySections.map((section, index) =>
-                    renderToolSection(section, !recentSection && !showLibrary && index === 0)
+                {productSections.map((section, index) =>
+                    renderProductSection(section, !recentSection && !showLibrary && index === 0)
                 )}
                 {searchedViewTypes.length > 0 && <TodayProductsViewsHint viewTypes={searchedViewTypes} />}
             </TodayPaneSearchList>

@@ -381,10 +381,17 @@ class TestFileSystemOrdering(APIBaseTest):
         FileSystemViewLog.objects.create(
             team=self.team, user=self.user, type="folder", ref="folder", viewed_at=timestamp
         )
+        # Page and canvas views have no FileSystem row, so they must not take a slot under the limit.
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="scene", ref="Dashboards", viewed_at=timestamp
+        )
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="canvas", ref="canvas-id", viewed_at=timestamp
+        )
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/file_system/",
-            {"order_by": "-last_viewed_at", "not_type": "folder"},
+            {"order_by": "-last_viewed_at", "not_type": "folder", "limit": "2"},
         )
 
         assert response.status_code == status.HTTP_200_OK

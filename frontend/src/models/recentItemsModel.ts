@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import type { FileSystemLogViewType } from 'lib/hooks/useFileSystemLogView'
 import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
@@ -12,6 +13,9 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { TeamPublicType } from '../types'
 
 const RECENTS_FETCH_LIMIT = 20
+// Views of these are logged, but they have no file system entry, so the recents fetch never returns them.
+// Keep in sync with NON_FILE_SYSTEM_VIEW_TYPES in posthog/models/file_system/constants.py.
+const NON_FILE_SYSTEM_VIEW_TYPES: ReadonlySet<string> = new Set<FileSystemLogViewType>(['scene', 'canvas'])
 /**
  * Upper bound on how long a recents/scene-views fetch may run before we give up. A stalled
  * request that never settles would otherwise leave `recentsHasLoaded` / `sceneLogViewsHasLoaded`
@@ -76,6 +80,13 @@ export interface recentItemsModelActions {
         ref: string
         type: string
     }
+    viewLogged: (
+        type: string,
+        ref: string
+    ) => {
+        ref: string
+        type: string
+    }
 }
 
 export type recentItemsModelType = MakeLogicType<recentItemsModelValues, recentItemsModelActions>
@@ -89,9 +100,10 @@ export const recentItemsModel = kea<recentItemsModelType>([
 
     actions({
         recordView: (type: string, ref: string) => ({ type, ref }),
+        viewLogged: (type: string, ref: string) => ({ type, ref }),
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         recents: [
             [] as FileSystemEntry[],
             {
@@ -122,7 +134,8 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         }
                         // Recents are a non-essential homepage widget — transient failures (offline,
                         // aborted navigation, blocked requests) shouldn't surface as captured exceptions.
-                        return []
+                        // A failed refresh keeps the list it had. On the first load that list is empty.
+                        return values.recents
                     }
                 },
             },
@@ -160,7 +173,7 @@ export const recentItemsModel = kea<recentItemsModelType>([
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         recents: [
@@ -212,7 +225,16 @@ export const recentItemsModel = kea<recentItemsModelType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        viewLogged: ({ type, ref }) => {
+            // recordView only reorders items the last fetch returned, so a first view needs a refetch to appear.
+            if (
+                !NON_FILE_SYSTEM_VIEW_TYPES.has(type) &&
+                !values.recents.some((entry) => entry.type === type && entry.ref === ref)
+            ) {
+                actions.loadRecents()
+            }
+        },
         loadCurrentTeamSuccess: ({ currentTeam }) => {
             if (!currentTeam) {
                 return

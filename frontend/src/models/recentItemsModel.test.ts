@@ -114,9 +114,9 @@ describe('recentItemsModel', () => {
         expect(logic.values.sceneLogViewsHasLoaded).toBe(false)
     })
 
-    it('degrades to empty fallbacks when the loaders hit a fetch failure', async () => {
+    it('degrades to empty fallbacks on a first fetch failure and keeps loaded recents on a failed refresh', async () => {
         jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
-        jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new TypeError('Failed to fetch'))
+        const listRecents = jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new TypeError('Failed to fetch'))
         jest.spyOn(api.fileSystemLogView, 'list').mockRejectedValue(new TypeError('Failed to fetch'))
 
         logic = recentItemsModel()
@@ -128,5 +128,16 @@ describe('recentItemsModel', () => {
             recentsHasLoaded: true,
             sceneLogViewsHasLoaded: true,
         })
+
+        listRecents.mockResolvedValueOnce({ count: 1, results: [recentItem], users: [] })
+        logic.actions.loadRecents()
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({ recents: [recentItem] })
+
+        logic.actions.loadRecents()
+        await expectLogic(logic)
+            .toDispatchActions(['loadRecentsSuccess'])
+            .toMatchValues({ recents: [recentItem] })
     })
 })

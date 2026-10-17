@@ -1,4 +1,6 @@
+import { ApiError } from 'lib/api-error'
 import { dayjs } from 'lib/dayjs'
+import { PromiseTimeoutError } from 'lib/utils/async'
 
 import { ConversationDetail } from '~/types'
 
@@ -11,7 +13,15 @@ import {
     filterRecentItems,
     recentSourceOptions,
 } from './todayRecentFilters'
-import { TodayRecentGrouping, TodayRecentSort, groupRecentItems, sortRecentItems } from './todayRecentOrder'
+import {
+    TodayRecentGrouping,
+    TodayRecentSort,
+    groupRecentItems,
+    newestByName,
+    sortRecentItems,
+} from './todayRecentOrder'
+import { libraryRecentKey, pickRecentKey, touchRecentKey } from './todayRecentProducts'
+import { TodayRecentEntry, canvasLookupEntries } from './todayRecentViewsLogic'
 import {
     activeCloudRunId,
     analysisRunId,
@@ -169,6 +179,66 @@ describe('todayWorkItems', () => {
         expect(groups.map((group) => `${group.label}: ${group.items.map((item) => item.id).join(' ')}`)).toEqual(
             sections
         )
+    })
+
+    it('keeps the newest recently viewed rows and lists them by name', () => {
+        const newestFirst = ['Pricing', 'apps', 'Zebra', 'Funnels', 'Billing', 'Alerts']
+
+        expect(
+            newestByName(
+                newestFirst,
+                (name) => name,
+                (name) => name,
+                5
+            )
+        ).toEqual(['apps', 'Billing', 'Funnels', 'Pricing', 'Zebra'])
+    })
+
+    it.each([
+        ['a', 'b'],
+        ['b', 'a'],
+    ])('keeps rows with the same name in key order when %s was viewed last', (newest, older) => {
+        const rows = [
+            { key: newest, name: 'Untitled' },
+            { key: older, name: 'untitled' },
+        ]
+
+        expect(
+            newestByName(
+                rows,
+                (row) => row.name,
+                (row) => row.key,
+                5
+            ).map((row) => row.key)
+        ).toEqual(['a', 'b'])
+    })
+
+    it('drops deleted canvases but keeps cached ones when a refresh lookup fails', () => {
+        const canvas = (id: string): TodayRecentEntry => ({
+            key: `canvas-${id}`,
+            type: 'canvas',
+            name: id,
+            href: `/canvases/${id}`,
+            viewedAt: '2026-01-01T00:00:00Z',
+        })
+        const views = ['live', 'deleted', 'timed-out'].map((ref) => ({ ref, viewed_at: '2026-01-02T00:00:00Z' }))
+        const results: PromiseSettledResult<TodayRecentEntry>[] = [
+            { status: 'fulfilled', value: canvas('live') },
+            { status: 'rejected', reason: new ApiError('Not found', 404) },
+            { status: 'rejected', reason: new PromiseTimeoutError('timed out') },
+        ]
+
+        expect(canvasLookupEntries(views, results, [canvas('deleted'), canvas('timed-out')])).toEqual([
+            canvas('live'),
+            { ...canvas('timed-out'), viewedAt: '2026-01-02T00:00:00Z' },
+        ])
+    })
+
+    it.each([
+        ['a picked row replaces the older row for its page', pickRecentKey, libraryRecentKey('survey')],
+        ['a page visit keeps the row last picked for that page', touchRecentKey, '/surveys'],
+    ])('%s', (_, update, expectedFirst) => {
+        expect(update(['/sql', '/surveys'], libraryRecentKey('survey'), 5)).toEqual([expectedFirst, '/sql'])
     })
 
     it.each([

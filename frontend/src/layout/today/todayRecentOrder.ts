@@ -41,6 +41,23 @@ export function sortRecentItems(items: TodayWorkItem[], sort: TodayRecentSort): 
     )
 }
 
+/** How many recently viewed rows each pane lists. */
+export const TODAY_RECENTS_LIMIT = 5
+
+/**
+ * Keeps the first `limit` items of a newest-first list, then sorts them by name, then by key.
+ * A click on a row then does not move it, because neither its name nor its key changes.
+ */
+export function newestByName<T>(items: T[], name: (item: T) => string, key: (item: T) => string, limit: number): T[] {
+    return items
+        .slice(0, limit)
+        .sort(
+            (first, second) =>
+                name(first).localeCompare(name(second), undefined, { sensitivity: 'base' }) ||
+                key(first).localeCompare(key(second))
+        )
+}
+
 /** One section per key, in first-seen order, with the fallback section last. */
 function keyedSections(
     items: TodayWorkItem[],
