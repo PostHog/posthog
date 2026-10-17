@@ -1,5 +1,6 @@
 import os
 import uuid
+import importlib
 
 import pytest
 
@@ -13,6 +14,11 @@ from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_rep
 )
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
+# The activities package exports a function under the submodule's name.
+get_sandbox_for_repository_module = importlib.import_module(
+    "products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository"
+)
+
 
 @pytest.mark.skipif(
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
@@ -20,6 +26,11 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
 )
 @pytest.mark.usefixtures("sandbox_ai_gateway")
 class TestGetSandboxForRepositoryActivity:
+    # Real-sandbox tests: posthog_code runs fail without an AI gateway, which CI does not configure.
+    @pytest.fixture(autouse=True)
+    def _no_gateway_env(self, monkeypatch):
+        monkeypatch.setattr(get_sandbox_for_repository_module, "run_gateway_env_vars", lambda *_args, **_kwargs: {})
+
     def _create_context(self, github_integration, test_task, test_task_run) -> TaskProcessingContext:
         return TaskProcessingContext(
             task_id=str(test_task.id),
