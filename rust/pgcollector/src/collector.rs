@@ -147,8 +147,9 @@ impl Capabilities {
 /// What a collector needs from a target before it can run.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Requirements {
+    /// `true` runs only on Aurora, `false` only on plain Postgres, unset on both.
     #[serde(default)]
-    pub aurora: bool,
+    pub aurora: Option<bool>,
     #[serde(default)]
     pub extension: Option<String>,
 }
@@ -156,8 +157,10 @@ pub struct Requirements {
 impl Requirements {
     /// None if satisfied, else a human reason.
     pub fn unmet(&self, caps: &Capabilities) -> Option<String> {
-        if self.aurora && !caps.aurora {
-            return Some("requires Aurora".into());
+        match self.aurora {
+            Some(true) if !caps.aurora => return Some("requires Aurora".into()),
+            Some(false) if caps.aurora => return Some("not supported on Aurora".into()),
+            _ => {}
         }
         if let Some(e) = &self.extension {
             if !caps.extensions.contains_key(e) {
@@ -392,6 +395,34 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.clone()))
             .collect()
+    }
+
+    #[test]
+    fn aurora_requirement_gates_both_ways() {
+        let aurora = Capabilities {
+            aurora: true,
+            ..Default::default()
+        };
+        let plain = Capabilities::default();
+        for (req, caps, unmet) in [
+            (Some(true), &aurora, false),
+            (Some(true), &plain, true),
+            (Some(false), &aurora, true),
+            (Some(false), &plain, false),
+            (None, &aurora, false),
+            (None, &plain, false),
+        ] {
+            let r = Requirements {
+                aurora: req,
+                extension: None,
+            };
+            assert_eq!(
+                r.unmet(caps).is_some(),
+                unmet,
+                "aurora={req:?}, caps.aurora={}",
+                caps.aurora
+            );
+        }
     }
 
     #[test]

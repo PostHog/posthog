@@ -31,7 +31,7 @@ impl Collector for AuroraPlans {
     }
     fn requires(&self) -> Requirements {
         Requirements {
-            aurora: true,
+            aurora: Some(true),
             extension: Some("pg_stat_statements".into()),
         }
     }
