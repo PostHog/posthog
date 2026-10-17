@@ -21,7 +21,6 @@ from posthog.schema import (
     Compare,
     CompareFilter,
     CompareItem,
-    DataWarehouseEventsModifier,
     DataWarehouseNode,
     DayItem,
     EventsNode,
@@ -44,6 +43,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -53,6 +54,7 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_queries.data_warehouse_mixin import data_warehouse_events_modifier, series_hogql_modifiers
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -419,6 +421,22 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         ):
             try:
                 series_with_extra = self.series[index]
+                series_modifiers = series_hogql_modifiers(self.modifiers, series_with_extra.series)
+                if series_modifiers is self.modifiers:
+                    context = self.build_hogql_context()
+                else:
+                    # The shared database maps the warehouse table to the fields of another series.
+                    context = HogQLContext(
+                        team_id=self.team.pk,
+                        user=self.user,
+                        database=Database.create_for(
+                            team=self.team,
+                            user=self.user,
+                            user_access_control=self.user_access_control,
+                            modifiers=series_modifiers,
+                            trigger="series",
+                        ),
+                    )
 
                 response = execute_hogql_query(
                     query_type="TrendsQuery",
@@ -428,9 +446,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     workload=self.workload,
                     settings=self.hogql_settings,
                     timings=timings,
-                    modifiers=self.modifiers,
+                    modifiers=series_modifiers,
                     limit_context=self.limit_context,
-                    context=self.build_hogql_context(),
+                    context=context,
                 )
 
                 timings_matrix[index + 1] = response.timings
@@ -892,19 +910,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
         ):
             self.modifiers.inCohortVia = InCohortVia.LEFTJOIN_CONJOINED
 
-        datawarehouse_modifiers = []
-        for series in self.query.series:
-            if isinstance(series, DataWarehouseNode):
-                datawarehouse_modifiers.append(
-                    DataWarehouseEventsModifier(
-                        table_name=series.table_name,
-                        timestamp_field=series.timestamp_field,
-                        id_field=series.id_field,
-                        distinct_id_field=series.distinct_id_field,
-                    )
-                )
-
-        self.modifiers.dataWarehouseEventsModifiers = datawarehouse_modifiers
+        self.modifiers.dataWarehouseEventsModifiers = [
+            data_warehouse_events_modifier(series)
+            for series in self.query.series
+            if isinstance(series, DataWarehouseNode)
+        ]
 
         self.modifiers.sessionPropertyPreAggregation = (
             self._has_session_breakdown() and self._team_flag_session_property_pre_aggregation()
