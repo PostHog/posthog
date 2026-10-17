@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from django.conf import settings
 
+from parameterized import parameterized
 from temporalio.client import WorkflowExecutionStatus
 
 from posthog.schema import AssistantEventType, AssistantMessage, HumanMessage
@@ -87,11 +88,18 @@ class TestAgentExecutor(BaseTest):
             self.assertEqual(call_args[1]["task_queue"], settings.MAX_AI_TASK_QUEUE)
             self.assertIn("conversation-", call_args[1]["id"])
 
+    @parameterized.expand(
+        [
+            ("non_transport_error", Exception("Connection failed"), 1),
+            ("persistent_transport_error", RuntimeError("Failed client connect: transport error"), 3),
+        ]
+    )
+    @patch("ee.hogai.core.executor.asyncio.sleep", new_callable=AsyncMock)
     @patch("ee.hogai.core.executor.async_connect")
-    async def test_start_workflow_and_stream_connection_error(self, mock_connect):
-        """Test error handling when connection fails."""
-        # Setup mock to raise exception
-        mock_connect.side_effect = Exception("Connection failed")
+    async def test_start_workflow_and_stream_connection_error(
+        self, _name, error, expected_attempts, mock_connect, _mock_sleep
+    ):
+        mock_connect.side_effect = error
 
         workflow_inputs = ChatAgentWorkflowInputs(
             team_id=self.team_id,
@@ -101,17 +109,42 @@ class TestAgentExecutor(BaseTest):
             trace_id=str(uuid4()),
         )
 
-        # Call the method
         results = []
         async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs):
             results.append(chunk)
 
-        # Verify failure message is returned
+        self.assertEqual(mock_connect.call_count, expected_attempts)
         self.assertEqual(len(results), 1)
         event_type, message = results[0]
         self.assertEqual(event_type, "message")
         message = cast(AssistantMessage, message)
         self.assertEqual(message.content, "Oops! Something went wrong. Please try again.")
+
+    @patch("ee.hogai.core.executor.asyncio.sleep", new_callable=AsyncMock)
+    @patch("ee.hogai.core.executor.async_connect")
+    async def test_start_workflow_recovers_from_transient_connect_error(self, mock_connect, _mock_sleep):
+        mock_client = AsyncMock()
+        mock_connect.side_effect = [RuntimeError("Failed client connect: transport error"), mock_client]
+
+        async def mock_stream_gen():
+            yield ("message", {"content": "chunk1"})
+
+        with (
+            patch.object(self.manager, "stream_conversation", return_value=mock_stream_gen()),
+            patch.object(self.manager, "_wait_for_workflow_to_start", return_value=True),
+        ):
+            workflow_inputs = ChatAgentWorkflowInputs(
+                team_id=self.team_id,
+                user_id=self.user_id,
+                conversation_id=self.conversation.id,
+                stream_key=get_conversation_stream_key(self.conversation.id),
+                trace_id=str(uuid4()),
+            )
+            results = [chunk async for chunk in self.manager.astream(ChatAgentWorkflow, workflow_inputs)]
+
+        self.assertEqual(results, [("message", {"content": "chunk1"})])
+        self.assertEqual(mock_connect.call_count, 2)
+        mock_client.start_workflow.assert_called_once()
 
     async def test_stream_conversation_success(self):
         """Test successful conversation streaming."""
