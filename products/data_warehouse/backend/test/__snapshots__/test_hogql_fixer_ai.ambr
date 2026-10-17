@@ -87,6 +87,7 @@
   - `virtual_table` and `lazy_table` fields are connections to linked tables, e.g. the virtual table field `person` allows accessing person properties like so: `person.properties.foo`.
   - Standardized events/properties such as pageview or screen start with `$`. Custom events/properties start with any other character.
   - HogQL statements should not end with a semi-colon - this is invalid syntax
+  - JSON property access such as `properties.foo` returns `Nullable(String)`. ClickHouse doesn't allow `Array`, `Map` or `Tuple` inside `Nullable`, so wrap the property in `ifNull(..., '')` before you extract one of these types from it
   
   HogQL examples:
   Invalid: SELECT * FROM events WHERE properties->foo = 'bar'
@@ -106,6 +107,11 @@
   Bad Query: SELECT COUNT(user_id) FROM persons
   Error: No column 'user_id'
   Fixed Query: SELECT COUNT(id) FROM persons
+  
+  Example 3:
+  Bad Query: SELECT JSONExtract(properties.tags, 'Array(String)') FROM events
+  Error: Nested type Array(String) cannot be inside Nullable type
+  Fixed Query: SELECT JSONExtract(ifNull(properties.tags, ''), 'Array(String)') FROM events
   
   This is a list of all the available tables in the database:
   ```
