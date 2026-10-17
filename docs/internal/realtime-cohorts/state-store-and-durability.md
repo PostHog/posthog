@@ -143,7 +143,7 @@ Nothing is dispatched to a worker, from the events consumer or a follower, until
 
 A pod owns its partitions for as long as it runs, so no slice changes owner while the pod runs.
 State never moves between pods, which is why one pod that owns every partition is the supported deployment.
-The store records the split of the partitions it was written under and refuses to open under another.
+The store records the split of the partitions it was written under, and refuses to open under a split that the recorded one does not cover.
 [Processor runtime](processor-runtime.md#ownership-and-the-single-pod-deployment) explains that constraint.
 
 ### Choosing a checkpoint
@@ -151,13 +151,14 @@ The store records the split of the partitions it was written under and refuses t
 The restore tries the freshest local checkpoint, then up to `CHECKPOINT_IMPORT_ATTEMPT_DEPTH` remote ones from the last `CHECKPOINT_IMPORT_WINDOW_HOURS`, newest first.
 A checkpoint counts only once its `metadata.json` exists, because the sweeper and the upload both write it last.
 A local attempt without one is passed over for the attempt before it, and a remote attempt without one is unusable and does not count toward the depth.
+A remote checkpoint whose split does not cover this pod is unusable and does not count toward the depth either.
 The restore judges each candidate from its `metadata.json` and `offsets.json` before the bulk download:
 
 - its store schema must be this build's,
 - its metadata and manifest formats must be ones this build reads,
-- its manifest must belong to this pod's ordinal,
+- its manifest's split must cover this pod's, which means it owns every partition this pod owns,
 - its manifest must record a position on the events topic,
-- the broker must still hold the events the checkpoint lacks on at least one partition (see [the replay window](#the-replay-window)).
+- the broker must still hold the events the checkpoint lacks on at least one partition this pod owns (see [the replay window](#the-replay-window)).
 
 A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
 A local checkpoint is hard-linked there, SSTs only, with every other file copied.
@@ -176,7 +177,7 @@ When none publishes:
 | None, or only unusable ones | The store is created empty, behind the coverage fence |
 | Any that failed             | The boot blocks and retries                           |
 
-Unusable means an upload that never finished, a metadata or manifest format this build does not read, a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on, or a checkpoint whose replay expired on every partition.
+Unusable means an upload that never finished, a metadata or manifest format this build does not read, a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on, a split that does not cover this pod, or a checkpoint whose replay expired on every partition this pod owns.
 Older candidates are no better, so a retry cannot help.
 A failed candidate is one that could restore after a fix: a download error, a local attempt whose files cannot be read, a stage that fails validation, a schema mismatch without the wipe flag.
 A failed listing, a failed Kafka read and a local file error also block.
@@ -354,7 +355,7 @@ A lint rule denies direct calls to most store I/O methods, and the synchronous s
   With checkpoints enabled, the boot deletes it and restores.
 - A store directory that holds `restore.json` is a checkpoint restore in progress, not a live store.
   An image from before that marker ignores it and reopens the store at the broker's old offsets, so do not roll back while a restore is pending.
-- Changing `COHORT_POD_COUNT` makes every store written under another split refuse to open, because each records the split it was written under.
+- Changing `COHORT_POD_COUNT` makes every store whose split does not cover its pod's new one refuse to open, because each records the split it was written under.
   [Ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) lists what to wipe.
   Wiping a store deletes every slice, including merge transfers not yet sent, whose merge offsets may already be committed.
 - Person records grow with every person seen on a team with person-property conditions, including those that match nothing, unless a time-to-live is configured.
