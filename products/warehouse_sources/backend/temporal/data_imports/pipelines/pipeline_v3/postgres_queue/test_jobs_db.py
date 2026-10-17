@@ -648,8 +648,9 @@ class TestLeaseLockOrder:
         # touched. Plan order would leave an arbitrary subset locked instead.
         assert locked == [index <= self.BLOCKED_INDEX for index in range(len(self.GROUPS))]
 
+    @pytest.mark.parametrize("statement", ["unlock", "release_all"])
     @pytest.mark.asyncio
-    async def test_skip_locked_unlock_releases_free_groups_without_waiting(self, conn, conn_b, _db_url):
+    async def test_skip_locked_release_frees_unlocked_groups_without_waiting(self, conn, conn_b, _db_url, statement):
         for team_id, schema_id in self.GROUPS:
             await _insert_batch(
                 conn, team_id=team_id, schema_id=schema_id, job_id=f"job-{team_id}", run_uuid=f"run-{team_id}"
@@ -663,10 +664,12 @@ class TestLeaseLockOrder:
                 f"SELECT 1 FROM {LEASE_TABLE} WHERE team_id = %s AND schema_id = %s FOR UPDATE",
                 (blocked_team_id, blocked_schema_id),
             )
-            await asyncio.wait_for(
-                BatchQueue.unlock_for_batches(conn_b, batches=batches, owner_token=OWNER_A, skip_locked=True),
-                timeout=10.0,
-            )
+            run: Coroutine[Any, Any, None]
+            if statement == "unlock":
+                run = BatchQueue.unlock_for_batches(conn_b, batches=batches, owner_token=OWNER_A, skip_locked=True)
+            else:
+                run = BatchQueue.release_all_owned_leases(conn_b, owner_token=OWNER_A)
+            await asyncio.wait_for(run, timeout=10.0)
         finally:
             await blocker.rollback()
             await blocker.close()
