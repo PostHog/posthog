@@ -581,6 +581,200 @@ describe('messageTemplateLogic', () => {
         })
     })
 
+    describe('run with PostHog Code', () => {
+        const DESCRIBED = 'In `emails/welcome.html`, change the button to green. '
+        let changeRequests: Record<string, unknown>[]
+        let capture: jest.SpyInstance
+        let served: {
+            template: Record<string, unknown>
+            integrations: Record<string, unknown>[]
+            access: readonly [number, Record<string, unknown>]
+        }
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            changeRequests = []
+            capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+            served = {
+                template: CODE_MANAGED,
+                integrations: [{ id: 7, kind: 'github', display_name: 'example' }],
+                access: [200, { allowed: true, reason: null }],
+            }
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [200, served.template],
+                    '/api/projects/:team_id/desktop/access/': () => served.access,
+                    '/api/projects/:team_id/integrations/': () => [200, { results: served.integrations }],
+                },
+                post: {
+                    '/api/projects/:team_id/messaging_templates/:id/request_change/': async ({
+                        request,
+                    }: {
+                        request: Request
+                    }) => {
+                        changeRequests.push(await request.json())
+                        return [
+                            201,
+                            {
+                                task_id: 'task-id',
+                                task_url: 'http://localhost:8010/project/997/tasks/task-id',
+                                repository: 'example/app',
+                            },
+                        ]
+                    },
+                },
+            })
+        })
+
+        async function mountServing(overrides: Partial<typeof served> = {}): Promise<void> {
+            served = { ...served, ...Object.fromEntries(Object.entries(overrides).filter(([, value]) => value)) }
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess']).toFinishAllListeners()
+        }
+
+        it('sends the sentence exactly as typed', async () => {
+            await mountServing()
+            logic.actions.setChangeSentence(DESCRIBED)
+
+            await expectLogic(logic, () => {
+                logic.actions.runWithPostHogCode()
+            }).toFinishAllListeners()
+
+            expect(changeRequests).toEqual([{ instruction: DESCRIBED }])
+            expect(capture).toHaveBeenCalledWith('message template change run requested', {
+                template_id: 'existing-id',
+            })
+        })
+
+        it('starts one task when the button is clicked twice', async () => {
+            await mountServing()
+            logic.actions.setChangeSentence(DESCRIBED)
+
+            await expectLogic(logic, () => {
+                logic.actions.runWithPostHogCode()
+                logic.actions.runWithPostHogCode()
+            }).toFinishAllListeners()
+
+            expect(changeRequests).toHaveLength(1)
+        })
+
+        it('links the task and clears the sentence once PostHog Code starts', async () => {
+            await mountServing()
+            logic.actions.setAgentPromptOpen(true)
+            logic.actions.setChangeSentence(DESCRIBED)
+
+            await expectLogic(logic, () => {
+                logic.actions.runWithPostHogCode()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                changeRun: expect.objectContaining({ task_id: 'task-id' }),
+                changeSentence: 'In `emails/welcome.html`, change ',
+                agentPromptOpen: false,
+            })
+            expect(mockToast.success).toHaveBeenCalledWith(
+                "PostHog Code is working on it. It opens a pull request when it's done.",
+                expect.objectContaining({ button: expect.objectContaining({ label: 'Open task' }) })
+            )
+        })
+
+        it.each([
+            {
+                description: 'the server explains the refusal',
+                response: [
+                    400,
+                    {
+                        type: 'validation_error',
+                        code: 'github_repository_not_connected',
+                        detail: "This project's GitHub connection can't reach `example/app`.",
+                        attr: null,
+                        fix: 'Add the repository to the GitHub integration, then try again.',
+                    },
+                ],
+                error: {
+                    detail: "This project's GitHub connection can't reach `example/app`.",
+                    fix: 'Add the repository to the GitHub integration, then try again.',
+                },
+                code: 'github_repository_not_connected',
+            },
+            {
+                description: 'the server gives no reason',
+                response: [500, {}],
+                error: { detail: "PostHog Code couldn't start.", fix: 'Try again in a few minutes.' },
+                code: null,
+            },
+        ])('keeps the sentence when $description', async ({ response, error, code }) => {
+            await mountServing()
+            useMocks({ post: { '/api/projects/:team_id/messaging_templates/:id/request_change/': () => response } })
+            logic.actions.setAgentPromptOpen(true)
+            logic.actions.setChangeSentence(DESCRIBED)
+
+            await expectLogic(logic, () => {
+                logic.actions.runWithPostHogCode()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                changeRunError: error,
+                changeSentence: DESCRIBED,
+                agentPromptOpen: true,
+                copyAgentPromptDisabledReason: undefined,
+                runWithPostHogCodeDisabledReason: undefined,
+            })
+            expect(capture).toHaveBeenCalledWith('message template change run failed', {
+                template_id: 'existing-id',
+                code,
+            })
+        })
+
+        it.each([
+            { description: 'the organization can use PostHog Code', access: [200, { allowed: true }], available: true },
+            {
+                description: 'the organization cannot use PostHog Code',
+                access: [200, { allowed: false, reason: null }],
+                available: false,
+            },
+            { description: 'PostHog cannot check access', access: [503, { code: 'unavailable' }], available: false },
+        ] as const)('offers the button only when $description', async ({ access, available }) => {
+            await mountServing({ access })
+
+            await expectLogic(logic).toMatchValues({ postHogCodeAvailable: available })
+        })
+
+        it.each([
+            {
+                description: 'the change is not described',
+                sentence: 'In `emails/welcome.html`, change ',
+                reason: 'Describe the change first',
+            },
+            {
+                description: 'the template has no repository',
+                template: { ...CODE_MANAGED, source_repository: null },
+                reason: "PostHog doesn't know this template's GitHub repository",
+            },
+            {
+                description: 'the repository is not on GitHub',
+                template: { ...CODE_MANAGED, source_repository: 'gitlab.com/example/app' },
+                reason: "PostHog doesn't know this template's GitHub repository",
+            },
+            {
+                description: 'the project has no GitHub integration',
+                integrations: [{ id: 8, kind: 'slack', display_name: 'Slack' }],
+                reason: 'Connect GitHub to run PostHog Code',
+            },
+        ])('sends nothing when $description', async ({ sentence, template, integrations, reason }) => {
+            await mountServing({ template, integrations })
+            logic.actions.setChangeSentence(sentence ?? DESCRIBED)
+
+            await expectLogic(logic, () => {
+                logic.actions.runWithPostHogCode()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({ runWithPostHogCodeDisabledReason: reason })
+            expect(changeRequests).toEqual([])
+        })
+    })
+
     describe('make transactional', () => {
         it('keeps edits made while the conversion runs', async () => {
             useMocks({

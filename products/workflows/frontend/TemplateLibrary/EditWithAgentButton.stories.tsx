@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import { CodeManagedNotice } from './CodeManagedNotice'
 import { NEW_TEMPLATE } from './constants'
 import { EditWithAgentButton } from './EditWithAgentButton'
 import { messageTemplateLogic } from './messageTemplateLogic'
@@ -61,7 +62,7 @@ const meta: Meta<{ template: MessageTemplate }> = {
 }
 export default meta
 
-const OpenAgentPrompt: StoryFn<{ template: MessageTemplate }> = ({ template }) => {
+function OpenedAgentPrompt({ template }: { template: MessageTemplate }): JSX.Element {
     const logicProps = { id: template.id }
     const { originalTemplate } = useValues(messageTemplateLogic(logicProps))
     const { setAgentPromptOpen } = useActions(messageTemplateLogic(logicProps))
@@ -80,8 +81,52 @@ const OpenAgentPrompt: StoryFn<{ template: MessageTemplate }> = ({ template }) =
     )
 }
 
+const OpenAgentPrompt: StoryFn<{ template: MessageTemplate }> = ({ template }) => (
+    <OpenedAgentPrompt template={template} />
+)
+
+const OpenAgentPromptUnderTheNotice: StoryFn<{ template: MessageTemplate }> = ({ template }) => (
+    <div className="flex flex-col gap-2 w-160">
+        <CodeManagedNotice id={template.id} />
+        <OpenedAgentPrompt template={template} />
+    </div>
+)
+
 function serving(template: MessageTemplate): Story['decorators'] {
     return [mswDecorator({ get: { '/api/environments/:team_id/messaging_templates/:id/': template } })]
+}
+
+function servingWithPostHogCode(template: MessageTemplate, { githubConnected = true } = {}): Story['decorators'] {
+    return [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/messaging_templates/:id/': template,
+                '/api/projects/:team_id/desktop/access/': { allowed: true, reason: null },
+                '/api/projects/:team_id/integrations/': {
+                    results: githubConnected ? [{ id: 7, kind: 'github', display_name: 'example' }] : [],
+                },
+            },
+            post: {
+                '/api/projects/:team_id/messaging_templates/:id/request_change/': [
+                    201,
+                    {
+                        task_id: '01a14a3e-0000-0000-0000-000000000514',
+                        task_url: 'https://us.posthog.com/project/997/tasks/01a14a3e-0000-0000-0000-000000000514',
+                        repository: 'example/app',
+                    },
+                ],
+            },
+        }),
+    ]
+}
+
+async function describeTheChange(): Promise<void> {
+    const sentence = await screen.findByDisplayValue(
+        (WITH_PATH.change_prompt_starter ?? '').trim(),
+        {},
+        { timeout: 10000 }
+    )
+    await userEvent.type(sentence, 'the button to green.')
 }
 
 export const WithAPath: Story = {
@@ -102,5 +147,32 @@ export const FullPromptShown: Story = {
     decorators: serving(WITH_PATH),
     play: async () => {
         await userEvent.click(await screen.findByText('Show full prompt'))
+    },
+}
+
+export const RunWithPostHogCode: Story = {
+    render: OpenAgentPrompt,
+    args: { template: WITH_PATH },
+    decorators: servingWithPostHogCode(WITH_PATH),
+    parameters: { testOptions: { waitForSelector: '[data-attr="message-template-run-with-posthog-code"]' } },
+    play: describeTheChange,
+}
+
+export const RunWithPostHogCodeNeedsGitHub: Story = {
+    render: OpenAgentPrompt,
+    args: { template: WITH_PATH },
+    decorators: servingWithPostHogCode(WITH_PATH, { githubConnected: false }),
+    parameters: { testOptions: { waitForSelector: '[data-attr="message-template-run-with-posthog-code"]' } },
+    play: describeTheChange,
+}
+
+export const RunWithPostHogCodeStarted: Story = {
+    render: OpenAgentPromptUnderTheNotice,
+    args: { template: WITH_PATH },
+    decorators: servingWithPostHogCode(WITH_PATH),
+    parameters: { testOptions: { waitForSelector: '[data-attr="message-template-change-run-task"]' } },
+    play: async () => {
+        await describeTheChange()
+        await userEvent.click(await screen.findByText('Run with PostHog Code'))
     },
 }

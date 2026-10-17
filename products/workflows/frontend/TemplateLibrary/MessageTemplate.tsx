@@ -20,6 +20,7 @@ import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
 import { workflowLogic } from '../Workflows/workflowLogic'
 import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
+import { CodeManagedNotice } from './CodeManagedNotice'
 import { CodeManagedSource } from './CodeManagedSource'
 import { CodeManagedTag } from './CodeManagedTag'
 import { EditWithAgentButton } from './EditWithAgentButton'
@@ -52,7 +53,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         submitTemplate,
         resetTemplate,
         setTemplateValue,
-        duplicateTemplate,
         setTemplatePickerOpen,
         syncExternalEdit,
         keepMyTemplateVersion,
@@ -71,7 +71,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
         transactionalHogFlowId,
         transactionalTab,
         isCodeManaged,
-        isDuplicating,
         templateSource,
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
@@ -264,21 +263,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                     </div>
                 )}
 
-                {isCodeManaged && (
-                    <LemonBanner
-                        type="info"
-                        className="shrink-0"
-                        action={{
-                            children: 'Duplicate',
-                            onClick: duplicateTemplate,
-                            loading: isDuplicating,
-                            'data-attr': 'message-template-code-managed-duplicate',
-                        }}
-                    >
-                        This template is managed by code, so it can't be changed here. To change it, edit its file, or
-                        let your coding agent do it.
-                    </LemonBanner>
-                )}
+                {isCodeManaged && <CodeManagedNotice {...props} />}
 
                 <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
                 <SendTestEmailModal {...props} isOpen={isSendTestEmailModalOpen} />
