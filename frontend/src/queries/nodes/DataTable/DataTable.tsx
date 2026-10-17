@@ -1049,8 +1049,8 @@ export function DataTable({
                             {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                             {showSecondRow && secondRowLeft.length > 0 && secondRowRight.length > 0 && (
                                 <div className="flex gap-2 justify-between flex-wrap DataTable__second-row empty:hidden">
-                                    <div className="flex gap-2 items-center">{secondRowLeft}</div>
-                                    <div className="flex gap-2 items-center">{secondRowRight}</div>
+                                    <div className="flex gap-2 items-center flex-wrap">{secondRowLeft}</div>
+                                    <div className="flex gap-2 items-center flex-wrap">{secondRowRight}</div>
                                 </div>
                             )}
                         </>
