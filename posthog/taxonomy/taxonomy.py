@@ -1662,6 +1662,11 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "Time the event was sent to PostHog. Used for correcting the event timestamp when the device clock is off.",
             "examples": ["2023-05-20T15:31:00Z"],
         },
+        "$client_capture_time": {
+            "label": "Client capture time",
+            "description": "The device's clock reading when the event was captured. Used to order a device's events.",
+            "examples": ["2023-05-20T15:30:00Z"],
+        },
         "$event_time_override_provided": {
             "label": "Event time was overridden",
             "description": "Whether the SDK had to override the event timestamp because the value provided by the caller could not be used as-is.",

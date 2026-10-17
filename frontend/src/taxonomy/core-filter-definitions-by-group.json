@@ -811,6 +811,11 @@
             "label": "$ce_version",
             "system": true
         },
+        "$client_capture_time": {
+            "description": "The device's clock reading when the event was captured. Used to order a device's events.",
+            "examples": ["2023-05-20T15:30:00Z"],
+            "label": "Client capture time"
+        },
         "$client_session_initial_pathname": {
             "description": "Path that the user started their session on. (First-touch, session-scoped)",
             "examples": ["/register", "/some/landing/page"],
@@ -4639,6 +4644,11 @@
             "description": "",
             "label": "$ce_version",
             "system": true
+        },
+        "$client_capture_time": {
+            "description": "The device's clock reading when the event was captured. Used to order a device's events.",
+            "examples": ["2023-05-20T15:30:00Z"],
+            "label": "Client capture time"
         },
         "$client_session_initial_pathname": {
             "description": "Path that the user started their session on. (First-touch, session-scoped)",
