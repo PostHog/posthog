@@ -2,6 +2,7 @@ from typing import Any, Optional
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
+from products.approvals.backend.ownership import scope_by_owner_enabled
 
 
 def _exclusion_percentage(filters: Any) -> Optional[float]:
@@ -37,9 +38,22 @@ class ExperimentHoldoutActionBase(BaseAction):
     """
 
     resource_type = "experiment_holdout"
-    # TODO(experiment-approval-policies): until experiment-owned flags leave `feature_flag.*`
-    # scope, an organization's flag policy still gates the flag writes a holdout change makes.
     fallback_policy_action_keys = ("feature_flag.update",)
+
+    @classmethod
+    def fallback_policy_action_keys_for(cls, organization) -> tuple[str, ...]:
+        """Whichever policy gates the flag writes this holdout change makes, and only that one.
+
+        The two are never both offered. While the organization has not moved to scoping by flag
+        owner, its experiment policies are mirrors the sync refreshes hourly, so reading one would
+        answer from an hour-old copy: a bypass an admin revoked on the flag policy would keep
+        working here until the next run. After the handoff the mirror is the organization's own
+        policy and the flag policy no longer governs an experiment's flags, so the experiment
+        policy is the only right answer.
+        """
+        if scope_by_owner_enabled(organization):
+            return ("experiment.update",)
+        return cls.fallback_policy_action_keys
 
     @classmethod
     def _holdout(cls, view, *args, **kwargs):

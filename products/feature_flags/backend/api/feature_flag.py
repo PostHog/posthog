@@ -97,6 +97,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ApprovalPolicy
+from products.approvals.backend.ownership import scope_by_owner_enabled
 from products.approvals.backend.policies import lock_approval_policies
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
@@ -318,6 +319,15 @@ V2_SAFETY_FIELDS = frozenset({"version", "active", "deleted"})
 V2_UPDATE_FIELDS = V2_SAFETY_FIELDS | {"filters", "name", "key", "tags"}
 V2_CREATE_FIELDS = V2_UPDATE_FIELDS - {"deleted"}
 V2_APPROVAL_ACTIONS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
+# Every family that can gate a flag write. The gate offers all of them and the product that
+# owns the flag decides which one evaluates, so an experiment's flag is governed wherever it is
+# edited rather than only through the experiment endpoints. See approvals' `ownership` module.
+FLAG_WRITE_APPROVAL_ACTIONS = (
+    *V2_APPROVAL_ACTIONS,
+    "experiment.launch",
+    "experiment.pause",
+    "experiment.update",
+)
 
 _MISSING: Any = object()
 
@@ -1922,9 +1932,11 @@ class FeatureFlagSerializer(
         # Deliberately broader than the gate's own detect(): any enabled flag-write policy on
         # this team or its organization denies the write, because a v2 change that needs
         # approval has nowhere to go. Existence only, so PolicyEngine's precedence is irrelevant.
+        # Before rollout the experiment policies are unenforced copies, so they deny nothing.
+        action_keys = FLAG_WRITE_APPROVAL_ACTIONS if scope_by_owner_enabled(team.organization) else V2_APPROVAL_ACTIONS
         if (
             ApprovalPolicy.objects.enabled()
-            .filter(organization_id=team.organization_id, action_key__in=V2_APPROVAL_ACTIONS)
+            .filter(organization_id=team.organization_id, action_key__in=action_keys)
             .filter(Q(team=team) | Q(team__isnull=True))
             .exists()
         ):
@@ -2616,7 +2628,7 @@ class FeatureFlagSerializer(
 
         return instance
 
-    @approval_gate(list(V2_APPROVAL_ACTIONS))
+    @approval_gate(list(FLAG_WRITE_APPROVAL_ACTIONS))
     def update(self, instance: FeatureFlag, validated_data: dict, *args: Any, **kwargs: Any) -> FeatureFlag:
         request = self.context["request"]
         # Service-layer callers may carry no body, and an endpoint that declares no request schema

@@ -4422,6 +4422,39 @@ class TestExperimentService(APIBaseTest):
         assert experiment.feature_flag.filters == original_filters
         assert experiment.is_exposure_frozen is False
 
+    @contextmanager
+    def _experiment_flag_edits_need_approval(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="experiment.update",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=True):
+            yield
+
+    def test_freeze_exposure_needing_approval_keeps_the_request_and_its_cohort(self):
+        experiment = self._create_running_experiment(name="Freeze Approval", feature_flag_key="freeze-approval-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        with self._stub_freeze_population(), self._experiment_flag_edits_need_approval():
+            with self.assertRaises(ApprovalRequired) as caught:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+
+        change_request = ChangeRequest.objects.get(id=caught.exception.change_request.id)
+        assert change_request.action_key == "experiment.update"
+        # The approved request writes filters that point at the snapshot, so it must outlive the freeze call.
+        assert Cohort.objects.filter(
+            team=self.team, name='Exposure snapshot for experiment "Freeze Approval"', deleted=False
+        ).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+
     def test_freeze_exposure_rejects_when_no_users_exposed(self):
         experiment = self._create_running_experiment(name="Freeze Empty", feature_flag_key="freeze-empty-flag")
         original_filters = deepcopy(experiment.feature_flag.filters)
@@ -4848,6 +4881,19 @@ class TestExperimentService(APIBaseTest):
         ).latest("created_at")
         assert flag_log.detail is not None
         assert flag_log.detail["trigger"]["job_type"] == "experiment_exposure_unfrozen"
+
+    def test_reset_experiment_needing_approval_keeps_the_request(self):
+        experiment = self._create_running_experiment(name="Reset Approval", feature_flag_key="reset-approval-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        with self._experiment_flag_edits_need_approval():
+            with self.assertRaises(ApprovalRequired) as caught:
+                self._service().reset_experiment(frozen, request=self._make_request())
+
+        assert ChangeRequest.objects.filter(id=caught.exception.change_request.id).exists()
+        frozen.refresh_from_db()
+        assert frozen.start_date is not None
 
     def test_reset_experiment_clears_freeze_without_request(self):
         experiment = self._create_running_experiment(name="Reset No Request", feature_flag_key="reset-no-request-flag")

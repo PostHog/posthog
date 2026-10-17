@@ -38,12 +38,13 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.approvals.backend.policies import PolicyEngine
+from products.approvals.backend.coverage import write_needs_approval
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE
 from products.feature_flags.backend.facade.config import detect_config_format
 from products.feature_flags.backend.facade.filters import set_feature_enrollment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.ownership import flag_owner_kind
 from products.feature_flags.backend.request_usage import (
     FeatureFlagRequestType as FeatureFlagRequestType,
     FeatureFlagRequestUsage as FeatureFlagRequestUsage,
@@ -372,10 +373,13 @@ def user_can_create_flags(*, team: Team, user: User) -> bool:
     return UserAccessControl(user=user, team=team).check_access_level_for_resource("feature_flag", "editor")
 
 
-def flag_disable_requires_approval(team: Team) -> bool:
-    """Whether an enabled approval policy gates disabling a flag for this team/org."""
-    policy = PolicyEngine().get_policy(action_key="feature_flag.disable", team=team, organization=team.organization)
-    return policy is not None
+def flag_disable_requires_approval(flag: FeatureFlag) -> bool:
+    """Whether an enabled approval policy gates disabling this flag.
+
+    Reads the policy of the family that governs the flag, which follows its owner once the
+    organization scopes policies by flag owner.
+    """
+    return write_needs_approval(flag_owner_kind(flag), "disable", flag.team, flag.team.organization)
 
 
 def serialize_flags(flags: Any, *, context: dict) -> Any:

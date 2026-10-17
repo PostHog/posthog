@@ -32,6 +32,15 @@ class BaseAction(ABC):
     fallback_policy_action_keys: tuple[str, ...] = ()
 
     @classmethod
+    def fallback_policy_action_keys_for(cls, organization) -> tuple[str, ...]:
+        """The fallback keys to try for this organization, in order.
+
+        A hook rather than the attribute, because which policy stands in for this action can
+        depend on how far the organization has moved between families.
+        """
+        return cls.fallback_policy_action_keys
+
+    @classmethod
     def _get_instance(cls, view, *args, **kwargs):
         if hasattr(view, "context") and "request" in view.context:
             # Serializer context

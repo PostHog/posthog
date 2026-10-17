@@ -7,9 +7,14 @@ checked rather than described.
 Phase 3 proved every entry point behaves alike, so this varies owner and operation over one
 entry point (the flag API) instead of multiplying by entry point.
 
-Read DECISION_TABLE as the current, pre-narrowing state: `feature_flag.*` covers every owner,
-except that a release condition change is gated on an unowned flag only. Narrowing a family to an
-owner changes cells here, and that diff is the coverage change.
+There are two tables, because scoping policies by flag owner rolls out one organization at a
+time. DECISION_TABLE is what an organization sees before it is rolled out, and
+DECISION_TABLE_NARROWED is what it sees after. COVERAGE_CHANGE names every cell that differs,
+so the coverage this change removes and the coverage it moves are asserted rather than described.
+
+A release condition change is gated on the flags the governing family owns. Before narrowing that
+is the unowned flags only, so an experiment's flag has no release condition gating; after it, the
+experiment family covers its own.
 """
 
 from typing import Any, Optional
@@ -29,7 +34,16 @@ from products.feature_flags.backend.ownership import flag_owner_kind
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
 
-GATED_ACTION_KEYS = ("feature_flag.enable", "feature_flag.disable", "feature_flag.update")
+GATED_ACTION_KEYS = (
+    "feature_flag.enable",
+    "feature_flag.disable",
+    "feature_flag.update",
+    # The organization holds these as hidden mirrors of its flag policies before it is rolled
+    # out, so both tables run against the same set of policies and only the scoping differs.
+    "experiment.launch",
+    "experiment.pause",
+    "experiment.update",
+)
 
 # A flag has no owner at the moment it is created, so the create column is not a function of
 # owner. It is covered once, under `standalone`, and marked NOT_APPLICABLE elsewhere.
@@ -76,6 +90,9 @@ EXPECTED_OWNER_KIND: dict[str, Optional[str]] = {
 ENABLE = "feature_flag.enable"
 UPDATE = "feature_flag.update"
 DISABLE = "feature_flag.disable"
+LAUNCH = "experiment.launch"
+PAUSE = "experiment.pause"
+EXP_UPD = "experiment.update"
 NA = NOT_APPLICABLE
 
 # The decision table. One row per owner, one column per operation, in the order OPERATIONS
@@ -97,7 +114,50 @@ DECISION_TABLE: dict[str, dict[str, Optional[str]]] = {
     "early_access":                _row(NA,      UPDATE,  UNGATED,  ENABLE,  DISABLE,  REJECTED),
     "session_recording_reference": _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  REJECTED),
 }
+
+# The same table once the organization evaluates policies by flag owner.
+#
+# An experiment's flags move family: the `experiment.*` policies are one-for-one mirrors of the
+# flag policies, so every cell that moves here stays gated and nobody loses an approval.
+#
+# A survey's, tour's or early access feature's flags become ungated. Surveys get a family of
+# their own next; tours and early access are excluded by decision, not by omission.
+#
+# A create has no owner yet, so it does not move. A flag a product merely references is unowned,
+# so it does not move either. A release condition change on an experiment's flag is gated by
+# nothing today and by `experiment.update` once narrowed, so that cell gains coverage rather than
+# moving or losing it.
+DECISION_TABLE_NARROWED: dict[str, dict[str, Optional[str]]] = {
+    #                                   create  update   release   enable   disable   delete
+    "standalone":                  _row(ENABLE,  UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
+    "experiment":                  _row(NA,      EXP_UPD, EXP_UPD,  LAUNCH,  PAUSE,    UNGATED),
+    "survey_owned":                _row(NA,      UNGATED, UNGATED,  UNGATED, UNGATED,  UNGATED),
+    "survey_linked":               _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
+    "tour_owned":                  _row(NA,      UNGATED, UNGATED,  UNGATED, UNGATED,  UNGATED),
+    "tour_linked":                 _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  UNGATED),
+    "early_access":                _row(NA,      UNGATED, UNGATED,  UNGATED, UNGATED,  REJECTED),
+    "session_recording_reference": _row(NA,      UPDATE,  UPDATE,   ENABLE,  DISABLE,  REJECTED),
+}
 # fmt: on
+
+# Every cell the rollout changes, as (owner, operation, before, after). A cell that moves to
+# another family keeps its approval; a cell that becomes UNGATED loses it. Asserting the whole
+# set means neither kind can be added or dropped without a reviewer seeing it here.
+COVERAGE_CHANGE: set[tuple[str, str, Optional[str], Optional[str]]] = {
+    ("experiment", "update_gated_field", UPDATE, EXP_UPD),
+    ("experiment", "update_release_condition", UNGATED, EXP_UPD),
+    ("experiment", "enable", ENABLE, LAUNCH),
+    ("experiment", "disable", DISABLE, PAUSE),
+    ("survey_owned", "update_gated_field", UPDATE, UNGATED),
+    ("survey_owned", "enable", ENABLE, UNGATED),
+    ("survey_owned", "disable", DISABLE, UNGATED),
+    ("tour_owned", "update_gated_field", UPDATE, UNGATED),
+    ("tour_owned", "enable", ENABLE, UNGATED),
+    ("tour_owned", "disable", DISABLE, UNGATED),
+    ("early_access", "update_gated_field", UPDATE, UNGATED),
+    ("early_access", "enable", ENABLE, UNGATED),
+    ("early_access", "disable", DISABLE, UNGATED),
+}
 
 CELLS = [(owner, operation) for owner in OWNERS for operation in OPERATIONS]
 
@@ -185,9 +245,15 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
         # cell must not.
         assert deleted is (expected is UNGATED), f"delete landed={deleted} but the table says {expected}"
 
-    @parameterized.expand([(f"{owner}__{operation}", owner, operation) for owner, operation in CELLS])
-    def test_cell(self, _mock_enabled, _name: str, owner: str, operation: str) -> None:
-        expected = DECISION_TABLE[owner][operation]
+    @parameterized.expand(
+        [
+            (f"{owner}__{operation}__{'narrowed' if narrowed else 'wide'}", owner, operation, narrowed)
+            for owner, operation in CELLS
+            for narrowed in (False, True)
+        ]
+    )
+    def test_cell(self, _mock_enabled, _name: str, owner: str, operation: str, narrowed: bool) -> None:
+        expected = (DECISION_TABLE_NARROWED if narrowed else DECISION_TABLE)[owner][operation]
         if expected == NOT_APPLICABLE:
             self.skipTest("a flag has no owner at creation; the create column is covered under standalone")
 
@@ -199,7 +265,8 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
             flag.refresh_from_db()
             assert flag_owner_kind(flag) == EXPECTED_OWNER_KIND[owner]
 
-        self._perform(operation, flag)
+        with patch("products.approvals.backend.ownership.scope_by_owner_enabled", return_value=narrowed):
+            self._perform(operation, flag)
         self._assert_operation_took_effect(operation, flag, expected)
 
         keys = sorted(ChangeRequest.objects.filter(team=self.team).values_list("action_key", flat=True))
@@ -207,3 +274,29 @@ class TestOwnerOperationDecisionTable(APIBaseTest):
             assert keys == [], f"{owner}/{operation} created {keys}, so it is gated after all"
         else:
             assert keys == [expected], f"{owner}/{operation} gated by {keys}, expected [{expected}]"
+
+    def test_the_rollout_changes_exactly_the_cells_coverage_change_names(self, _mock_enabled) -> None:
+        moved = {
+            (owner, operation, DECISION_TABLE[owner][operation], DECISION_TABLE_NARROWED[owner][operation])
+            for owner, operation in CELLS
+            if DECISION_TABLE[owner][operation] != DECISION_TABLE_NARROWED[owner][operation]
+        }
+        assert moved == COVERAGE_CHANGE
+
+    def test_narrowing_only_adds_coverage_for_an_experiment(self, _mock_enabled) -> None:
+        """Only an experiment's cells keep or gain coverage, and only other products lose it.
+
+        This is the claim the rollout rests on. The organizations being narrowed keep every
+        experiment approval they have today, gain one they do not, and what they lose belongs to
+        the products that get a family later or none at all.
+        """
+        gained = {owner for owner, _, before, after in COVERAGE_CHANGE if before is UNGATED and after is not UNGATED}
+        moved = {
+            owner
+            for owner, _, before, after in COVERAGE_CHANGE
+            if before is not UNGATED and after is not UNGATED and before != after
+        }
+        lost = {owner for owner, _, _, after in COVERAGE_CHANGE if after is UNGATED}
+        assert gained == {"experiment"}
+        assert moved == {"experiment"}
+        assert lost == {"survey_owned", "tour_owned", "early_access"}

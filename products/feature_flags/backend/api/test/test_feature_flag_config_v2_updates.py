@@ -660,7 +660,22 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         flag.refresh_from_db()
         assert flag.version == 3
 
-    def test_an_enabled_approval_policy_denies_the_update(self) -> None:
+    @parameterized.expand(
+        [
+            ("flag_policy", "feature_flag.update", False, True),
+            # An organization that scopes policies by flag owner governs an experiment's flags
+            # through its experiment policy. A config version 2 write has nowhere to send an
+            # approval, so that policy has to deny it too, or the one family this organization
+            # relies on would be the one a v2 write could walk past.
+            ("experiment_policy", "experiment.update", True, True),
+            # Before rollout an experiment policy is an unenforced copy of a flag policy, and it
+            # outlives a deleted flag policy until the next sync.
+            ("experiment_copy_before_rollout", "experiment.update", False, False),
+        ]
+    )
+    def test_an_enabled_approval_policy_denies_the_update(
+        self, _name: str, action_key: str, rolled_out: bool, denied: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
         ]
@@ -668,12 +683,16 @@ class TestV2AdmissionBoundary(AdmittedV2TestCase):
         ApprovalPolicy.objects.create(
             organization=self.organization,
             team=self.team,
-            action_key="feature_flag.update",
+            action_key=action_key,
             approver_config={"quorum": 1, "users": [self.user.id]},
             enabled=True,
         )
         flag = self.flag()
-        response = self.patch_flag(flag, {"version": 3, "filters": config(targeted())})
+        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=rolled_out):
+            response = self.patch_flag(flag, {"version": 3, "filters": config(targeted())})
+        if not denied:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            return
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "unsupported_config_version"
         flag.refresh_from_db()
