@@ -534,10 +534,10 @@ Diffed against: <https://amplitude.com/docs/apis>
 - [x] `GET /api/2/taxonomy/event-property` — event property definitions and types, needed to interpret the events table (high)
 - [x] `GET /api/2/taxonomy/user-property` — user property catalog with types and descriptions (high)
 - [x] `GET /api/2/taxonomy/category` — event category lookup resolving the category IDs on event types (medium)
-- [ ] `GET /api/2/taxonomy/group-property` — group property catalog for account-level analysis (medium)
-- [ ] `GET /api/2/release` — release markers to join against event timestamps, the sibling of the annotations table already synced (medium)
-- [ ] `GET /api/2/audit-logs/{ORG_ID}` — org-level change history for charts, cohorts and permissions (medium)
-- [ ] `GET /api/3/chart/{chart_id}/query` — results of saved charts, so warehouse numbers match what teams see in Amplitude (medium)
+- [x] `GET /api/2/taxonomy/group-property` — group property catalog for account-level analysis (medium). Added as `group_properties` (shared group properties only, because no Taxonomy endpoint lists group types).
+- ~~`GET /api/2/release` — release markers to join against event timestamps, the sibling of the annotations table already synced (medium)~~ — skipped: the Releases API documents only `POST`, so there is no list call
+- ~~`GET /api/2/audit-logs/{ORG_ID}` — org-level change history for charts, cohorts and permissions (medium)~~ — skipped: the call is a `POST` that needs organization keys issued by Amplitude Support, not the project keys this source uses
+- ~~`GET /api/3/chart/{chart_id}/query` — results of saved charts, so warehouse numbers match what teams see in Amplitude (medium)~~ — skipped: it needs a chart ID from the web app URL (no list call), and the response shape changes with the chart type
 - [ ] `GET /api/2/funnels` — funnel conversion results as Amplitude computes them (medium)
 - [ ] `GET /api/2/retention` — retention curves as Amplitude computes them (medium)
 - [ ] `GET /api/2/composition` — user composition breakdown by property value (low)
