@@ -53,10 +53,51 @@ describe('slack template', () => {
 
         const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
             status: 200,
-            body: { ok: true },
+            body: { ok: true, channel: 'C0123ABC', ts: '1700000000.000100', message: { blocks: [] } },
         })
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
+        expect(fetchResponse.execResult).toEqual({ channel: 'C0123ABC', ts: '1700000000.000100' })
+    })
+
+    it('should update a message when update_ts is set', async () => {
+        const response = await tester.invoke({
+            ...commonInputs,
+            update_ts: '1700000000.000100',
+            thread_ts: '1699999999.000000',
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.invocation.queueParameters).toMatchObject({
+            url: 'https://slack.com/api/chat.update',
+            method: 'POST',
+            headers: { Authorization: 'Bearer xoxb-1234' },
+        })
+        // chat.update does not accept the appearance fields or thread_ts.
+        expect(bodyOf(response.invocation.queueParameters)).toEqual({
+            channel: 'channel',
+            ts: '1700000000.000100',
+            blocks: [],
+            text: 'hello',
+        })
+
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
+            status: 200,
+            body: { ok: true, channel: 'C0123ABC', ts: '1700000000.000100', message: { blocks: [] } },
+        })
+        expect(fetchResponse.finished).toBe(true)
+        expect(fetchResponse.execResult).toEqual({ channel: 'C0123ABC', ts: '1700000000.000100' })
+    })
+
+    it.each([
+        ['unset', undefined],
+        ['empty', ''],
+        ['null', null],
+    ])('should post a new message when update_ts is %s', async (_name, update_ts) => {
+        const response = await tester.invoke({ ...commonInputs, update_ts })
+
+        expect(response.error).toBeUndefined()
+        expect(response.invocation.queueParameters).toMatchObject({ url: 'https://slack.com/api/chat.postMessage' })
     })
 
     it.each([
@@ -127,8 +168,13 @@ describe('slack template', () => {
     it.each([
         ['a non-200 status', { status: 400, body: { ok: true } }, "Failed to post message to Slack: 400: {'ok': true}"],
         ['ok: false', { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],
-    ])('should throw on %s', async (_name, fetchResponse, expectedError) => {
-        let response = await tester.invoke(commonInputs)
+        [
+            'an update with ok: false',
+            { status: 200, body: { ok: false }, update_ts: '1700000000.000100' },
+            "Failed to update Slack message: 200: {'ok': false}",
+        ],
+    ])('should throw on %s', async (_name, { update_ts, ...fetchResponse }: any, expectedError) => {
+        let response = await tester.invoke({ ...commonInputs, update_ts })
         response = await tester.invokeFetchResponse(response.invocation, fetchResponse)
 
         expect(response.error).toEqual(expectedError)
