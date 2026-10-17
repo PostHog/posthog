@@ -602,6 +602,57 @@ def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars()
     assert "__hogql_match[5]" in sql
 
 
+@pytest.mark.parametrize(
+    "pattern, expected",
+    [
+        ("a[[]1m[]]$", r"a[\[]1m[\]]$"),
+        ("[^]x]", r"[^\]x]"),
+        (r"[a-z]\\[", r"[a-z]\["),
+        ("[[:alpha:]]+", "[[:alpha:]]+"),
+    ],
+)
+def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected: str) -> None:
+    context = _context_with_trino_table()
+    prepare_and_print_ast(parse_select(f"SELECT match(user_id, '{pattern}') FROM users"), context, "trino")
+
+    assert list(context.values.values()) == [expected]
+
+
+@pytest.mark.parametrize(
+    "query, required, forbidden",
+    [
+        (
+            "SELECT m['a'] FROM (SELECT JSONExtract(properties, 'Map(String, Float64)') AS m FROM users)",
+            'element_at("m"',
+            'json_extract_scalar("m"',
+        ),
+        (
+            "WITH b AS (SELECT toDate(now()) - 1 AS latest) "
+            "SELECT count() FROM users CROSS JOIN b WHERE toDate(created_at) > b.latest - 14",
+            'date_add(\'day\', CAST(-(14) AS BIGINT), "b"."latest")',
+            '"b"."latest" - 14',
+        ),
+        (
+            "SELECT toDate(created_at) + late FROM users ARRAY JOIN range(1, 8) AS late",
+            'date_add(\'day\', CAST("__trino_unnest_0"."late" AS BIGINT)',
+            '+ "__trino_unnest_0"."late"',
+        ),
+        ("SELECT user_id AS owner FROM users HAVING owner != ''", "WHERE", "HAVING"),
+        (
+            "SELECT toFloat(user_id) FROM users",
+            'TRY_CAST("users"."user_id" AS DOUBLE)',
+            'CAST("users"."user_id" AS DOUBLE)',
+        ),
+        ("SELECT toDate(user_id) FROM users", "TRY", 'CAST("users"."user_id" AS DATE)'),
+    ],
+)
+def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:
+    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+
+    assert required in sql
+    assert forbidden not in sql.replace(required, "")
+
+
 def test_first_regex_replacement_preserves_inline_flags() -> None:
     context = _context_with_trino_table()
     prepare_and_print_ast(parse_select("SELECT replaceRegexpOne(user_id, '(?i)a', 'b') FROM users"), context, "trino")
