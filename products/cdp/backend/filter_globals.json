@@ -117,6 +117,7 @@
         "sha1HmacChainHex",
         "sha256",
         "sha256Hex",
+        "sha256HmacBase64Key",
         "sha256HmacChain",
         "sha256HmacChainHex",
         "splitByString",
