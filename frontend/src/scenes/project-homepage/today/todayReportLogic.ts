@@ -584,16 +584,15 @@ export const todayReportLogic = kea<todayReportLogicType>([
                 if (values.fullReport && !values.fullReportLoading) {
                     captureOpen(open, values.fullReport)
                 } else {
-                    cache.pendingOpen = open
+                    // A step away and back before the fetch ends is two visits, so each one keeps its own open.
+                    cache.pendingOpens = [...(cache.pendingOpens ?? []), open]
                 }
             },
             loadFullReportSuccess: ({ fullReport }) => {
                 actions.loadKeyClauses()
-                const open: TodayPendingOpen | null = cache.pendingOpen
-                cache.pendingOpen = null
-                if (open) {
-                    captureOpen(open, fullReport)
-                }
+                const opens: TodayPendingOpen[] = cache.pendingOpens ?? []
+                cache.pendingOpens = []
+                opens.forEach((open) => captureOpen(open, fullReport))
             },
             loadPageSuccess: () => {
                 actions.loadKeyClauses()
