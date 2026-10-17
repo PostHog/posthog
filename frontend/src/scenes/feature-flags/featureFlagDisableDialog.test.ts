@@ -11,10 +11,11 @@ describe('openFeatureFlagDisableDialog', () => {
     let onDisableAndArchive: jest.Mock
     let openDialog: jest.SpyInstance
 
-    const open = (): void =>
+    const open = (archived = false): void =>
         openFeatureFlagDisableDialog({
             source: 'feature-flags-list',
             filters: { groups: [] },
+            archived,
             onDisable,
             onDisableAndArchive,
         })
@@ -43,6 +44,12 @@ describe('openFeatureFlagDisableDialog', () => {
             children: 'Disable and archive',
             status: 'danger',
         })
+    })
+
+    it('hides "Disable and archive" for a flag that is already archived', () => {
+        open(true)
+
+        expect(openDialog.mock.calls[0][0].secondaryButton).toBeNull()
     })
 
     // A fresh dialog per case, so each one can assert the other callback stayed untouched.

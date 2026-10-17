@@ -27,16 +27,18 @@ const ROLLBACK_DESCRIPTION = 'This flag will be immediately rolled back from the
 export function openFeatureFlagDisableDialog({
     source,
     filters,
+    archived,
     onDisable,
     onDisableAndArchive,
 }: {
     source: FeatureFlagDisableDialogSource
     filters: FeatureFlagConfig | undefined
+    archived: boolean | undefined
     onDisable: () => void
     onDisableAndArchive: () => void
 }): void {
     posthog.capture('feature flag disable confirmation shown', { source })
-    const offerArchive = canArchiveFeatureFlag(filters)
+    const offerArchive = !archived && canArchiveFeatureFlag(filters)
 
     const selectDisable = (): void => {
         reportFeatureFlagDisableDialogOptionSelected(source, 'disable')
