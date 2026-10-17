@@ -24,6 +24,8 @@ def reject_retired_type(value: str) -> str:
 
 
 class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
+    created: bool = True
+
     class Meta:
         model = FileSystemShortcut
         fields = [
@@ -95,7 +97,6 @@ class FileSystemShortcutSerializer(FileSystemAccessLevelSerializerMixin, seriali
                 surface=surface,
                 **validated_data,
             )
-        self.created = True
         return file_system_shortcut
 
 
@@ -176,7 +177,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = self.get_serializer(data=request.data)
+        serializer = cast(FileSystemShortcutSerializer, self.get_serializer(data=request.data))
         serializer.is_valid(raise_exception=True)
         serializer.save()
         # Clients count a star as added only on 201, so a repeated star does not count twice.
