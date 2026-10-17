@@ -30,7 +30,13 @@ from posthog.hogql.database.schema.log_entries import (
 )
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.database.trino_unnest_table import resolve_internal_trino_table_function
-from posthog.hogql.errors import ImpossibleASTError, NotImplementedError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    FieldNotFoundError,
+    ImpossibleASTError,
+    NotImplementedError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.escape_sql import safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
 from posthog.hogql.functions.action import matches_action
@@ -60,6 +66,7 @@ from posthog.hogql.resolver_utils import (
     lookup_table_by_nested_name,
     suggest_field_names,
     suggested_field_fix,
+    suggested_qualified_field_fix,
 )
 from posthog.hogql.transforms.trino.persons import (
     lower_trino_table,
@@ -2567,6 +2574,11 @@ class Resolver(CloningVisitor):
 
             try:
                 loop_type = loop_type.get_child(str(next_chain), self.context)
+            except FieldNotFoundError as e:
+                if e.start is not None or not e.suggestions:
+                    raise
+                fix = suggested_qualified_field_fix(node, resolved_chain, e.suggestions[0])
+                raise FieldNotFoundError(str(next_chain), e.suggestions, node=node, fix=fix) from e
             except NotImplementedError:
                 raise QueryError(
                     f"Cannot access property '{next_chain}' on '{'.'.join(resolved_chain)}'. "

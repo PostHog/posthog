@@ -314,17 +314,20 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),
-            ("SELECT distnct_id FROM events", "distnct_id", "distinct_id"),
+            ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp", "timestamp"),
+            ("SELECT distnct_id FROM events", "distnct_id", "distinct_id", "distinct_id"),
+            ("SELECT e.tiemstamp FROM events AS e", "e.tiemstamp", "timestamp", "e.timestamp"),
         ]
     )
-    def test_metadata_offers_a_quick_fix_for_a_misspelled_field(self, query: str, misspelling: str, expected_fix: str):
+    def test_metadata_offers_a_quick_fix_for_a_misspelled_field(
+        self, query: str, misspelling: str, expected_suggestion: str, expected_fix: str
+    ):
         metadata = self._select(query)
 
         self.assertFalse(metadata.isValid)
         self.assertEqual(len(metadata.errors), 1)
         error = metadata.errors[0]
-        self.assertIn(f"Did you mean: {expected_fix}", error.message)
+        self.assertIn(f"Did you mean: {expected_suggestion}", error.message)
         self.assertEqual(error.fix, expected_fix)
         # The editor substitutes `fix` for the marked range, so the range has to cover the
         # misspelling and nothing else. A span of None marks the whole query.
