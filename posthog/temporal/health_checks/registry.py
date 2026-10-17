@@ -30,6 +30,7 @@ HEALTH_CHECK_MODULES = [
     "products.error_tracking.backend.temporal.health_checks.missing_source_maps",
     "products.feature_flags.backend.temporal.health_checks.stale_flags",
     "products.experiments.backend.temporal.health_checks.flag_state",
+    "products.experiments.backend.temporal.health_checks.forced_variant",
 ]
 
 _registry_loaded = False
