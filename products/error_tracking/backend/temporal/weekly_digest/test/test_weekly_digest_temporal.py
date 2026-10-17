@@ -233,6 +233,27 @@ class TestSendOrgDigest(ClickhouseTestMixin, APIBaseTest):
         assert result == SendOrgDigestResult(sent=1, teams_built=1)
         assert not MessagingRecord.objects.filter(sent_at__isnull=False).exists()
 
+    def test_failed_send_releases_the_claim_so_the_retry_sends(self):
+        _create_event(distinct_id="user_a", event="$exception", team=self.team, properties={}, timestamp=_days_ago(1))
+        flush_persons_and_events()
+
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.id): True}
+        }
+        self.user.save()
+
+        with patch(_WEBHOOK_POST, side_effect=Exception("webhook unavailable")):
+            with pytest.raises(ApplicationError, match="failed for 1 recipients") as exc_info:
+                self._run()
+        assert exc_info.value.details == (0,)
+        assert not MessagingRecord.objects.filter(sent_at__isnull=False).exists()
+
+        with patch(_WEBHOOK_POST) as mock_post:
+            result = self._run(attempt=2)
+
+        assert mock_post.call_count == 1
+        assert result == SendOrgDigestResult(sent=1, teams_built=1)
+
     @parameterized.expand([("eligible_role", "engineering", 1), ("ineligible_role", "marketing", 0)])
     def test_dry_run_simulates_auto_select_without_enrolling(self, _name, role, expected_sent):
         # Auto-select is one-shot, so a dry run that wrote it would change what the next real run sends.
