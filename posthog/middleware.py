@@ -525,24 +525,18 @@ API_REQUESTS_LATENCY_SECONDS = Histogram(
     # or "error" when the view raised before producing one — keeps error-path
     # latency from polluting success buckets while still recording it.
     labelnames=["view", "method", "source", "access_method", "status_class"],
-    # Same buckets as django_prometheus' default so we line up with
-    # django_http_requests_latency_seconds_by_view_method.
+    # Use fewer buckets to reduce per-view series while retaining fast and long-tail latency thresholds.
     buckets=(
         0.01,
-        0.025,
         0.05,
-        0.075,
         0.1,
         0.25,
         0.5,
-        0.75,
         1.0,
         2.5,
         5.0,
-        7.5,
         10.0,
         25.0,
-        50.0,
         75.0,
         float("inf"),
     ),
