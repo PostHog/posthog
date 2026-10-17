@@ -134,10 +134,12 @@ def _event_definitions_source_sql(
     # `event_definition_proj_uniq`, so the planner can seek that index for the project scope and
     # for any `name` equality in `conditions`. The equivalent form
     # `project_id = X OR (project_id IS NULL AND team_id = X)` matches no index at all.
+    # The bigint cast lets a large project's search seek `eventdef_proj_name_trgm`. The driver sends a
+    # project id as int4, and that index has no int4 operator for the project column.
     return f"""
             FROM posthog_eventdefinition
             {enterprise_join}
-            WHERE COALESCE(project_id, team_id) = %(project_id)s
+            WHERE COALESCE(project_id, team_id) = %(project_id)s::bigint
             {conditions}
         """
 
@@ -461,6 +463,7 @@ class EventDefinitionViewSet(
         )
         large_project = scale is not None and scale.large
         # A small project is cheaper to search through its own index than through the global trigram index.
+        # A large project's search seeks `eventdef_proj_name_trgm`, which reads only that project's matches.
         search_query, search_kwargs = term_search_filter_sql(
             self.search_fields, search, avoid_trigram_index=not large_project
         )

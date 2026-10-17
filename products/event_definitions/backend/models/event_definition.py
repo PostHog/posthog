@@ -1,5 +1,7 @@
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.db import models
+from django.db.models import F
+from django.db.models.functions import Coalesce
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
@@ -58,6 +60,15 @@ class EventDefinition(Taggable, UUIDTModel):
                 fields=["name"],
                 opclasses=["gin_trgm_ops"],
             ),  # To speed up DB-based fuzzy searching
+            # The trigram index above holds every project's names, so a search reads the matches of all
+            # projects before the scope filter. This one leads with the project, so a large project's search
+            # reads only its own matches. A query must compare the scope to a bigint, because `int8_ops`
+            # has no cross-type operator and an int4 value drops the project column from the index.
+            GinIndex(
+                OpClass(Coalesce(F("project_id"), F("team_id")), name="int8_ops"),
+                OpClass(F("name"), name="gin_trgm_ops"),
+                name="eventdef_proj_name_trgm",
+            ),
             models.Index(
                 fields=["team_id"],
                 name="posthog_eventdef_enforce_idx",

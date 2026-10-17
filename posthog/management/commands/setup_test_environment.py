@@ -112,6 +112,7 @@ def disable_migrations() -> None:
             # :TRICKY: Create extension and function depended on by models.
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+                cursor.execute("CREATE EXTENSION IF NOT EXISTS btree_gin")
                 cursor.execute("CREATE EXTENSION IF NOT EXISTS ltree")
 
             return super().handle(*args, **kwargs)
