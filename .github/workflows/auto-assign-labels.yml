@@ -45,6 +45,11 @@ jobs:
               with:
                   # MUST be `master` so we never execute untrusted PR code.
                   ref: master
+                  sparse-checkout: |
+                      /.github/
+                      /.nvmrc
+                      .gitattributes
+                  sparse-checkout-cone-mode: false
 
             # No fork guard: pull_request_target runs in base context, so org
             # secrets are available even when the PR comes from a fork.
