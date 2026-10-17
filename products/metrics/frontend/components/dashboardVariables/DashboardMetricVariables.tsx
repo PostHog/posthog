@@ -10,7 +10,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 
 import { dashboardMetricVariablesLogic } from './dashboardMetricVariablesLogic'
-import { ownValue } from './metricVariables'
+import { ownValue, variablesToReload } from './metricVariables'
 import { MetricVariableSelect } from './MetricVariableSelect'
 import { MetricVariablesModal } from './MetricVariablesModal'
 
@@ -36,7 +36,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
         onSelectionsChange: change,
     })
     const { options, loadingNames, errors, pendingVariables } = useValues(logic)
-    const { retry, select } = useActions(logic)
+    const { retry, select, stage } = useActions(logic)
 
     if (!dashboard) {
         return null
@@ -75,7 +75,7 @@ export function DashboardMetricVariables(): JSX.Element | null {
                     onClose={() => setEditorOpen(false)}
                     onSave={(next) => {
                         setEditorOpen(false)
-                        change(next)
+                        stage(next, variablesToReload(variables, next))
                     }}
                 />
             )}

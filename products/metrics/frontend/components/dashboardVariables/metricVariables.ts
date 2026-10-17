@@ -22,13 +22,57 @@ export function referencedNames(text: string | null | undefined): string[] {
     return [...names]
 }
 
+const SQL_REFERENCE = /\$\{([A-Za-z0-9_]+)(?::[A-Za-z0-9_]+)?\}|\$([A-Za-z0-9_]+)/y
+
+/** Follows the backend: comments and quoted identifiers hold no references, and `[[x]]` is a nested array. */
+export function sqlReferencedNames(sql: string | null | undefined): string[] {
+    const text = sql ?? ''
+    const names = new Set<string>()
+    let index = 0
+    while (index < text.length) {
+        const char = text[index]
+        const lineComment =
+            text.startsWith('--', index) ||
+            text.startsWith('//', index) ||
+            (char === '#' && !/[0-9]/.test(text[index + 1] ?? ''))
+        if (lineComment) {
+            const end = text.indexOf('\n', index)
+            index = end < 0 ? text.length : end
+        } else if (text.startsWith('/*', index)) {
+            const end = text.indexOf('*/', index + 2)
+            index = end < 0 ? text.length : end + 2
+        } else if (char === "'" || char === '"' || char === '`') {
+            let end = index + 1
+            while (end < text.length && text[end] !== char) {
+                end += text[end] === '\\' ? 2 : 1
+            }
+            if (char === "'") {
+                referencedNames(text.slice(index + 1, end)).forEach((name) => names.add(name))
+            }
+            index = end + 1
+        } else {
+            SQL_REFERENCE.lastIndex = index
+            const match = SQL_REFERENCE.exec(text)
+            const previous = text[index - 1] ?? ''
+            if (match && !/[A-Za-z0-9_.$]/.test(previous)) {
+                names.add(match[1] ?? match[2])
+                index = SQL_REFERENCE.lastIndex
+            } else {
+                index += 1
+            }
+        }
+    }
+    return [...names].filter((name) => !name.startsWith('__') && !/^[0-9]+$/.test(name))
+}
+
 /** Includes the variable itself when its query refers to it, so that `orderVariables` reports the loop. */
 export function variableParents(variable: MetricsDashboardVariable, variables: MetricsDashboardVariable[]): string[] {
     if (variable.source !== 'promql' && variable.source !== 'sql') {
         return []
     }
     const names = new Set(variables.map((other) => other.name))
-    return referencedNames(variable.query).filter((name) => names.has(name))
+    const referenced = variable.source === 'sql' ? sqlReferencedNames(variable.query) : referencedNames(variable.query)
+    return referenced.filter((name) => names.has(name))
 }
 
 export function orderVariables(variables: MetricsDashboardVariable[]): { order: string[]; cycle: string[] } {
@@ -118,8 +162,13 @@ export function applyVariableRegex(options: string[], regex: string | null | und
     const matched: string[] = []
     for (const option of options) {
         const matcher = pattern.matcher(option)
-        if (matcher.find()) {
-            matched.push(matcher.groupCount() > 0 ? (matcher.group(1) ?? option) : option)
+        if (!matcher.find()) {
+            continue
+        }
+        // An option whose group does not take part in the match has no value, as on the backend.
+        const value = matcher.groupCount() > 0 ? matcher.group(1) : option
+        if (value) {
+            matched.push(value)
         }
     }
     return [...new Set(matched)]
