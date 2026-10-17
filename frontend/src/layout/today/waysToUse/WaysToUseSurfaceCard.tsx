@@ -2,10 +2,7 @@ import { ReactNode, useId } from 'react'
 
 import { Heading, Text } from '@posthog/quill'
 
-const ENTER_DELAYS = ['delay-0', 'delay-60', 'delay-120', 'delay-180']
-
 export interface WaysToUseSurfaceCardProps {
-    order: number
     logo: ReactNode
     title: string
     description: string
@@ -14,7 +11,6 @@ export interface WaysToUseSurfaceCardProps {
 }
 
 export function WaysToUseSurfaceCard({
-    order,
     logo,
     title,
     description,
@@ -26,11 +22,10 @@ export function WaysToUseSurfaceCard({
     return (
         <section
             aria-labelledby={titleId}
-            className={`group/card relative row-span-3 grid min-w-0 grid-rows-subgrid gap-y-3 @md:@max-3xl:row-span-1 @md:@max-3xl:grid-cols-2 @md:@max-3xl:grid-rows-none @md:@max-3xl:content-start @md:@max-3xl:gap-x-4 transition duration-300 ease-out group-data-[starting-style]/popup:translate-y-2 group-data-[starting-style]/popup:opacity-0 motion-reduce:transition-none ${ENTER_DELAYS[order]}`}
+            className="group/card relative row-span-3 grid min-w-0 grid-rows-subgrid gap-y-3 @md:@max-3xl:row-span-1 @md:@max-3xl:grid-cols-2 @md:@max-3xl:grid-rows-none @md:@max-3xl:content-start @md:@max-3xl:gap-x-4 transition duration-300 ease-out group-data-[starting-style]/popup:translate-y-2 group-data-[starting-style]/popup:opacity-0 nth-2:delay-60 nth-3:delay-120 motion-reduce:transition-none"
         >
             <div
-                aria-hidden
-                className="pointer-events-none relative h-48 overflow-hidden rounded-xl border border-border bg-fill-hover select-none @md:@max-3xl:row-span-2"
+                className="relative h-48 overflow-hidden rounded-xl border border-border bg-fill-hover @md:@max-3xl:row-span-2"
                 {...{ inert: '' }}
             >
                 <span className="absolute top-4 left-4 flex size-6 items-center justify-center">{logo}</span>

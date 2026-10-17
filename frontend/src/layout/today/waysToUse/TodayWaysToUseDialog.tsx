@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { IconMCP } from '@posthog/icons'
 import {
     Button,
     Dialog,
@@ -13,8 +14,16 @@ import {
     Highlight,
 } from '@posthog/quill'
 
+import { Logomark } from 'lib/brand'
+import { IconSlack } from 'lib/lemon-ui/icons'
+import { urls } from 'scenes/urls'
+
+import { McpIllustration } from './illustrations/McpIllustration'
+import { SlackIllustration } from './illustrations/SlackIllustration'
+import { WebAppIllustration } from './illustrations/WebAppIllustration'
 import { waysToUseLogic } from './waysToUseLogic'
-import { WaysToUseSurfaces } from './WaysToUseSurfaces'
+import { WaysToUseSurfaceCard } from './WaysToUseSurfaceCard'
+import { WaysToUseSurfaceLink } from './WaysToUseSurfaceLink'
 
 export function TodayWaysToUseDialog(): JSX.Element {
     const { isOpen } = useValues(waysToUseLogic)
@@ -42,7 +51,46 @@ export function TodayWaysToUseDialog(): JSX.Element {
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
-                    <WaysToUseSurfaces onSurfaceLinkClick={(surface) => closeWaysToUse('surface_link', surface)} />
+                    <div className="@container">
+                        <div className="grid grid-cols-1 gap-x-4 gap-y-8 @3xl:grid-cols-3">
+                            <WaysToUseSurfaceCard
+                                logo={<Logomark size="xs" />}
+                                title="In the web app"
+                                description="See what changed today, ask PostHog AI, and open any product."
+                                illustration={<WebAppIllustration />}
+                                action={
+                                    <WaysToUseSurfaceLink surface="chat" to={urls.taskNewSession()}>
+                                        Start a chat
+                                    </WaysToUseSurfaceLink>
+                                }
+                            />
+                            <WaysToUseSurfaceCard
+                                logo={<IconSlack className="size-5" />}
+                                title="In Slack"
+                                description="Mention @PostHog with a data question, quick fix, or chore."
+                                illustration={<SlackIllustration />}
+                                action={
+                                    <WaysToUseSurfaceLink
+                                        surface="slack"
+                                        to={urls.settings('environment-integrations')}
+                                    >
+                                        Connect Slack
+                                    </WaysToUseSurfaceLink>
+                                }
+                            />
+                            <WaysToUseSurfaceCard
+                                logo={<IconMCP className="size-5" />}
+                                title="In your coding agent"
+                                description="Plug PostHog into Claude, Cursor, and anything else that speaks MCP."
+                                illustration={<McpIllustration />}
+                                action={
+                                    <WaysToUseSurfaceLink surface="mcp" to={urls.settings('posthog-mcp')}>
+                                        Set up MCP
+                                    </WaysToUseSurfaceLink>
+                                }
+                            />
+                        </div>
+                    </div>
                 </DialogBody>
                 <DialogFooter className="sm:justify-center">
                     <Button

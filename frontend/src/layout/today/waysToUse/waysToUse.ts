@@ -18,7 +18,7 @@ export interface WaysToUseEligibility {
     now: number
 }
 
-export function isNewcomer(user: UserType, now: number): boolean {
+function isNewcomer(user: UserType, now: number): boolean {
     const joinedAt = Date.parse(user.date_joined)
     return !Number.isNaN(joinedAt) && now - joinedAt < NEWCOMER_WINDOW_MS
 }
@@ -34,8 +34,4 @@ export function shouldOfferWaysToUse({
         return false
     }
     return !user.has_seen_product_intro_for?.[WAYS_TO_USE_SEEN_KEY] && isNewcomer(user, now)
-}
-
-export function parseWaysToUseParam(value: unknown): boolean {
-    return value === 1 || value === '1' || value === true || value === 'true'
 }

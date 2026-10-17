@@ -2,7 +2,12 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
+import { welcomeDialogLogic } from 'scenes/welcome/welcomeDialogLogic'
 
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
@@ -45,15 +50,51 @@ describe('waysToUse', () => {
         expect(shouldOfferWaysToUse(eligibility(overrides))).toBe(false)
     })
 
-    describe('closing', () => {
+    describe('logic', () => {
         let logic: ReturnType<typeof waysToUseLogic.build>
 
         beforeEach(() => {
+            jest.useFakeTimers({ now: NOW })
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+                [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            })
             userLogic.mount()
             userLogic.actions.loadUserSuccess(user())
+            sceneLogic.mount()
             logic = waysToUseLogic()
             logic.mount()
+            jest.runOnlyPendingTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        const openScene = (sceneKey: string): void => {
+            sceneLogic.actions.setScene(Scene.ProjectHomepage, sceneKey, {
+                params: {},
+                searchParams: {},
+                hashParams: {},
+            })
+        }
+
+        it.each([
+            ['opens on Today home', 'projectHomepage', true],
+            ['stays closed over a Today report, which shares the home scene', 'todayReport', false],
+        ])('%s', (_label, sceneKey, isOpen) => {
+            openScene(sceneKey)
+            expect(logic.values.isOpen).toBe(isOpen)
+        })
+
+        it.each([
+            ['closed', () => welcomeDialogLogic.actions.markClosed('membership', NOW)],
+            ['dismissed', () => welcomeDialogLogic.actions.markDismissed('membership')],
+        ])('stays closed for the rest of the session once the welcome dialog was %s', (_label, closeWelcome) => {
+            closeWelcome()
+            openScene('projectHomepage')
+            expect(logic.values.isOpen).toBe(false)
         })
 
         it('records the close against the user and keeps it closed', async () => {
