@@ -159,6 +159,9 @@ DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_CANCEL_SANDBOX_CREATION_ON_COMPLETION = "tasks-cancel-sandbox-creation-on-completion"
 _PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE = "tasks-continue-after-repository-clone-failure"
+# The agent cannot plan, commit or push in an empty fallback workspace, so new runs fail when
+# the primary repository clone fails. Secondary repositories still fall back to an empty workspace.
+_PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_ASYNC_AGENT_SHADOW_RESULT = "tasks-async-agent-shadow-result"
 _PATCH_ID_AGENT_BOOT_INTERACTION_TELEMETRY = "tasks-agent-boot-interaction-telemetry"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
@@ -2328,6 +2331,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         if will_clone:
             await self._emit_progress("clone", "in_progress", "Cloning repository", "setup", wait=False)
             continue_after_clone_failure = workflow.patched(_PATCH_ID_CONTINUE_AFTER_REPOSITORY_CLONE_FAILURE)
+            fail_on_primary_clone_failure = workflow.patched(_PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE)
 
             async def clone_repository(
                 repository: str,
@@ -2347,6 +2351,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     )
                 except Exception as error:
                     if _is_dead_sandbox_failure(error) or not continue_after_clone_failure:
+                        raise
+                    if fail_on_primary_clone_failure and repository == repositories_to_clone[0]:
                         raise
                     workflow.logger.warning(
                         "repository_clone_failed_continuing_without_repository",

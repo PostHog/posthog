@@ -7669,6 +7669,21 @@ def _capture_no_repo_selection_override(
         logger.warning("signal_report_no_repo_selection_overridden capture failed for report %s: %s", report_id, e)
 
 
+def _capture_report_task_refused_without_repository(*, team: Team, report_id: str) -> None:
+    """Record a "Create PR" refused because no repository resolved for the report. Best-effort."""
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(team.uuid),
+            event="signal_report_implementation_refused_no_repository",
+            properties={"report_id": report_id, "team_id": team.id},
+            groups=groups(team=team),
+        )
+    except Exception as e:
+        logger.warning(
+            "signal_report_implementation_refused_no_repository capture failed for report %s: %s", report_id, e
+        )
+
+
 def create_task_and_run(
     team_id: int,
     user_id: int | None,
@@ -7954,6 +7969,7 @@ def create_task(
     if warm_retry_token is not None:
         raise WarmRunActivationUnavailable("target_unavailable")
 
+    refuse_without_repository = False
     # Inbox "Create PR" doesn't pre-select a repo, so resolve one here rather than creating a
     # report-linked task that can never open a PR. "Implementation" (Create PR) and legacy clients
     # (no relationship) always resolve one. "Discuss" (and any other non-implementation label)
@@ -7996,6 +8012,12 @@ def create_task(
                 )
         if resolved_repository:
             validated_data["repository"] = resolved_repository
+        # Every caller but Desktop runs this task in a cloud sandbox, which without a repository
+        # has nothing to clone and no credential to push with. Desktop can run it locally in the
+        # person's own checkout, so only Desktop may create it repo-less.
+        refuse_without_repository = (
+            not resolved_repository and client_provenance != TaskClientProvenance.POSTHOG_DESKTOP
+        )
 
     # The credential follows the entitlement, not the repository: an entitled report task carries
     # the team's GitHub integration even when nothing resolved, so the agent can still clone what
@@ -8057,6 +8079,13 @@ def create_task(
         # open a PR that billing never counts. That is an accepted risk of a sales trial.
         if signal_report_task_relationship in (None, "implementation"):
             enforce_self_driving_free_trial(team, report_id=signal_report_id)
+    if refuse_without_repository and signal_report is not None:
+        from rest_framework.exceptions import (  # noqa: PLC0415 — keep DRF exception types off the api import path
+            ValidationError,
+        )
+
+        _capture_report_task_refused_without_repository(team=team, report_id=str(signal_report.id))
+        raise ValidationError({"repository": REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED})
 
     logger.info("Creating task with data: %s", validated_data)
     with transaction.atomic():
@@ -8691,6 +8720,10 @@ def _attach_staged_artifacts_to_run(
 
 
 REPORT_WARM_RUN_NOT_ACTIVATED = "This sandbox is waiting for the report's Ask AI question. Send it from the report."
+REPORT_IMPLEMENTATION_REPOSITORY_UNRESOLVED = (
+    "Couldn't tell which GitHub repository this report is about, so there is nowhere to open a PR. "
+    "Name the repository in the instructions for the PostHog agent (for example, owner/repo) and try again."
+)
 
 
 class WarmRunActivationUnavailable(Exception):
