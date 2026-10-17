@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useRef } from 'react'
+import { RefObject, useEffect, useRef } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonLabel, LemonTextArea, Popover } from '@posthog/lemon-ui'
@@ -13,6 +13,7 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
     const { agentPromptOpen, templateLoading } = useValues(logic)
     const { setAgentPromptOpen, copyHtmlFile } = useActions(logic)
     const loadingReason = templateLoading ? 'Wait for the template to load' : undefined
+    const triggerRef = useFocusBackOnClose(agentPromptOpen)
 
     return (
         <Popover
@@ -23,6 +24,9 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
             overlay={<AgentPrompt {...props} />}
         >
             <LemonButton
+                ref={triggerRef}
+                aria-haspopup="dialog"
+                aria-expanded={agentPromptOpen}
                 data-attr="message-template-edit-with-agent"
                 type="primary"
                 size="small"
@@ -53,6 +57,19 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
             </LemonButton>
         </Popover>
     )
+}
+
+/** Closing the popover unmounts the focused text area, so keyboard focus would fall back to the page's start. */
+function useFocusBackOnClose(open: boolean): RefObject<HTMLButtonElement> {
+    const triggerRef = useRef<HTMLButtonElement>(null)
+    const wasOpen = useRef(open)
+    useEffect(() => {
+        if (wasOpen.current && !open && document.activeElement === document.body) {
+            triggerRef.current?.focus()
+        }
+        wasOpen.current = open
+    }, [open])
+    return triggerRef
 }
 
 function AgentPrompt(props: MessageTemplateLogicProps): JSX.Element {

@@ -23,7 +23,6 @@ import type { HogFunctionType, ResourceEditedEvent, UserBasicType } from '../../
 import { workflowLogic } from '../Workflows/workflowLogic'
 import {
     TemplateSource,
-    changePromptVariableCount,
     isChangeDescribed,
     isCodeManagedTemplate,
     templateSource,
@@ -80,6 +79,7 @@ export interface messageTemplateLogicValues {
         {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -110,6 +110,7 @@ export interface messageTemplateLogicValues {
         {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -145,6 +146,9 @@ export interface messageTemplateLogicActions {
         value: true
     }
     deleteTemplate: () => {
+        value: true
+    }
+    discardChangeSentence: () => {
         value: true
     }
     duplicateTemplate: () => {
@@ -216,6 +220,7 @@ export interface messageTemplateLogicActions {
     resetTemplate: (values?: {
         change_prompt_context?: string | null | undefined
         change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -236,6 +241,7 @@ export interface messageTemplateLogicActions {
         values?: {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -310,6 +316,7 @@ export interface messageTemplateLogicActions {
         values: DeepPartial<{
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -331,6 +338,7 @@ export interface messageTemplateLogicActions {
         values: DeepPartial<{
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -365,6 +373,7 @@ export interface messageTemplateLogicActions {
     submitTemplateRequest: (template: {
         change_prompt_context?: string | null | undefined
         change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -385,6 +394,7 @@ export interface messageTemplateLogicActions {
         template: {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -406,6 +416,7 @@ export interface messageTemplateLogicActions {
     submitTemplateSuccess: (template: {
         change_prompt_context?: string | null | undefined
         change_prompt_starter?: string | null | undefined
+        change_prompt_variables?: readonly string[] | null | undefined
         content: {
             email: EmailTemplate
             templating: 'hog' | 'liquid'
@@ -426,6 +437,7 @@ export interface messageTemplateLogicActions {
         template: {
             change_prompt_context?: string | null | undefined
             change_prompt_starter?: string | null | undefined
+            change_prompt_variables?: readonly string[] | null | undefined
             content: {
                 email: EmailTemplate
                 templating: 'hog' | 'liquid'
@@ -518,6 +530,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setTransactionalTab: (tab: TransactionalTemplateTab) => ({ tab }),
         setAgentPromptOpen: (open: boolean) => ({ open }),
         setChangeSentence: (sentence: string) => ({ sentence }),
+        discardChangeSentence: true,
         copyAgentPrompt: true,
         copyHtmlFile: true,
     }),
@@ -607,6 +620,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             null as string | null,
             {
                 setChangeSentence: (_, { sentence }) => sentence,
+                discardChangeSentence: () => null,
             },
         ],
         // Another channel (the PostHog AI agent, the API, another tab) saved this template while the form
@@ -703,7 +717,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             },
         },
     })),
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions, props, values, selectors }) => ({
         resourceEdited: ({ event }) => {
             if (event.resource_type === 'MessageTemplate' && event.resource_id === props.id) {
                 actions.templateEditedElsewhere(event)
@@ -766,7 +780,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
             posthog.capture('message template agent prompt copied', {
                 ...values.agentPromptEventProperties,
-                variable_count: changePromptVariableCount(values.originalTemplate.change_prompt_context),
+                variable_count: values.originalTemplate.change_prompt_variables?.length ?? 0,
             })
             lemonToast.success(
                 'Prompt copied. Paste it into your coding agent. PostHog keeps sending the current version until your app sends or uploads the changed file.'
@@ -837,7 +851,11 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.setExternallyEdited(true)
             }
         },
-        loadTemplateSuccess: ({ template }) => {
+        loadTemplateSuccess: ({ template }, _, __, previousState) => {
+            // A sentence typed against another file's starter would point the agent at the old file.
+            if (selectors.changePromptStarter(previousState) !== values.changePromptStarter) {
+                actions.discardChangeSentence()
+            }
             if (values.isSyncingExternalEdit) {
                 // The server copy replaces the form. A Reload from the banner discards the local edits on purpose.
                 actions.resetTemplate(template)
@@ -932,6 +950,10 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             breakpoint()
             actions.duplicateTemplateDone()
             if (copy) {
+                posthog.capture('message template duplicated', {
+                    template_id: values.originalTemplate.id,
+                    code_managed: values.isCodeManaged,
+                })
                 actions.setRefusedEdits(null)
                 router.actions.push(urls.workflowsLibraryTemplate(copy.id))
             }

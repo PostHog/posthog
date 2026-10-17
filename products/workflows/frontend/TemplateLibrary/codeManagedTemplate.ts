@@ -40,11 +40,6 @@ export function isChangeDescribed(sentence: string, starter: string): boolean {
     return described !== '' && described !== starter.trim()
 }
 
-export function changePromptVariableCount(context: string | null | undefined): number {
-    const names = Array.from((context ?? '').matchAll(/\{\{\s*variables\.([A-Za-z_][\w-]*)/g), ([, name]) => name)
-    return new Set(names).size
-}
-
 function shortRef(ref: string): string {
     return GitMetadataParser.isCommitSha(ref) ? ref.slice(0, 7) : ref
 }
@@ -57,6 +52,7 @@ const SERVER_OWNED_FIELDS = [
     'source_ref',
     'change_prompt_starter',
     'change_prompt_context',
+    'change_prompt_variables',
 ] as const
 
 /** The editor sends the whole form, but the server alone sets these, so a key set elsewhere never blocks a save. */
