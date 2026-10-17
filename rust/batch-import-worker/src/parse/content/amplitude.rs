@@ -8,11 +8,16 @@ use serde_json::Value;
 use tracing::error;
 use uuid::Uuid;
 
-use super::TransformContext;
+use super::{is_placeholder_distinct_id, TransformContext};
 use crate::cache::{group_cache::GroupChanges, GroupCache};
 use crate::parse::format::{extract_between, extract_field_name, UserFacingParseError};
 
 mod identify;
+
+/// Stop injecting `$identify` for a user_id after it links this many devices.
+/// A real user rarely has this many; a shared or placeholder id often does,
+/// and each extra merge folds unrelated devices into one person.
+const MAX_IDENTIFIED_DEVICES_PER_USER: u64 = 100;
 
 /// Represents a group that has changed properties
 #[derive(Debug, Clone)]
@@ -615,7 +620,14 @@ impl AmplitudeEvent {
 
             // Check if we need to inject an $identify event
             if context.generate_identify_events {
-                if let (Some(user_id), Some(device_id)) = (&amp.user_id, &amp.device_id) {
+                if let (Some(user_id), Some(device_id)) = (
+                    amp.user_id
+                        .as_ref()
+                        .filter(|id| !is_placeholder_distinct_id(id)),
+                    amp.device_id
+                        .as_ref()
+                        .filter(|id| !is_placeholder_distinct_id(id)),
+                ) {
                     // Check cache to see if we've seen this user-device combination
                     let cache_result = context
                         .identify_cache
@@ -624,19 +636,6 @@ impl AmplitudeEvent {
                     match cache_result {
                         Ok(has_seen) => {
                             if !has_seen {
-                                // Create and inject $identify event
-                                let identify_uuid = Uuid::now_v7();
-                                let identify_event = identify::create_identify_event(
-                                    team_id,
-                                    &token,
-                                    user_id,
-                                    device_id,
-                                    identify_uuid,
-                                    timestamp,
-                                )?;
-
-                                events.push(identify_event);
-
                                 // Mark as seen in cache
                                 let mark_result = context
                                     .identify_cache
@@ -644,6 +643,29 @@ impl AmplitudeEvent {
 
                                 if let Err(e) = mark_result {
                                     error!("Failed to mark seen in identify cache for team {} user {} device {}: {}", team_id, user_id, device_id, e);
+                                }
+
+                                let device_count = context
+                                    .identify_cache
+                                    .increment_user_device_count(team_id, user_id)
+                                    .unwrap_or_else(|e| {
+                                        error!("Failed to count devices in identify cache for team {} user {}: {}", team_id, user_id, e);
+                                        0
+                                    });
+
+                                if device_count <= MAX_IDENTIFIED_DEVICES_PER_USER {
+                                    // Create and inject $identify event
+                                    let identify_uuid = Uuid::now_v7();
+                                    let identify_event = identify::create_identify_event(
+                                        team_id,
+                                        &token,
+                                        user_id,
+                                        device_id,
+                                        identify_uuid,
+                                        timestamp,
+                                    )?;
+
+                                    events.push(identify_event);
                                 }
                             }
                         }
@@ -719,13 +741,13 @@ impl AmplitudeEvent {
 
 fn get_distinct_id(amp: &AmplitudeEvent) -> String {
     if let Some(user_id) = &amp.user_id {
-        if !user_id.is_empty() {
+        if !is_placeholder_distinct_id(user_id) {
             return user_id.clone();
         }
     }
 
     if let Some(device_id) = &amp.device_id {
-        if !device_id.is_empty() {
+        if !is_placeholder_distinct_id(device_id) {
             return device_id.clone();
         }
     }
@@ -1093,6 +1115,19 @@ mod tests {
         let result = result.into_iter().next().unwrap();
         assert_eq!(result.inner.distinct_id, "device456");
 
+        // Test with a placeholder user_id (should use device_id)
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("member_null".to_string()),
+            device_id: Some("device456".to_string()),
+            ..Default::default()
+        };
+
+        let parser = AmplitudeEvent::parse_fn(create_test_context(), identity_transform);
+        let result = parser(amp_event).unwrap();
+        let result = result.into_iter().next().unwrap();
+        assert_eq!(result.inner.distinct_id, "device456");
+
         // Test with neither (should generate UUID)
         let amp_event = AmplitudeEvent {
             event_type: Some("test_event".to_string()),
@@ -1284,6 +1319,42 @@ mod tests {
         let original_data: serde_json::Value =
             serde_json::from_str(&result2[0].inner.data).unwrap();
         assert_eq!(original_data["event"], "test_event2");
+    }
+
+    #[test]
+    fn test_amplitude_identify_skips_placeholder_and_shared_user_ids() {
+        use crate::cache::MockIdentifyCache;
+        use std::sync::Arc;
+
+        let context = TransformContext {
+            generate_identify_events: true,
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            ..create_test_context()
+        };
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let event = |user_id: &str, device_id: String| AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some(user_id.to_string()),
+            device_id: Some(device_id),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            ..Default::default()
+        };
+        let identify_count = |events: &[InternallyCapturedEvent]| {
+            events
+                .iter()
+                .filter(|e| e.inner.event == "$identify")
+                .count()
+        };
+
+        let result = parser(event("member_undefined", "device1".to_string())).unwrap();
+        assert_eq!(identify_count(&result), 0);
+        let result = parser(event("user123", "null".to_string())).unwrap();
+        assert_eq!(identify_count(&result), 0);
+
+        let identifies: usize = (0..MAX_IDENTIFIED_DEVICES_PER_USER + 5)
+            .map(|i| identify_count(&parser(event("shared_user", format!("device{i}"))).unwrap()))
+            .sum();
+        assert_eq!(identifies as u64, MAX_IDENTIFIED_DEVICES_PER_USER);
     }
 
     #[test]

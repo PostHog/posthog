@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use crate::parse::content::is_placeholder_distinct_id;
+
 pub mod job;
 pub mod parser;
 pub mod sink;
@@ -15,6 +17,9 @@ pub use job::TrialJob;
 /// folded into `other_event_names` so a pathological source can't bloat the
 /// state JSON persisted to Postgres on every chunk.
 const EVENT_NAME_COUNT_CAP: usize = 500;
+/// Same guard for distinct ids. An id that holds a large share of events shows
+/// up early, so the first ids seen are enough to flag one.
+const DISTINCT_ID_COUNT_CAP: usize = 500;
 /// Same guard for distinct error messages.
 const ERROR_COUNT_CAP: usize = 100;
 /// Byte cap on each summary key (event name or error message). Keys come from
@@ -117,6 +122,13 @@ pub struct TrialSummary {
     pub error_counts: HashMap<String, u64>,
     #[serde(default, skip_serializing_if = "is_zero")]
     pub other_errors: u64,
+    /// Output events per distinct id. One id with a large share of events
+    /// usually means the source data uses a placeholder for missing users.
+    #[serde(default)]
+    pub distinct_id_counts: HashMap<String, u64>,
+    /// Output events whose distinct id looks like a placeholder, e.g. `null`.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub placeholder_distinct_id_events: u64,
     /// Lexicographic min/max of output event timestamps; correct for the
     /// RFC 3339 strings the transforms produce.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -152,6 +164,14 @@ impl TrialSummary {
                 EVENT_NAME_COUNT_CAP,
             ) {
                 self.other_event_names += 1;
+            }
+            bounded_count(
+                &mut self.distinct_id_counts,
+                &output.distinct_id,
+                DISTINCT_ID_COUNT_CAP,
+            );
+            if is_placeholder_distinct_id(&output.distinct_id) {
+                self.placeholder_distinct_id_events += 1;
             }
             if let Some(ts) = &output.timestamp {
                 if ts.len() > TIMESTAMP_MAX_BYTES {
@@ -201,9 +221,13 @@ mod tests {
     use super::*;
 
     fn output(event: &str, timestamp: Option<&str>) -> TrialOutputEvent {
+        output_for("u", event, timestamp)
+    }
+
+    fn output_for(distinct_id: &str, event: &str, timestamp: Option<&str>) -> TrialOutputEvent {
         TrialOutputEvent {
             uuid: Uuid::now_v7(),
-            distinct_id: "u".to_string(),
+            distinct_id: distinct_id.to_string(),
             event: event.to_string(),
             timestamp: timestamp.map(String::from),
             payload: Value::Null,
@@ -224,7 +248,7 @@ mod tests {
         summary.record(&record(
             vec![
                 output("a", Some("2024-01-02T00:00:00Z")),
-                output("b", Some("2024-01-01T00:00:00Z")),
+                output_for("member_null", "b", Some("2024-01-01T00:00:00Z")),
             ],
             None,
         ));
@@ -239,6 +263,9 @@ mod tests {
         assert_eq!(summary.event_name_counts["a"], 1);
         assert_eq!(summary.event_name_counts["b"], 1);
         assert_eq!(summary.error_counts["bad line"], 2);
+        assert_eq!(summary.distinct_id_counts["u"], 1);
+        assert_eq!(summary.distinct_id_counts["member_null"], 1);
+        assert_eq!(summary.placeholder_distinct_id_events, 1);
         assert_eq!(
             summary.first_timestamp.as_deref(),
             Some("2024-01-01T00:00:00Z")

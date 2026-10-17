@@ -35,7 +35,8 @@ function recordEventName(record: TrialRecord): string {
 }
 
 export function TrialResultsModal(): JSX.Element {
-    const { trialResultsId, trialRecords, trialRecordsLoading } = useValues(managedMigrationLogic)
+    const { trialResultsId, trialRecords, trialRecordsLoading, trialDistinctIdWarning } =
+        useValues(managedMigrationLogic)
     const { closeTrialResults, loadTrialRecordsPage } = useActions(managedMigrationLogic)
 
     const summary = (trialRecords?.summary ?? null) as TrialSummary | null
@@ -76,6 +77,30 @@ export function TrialResultsModal(): JSX.Element {
                                 </li>
                             ))}
                         </ul>
+                    </LemonBanner>
+                )}
+
+                {trialDistinctIdWarning && (
+                    <LemonBanner type="warning">
+                        <div className="font-semibold mb-1">Some user IDs look wrong</div>
+                        <ul className="list-disc pl-4 mb-1">
+                            {trialDistinctIdWarning.topDistinctId !== null && (
+                                <li>
+                                    {Math.round(trialDistinctIdWarning.topDistinctIdShare * 100)}% of events belong to
+                                    one user ID: <code>{trialDistinctIdWarning.topDistinctId}</code>
+                                </li>
+                            )}
+                            {trialDistinctIdWarning.placeholderEvents > 0 && (
+                                <li>
+                                    {trialDistinctIdWarning.placeholderEvents.toLocaleString()} events use a placeholder
+                                    user ID, such as "null" or "undefined"
+                                </li>
+                            )}
+                        </ul>
+                        <div>
+                            If these IDs aren't real users, the import merges unrelated people into one person. Fix the
+                            user IDs in your source data before you start the full import.
+                        </div>
                     </LemonBanner>
                 )}
 
