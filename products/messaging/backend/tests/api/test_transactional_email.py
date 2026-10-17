@@ -18,7 +18,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.facade.testing import create_access_control
-from products.messaging.backend.facade.api import rewrite_template_content
+from products.messaging.backend.facade.templates import rewrite_template_content
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services.transactional_email import make_transactional

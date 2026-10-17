@@ -12,7 +12,8 @@ from django.utils import timezone
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers, reload_hog_functions_on_workers
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.messaging.backend.facade.api import find_template_ids_containing, rewrite_template_content
+from products.messaging.backend.facade.api import find_template_ids_containing
+from products.messaging.backend.facade.templates import rewrite_template_content
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
 
