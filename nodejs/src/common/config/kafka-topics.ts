@@ -55,6 +55,11 @@ export const KAFKA_SESSION_REPLAY_IMAGE_FETCH = `${prefix}session_replay_image_f
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_session_replay_image_fetch_retry_1m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_session_replay_image_fetch_retry_10m${suffix}`
 export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_session_replay_image_fetch_retry_1h${suffix}`
+// The v4 image fetch lane: remote image URLs from the v4 recorder, and their delay tiers.
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4 = `${prefix}session_replay_image_fetch_v4${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_1M = `${prefix}ai_research_session_replay_image_fetch_v4_retry_1m${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_10M = `${prefix}ai_research_session_replay_image_fetch_v4_retry_10m${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4_RETRY_1H = `${prefix}ai_research_session_replay_image_fetch_v4_retry_1h${suffix}`
 
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be

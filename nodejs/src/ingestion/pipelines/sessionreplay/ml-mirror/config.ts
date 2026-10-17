@@ -12,6 +12,16 @@ export type MlMirrorConfig = {
     AI_RESEARCH_REPLAY_ROW_CACHE_MAX: number
     AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: number
     AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: string
+    /** The v4 image fetch lane: the team day key table, its KMS key, and the bucket fetched images go to. */
+    AI_RESEARCH_REPLAY_V4_KEY_TABLE: string
+    AI_RESEARCH_REPLAY_V4_KMS_KEY_ARN: string
+    AI_RESEARCH_REPLAY_V4_IMAGES_BUCKET: string
+    /** The v4 lane's consumer group. Its own setting, so a v4 pod never joins a v3 group. Retry tiers add a suffix. */
+    AI_RESEARCH_REPLAY_V4_IMAGE_FETCH_GROUP_ID: string
+    /** The v4 lane drops a job whose day is older than this, the raw window, before any request. */
+    AI_RESEARCH_REPLAY_V4_IMAGE_FETCH_MAX_REF_AGE_DAYS: number
+    /** The share of the v3 per-host limits the v4 lane uses. Each lane's pods hold their own budget, so a host sees both. */
+    AI_RESEARCH_REPLAY_V4_IMAGE_FETCH_HOST_BUDGET_SHARE: number
     AI_RESEARCH_REPLAY_S3_PREFIX: string
     /** Bucket of the v3 dataset, which holds only AISR03 frames. Empty until the cutover by session start timestamp selects it. */
     AI_RESEARCH_REPLAY_S3_BUCKET: string
@@ -245,6 +255,12 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_REPLAY_ROW_CACHE_MAX: 100_000,
         AI_RESEARCH_REPLAY_ROW_CACHE_LIFETIME_MS: 300_000,
         AI_RESEARCH_REPLAY_IMAGE_FETCH_V2_DYNAMODB_TABLE: '',
+        AI_RESEARCH_REPLAY_V4_KEY_TABLE: '',
+        AI_RESEARCH_REPLAY_V4_KMS_KEY_ARN: '',
+        AI_RESEARCH_REPLAY_V4_IMAGES_BUCKET: '',
+        AI_RESEARCH_REPLAY_V4_IMAGE_FETCH_GROUP_ID: 'session-replay-ml-image-fetch-v4',
+        AI_RESEARCH_REPLAY_V4_IMAGE_FETCH_MAX_REF_AGE_DAYS: 7,
+        AI_RESEARCH_REPLAY_V4_IMAGE_FETCH_HOST_BUDGET_SHARE: 0.25,
         AI_RESEARCH_REPLAY_S3_PREFIX: 'rrweb_2',
         AI_RESEARCH_REPLAY_S3_BUCKET: '',
         AI_RESEARCH_REPLAY_S3_V3_PREFIX: 'rrweb_3',

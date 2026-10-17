@@ -14,6 +14,10 @@ import { IngestionLogsServer } from '~/servers/ingestion-logs-server'
 import { IngestionMetricsServer } from '~/servers/ingestion-metrics-server'
 import { IngestionSessionReplayMlImageFetchRetryServer } from '~/servers/ingestion-session-replay-ml-image-fetch-retry-server'
 import { IngestionSessionReplayMlImageFetchServer } from '~/servers/ingestion-session-replay-ml-image-fetch-server'
+import {
+    IngestionSessionReplayMlImageFetchV4RetryServer,
+    IngestionSessionReplayMlImageFetchV4Server,
+} from '~/servers/ingestion-session-replay-ml-image-fetch-v4-server'
 import { IngestionSessionReplayMlImageScrubDlqReplayServer } from '~/servers/ingestion-session-replay-ml-image-scrub-dlq-replay-server'
 import { IngestionSessionReplayMlImageScrubServer } from '~/servers/ingestion-session-replay-ml-image-scrub-server'
 import { IngestionSessionReplayMlMirrorServer } from '~/servers/ingestion-session-replay-ml-mirror-server'
@@ -56,6 +60,12 @@ function createServer(): NodeServer {
 
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
             return new IngestionSessionReplayMlImageFetchRetryServer()
+
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_v4:
+            return new IngestionSessionReplayMlImageFetchV4Server()
+
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_v4_retry:
+            return new IngestionSessionReplayMlImageFetchV4RetryServer()
 
         case PluginServerMode.recording_api:
             return new RecordingApiServer()

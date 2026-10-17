@@ -1,11 +1,18 @@
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_SESSION_REPLAY_IMAGE_FETCH, KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4 } from '~/common/config/kafka-topics'
+import { KafkaProducer } from '~/common/kafka/producer'
+
+import { V4_IMAGE_FETCH_LANE } from '../ingestion/pipelines/sessionreplay/ai-research/image-fetch-v4/lane'
 import {
     FetchCandidatePool,
     FetchCandidatePoolAdmission,
 } from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/fetch-candidate-pool'
+import { KafkaFrontierDeadLetterSink } from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/frontier-dead-letter-sink'
 import { ImageFetchBatchJoiner } from '../ingestion/pipelines/sessionreplay/ml-mirror-image-fetch/image-fetch-batch-joiner'
 import {
+    BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS,
+    V3_IMAGE_FETCH_LANE,
     buildImageFetchBatchHandlers,
     buildImageFetchConsumerConfigs,
     buildImageFetchConsumerOverrides,
@@ -15,6 +22,29 @@ import {
 import { buildMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
 
 describe('image fetch consumer wiring', () => {
+    it.each([
+        ['v3', V3_IMAGE_FETCH_LANE, KAFKA_SESSION_REPLAY_IMAGE_FETCH, 'session-replay-ml-image-fetch'],
+        // A v4 pod on the v3 frontier would fetch v3 URLs and store their images unscrubbed.
+        ['v4', V4_IMAGE_FETCH_LANE, KAFKA_SESSION_REPLAY_IMAGE_FETCH_V4, 'session-replay-ml-image-fetch-v4'],
+    ])('consumes only the %s frontier, in its own group', (_name, lane, frontier, groupId) => {
+        const consumerConfigs = buildImageFetchConsumerConfigs(buildMlMirrorServerConfig({}), lane)
+        expect(new Set(consumerConfigs.map((config) => config.topic))).toEqual(new Set([frontier]))
+        expect(new Set(consumerConfigs.map((config) => config.groupId))).toEqual(new Set([groupId]))
+    })
+
+    it.each(
+        [V3_IMAGE_FETCH_LANE, V4_IMAGE_FETCH_LANE].flatMap((lane) => [
+            lane.frontier,
+            lane.retry1m,
+            lane.retry10m,
+            lane.retry1h,
+        ])
+    )('refuses lane topic %s as either lane dead-letter topic', (topic) => {
+        expect(
+            () => new KafkaFrontierDeadLetterSink({} as KafkaProducer, topic, BLOCKED_IMAGE_FETCH_DEAD_LETTER_TOPICS)
+        ).toThrow()
+    })
+
     it.each([
         ['the default', {}, 2, 2, 2, 102_400],
         ['four consumers', { SESSION_RECORDING_ML_IMAGE_FETCH_TARGET_PARTITIONS_PER_BATCH: 4 }, 4, 4, 2, 164_096],
