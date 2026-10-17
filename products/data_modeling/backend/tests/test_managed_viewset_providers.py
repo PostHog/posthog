@@ -1,3 +1,6 @@
+from datetime import timedelta
+from typing import Any
+
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -34,6 +37,7 @@ from products.data_modeling.backend.facade.models import (
     NodeType,
 )
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
+from products.data_modeling.backend.logic.freshness import UnsatisfiableFrequencyError
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 SCHEDULE_MATERIALIZATION = (
@@ -64,13 +68,17 @@ def _no_schedules():
     return temporal
 
 
-def _fake_view(name: str = "fake_provider_view", materialized: bool = True) -> ProvidedView:
+def _fake_view(name: str = "fake_provider_view", materialized: bool = True, **overrides: Any) -> ProvidedView:
     return ProvidedView(
         name=name,
         query="SELECT 1 AS id",
         fields={"id": IntegerDatabaseField(name="id")},
         materialized=materialized,
+        **overrides,
     )
+
+
+INCREMENTAL_CONFIG = {"enabled": True, "incremental_key": "id", "unique_key": ["id"], "lookback_seconds": 60}
 
 
 class TestManagedViewSetProviders(BaseTest):
@@ -95,6 +103,7 @@ class TestManagedViewSetProviders(BaseTest):
         view = next(v for v in views if v.name == fake_view.name)
         self.assertFalse(view.is_materialized)
         self.assertIsNone(view.sync_frequency_interval)
+        self.assertIsNone(view.incremental_config)
         # A non-materialized view is computed at query time — it must never be scheduled for
         # materialization, nor get a managed (revenue-analytics) DAG.
         mock_schedule.assert_not_called()
@@ -172,6 +181,67 @@ class TestManagedViewSetProviders(BaseTest):
             second_ids = sorted(v.id for v in self._views(viewset))
 
         self.assertEqual(first_ids, second_ids)
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_sync_views_stores_the_cadence_and_incremental_config_the_provider_declares(self, mock_schedule):
+        fake_view = _fake_view(sync_frequency=timedelta(minutes=15), incremental_config=INCREMENTAL_CONFIG)
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertEqual(view.sync_frequency_interval, timedelta(minutes=15))
+        self.assertEqual(view.incremental_config, INCREMENTAL_CONFIG)
+        mock_schedule.assert_called_once()
+
+    @patch(SCHEDULE_MATERIALIZATION, side_effect=UnsatisfiableFrequencyError("sources sync every 6 hours"))
+    def test_a_cadence_the_sources_cannot_feed_leaves_the_view_computed_at_query_time(self, _):
+        fake_view = _fake_view(sync_frequency=timedelta(minutes=15))
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertFalse(view.is_materialized)
+        self.assertIsNone(view.sync_frequency_interval)
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_an_incremental_key_the_query_does_not_output_is_not_stored(self, _):
+        fake_view = _fake_view(incremental_config={**INCREMENTAL_CONFIG, "incremental_key": "missing"})
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+
+            viewset = self._viewset()
+            viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertTrue(view.is_materialized)
+        self.assertIsNone(view.incremental_config)
+
+    @patch(SCHEDULE_MATERIALIZATION)
+    def test_resync_keeps_the_state_a_run_wrote_while_it_ran(self, _):
+        fake_view = _fake_view(incremental_config=INCREMENTAL_CONFIG)
+        state = {"watermark": 7, "watermark_type": "int"}
+        original_set_columns = DataWarehouseSavedQuery.set_columns
+
+        def run_finishes_between_read_and_save(saved_query: DataWarehouseSavedQuery, columns: dict[str, Any]) -> None:
+            original_set_columns(saved_query, columns)
+            DataWarehouseSavedQuery.objects.filter(pk=saved_query.pk).update(incremental_state=state)
+
+        with patch.dict(_expected_views_providers, clear=True):
+            register_expected_views_provider(KIND, lambda team: [fake_view])
+
+            viewset = self._viewset()
+            viewset.sync_views()
+            with patch.object(DataWarehouseSavedQuery, "set_columns", run_finishes_between_read_and_save):
+                viewset.sync_views()
+
+        view = next(v for v in self._views(viewset) if v.name == fake_view.name)
+        self.assertEqual(view.incremental_state, state)
 
     def test_provisioning_a_new_team_puts_every_view_on_tier_schedules(self):
         # Managed viewsets are how most new teams first materialize anything (a provider makes
