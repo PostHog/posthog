@@ -164,6 +164,7 @@ Evaluation events retain model, usage, latency, and error telemetry.
 If retries fail, the run fails and the evaluation stays enabled.
 Blocked System One endpoints and redirects disable the evaluation and mark the connection for revalidation, without recording model usage.
 DNS failures and redirects at OpenRouter's fixed decision endpoint retry without disabling the evaluation or marking its key as failing. Redirects are never followed.
+DNS failures at custom System One endpoints also retry without disabling the evaluation or its key.
 Requests rejected because of an individual input skip that run without changing the shared connection.
 Invalid probabilities, missing answers, and mismatched answer types skip the item as an unparsable response.
 Inputs rejected for exceeding the model's context window are skipped.
