@@ -144,6 +144,34 @@ function flagStateCheck(input: HealthDebugInput): HealthDebugCheck {
     }
 }
 
+function share(value: unknown): string | null {
+    return typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : null
+}
+
+function serverOnlyCheck(
+    input: HealthDebugInput,
+    check: ExperimentHealthFindingApi['code'],
+    note: ((finding: ExperimentHealthFindingApi) => string) | null
+): HealthDebugCheck {
+    const finding = findingOf(input, check)
+    return {
+        check,
+        source: 'health endpoint',
+        reads: ['experiment', 'flag'],
+        ...serverResult(check, input.health, (code) => code === check),
+        browser: null,
+        browserLabel: BROWSER_RULES,
+        ...NO_TIMES,
+        difference: null,
+        note: finding && note ? note(finding) : null,
+    }
+}
+
+function exposedBeforeFirst({ evidence }: ExperimentHealthFindingApi): string {
+    const exposedBefore = evidence.exposed_before_change
+    return `Exposed before the first: ${exposedBefore == null ? 'unknown' : exposedBefore ? 'yes' : 'no'}.`
+}
+
 function splitChangedNote(finding: ExperimentHealthFindingApi): string {
     const { evidence } = finding
     if (finding.subcode === 'not_checked') {
@@ -151,41 +179,15 @@ function splitChangedNote(finding: ExperimentHealthFindingApi): string {
             ? `Not checked: ${evidence.reason}.`
             : `Not checked: ${evidence.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
     }
-    const exposedBefore = evidence.exposed_before_change
-    return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. Exposed before the first: ${exposedBefore == null ? 'unknown' : exposedBefore ? 'yes' : 'no'}.`
+    return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. ${exposedBeforeFirst(finding)}`
 }
 
-function splitChangedCheck(input: HealthDebugInput): HealthDebugCheck {
-    const finding = findingOf(input, 'split_changed_mid_run')
-    return {
-        check: 'split_changed_mid_run',
-        source: 'health endpoint',
-        reads: ['experiment', 'flag'],
-        ...serverResult('split_changed_mid_run', input.health, (code) => code === 'split_changed_mid_run'),
-        browser: null,
-        browserLabel: BROWSER_RULES,
-        ...NO_TIMES,
-        difference: null,
-        note: finding ? splitChangedNote(finding) : null,
-    }
-}
-
-function flagVariantsCheck(input: HealthDebugInput): HealthDebugCheck {
-    return {
-        check: 'flag_variants_mismatch',
-        source: 'health endpoint',
-        reads: ['experiment', 'flag'],
-        ...serverResult('flag_variants_mismatch', input.health, (code) => code === 'flag_variants_mismatch'),
-        browser: null,
-        browserLabel: BROWSER_RULES,
-        ...NO_TIMES,
-        difference: null,
-        note: null,
-    }
-}
-
-function share(value: unknown): string | null {
-    return typeof value === 'number' ? `${(value * 100).toFixed(1)}%` : null
+function bucketingChangedNote(finding: ExperimentHealthFindingApi): string {
+    const { evidence } = finding
+    const changed = `${evidence.change_count} saves changed ${evidence.changed_settings}.`
+    return finding.subcode === 'not_checked'
+        ? `Not checked: ${evidence.reason}. ${changed}`
+        : `${changed} ${exposedBeforeFirst(finding)}`
 }
 
 function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
@@ -206,25 +208,6 @@ function forcedVariantNote(finding: ExperimentHealthFindingApi): string {
         parts.push(`Share unknown: ${evidence.reason}.`)
     }
     return parts.join(' ')
-}
-
-function forcedVariantCheck(input: HealthDebugInput): HealthDebugCheck {
-    const finding = findingOf(input, 'forced_variant_release_condition')
-    return {
-        check: 'forced_variant_release_condition',
-        source: 'health endpoint',
-        reads: ['experiment', 'flag'],
-        ...serverResult(
-            'forced_variant_release_condition',
-            input.health,
-            (code) => code === 'forced_variant_release_condition'
-        ),
-        browser: null,
-        browserLabel: BROWSER_RULES,
-        ...NO_TIMES,
-        difference: null,
-        note: finding ? forcedVariantNote(finding) : null,
-    }
 }
 
 function noMetricCheck(input: HealthDebugInput): HealthDebugCheck {
@@ -307,9 +290,10 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         flagStateCheck(input),
-        splitChangedCheck(input),
-        flagVariantsCheck(input),
-        forcedVariantCheck(input),
+        serverOnlyCheck(input, 'split_changed_mid_run', splitChangedNote),
+        serverOnlyCheck(input, 'bucketing_changed_mid_run', bucketingChangedNote),
+        serverOnlyCheck(input, 'flag_variants_mismatch', null),
+        serverOnlyCheck(input, 'forced_variant_release_condition', forcedVariantNote),
         noMetricCheck(input),
         ...exposureChecks(input),
     ]

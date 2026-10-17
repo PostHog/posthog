@@ -16,17 +16,17 @@ import type { ExperimentHealthApi, ExperimentHealthInputsApi } from '../../gener
 import type { SetupFact } from '../../setupInspector/SetupFactsTable'
 import { type HealthPanelFinding, hoursSinceStart } from '../healthPanelFindings'
 import {
+    type HealthDebugFlagChange,
     type HealthDebugReleaseCondition,
-    type HealthDebugSplitChange,
     type HealthInputsState,
     type PageMetricCounts,
     buildExperimentFacts,
     buildExposureFacts,
+    buildFlagChanges,
     buildFlagFacts,
+    buildFlagHistoryFacts,
     buildMetricFacts,
     buildReleaseConditions,
-    buildSplitChanges,
-    buildSplitHistoryFacts,
     buildTrafficFacts,
 } from './healthDebugInputs'
 import {
@@ -64,9 +64,9 @@ export interface experimentHealthDebugLogicValues {
     healthInputsState: HealthInputsState
     metricFacts: SetupFact[]
     pageMetricCounts: PageMetricCounts
+    flagChanges: HealthDebugFlagChange[]
+    flagHistoryFacts: SetupFact[]
     releaseConditions: HealthDebugReleaseCondition[]
-    splitChanges: HealthDebugSplitChange[]
-    splitHistoryFacts: SetupFact[]
     trafficFacts: SetupFact[]
 }
 
@@ -131,8 +131,8 @@ export interface experimentHealthDebugLogicMeta {
         experimentFacts: (experiment: Experiment, healthInputsState: HealthInputsState) => SetupFact[]
         flagFacts: (experiment: Experiment, healthInputsState: HealthInputsState) => SetupFact[]
         releaseConditions: (healthInputs: ExperimentHealthInputsApi | null) => HealthDebugReleaseCondition[]
-        splitHistoryFacts: (healthInputsState: HealthInputsState) => SetupFact[]
-        splitChanges: (healthInputs: ExperimentHealthInputsApi | null) => HealthDebugSplitChange[]
+        flagHistoryFacts: (healthInputsState: HealthInputsState) => SetupFact[]
+        flagChanges: (healthInputs: ExperimentHealthInputsApi | null) => HealthDebugFlagChange[]
         trafficFacts: (healthInputsState: HealthInputsState) => SetupFact[]
         metricFacts: (
             experiment: Experiment,
@@ -306,13 +306,13 @@ export const experimentHealthDebugLogic = kea<experimentHealthDebugLogicType>([
             (s) => [s.healthInputs],
             (inputs: ExperimentHealthInputsApi | null): HealthDebugReleaseCondition[] => buildReleaseConditions(inputs),
         ],
-        splitHistoryFacts: [
+        flagHistoryFacts: [
             (s) => [s.healthInputsState],
-            (state: HealthInputsState): SetupFact[] => buildSplitHistoryFacts(state),
+            (state: HealthInputsState): SetupFact[] => buildFlagHistoryFacts(state),
         ],
-        splitChanges: [
+        flagChanges: [
             (s) => [s.healthInputs],
-            (inputs: ExperimentHealthInputsApi | null): HealthDebugSplitChange[] => buildSplitChanges(inputs),
+            (inputs: ExperimentHealthInputsApi | null): HealthDebugFlagChange[] => buildFlagChanges(inputs),
         ],
         trafficFacts: [
             (s) => [s.healthInputsState],
