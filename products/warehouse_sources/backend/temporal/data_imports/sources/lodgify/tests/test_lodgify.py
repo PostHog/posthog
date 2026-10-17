@@ -172,7 +172,9 @@ def test_rates_calendar_fanout(resume: bool) -> None:
             "completed": ["rates/calendar?HouseId=10&RoomTypeId=11"],
             "current": None,
             "child_state": None,
-        }
+        },
+        window_start="2026-02-27",
+        window_end="2027-02-27",
     )
     result = driver().run(
         "rates_calendar",
@@ -213,8 +215,10 @@ def test_rates_calendar_fanout(resume: bool) -> None:
     assert result.paths == ["/v2/availability"] + ["/v2/rates/calendar"] * (2 if resume else 3)
     assert result.params("HouseId") == [None, *([] if resume else ["10"]), "20", "30"]
     assert result.params("RoomTypeId") == [None, *([] if resume else ["11"]), "21", "31"]
-    assert set(result.params("StartDate")[1:]) == {"2026-03-01"}
-    assert set(result.params("EndDate")[1:]) == {"2027-03-01"}
+    # A resumed sync keeps the window it started with, even after the date has moved on.
+    assert set(result.params("StartDate")[1:]) == ({"2026-02-27"} if resume else {"2026-03-01"})
+    assert set(result.params("EndDate")[1:]) == ({"2027-02-27"} if resume else {"2027-03-01"})
+    assert result.saved_states[-1].window_start == ("2026-02-27" if resume else "2026-03-01")
     assert result.saved_states[-1].paginator_state["completed"] == [
         "rates/calendar?HouseId=10&RoomTypeId=11",
         "rates/calendar?HouseId=20&RoomTypeId=21",

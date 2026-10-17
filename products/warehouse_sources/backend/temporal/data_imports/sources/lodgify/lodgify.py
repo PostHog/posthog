@@ -41,6 +41,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.lodgify.se
 @frozen
 class LodgifyResumeConfig:
     paginator_state: dict[str, Any]
+    # Calendar tables only. Kept so a resumed sync reuses the window it started with.
+    window_start: str | None = None
+    window_end: str | None = None
 
 
 def validate_credentials(api_key: str) -> tuple[bool, str | None]:
@@ -125,14 +128,22 @@ def lodgify_source(
         raise ValueError(f"Unsupported Lodgify table: {endpoint}")
 
     initial_state = None
+    window: tuple[str, str] | None = None
     if resumable_source_manager.can_resume():
         saved = resumable_source_manager.load_state()
         if saved is not None:
             initial_state = saved.paginator_state
+            if saved.window_start and saved.window_end:
+                window = (saved.window_start, saved.window_end)
+    if window is None:
+        window = calendar_window(datetime.now(UTC).date())
+    start, end = window
 
     def save_checkpoint(state: dict[str, Any] | None) -> None:
         if state is not None:
-            resumable_source_manager.save_state(LodgifyResumeConfig(paginator_state=state))
+            resumable_source_manager.save_state(
+                LodgifyResumeConfig(paginator_state=state, window_start=start, window_end=end)
+            )
 
     config: RESTAPIConfig = {
         "client": {
@@ -144,13 +155,12 @@ def lodgify_source(
         "resources": [],
     }
     if endpoint == "availability":
-        config["resources"] = [availability_resource(*calendar_window(datetime.now(UTC).date()))]
+        config["resources"] = [availability_resource(start, end)]
         resource = rest_api_resource(
             config, team_id, job_id, None, resume_hook=save_checkpoint, initial_paginator_state=initial_state
         )
         resource.add_map(flatten_availability_periods)
     elif endpoint == "rates_calendar":
-        start, end = calendar_window(datetime.now(UTC).date())
         # The availability calendar lists every property and room type pair in one request.
         config["resources"] = [
             availability_resource(start, end),
