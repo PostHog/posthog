@@ -24,7 +24,14 @@ from pymongo import ASCENDING, MongoClient
 from pymongo.collection import Collection
 from pymongo.cursor import Cursor
 from pymongo.database import Database
-from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, PyMongoError, ServerSelectionTimeoutError
+from pymongo.errors import (
+    AutoReconnect,
+    CursorNotFound,
+    ExecutionTimeout,
+    OperationFailure,
+    PyMongoError,
+    ServerSelectionTimeoutError,
+)
 from pymongo.server_description import ServerDescription
 from structlog.types import FilteringBoundLogger
 
@@ -340,6 +347,18 @@ def connection_timeouts(connection_string: str) -> dict[str, int]:
     return {name: value for name, value in _CONNECTION_TIMEOUT_DEFAULTS.items() if name.lower() not in option_keys}
 
 
+# pymongo prefixes a failed TLS handshake with this text. A bare AutoReconnect carries it when one
+# connection fails the handshake. A ServerSelectionTimeoutError carries the same text inside its
+# topology dump when one node of a cluster that is down or electing a primary fails the handshake,
+# and that case is a retryable outage. Substring matching cannot tell the two apart, so
+# `mongo_client` prefixes only the bare form with MONGO_TLS_HANDSHAKE_FAILED_ERROR. The source
+# classifies that phrase as non-retryable and leaves the topology dump to its retryable
+# "Topology Description:" rule.
+_SSL_HANDSHAKE_FAILED_MARKER = "SSL handshake failed"
+
+MONGO_TLS_HANDSHAKE_FAILED_ERROR = "PostHog couldn't complete a TLS handshake with your MongoDB server"
+
+
 @contextlib.contextmanager
 def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
     # rpartition strips credentials; multiple hosts stay comma-joined as-is.
@@ -365,6 +384,10 @@ def mongo_client(connection_string: str, team_id: int) -> Iterator[MongoClient]:
     client: MongoClient = MongoClient(connection_string, **kwargs)
     try:
         yield client
+    except AutoReconnect as e:
+        if isinstance(e, ServerSelectionTimeoutError) or _SSL_HANDSHAKE_FAILED_MARKER not in str(e):
+            raise
+        raise type(e)(f"{MONGO_TLS_HANDSHAKE_FAILED_ERROR}: {e}", e.errors) from e
     finally:
         client.close()
 

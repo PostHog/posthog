@@ -18,7 +18,14 @@ from bson.codec_options import CodecOptions
 from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from parameterized import parameterized
-from pymongo.errors import CursorNotFound, ExecutionTimeout, OperationFailure, ServerSelectionTimeoutError
+from pymongo.errors import (
+    AutoReconnect,
+    CursorNotFound,
+    ExecutionTimeout,
+    NetworkTimeout,
+    OperationFailure,
+    ServerSelectionTimeoutError,
+)
 from pymongo.hello import Hello
 from pymongo.server_description import ServerDescription
 
@@ -347,6 +354,7 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import MongoDBSource
 
         self.non_retryable = MongoDBSource().get_non_retryable_errors()
+        self.retryable = MongoDBSource().get_retryable_errors()
 
     @parameterized.expand(
         [
@@ -366,7 +374,6 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             # documents forever, so it must be classified non-retryable.
             ("document_missing_id", MONGO_DOCUMENT_MISSING_ID_ERROR),
             ("dns_failure", "The DNS query name does not exist: example.mongodb.net."),
-            ("ssl_failure", "SSL handshake failed: certificate verify failed"),
             # pymongo InvalidURI raised before any network call when credentials in the connection
             # string contain unescaped reserved characters — a malformed string the user must fix.
             (
@@ -478,6 +485,57 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
         assert not any(pattern in error_msg for pattern in self.non_retryable), (
             f"MongoDB error {error_msg!r} should remain retryable"
         )
+
+    @parameterized.expand(
+        [
+            (
+                "bare_handshake_failure",
+                AutoReconnect(
+                    "SSL handshake failed: cluster0.example.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] "
+                    "tlsv1 alert internal error (configured timeouts: connectTimeoutMS: 20000.0ms)"
+                ),
+                True,
+            ),
+            (
+                "bare_handshake_timeout",
+                NetworkTimeout(
+                    "SSL handshake failed: cluster0.example.mongodb.net:27017: _ssl.c:983: The handshake "
+                    "operation timed out (configured timeouts: connectTimeoutMS: 20000.0ms)"
+                ),
+                True,
+            ),
+            # A replica set with no primary where one node fails TLS during an outage. The topology
+            # dump carries the handshake text, but the cluster recovers, so the schema must stay enabled.
+            (
+                "handshake_failure_in_topology_dump",
+                ServerSelectionTimeoutError(
+                    "SSL handshake failed: node-2.example.mongodb.net:27017: [SSL: TLSV1_ALERT_INTERNAL_ERROR] "
+                    "tlsv1 alert internal error (configured timeouts: connectTimeoutMS: 20000.0ms), "
+                    "Timeout: 10.0s, Topology Description: <TopologyDescription id: abc, topology_type: "
+                    "ReplicaSetNoPrimary, servers: [<ServerDescription ('node-0.example.mongodb.net', 27017) "
+                    "server_type: RSSecondary, rtt: 0.01>, <ServerDescription ('node-1.example.mongodb.net', "
+                    "27017) server_type: RSSecondary, rtt: 0.01>, <ServerDescription "
+                    "('node-2.example.mongodb.net', 27017) server_type: Unknown, rtt: None, "
+                    "error=AutoReconnect('SSL handshake failed: node-2.example.mongodb.net:27017: "
+                    "[SSL: TLSV1_ALERT_INTERNAL_ERROR] tlsv1 alert internal error')>]>"
+                ),
+                False,
+            ),
+        ]
+    )
+    def test_tls_handshake_failure_is_non_retryable_only_outside_a_topology_dump(
+        self, _name: str, raised: AutoReconnect, expected_non_retryable: bool
+    ) -> None:
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo.MongoClient"):
+            with pytest.raises(AutoReconnect) as exc_info:
+                with mongo_client("mongodb://cluster0.example.mongodb.net/db", team_id=1):
+                    raise raised
+
+        assert isinstance(exc_info.value, type(raised))
+        error_msg = str(exc_info.value)
+        assert error_message_matches(error_msg, self.non_retryable) is expected_non_retryable
+        if not expected_non_retryable:
+            assert error_message_matches(error_msg, self.retryable)
 
     @parameterized.expand(
         [
