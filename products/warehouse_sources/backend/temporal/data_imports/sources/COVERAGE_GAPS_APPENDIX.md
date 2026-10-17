@@ -2503,12 +2503,12 @@ Today (7): `component_versions`, `components`, `jobs`, `pipelines`, `projects`, 
 Diffed against: <https://circleci.com/api/v2/openapi.json>
 
 - [ ] `organizations/{org_id}/usage_export_job` — credit/usage export per project and job - CircleCI's headline cost metric, absent today (high)
-- [ ] `deploy/environments` — deploy environment registry that resolves environment IDs on deploy markers (medium)
+- [x] `deploy/environments` — deploy environment registry that resolves environment IDs on deploy markers (medium) — added as `environments`
 - [x] `deploy/components` — deployed component inventory, the join key for deploy tracking (medium) — added as `components`; the org UUID it requires is resolved from the configured org slug via `/me/collaborations`
 - [x] `deploy/components/{component_id}/versions` — version history per component - deploy frequency and lead-time analysis (medium) — added as `component_versions`, fanned out per component
 - [x] `user/{id}` — lookup resolving the actor/trigger user IDs carried on pipelines and workflows (medium) — added as `users`, resolved from the `started_by`/`canceled_by`/`errored_by` ids on workflows (pipeline trigger actors carry only a login, no id)
-- [ ] `organizations/{org_id}/groups` — org user groups for grouping build activity by team (low)
-- [ ] `me/collaborations` — org/slug lookup that enumerates the orgs a token can see (low)
+- [x] `organizations/{org_id}/groups` — org user groups for grouping build activity by team (low) — added as `groups`
+- [x] `me/collaborations` — org/slug lookup that enumerates the orgs a token can see (low) — added as `collaborations`
 - [ ] `projects/{project_id}/pipeline-definitions` — resolves the pipeline definition IDs attached to synced pipelines (low)
 
 Note: `organizations/{org_id}/usage_export_job` is POST-only job creation plus a separate polling GET that
@@ -2864,12 +2864,12 @@ Diffed against: <https://coda.io/apis/v1/openapi.json>
 
 - [x] `/docs/{docId}/tables/{tableIdOrName}/columns` — Column definitions (name, type, formula) that resolve the column IDs used as keys in every synced row - without it rows are unreadable (high)
 - [x] `/analytics/docs` — Per-doc usage analytics (views, active users) - the headline metric for measuring doc adoption across a workspace (high). `/analytics/docs/summary` skipped: it returns a single scalar (`totalSessions`) with no id or grain, not a table.
-- [ ] `/workspaces/{workspaceId}/users` — Workspace member lookup that resolves the owner/creator IDs on docs (medium)
-- [ ] `/docs/{docId}/pages` — Page hierarchy per doc - the structural dimension for content inventory and for joining page analytics (medium)
+- [x] `/workspaces/{workspaceId}/users` — Workspace member lookup that resolves the owner/creator IDs on docs (medium) — synced as `workspace_users`; only workspaces where the token user is an admin return rows
+- [x] `/docs/{docId}/pages` — Page hierarchy per doc - the structural dimension for content inventory and for joining page analytics (medium)
 - [x] `/analytics/docs/{docId}/pages` — Page-level view analytics, one grain below doc analytics (medium)
 - [x] `/folders` — Folder lookup resolving the folder reference each doc carries (medium)
-- [ ] `/docs/{docId}/acl/permissions` — Who a doc is shared with - needed for access and governance reporting over the docs table (low)
-- [ ] `/workspaces/{workspaceId}/roles` — Role lookup that segments workspace users by license/role type (low)
+- [x] `/docs/{docId}/acl/permissions` — Who a doc is shared with - needed for access and governance reporting over the docs table (low)
+- [x] `/workspaces/{workspaceId}/roles` — Role lookup that segments workspace users by license/role type (low) — synced as `workspace_role_activity`; the endpoint returns monthly active and inactive user counts per role, not a role lookup
 - [ ] `/docs/{docId}/controls and /docs/{docId}/formulas` — Remaining doc object types, completing the content inventory alongside tables and pages (low)
 - [ ] `/analytics/packs and /analytics/packs/summary` — Pack install and usage analytics, relevant only to workspaces that publish packs (low)
 
@@ -7762,7 +7762,7 @@ Note: Enumerated the official Python SDK resource directory and read resource me
 
 ## Mercury — gaps
 
-Today (15): `AccountStatements`, `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Merchants`, `Recipients`, `Transactions`, `TreasuryAccounts`, `TreasuryStatements`, `TreasuryTransactions`, `Users`
+Today (18): `AccountStatements`, `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Merchants`, `RecipientInvites`, `Recipients`, `SafeRequests`, `SendMoneyApprovalRequests`, `Transactions`, `TreasuryAccounts`, `TreasuryStatements`, `TreasuryTransactions`, `Users`
 
 Diffed against: <https://docs.mercury.com/reference/getaccounts>
 
@@ -7770,9 +7770,9 @@ Diffed against: <https://docs.mercury.com/reference/getaccounts>
 - [x] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high). Added as `AccountStatements` (fan-out over `Accounts`). The API returns only the ending balance per period.
 - [x] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high). Added as `TreasuryTransactions` (fan-out over `TreasuryAccounts`).
 - [x] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium). Added as `TreasuryStatements` (fan-out over `TreasuryAccounts`). Rows are statement documents (monthly statements, trade confirmations, tax forms) with no balance fields.
-- [ ] `send money approval requests (GET /api/v1/request-send-money)` — approval state/transition history for outbound payments (medium)
-- [ ] `recipient invites (GET /api/v1/recipient-invites)` — pending recipient onboarding state alongside synced Recipients (low)
-- [ ] `SAFE requests (GET /api/v1/safes)` — fundraising SAFE request records (low)
+- [x] `send money approval requests (GET /api/v1/request-send-money)` — approval state/transition history for outbound payments (medium). Added as `SendMoneyApprovalRequests`. Each row carries its `reviews` history; the endpoint documents no `order` param, so none is sent.
+- [x] `recipient invites (GET /api/v1/recipient-invites)` — pending recipient onboarding state alongside synced Recipients (low). Added as `RecipientInvites`. The real path is `GET /api/v1/recipients/invites`.
+- [x] `SAFE requests (GET /api/v1/safes)` — fundraising SAFE request records (low). Added as `SafeRequests`. The endpoint returns a bare array with no pagination.
 
 Note: Endpoint inventory read from the ReadMe nav slug list embedded in the reference page, then each candidate path confirmed by fetching its individual reference page.
 
@@ -9466,10 +9466,10 @@ Today (6): `assets`, `companies`, `endusers`, `licenses`, `nps`, `users`
 
 Diffed against: <https://docs.planhat.com/developers/api/planhat-models>
 
-- [ ] `conversation` — customer conversation records, the core engagement signal in Planhat (high)
-- [ ] `ticket` — support tickets tied to companies, needed for health scoring (high)
-- [ ] `invoice` — billed revenue per company (high)
-- [ ] `sale` — closed revenue transactions (high)
+- [x] `conversation` — customer conversation records, the core engagement signal in Planhat (high)
+- [x] `ticket` — support tickets tied to companies, needed for health scoring (high)
+- [x] `invoice` — billed revenue per company (high)
+- [x] `sale` — closed revenue transactions (high)
 - [ ] `churn` — churn records, the headline customer-success metric (high)
 - [ ] `metrics` — time-series usage and health metrics per company; Planhat's central analytical object (high)
 - [ ] `product` — lookup resolving the product IDs carried on synced licenses and on line items (high)

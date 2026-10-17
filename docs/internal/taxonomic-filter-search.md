@@ -24,6 +24,20 @@ The expansion count must not delay the scoped results or keep the aggregate reve
 
 The legacy implementation separates these requests in `infiniteListLogic.ts`; the rebuilt implementation uses independent resources in `hooks/useGroupList.ts`. Keep this behavior consistent across both implementations.
 
+## Empty-result measurement
+
+The classic All tab records `taxonomic filter empty result` when it shows an empty search after all contributing lists settle.
+A pending or failed request does not count as an empty result.
+Empty queries and repeated renders of the same trimmed query do not send another event.
+
+Both implementations send `scope = 'all'` for All and `scope = 'category'` for content categories.
+The rebuilt menu also labels its Recent and Pinned scopes.
+Existing `groupType` values remain unchanged: classic All uses `suggested_filters`, and rebuilt All leaves it unset.
+
+Older classic clients do not record All-tab empty results.
+Compare periods with the same coverage.
+Use `scope = 'category'` for a category-only measure after this change.
+
 ## Action definitions
 
 Event-only insight editors and closed breakdown pickers do not load the action list.
