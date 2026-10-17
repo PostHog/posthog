@@ -638,11 +638,21 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             ("persons_are_not_on_events", "disabled", 80),
             ("persons_are_joined", "person_id_override_properties_joined", 80),
             ("persons_are_on_events", "person_id_override_properties_on_events", 60),
+            (
+                "filter_with_a_subquery",
+                "disabled",
+                80,
+                "person.properties.email NOT ILIKE '%@posthog.com' "
+                "AND person_id NOT IN (SELECT person_id FROM person_distinct_ids WHERE distinct_id = 'nobody')",
+            ),
         ]
     )
     def test_reads_person_properties_from_where_the_insight_reads_them(
-        self, _name: str, persons_on_events_mode: str, internal_user_events: int
+        self, _name: str, persons_on_events_mode: str, internal_user_events: int, hogql_filter: str | None = None
     ) -> None:
+        if hogql_filter is not None:
+            self.team.test_account_filters = [{"type": "hogql", "key": hogql_filter}]
+            self.team.save()
         _create_person(team=self.team, distinct_ids=["joined later"], properties={"email": "new@posthog.com"})
         self._events(20, distinct_id="joined later", person_properties={"email": "before@example.com"})
         flush_persons_and_events()

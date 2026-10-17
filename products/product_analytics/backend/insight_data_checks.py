@@ -15,7 +15,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
@@ -330,8 +330,8 @@ def _choose_window(events: ChartEvents, reader: _EventReader, timezone: ZoneInfo
 class _InternalUsersMatch:
     passes_filter: ast.Expr
     is_team_email: ast.Expr
-    # The join `passes_filter` reads the person from, if it needs one.
-    person_join: ast.JoinExpr | None = None
+    # The person fields `passes_filter` reads from the current person join, or None when it needs no join.
+    person_fields: frozenset[str] | None = None
 
 
 _NO_INTERNAL_USERS = _InternalUsersMatch(
@@ -339,51 +339,104 @@ _NO_INTERNAL_USERS = _InternalUsersMatch(
 )
 
 
+# The lookup's columns sit next to the event's columns, so they take names the events table does not use.
 _CURRENT_PERSON = "current_person"
+
+# The latest person of each distinct ID, as the persons join finds it. Each table reads only the rows of the
+# checked events' distinct IDs, so the lookup does not read the whole project.
+_CURRENT_PERSON_QUERY = """
+    SELECT person_ids.distinct_id AS current_person_distinct_id, person_ids.person_id AS current_person_id
+    FROM (
+        SELECT distinct_id, argMax(person_id, version) AS person_id
+        FROM raw_person_distinct_ids
+        WHERE distinct_id IN {checked_distinct_ids}
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0
+    ) AS person_ids
+    LEFT JOIN (
+        SELECT id
+        FROM raw_persons
+        WHERE id IN (SELECT person_id FROM raw_person_distinct_ids WHERE distinct_id IN {checked_distinct_ids_again})
+        GROUP BY id
+        HAVING argMax(is_deleted, version) = 0
+    ) AS current_persons ON current_persons.id = person_ids.person_id
+"""
 
 
 class _PersonFromLeftJoin(CloningVisitor):
     def __init__(self) -> None:
         super().__init__()
-        self.reads_person = False
+        # None while the filter reads no person.
+        self.person_fields: set[str] | None = None
+
+    # A field in a subquery belongs to that subquery's own tables.
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
+        return clone_expr(node)
 
     def visit_field(self, node: ast.Field) -> ast.Field:
-        if node.chain[:1] == ["person"]:
-            self.reads_person = True
-            return ast.Field(chain=[_CURRENT_PERSON, *node.chain])
+        if node.chain[:1] == ["person"] and len(node.chain) > 1:
+            self.person_fields = {*(self.person_fields or ()), str(node.chain[1])}
+            return ast.Field(chain=[_CURRENT_PERSON, f"{_CURRENT_PERSON}_{node.chain[1]}", *node.chain[2:]])
         if node.chain == ["person_id"]:
-            self.reads_person = True
-            return ast.Field(chain=[_CURRENT_PERSON, "person_id"])
+            self.person_fields = self.person_fields or set()
+            return ast.Field(chain=[_CURRENT_PERSON, "current_person_id"])
         return super().visit_field(node)
 
 
-def _passes_internal_users_filter(events: ChartEvents, team: Team) -> tuple[ast.Expr, ast.JoinExpr | None]:
+def _passes_internal_users_filter(events: ChartEvents, team: Team) -> tuple[ast.Expr, frozenset[str] | None]:
     # An insight that applies the filter has already dropped the events it removes.
     if events.filters_test_accounts or not team.test_account_filters:
         return ast.Constant(value=True), None
     project_filter = property_to_expr(team.test_account_filters, team)
-    person_join: ast.JoinExpr | None = None
+    person_fields: frozenset[str] | None = None
     # Without persons on events, the person comes from an inner join that drops the events with no person, which
     # the insight counts. A left join on the same table reads the same person and keeps those events.
     if events.modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
         person_from_left_join = _PersonFromLeftJoin()
         project_filter = person_from_left_join.visit(project_filter)
-        if person_from_left_join.reads_person:
-            person_join = ast.JoinExpr(
-                join_type="LEFT JOIN",
-                table=ast.Field(chain=["person_distinct_ids"]),
-                alias=_CURRENT_PERSON,
-                constraint=ast.JoinConstraint(
-                    expr=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=[_CURRENT_PERSON, "distinct_id"]),
-                        right=ast.Field(chain=[events.alias or "events", "distinct_id"]),
-                    ),
-                    constraint_type="ON",
-                ),
-            )
+        if person_from_left_join.person_fields is not None:
+            person_fields = frozenset(person_from_left_join.person_fields)
     # The insight's own WHERE drops an event whose filter is NULL, so NULL counts as removed.
-    return ast.Call(name="ifNull", args=[project_filter, ast.Constant(value=False)]), person_join
+    return ast.Call(name="ifNull", args=[project_filter, ast.Constant(value=False)]), person_fields
+
+
+def _current_person_join(events: ChartEvents, where: ast.Expr, person_fields: frozenset[str]) -> ast.JoinExpr:
+    def checked_distinct_ids() -> ast.SelectQuery:
+        return events.select("SELECT distinct_id FROM events", where=clone_expr(where))
+
+    lookup = cast(
+        ast.SelectQuery,
+        parse_select(
+            _CURRENT_PERSON_QUERY,
+            placeholders={
+                "checked_distinct_ids": checked_distinct_ids(),
+                "checked_distinct_ids_again": checked_distinct_ids(),
+            },
+        ),
+    )
+    person_ids = cast(ast.JoinExpr, lookup.select_from)
+    persons = cast(ast.JoinExpr, person_ids.next_join)
+    if not person_fields:
+        person_ids.next_join = None
+    for field in sorted(person_fields):
+        latest_value = parse_expr("argMax({field}, version)", placeholders={"field": ast.Field(chain=[field])})
+        cast(ast.SelectQuery, persons.table).select.append(ast.Alias(alias=field, expr=latest_value))
+        lookup.select.append(
+            ast.Alias(alias=f"{_CURRENT_PERSON}_{field}", expr=ast.Field(chain=["current_persons", field]))
+        )
+    return ast.JoinExpr(
+        join_type="LEFT JOIN",
+        table=lookup,
+        alias=_CURRENT_PERSON,
+        constraint=ast.JoinConstraint(
+            expr=ast.CompareOperation(
+                op=ast.CompareOperationOp.Eq,
+                left=ast.Field(chain=[_CURRENT_PERSON, "current_person_distinct_id"]),
+                right=ast.Field(chain=[events.alias or "events", "distinct_id"]),
+            ),
+            constraint_type="ON",
+        ),
+    )
 
 
 def _internal_users_match(
@@ -398,10 +451,10 @@ def _internal_users_match(
         return Skipped(reason=InsightDataCheckSkipReason.HIDDEN_PROPERTY)
 
     team_emails = team_emails_of(reader.team, reader.user, email_access)
-    passes_filter, person_join = _passes_internal_users_filter(events, reader.team)
+    passes_filter, person_fields = _passes_internal_users_filter(events, reader.team)
     return _InternalUsersMatch(
         passes_filter=passes_filter,
-        person_join=person_join,
+        person_fields=person_fields,
         is_team_email=parse_expr(
             _IS_TEAM_EMAIL, placeholders={"team_email_pattern": ast.Constant(value=team_email_pattern(team_emails))}
         ),
@@ -421,8 +474,8 @@ def _count_every_event(
         passes_filter=match.passes_filter,
         is_team_email=match.is_team_email,
     )
-    if match.person_join is not None:
-        cast(ast.JoinExpr, query.select_from).next_join = match.person_join
+    if match.person_fields is not None:
+        cast(ast.JoinExpr, query.select_from).next_join = _current_person_join(events, where, match.person_fields)
     rows = reader.rows_within_limits(
         query, query_type="insight_data_checks_counted", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
     )
