@@ -2520,6 +2520,7 @@ def _do_edit_report(
                 SignalScoutRun.objects.for_team(team.id)
                 .select_related("task_run")
                 .select_for_update(of=("task_run",))
+                .only("id", "task_run__id", "task_run__status")
                 .filter(pk=run.pk)
                 .first()
             )

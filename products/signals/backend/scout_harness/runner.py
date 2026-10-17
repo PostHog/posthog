@@ -1229,6 +1229,8 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
         .filter(Q(task_run__status__in=active_statuses) | closed_by_inactivity)
         .exclude(metadata__has_key=SCOUT_RUN_REAPED_METADATA_KEY)
         .select_related("task_run")
+        # Only the columns the reap reads, so the per-dispatch join skips the TaskRun JSON payloads.
+        .only("id", "task_run__id", "task_run__status", "task_run__created_at")
     )
     if not stale_runs:
         return
