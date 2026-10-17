@@ -18,6 +18,11 @@ logger.setLevel(logging.INFO)
 TableName = str
 Query = str
 HostName = str
+RoleName = str
+
+# Only plain tables are safe to copy across the cluster. Views and dictionaries depend on tables that exist
+# only on some node roles, so the migrations create them with explicit node roles.
+CREATE_TABLE_PATTERN = re.compile(r"^CREATE TABLE (\S+)")
 
 
 class Command(BaseCommand):
@@ -78,14 +83,30 @@ class Command(BaseCommand):
             host_tables[host].add(table_name)
             create_table_queries[table_name] = create_table_query
 
-        return host_tables, create_table_queries, self.get_out_of_sync_hosts(host_tables)
+        return host_tables, create_table_queries, self.get_out_of_sync_hosts(host_tables, self.get_host_roles())
 
-    def get_out_of_sync_hosts(self, host_tables: dict[HostName, set[TableName]]) -> dict[HostName, set[TableName]]:
-        table_names = list(map(get_table_name, CREATE_TABLE_QUERIES))
-        out_of_sync = {}
+    def get_host_roles(self) -> dict[HostName, RoleName]:
+        rows = sync_execute(
+            """
+            SELECT hostName() as host, substitution
+            FROM clusterAllReplicas(%(cluster)s, system, macros)
+            WHERE macro = 'hostClusterRole'
+        """,
+            {"cluster": settings.CLICKHOUSE_CLUSTER},
+        )
+        return dict(rows)
 
+    def get_out_of_sync_hosts(
+        self, host_tables: dict[HostName, set[TableName]], host_roles: dict[HostName, RoleName]
+    ) -> dict[HostName, set[TableName]]:
+        # A host only needs the tables that other hosts with the same role have. Hosts without a role macro share one group.
+        role_tables: dict[RoleName, set[TableName]] = defaultdict(set)
         for host, tables in host_tables.items():
-            missing_tables = set(table_names) - tables
+            role_tables[host_roles.get(host, "")] |= tables
+
+        out_of_sync = {}
+        for host, tables in host_tables.items():
+            missing_tables = role_tables[host_roles.get(host, "")] - tables
             if len(missing_tables) > 0:
                 out_of_sync[host] = missing_tables
 
@@ -99,18 +120,15 @@ class Command(BaseCommand):
         missing_tables = {table for tables in out_of_sync_hosts.values() for table in tables}
 
         logger.info("Creating missing tables", missing_tables=missing_tables)
-        for table in missing_tables:
-            if table not in create_table_queries:
-                # Table doesn't exist on any host, so we can't get its CREATE query.
-                # This is normal during fresh setups - migrations will create it.
-                logger.warning("Skipping table with no CREATE query available", table=table)
-                continue
+        for table in sorted(missing_tables):
             query = create_table_queries[table]
+            if not CREATE_TABLE_PATTERN.match(query):
+                logger.warning("Skipping view or dictionary, run migrations to create it", table=table)
+                continue
             sync_execute(self.run_on_cluster(query))
 
     def run_on_cluster(self, create_table_query: Query) -> Query:
-        return re.sub(
-            r"^CREATE TABLE (\S+)",
+        return CREATE_TABLE_PATTERN.sub(
             f"CREATE TABLE IF NOT EXISTS \\1 ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'",
             create_table_query,
             count=1,
