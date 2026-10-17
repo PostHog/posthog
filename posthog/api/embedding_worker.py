@@ -66,8 +66,12 @@ def _raise_for_embedding_response(response) -> None:
     because the organization has not opted into AI data processing — a common dev
     foot-gun otherwise hidden behind a generic HTTPStatusError.
 
-    The worker returns 403 for the opt-in gate and nothing else, and sends no body
-    with it, so the status alone identifies the case.
+    The worker returns 403 for the opt-in gate and nothing else, so the status alone
+    identifies the case.
+
+    For 5xx the worker puts a short cause in the body, such as a failed organization
+    lookup or the provider's status. The message carries it, so error tracking shows
+    the cause without the worker's logs.
     """
     if response.status_code == 403:
         raise httpx.HTTPStatusError(
@@ -75,6 +79,12 @@ def _raise_for_embedding_response(response) -> None:
             "The organization has not opted into AI data processing — "
             "set Organization.is_ai_data_processing_approved=True (Settings > AI, "
             "or via SQL in local dev) and retry.",
+            request=response.request,
+            response=response,
+        )
+    if response.status_code >= 500 and response.text:
+        raise httpx.HTTPStatusError(
+            f"Embedding worker returned {response.status_code}: {response.text[:200]}",
             request=response.request,
             response=response,
         )
