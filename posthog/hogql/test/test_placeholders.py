@@ -100,6 +100,19 @@ class TestParser(SimpleTestCase):
                 replace_placeholders(expr, {})
         self.assertIn("took too long", str(context.exception))
 
+    @parameterized.expand(
+        [
+            ("node", {"foo": ast.Constant(value="bar")}, ast.Constant(value="bar")),
+            ("scalar", {"foo": 123}, ast.Constant(value=123)),
+        ]
+    )
+    def test_replace_placeholders_lookup_ignores_the_time_budget(
+        self, _name: str, placeholders: dict, expected: ast.Expr
+    ) -> None:
+        expr = ast.Placeholder(expr=ast.Field(chain=["foo"]))
+        with patch("posthog.hogql.placeholders.time.monotonic", side_effect=count(0.0, 10.0)):
+            self.assertEqual(replace_placeholders(expr, placeholders), expected)
+
     @parameterized.expand([(100, "{length(range(7))}", 1), (16, "{1}", 2)])
     def test_replace_placeholders_shares_memory(self, budget: int, expression: str, allowed_count: int) -> None:
         allowed = parse_select("SELECT " + ", ".join([expression] * allowed_count))
