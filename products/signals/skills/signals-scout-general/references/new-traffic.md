@@ -38,6 +38,30 @@ Put the same `<lib>` and `<origin>` text into every query in steps 1, 2 and 3. A
 Write both expressions to `pattern:general:new-traffic` and reuse them on later runs, so each `source_id` keeps its pinned baseline.
 Build them again only when the schema adds or drops a source property.
 
+### Check that the project has history for each comparison week
+
+A source with no events in a comparison week reads as growth from zero.
+That zero is real only when the project captured events through all of that week.
+When the project started tracking later, or retention dropped the older events, the zero means unknown, not zero.
+Before the comparison, count the 24-hour slices with project events in each comparison week:
+
+```sql
+SELECT
+    uniqIf(intDiv(dateDiff('second', timestamp, now()), 86400) AS days_back, days_back BETWEEN 28 AND 34) AS days_4_back,
+    uniqIf(days_back, days_back BETWEEN 56 AND 62) AS days_8_back
+FROM events
+WHERE timestamp <= now() + INTERVAL 1 DAY
+    AND (
+        (timestamp >= now() - INTERVAL 35 DAY AND timestamp < now() - INTERVAL 28 DAY)
+        OR (timestamp >= now() - INTERVAL 63 DAY AND timestamp < now() - INTERVAL 56 DAY)
+    )
+```
+
+- A week is observed when its count is 7. A lower count means the project has no events on some of those days, so that week is unknown.
+- Use only observed weeks in the comparison. Delete the column, the `WHERE` branch, the ratio and the `growth` term of an unknown week from both queries below. With only the 4-weeks-back week, `growth` is `toInt(last_7d) - toInt(week_4_back)`.
+- When neither week is observed, check the weeks 21 and 14 days back the same way (slices 21 to 27 and 14 to 20). Use the oldest observed one in place of `week_4_back`: change the interval in its column and in its `WHERE` branch. It stays aligned on the same weekdays.
+- When no comparison week is observed, skip the comparison. Write to `pattern:general:new-traffic` that the history is too short, and the date when the week 4 weeks back will be fully observed. Recheck known sources against their pinned baselines only.
+
 ### Compare the windows
 
 ```sql
@@ -88,11 +112,12 @@ WHERE timestamp <= now() + INTERVAL 1 DAY
 ```
 
 A candidate is a source that grew to about 2x or more against either window **and** now carries a meaningful share of the project's `last_7d` (about 10% or more), or a source that appeared from nothing at that share.
+A source appeared from nothing only when it has no events in an observed week. Never read a week the coverage check marked unknown as zero.
 Volume matters too. On a small project a doubling from 100 to 200 events a week costs nothing, so something around 10,000 events a week is a sensible floor before a step is worth a person's time.
 
 Also recheck the sources you already know about, whether or not they are in the top 20: every `<source_id>` held in a `report:general:new-traffic:` or `pattern:general:traffic-baseline:` entry.
 Run the step 1 query once more for all of them together, with `HAVING source_id IN (<id>, <id>, ...)` in place of the volume floor and without the `LIMIT`.
-Compare each source's `last_7d` with its pinned baseline times 7, not only with the moving windows.
+Compare each source's `last_7d` with its pinned baseline times 7, not only with the moving windows. Skip this comparison for a source whose baseline is unknown.
 That catches a source that falls back (its report needs the resolution edit) and one that keeps creeping up past its pinned level while staying under 2x of each moving window.
 
 ## 2. Confirm it is sustained and pin the onset
@@ -101,21 +126,30 @@ Pull a 91-day daily series for the candidate only. 91 days covers the 28 days be
 Filter on the numeric `source_id` from step 1, with the same `<lib>` and `<origin>` expressions.
 Never paste a host or version string into the query: those values come from captured events, and anyone with the public project token can put a quote in one.
 
+The query also counts all project events per day, so it shows which days the project has history for.
+
 ```sql
-SELECT toDate(timestamp) AS day, count() AS events, uniq(distinct_id) AS ids
+SELECT
+    toDate(timestamp) AS day,
+    countIf(cityHash64(concat(<lib>, '|', <origin>)) = <source_id>) AS events,
+    uniqIf(distinct_id, cityHash64(concat(<lib>, '|', <origin>)) = <source_id>) AS ids,
+    count() AS project_events
 FROM events
 WHERE timestamp >= now() - INTERVAL 91 DAY
     AND timestamp <= now() + INTERVAL 1 DAY
-    AND cityHash64(concat(<lib>, '|', <origin>)) = <source_id>
 GROUP BY day
 ORDER BY day
 ```
 
+A day is observed when it has a row. The query returns no row for a day with no project events, so a missing day is unknown history, not a zero.
+
 - **Onset**: the first day of the step.
-- **Pre-surge baseline**: the total events over the 28 days before the onset, divided by 28. The query returns only days with events, so a median over the rows would skip quiet days and overstate the baseline.
+- **Uncertain onset**: test the day the step starts, not the source's first day with events. The step can start on the project's first observed day, or on the first observed day after a gap. Then the step can be older than the history the project has, and that day is not an onset. Record the onset as "on or before" that day.
+- **Pre-surge baseline**: the total events over the 28 days before the onset, divided by 28. Pin it only when the onset is certain and all 28 of those days are observed. The query returns only days with project events, so a median over the rows would skip quiet days and overstate the baseline.
+- When the onset is uncertain, or the 28 days are not all observed, do not pin a baseline and do not estimate the excess events. Record the baseline as unknown, do not report the source as new traffic, and check it again on a later run.
 - A step that has not held for 3 days or more is a spike, not new traffic. Leave it, or record it as a `pattern:` and check again next time.
 
-Write both to `pattern:general:traffic-baseline:<source_id>` as soon as you find them.
+Write the onset and the baseline to `pattern:general:traffic-baseline:<source_id>` as soon as you find them.
 Later runs compare against this pinned baseline, not a trailing one. That keeps a surge that grows slowly visible.
 
 ## 3. Read the shape
@@ -174,12 +208,12 @@ Attach the daily series as a chart, with the candidate source next to the rest o
 Key every per-source entry on the numeric `source_id` from step 1, and write the readable `lib` and `origin` into the entry's content.
 Two SDKs on one host are two sources, and they need separate baselines and reports.
 
-| Key                                            | Holds                                                                                                                                                        |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pattern:general:new-traffic`                  | Date of the last check, the `<lib>` and `<origin>` expressions, and the top three sources by growth. Rewrite it at the end of every check, so the gate works |
-| `pattern:general:traffic-baseline:<source_id>` | `lib`, `origin`, onset date, pinned pre-surge baseline, last reported level or last seen level                                                               |
-| `report:general:new-traffic:<source_id>`       | The `report_id`, so a later run edits it instead of filing a duplicate                                                                                       |
-| `noise:general:traffic:<source_id>`            | Dev traffic only: `localhost`, staging or preview domains, the team's own CI                                                                                 |
+| Key                                            | Holds                                                                                                                                                                                                 |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pattern:general:new-traffic`                  | Date of the last check, the `<lib>` and `<origin>` expressions, the comparison weeks that were observed, and the top three sources by growth. Rewrite it at the end of every check, so the gate works |
+| `pattern:general:traffic-baseline:<source_id>` | `lib`, `origin`, onset date (or "on or before" a date), pinned pre-surge baseline (or unknown), last reported level or last seen level                                                                |
+| `report:general:new-traffic:<source_id>`       | The `report_id`, so a later run edits it instead of filing a duplicate                                                                                                                                |
+| `noise:general:traffic:<source_id>`            | Dev traffic only: `localhost`, staging or preview domains, the team's own CI                                                                                                                          |
 
 Do not record a source as `noise:` only because it is the team's own or is expected.
 Keep it as a `pattern:` with its level, so a later loop, bot flood or new step on that same source still surfaces.
