@@ -132,6 +132,8 @@ export type SceneMainTitleProps = {
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
     /** Optional label for the PostHog AI button. */
     maxButtonLabel?: string
+    /** Max character length for the name field */
+    nameMaxLength?: number
     /** Max character length for the description field */
     descriptionMaxLength?: number
     /** The scene whose release stage the title shows, when the title is for a scene other than the active one */
@@ -171,6 +173,7 @@ function LemonSceneTitleSection({
     isGeneratingMetadata,
     maxToolProps,
     maxButtonLabel,
+    nameMaxLength,
     descriptionMaxLength,
     sceneId,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -292,6 +295,7 @@ function LemonSceneTitleSection({
                                     saveOnBlur={saveOnBlur}
                                     onGenerateMetadata={onGenerateMetadata}
                                     isGeneratingMetadata={isGeneratingMetadata}
+                                    maxLength={nameMaxLength}
                                     suffix={
                                         <>
                                             {releaseStageProduct && <ReleaseStageTag product={releaseStageProduct} />}
@@ -356,6 +360,7 @@ type SceneNameProps = {
     saveOnBlur?: boolean
     onGenerateMetadata?: () => void
     isGeneratingMetadata?: boolean
+    maxLength?: number
     suffix?: React.ReactNode
 }
 
@@ -369,6 +374,7 @@ export function SceneName({
     saveOnBlur = false,
     onGenerateMetadata,
     isGeneratingMetadata = false,
+    maxLength,
     suffix,
 }: SceneNameProps): JSX.Element {
     const { name, isEditing, containerRef, startEditing, change, blur, saveFromEnter } = useSceneNameEditing({
@@ -396,6 +402,7 @@ export function SceneName({
                             name="name"
                             value={name || ''}
                             readOnly={isGeneratingMetadata}
+                            maxLength={maxLength}
                             onChange={(e) => change(e.target.value)}
                             data-attr="scene-title-textarea"
                             className={cn(

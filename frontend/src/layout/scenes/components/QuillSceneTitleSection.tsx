@@ -43,6 +43,7 @@ export function QuillSceneTitleSection({
     className,
     onGenerateMetadata,
     isGeneratingMetadata,
+    nameMaxLength,
     descriptionMaxLength,
     sceneId,
 }: SceneMainTitleProps): JSX.Element {
@@ -119,6 +120,7 @@ export function QuillSceneTitleSection({
                                 saveOnBlur={saveOnBlur}
                                 onGenerateMetadata={onGenerateMetadata}
                                 isGeneratingMetadata={isGeneratingMetadata}
+                                maxLength={nameMaxLength}
                                 suffix={
                                     <>
                                         {nameSuffixes}

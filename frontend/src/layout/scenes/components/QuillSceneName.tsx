@@ -16,6 +16,7 @@ export interface QuillSceneNameProps {
     saveOnBlur?: boolean
     onGenerateMetadata?: () => void
     isGeneratingMetadata?: boolean
+    maxLength?: number
     suffix?: ReactNode
     editDataAttr?: string
 }
@@ -33,6 +34,7 @@ export function QuillSceneName({
     saveOnBlur = false,
     onGenerateMetadata,
     isGeneratingMetadata = false,
+    maxLength,
     suffix,
     editDataAttr = 'scene-name-edit',
 }: QuillSceneNameProps): JSX.Element {
@@ -65,6 +67,7 @@ export function QuillSceneName({
                     name="name"
                     value={name || ''}
                     readOnly={isGeneratingMetadata}
+                    maxLength={maxLength}
                     placeholder="Enter name"
                     onChange={(event: React.ChangeEvent<HTMLInputElement>) => change(event.target.value)}
                     onBlur={blur}
