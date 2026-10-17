@@ -148,6 +148,7 @@ function EmailConfigContent({ config }: { config: EmailConfigStatus }): JSX.Elem
                             size="small"
                             onClick={() => sendTestEmail(config.id)}
                             loading={isTesting}
+                            tooltip={`Sends a test email from ${config.from_email} to your PostHog account email`}
                         >
                             Send test email
                         </LemonButton>

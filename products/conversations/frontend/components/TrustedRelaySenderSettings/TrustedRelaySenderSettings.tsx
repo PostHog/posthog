@@ -29,11 +29,18 @@ export function TrustedRelaySenderSettings({
     return (
         <div className="border-t pt-3">
             <LemonLabel htmlFor={`trusted-relay-sender-${configId}`}>Trusted relay sender</LemonLabel>
-            <p className="text-xs text-muted-alt mb-2">
-                Enter the exact From address used by your email relay. PostHog will identify the customer from
-                X-PostHog-Requester or Reply-To only for authenticated email from this address. Clear the field to
-                disable this behavior.
-            </p>
+            <div className="text-xs text-muted-alt mb-2 space-y-1">
+                <p className="m-0">
+                    Enter the exact From address used by your email relay. For authenticated email from this address,
+                    PostHog identifies the customer from the X-PostHog-Requester or Reply-To header. Your relay must add
+                    one of these headers.
+                </p>
+                <p className="m-0">
+                    A plain forward from a mailbox does not add them, so tickets show the mailbox as the customer. If
+                    your routing keeps the original From address, you don't need a trusted relay sender. Clear the field
+                    to turn this off.
+                </p>
+            </div>
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput
                     id={`trusted-relay-sender-${configId}`}
