@@ -183,7 +183,7 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
         setTemplateId: (templateId: string | null) => ({ templateId }),
         setPreviewError: (previewError: string | null) => ({ previewError }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         templates: [
             null as MetricsDashboardTemplateApi[] | null,
             {
@@ -257,6 +257,11 @@ export const metricsDashboardReviewSceneLogic = kea<metricsDashboardReviewSceneL
                         return values.templateId === templateId ? dashboard_id : values.previewDashboardId
                     } catch (error) {
                         if (values.templateId !== templateId) {
+                            return values.previewDashboardId
+                        }
+                        // A 4xx is an expected outcome, such as a project that sends none of the metrics.
+                        if (error instanceof ApiError && error.status !== undefined && error.status < 500) {
+                            actions.setPreviewError(errorDetail(error, 'Could not build the preview dashboard.'))
                             return values.previewDashboardId
                         }
                         throw new Error(errorDetail(error, 'Could not build the preview dashboard.'))
