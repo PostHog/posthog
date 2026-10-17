@@ -55,27 +55,11 @@ export interface metricVariableEditorLogicActions {
     addVariable: () => {
         value: true
     }
-    schedulePreview: () => {
-        value: true
-    }
-    setPreviewError: (error: string | null) => {
-        error: string | null
-    }
-    setRegexError: (
-        regex: string,
-        error: string | null
-    ) => {
-        error: string | null
-        regex: string
+    apply: (onSave: (variables: MetricsDashboardVariable[]) => void) => {
+        onSave: (variables: MetricsDashboardVariable[]) => void
     }
     clearRegexErrors: () => {
         value: true
-    }
-    setApplying: (applying: boolean) => {
-        applying: boolean
-    }
-    apply: (onSave: (variables: MetricsDashboardVariable[]) => void) => {
-        onSave: (variables: MetricsDashboardVariable[]) => void
     }
     loadPreview: (_: void) => void
     loadPreviewFailure: (
@@ -102,8 +86,24 @@ export interface metricVariableEditorLogicActions {
     removeVariable: (index: number) => {
         index: number
     }
+    schedulePreview: () => {
+        value: true
+    }
     selectVariable: (index: number) => {
         index: number
+    }
+    setApplying: (applying: boolean) => {
+        applying: boolean
+    }
+    setPreviewError: (error: string | null) => {
+        error: string | null
+    }
+    setRegexError: (
+        regex: string,
+        error: string | null
+    ) => {
+        error: string | null
+        regex: string
     }
     updateVariable: (
         index: number,
@@ -119,7 +119,10 @@ export interface metricVariableEditorLogicMeta {
     key: number | string
     __keaTypeGenInternalSelectorTypes: {
         selectedVariable: (draft: MetricsDashboardVariable[], selectedIndex: number) => MetricsDashboardVariable | null
-        errors: (draft: MetricsDashboardVariable[]) => Record<string, MetricVariableError>
+        errors: (
+            draft: MetricsDashboardVariable[],
+            regexErrors: Record<string, string>
+        ) => Record<string, MetricVariableError>
         shownErrors: (
             errors: Record<string, MetricVariableError>,
             draft: MetricsDashboardVariable[],
