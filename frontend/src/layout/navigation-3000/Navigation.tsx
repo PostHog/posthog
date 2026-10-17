@@ -176,9 +176,11 @@ export function Navigation({
                 style={
                     {
                         ...theme?.mainStyle,
-                        '--scene-layout-background': sceneConfig?.canvasBackground
-                            ? 'var(--color-bg-surface-primary)'
-                            : 'var(--color-bg-primary)',
+                        // The Today layout keeps one background on every scene, so it leaves out the notebook canvas.
+                        '--scene-layout-background':
+                            sceneConfig?.canvasBackground && !todayRail
+                                ? 'var(--color-bg-surface-primary)'
+                                : 'var(--color-bg-primary)',
                         '--side-panel-width': sidePanelWidth + 'px',
                         '--project-navbar-width':
                             !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
