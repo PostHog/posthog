@@ -20,7 +20,7 @@ export function TodaySettingsSidebar(): JSX.Element {
     const logic = settingsLogic({ logicKey: 'settingsScene' })
     const { levels, filteredSections, collapsedGroups, navLevel, searchTerm, isSearching, searchResults } =
         useValues(logic)
-    const { setSearchTerm, setNavLevel, toggleGroupCollapse } = useActions(logic)
+    const { setSearchTerm, setNavLevel, toggleGroupCollapse, expandGroup } = useActions(logic)
     // Without an organization only the account level exists, so fall back to whichever level is there.
     const level = levels.includes(navLevel) ? navLevel : levels[0]
     const { location } = useValues(router)
@@ -103,18 +103,34 @@ export function TodaySettingsSidebar(): JSX.Element {
                         }
                         const open = !collapsedGroups[item.key]
                         const Caret = open ? IconChevronDown : IconChevronRight
+                        const firstSection = item.sections[0]
                         return (
                             <div key={item.key}>
-                                <MenuLabel
-                                    render={<button type="button" />}
-                                    aria-expanded={open}
-                                    data-attr="today-settings-group"
-                                    onClick={() => toggleGroupCollapse(item.key)}
-                                    className="mt-1 flex w-full cursor-pointer items-center gap-1 rounded-sm py-1 text-left font-normal text-foreground/70 hover:text-foreground"
-                                >
-                                    <span>{item.label}</span>
-                                    <Caret className="size-3 shrink-0 opacity-60" />
-                                </MenuLabel>
+                                <div className="mt-1 flex items-center gap-1">
+                                    <MenuLabel
+                                        render={<button type="button" />}
+                                        data-attr="today-settings-group"
+                                        onClick={() => {
+                                            expandGroup(item.key)
+                                            if (firstSection) {
+                                                router.actions.push(firstSection.to ?? urls.settings(firstSection.id))
+                                            }
+                                        }}
+                                        className="cursor-pointer rounded-sm py-1 text-left font-normal text-foreground/70 hover:text-foreground"
+                                    >
+                                        {item.label}
+                                    </MenuLabel>
+                                    <button
+                                        type="button"
+                                        aria-expanded={open}
+                                        aria-label={`${open ? 'Collapse' : 'Expand'} ${item.label}`}
+                                        data-attr="today-settings-group-toggle"
+                                        onClick={() => toggleGroupCollapse(item.key)}
+                                        className="flex cursor-pointer items-center rounded-sm p-1 text-foreground/70 hover:text-foreground"
+                                    >
+                                        <Caret className="size-3 shrink-0 opacity-60" />
+                                    </button>
+                                </div>
                                 {open && (
                                     <div className="pl-2">{item.sections.map((section) => renderSection(section))}</div>
                                 )}
