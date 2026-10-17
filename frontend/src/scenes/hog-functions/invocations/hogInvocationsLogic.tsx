@@ -169,43 +169,53 @@ const filtersToSearchParams = (filters: HogInvocationsFilters): Record<string, s
     [URL_PARAMS.log_levels]: filters.log_levels?.length ? filters.log_levels.join(',') : undefined,
 })
 
-const searchParamsToFilters = (searchParams: Record<string, string | undefined>): Partial<HogInvocationsFilters> => {
+// kea-router decodes a digit-only value as a number and a repeated param as an array.
+const readUrlParam = (value: unknown): string | undefined => {
+    const first = Array.isArray(value) ? value[0] : value
+    return first === undefined || first === null || first === '' ? undefined : String(first)
+}
+
+const searchParamsToFilters = (searchParams: Record<string, unknown>): Partial<HogInvocationsFilters> => {
+    const param = (key: string): string | undefined => readUrlParam(searchParams[key])
     const next: Partial<HogInvocationsFilters> = {}
-    const dateFrom = searchParams[URL_PARAMS.date_from]
+    const dateFrom = param(URL_PARAMS.date_from)
     if (dateFrom) {
         next.date_from = dateFrom
     }
-    if (searchParams[URL_PARAMS.date_to]) {
-        next.date_to = searchParams[URL_PARAMS.date_to]
+    const dateTo = param(URL_PARAMS.date_to)
+    if (dateTo) {
+        next.date_to = dateTo
     }
-    const status = searchParams[URL_PARAMS.status]
+    const status = param(URL_PARAMS.status)
     if (status) {
         next.status = status
             .split(',')
             .filter((s): s is RunStatus => ['running', 'succeeded', 'failed', 'canceled'].includes(s))
     }
-    const errorKind = searchParams[URL_PARAMS.error_kind]
+    const errorKind = param(URL_PARAMS.error_kind)
     if (errorKind) {
         next.error_kind = errorKind.split(',').filter(Boolean)
     }
-    const kind = searchParams[URL_PARAMS.kind]
+    const kind = param(URL_PARAMS.kind)
     if (kind === 'invocations' || kind === 'rerun_jobs') {
         next.kind = kind
     }
-    if (searchParams[URL_PARAMS.search]) {
-        next.search = searchParams[URL_PARAMS.search]
+    const search = param(URL_PARAMS.search)
+    if (search) {
+        next.search = search
     }
-    const orderBy = searchParams[URL_PARAMS.order_by]
+    const orderBy = param(URL_PARAMS.order_by)
     if (orderBy === 'first_scheduled' || orderBy === 'latest_scheduled') {
         next.order_by = orderBy
     }
     if (searchParams[URL_PARAMS.problem_only]) {
         next.problem_only = true
     }
-    if (searchParams[URL_PARAMS.person_uuid]) {
-        next.person_uuid = searchParams[URL_PARAMS.person_uuid]
+    const personUuid = param(URL_PARAMS.person_uuid)
+    if (personUuid) {
+        next.person_uuid = personUuid
     }
-    const logLevels = searchParams[URL_PARAMS.log_levels]
+    const logLevels = param(URL_PARAMS.log_levels)
     if (logLevels) {
         next.log_levels = logLevels.split(',').filter(Boolean) as LogEntryLevel[]
     }
@@ -416,7 +426,7 @@ export const buildSearchClause = (
     props: HogInvocationsLogicProps,
     filters: HogInvocationsFilters
 ): ReturnType<typeof hogql.raw> => {
-    const search = filters.search?.trim()
+    const search = String(filters.search ?? '').trim()
     if (!search) {
         return hogql.raw('')
     }
@@ -1587,7 +1597,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
     }),
 
     urlToAction(({ actions, values, props }) => {
-        const handleSearch = (_: any, searchParams: Record<string, string | undefined>): void => {
+        const handleSearch = (_: any, searchParams: Record<string, unknown>): void => {
             // Per-job scoped tables (batch view) don't own the URL — several can mount on one
             // scene and they'd clobber the shared `inv_*` params. Only the flat list syncs.
             if (props.parentRunId) {
