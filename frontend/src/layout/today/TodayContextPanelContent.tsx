@@ -3,6 +3,7 @@ import { ComponentType, Suspense, useState } from 'react'
 
 import { Spinner } from '@posthog/quill'
 
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
@@ -15,6 +16,11 @@ import { todayContextPanelLogic } from './todayContextPanelLogic'
 // The quill rebuilds of the side panel tabs. Every other tab keeps its own panel.
 const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {
     [SidePanelTab.Max]: TodayAiPanel,
+    [SidePanelTab.AccessControl]: lazyWithRetry(() =>
+        import('~/layout/navigation-3000/sidepanel/panels/access_control/quill/QuillAccessControlPanel').then((m) => ({
+            default: m.QuillAccessControlPanel,
+        }))
+    ),
 }
 
 type SwitchDirection = 'forward' | 'backward'
