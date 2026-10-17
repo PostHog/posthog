@@ -478,7 +478,8 @@ tools:
             total_units is what the backfill would evaluate. already_evaluated_units already have a result and are left
             out unless rerun_existing is true. The window is clamped to the last 30 days and held back by the
             evaluation's settle time, so report the returned window_start and window_end, not the requested ones.
-            Conditions default to the evaluation's own.
+            Conditions default to the evaluation's own. The evaluation must be enabled, so the call fails on a disabled
+            draft. To size a draft before you enable it, count its matching events with execute-sql instead.
         param_overrides:
             evaluation_id:
                 aliases:
@@ -576,7 +577,8 @@ tools:
             pass a `directory_id` returned by llma-evaluation-directory-list. Omit `directory_id` or pass null to keep
             it at the top level. Results are '$ai_evaluation' events. An evaluation only scores data that arrives after
             it is enabled, so once it is enabled, offer the user a backfill over past data with
-            llma-evaluation-backfill-estimate.
+            llma-evaluation-backfill-estimate. Do not call llma-evaluation-backfill-estimate on an evaluation you
+            created with enabled=false, because it refuses a disabled evaluation.
     llma-evaluation-delete:
         operation: evaluations_destroy
         enabled: true
