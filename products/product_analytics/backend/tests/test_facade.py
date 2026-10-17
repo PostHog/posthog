@@ -15,6 +15,7 @@ from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.team import Team
 
 from products.product_analytics.backend.facade.api import (
+    get_or_create_saved_insight,
     insight_variables_for_team,
     insights_including_soft_deleted_for_team,
     record_insight_view,
@@ -82,6 +83,21 @@ class TestInsightReads(BaseTest):
         )
 
         assert {insight.pk for insight in insights} == {deleted_insight.pk, live_insight.pk}
+
+
+class TestGetOrCreateSavedInsight(BaseTest):
+    def test_rejects_a_query_that_is_not_a_dict(self) -> None:
+        with self.assertRaises(TypeError):
+            get_or_create_saved_insight(
+                team_id=self.team.pk,
+                user_id=None,
+                short_id="sqlstring",
+                name="SQL string",
+                description=None,
+                query="SELECT event FROM events",  # type: ignore[arg-type]
+            )
+
+        assert not Insight.objects_including_soft_deleted.filter(team=self.team, short_id="sqlstring").exists()
 
 
 class TestRunCachedTrendsQuery(BaseTest):
