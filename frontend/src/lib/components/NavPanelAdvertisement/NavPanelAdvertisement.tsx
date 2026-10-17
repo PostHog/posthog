@@ -9,6 +9,7 @@ import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
 import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
+import { NavPanelMcpAd } from './NavPanelMcpAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
 import { navPanelProductPushLogic } from './navPanelProductPushLogic'
 
@@ -32,9 +33,16 @@ export function NavPanelAdvertisement(): JSX.Element | null {
 
     // The org-wide product push campaign, driven by the growth backend. Respects the
     // user's "no product suggestions" setting.
-    if (isCloudOrDev && activeCampaign && user?.allow_sidebar_suggestions !== false) {
-        return <NavPanelProductPushAd campaign={activeCampaign} />
+    const productPushAd =
+        isCloudOrDev && activeCampaign && user?.allow_sidebar_suggestions !== false ? (
+            <NavPanelProductPushAd campaign={activeCampaign} />
+        ) : null
+
+    // The MCP server only serves cloud and dev instances. The card outranks the automated push, and
+    // shows the push instead once the user has connected or dismissed it.
+    if (isCloudOrDev && user) {
+        return <NavPanelMcpAd fallback={productPushAd} />
     }
 
-    return null
+    return productPushAd
 }

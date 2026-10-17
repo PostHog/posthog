@@ -18,6 +18,7 @@ import { navPanelAdvertisementLogic } from './NavPanelAdvertisementLogic'
 // pinned: analytics property values — renaming breaks dashboards
 export const NAV_PANEL_CARD_TYPE = {
     BROADCAST: 'broadcast',
+    MCP_CONNECT: 'mcp_connect',
     PRODUCT_PUSH: 'product_push',
 } as const
 
