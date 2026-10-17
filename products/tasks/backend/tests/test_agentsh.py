@@ -1,6 +1,5 @@
 import os
 import shlex
-import logging
 import tempfile
 import subprocess
 from pathlib import Path
@@ -60,13 +59,6 @@ class TestGenerateConfigYaml(SimpleTestCase):
 
 
 class TestGeneratePolicyYaml(TestCase):
-    def setUp(self):
-        super().setUp()
-        # LOGGING uses disable_existing_loggers, so any test that re-applies
-        # logging config disables this module's import-time logger and the
-        # assertLogs below see nothing; re-enable it.
-        logging.getLogger("products.tasks.backend.logic.services.agentsh").disabled = False
-
     def test_allows_commands(self):
         policy = yaml.safe_load(generate_policy_yaml(["example.com"]))
         allow_rule = next(rule for rule in policy["command_rules"] if rule["name"] == "allow-all-commands")

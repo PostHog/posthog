@@ -43,10 +43,12 @@ def test_add_otel_trace_context_is_noop_without_active_span() -> None:
     assert "span_id" not in event_dict
 
 
-def test_logging_config_can_be_applied() -> None:
-    config = dict(logs.LOGGING)
-    config["disable_existing_loggers"] = False
-    logging.config.dictConfig(config)
+def test_reapplying_logging_config_keeps_earlier_loggers_enabled() -> None:
+    created_before_config = logging.getLogger("posthog.settings.test_logs.created_before_config")
+
+    logging.config.dictConfig(logs.LOGGING)
+
+    assert not created_before_config.disabled
     assert logging.getLogger("posthog.github_diagnostics").isEnabledFor(logging.INFO)
 
 
