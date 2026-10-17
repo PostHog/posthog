@@ -161,6 +161,7 @@ import {
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
     encodeURLVariables,
+    createTaskLimiter,
     getDashboardWidgetType,
     getEffectiveDateOverride,
     getInsightQueryError,
@@ -169,7 +170,6 @@ import {
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
-    runWithLimit,
     searchParamsWithUrlFilters,
     shouldSharedDashboardAutoForceForStaleTime,
 } from './dashboardUtils'
@@ -212,6 +212,147 @@ function reportDashboardTileRefreshed(
               }
             : {}),
     })
+}
+
+type InsightTileRefreshOutcome = 'refreshed' | 'cached' | 'errored' | 'aborted'
+
+function widgetTileIdsNotRequestedSince(
+    tileIds: number[],
+    widgetRefreshStatus: Record<number, { loading?: boolean; requestNumber?: number }>,
+    lastRequestNumber: number
+): number[] {
+    return tileIds.filter((tileId) => {
+        const status = widgetRefreshStatus[tileId]
+        return !status?.loading && (status?.requestNumber ?? 0) <= lastRequestNumber
+    })
+}
+
+interface DeferredTileRefresh {
+    tileIds: number[]
+    forceRefresh: boolean
+    // The settings of the refresh that deferred the tiles, so they load with the same filters as their siblings.
+    settings: DashboardSettings | null
+}
+
+const NO_DEFERRED_TILE_REFRESH: DeferredTileRefresh = { tileIds: [], forceRefresh: false, settings: null }
+
+interface InsightTileRefreshContext {
+    actions: Pick<
+        dashboardLogicType['actions'],
+        'setRefreshStatus' | 'setRefreshError' | 'abortQuery' | 'clearDeferredTileRefresh'
+    >
+    dashboardId: number
+    currentTeamId: number | null
+    forceRefresh: boolean
+    methodOptions: ApiMethodOptions
+    filters: Parameters<typeof getInsightWithRetry>[6]
+    urlFilters: Record<string, any>
+    variables: Record<string, HogQLVariable>
+    onSuccess?: (shortId: InsightShortId) => PendingFilterChange | undefined
+}
+
+const REFRESH_CONCURRENCY = 4
+
+function startQueryAbortController(cache: Record<string, any>): AbortController {
+    cache.abortController = new AbortController()
+    return cache.abortController
+}
+
+// A refresh that deferred every insight aborted the old controller and started none, and later requests must stay abortable.
+function currentQuerySignal(cache: Record<string, any>): AbortSignal {
+    return (cache.abortController ?? startQueryAbortController(cache)).signal
+}
+
+// One limiter per dashboard and request kind, so opening several closed groups during a refresh
+// cannot multiply the concurrent requests.
+async function runWithSharedLimit(
+    cache: Record<string, any>,
+    kind: 'insight' | 'widget',
+    tasks: (() => Promise<unknown>)[]
+): Promise<void> {
+    cache.refreshLimiters ??= {}
+    cache.refreshLimiters[kind] ??= createTaskLimiter(REFRESH_CONCURRENCY)
+    await Promise.allSettled(tasks.map((task) => cache.refreshLimiters[kind](task)))
+}
+
+function widgetLoadsInFlight(cache: Record<string, any>): Set<Promise<void>> {
+    cache.widgetLoadsInFlight ??= new Set<Promise<void>>()
+    return cache.widgetLoadsInFlight
+}
+
+async function refreshInsightTile(
+    tile: DashboardTile & { insight: InsightModel },
+    {
+        actions,
+        dashboardId,
+        currentTeamId,
+        forceRefresh,
+        methodOptions,
+        filters,
+        urlFilters,
+        variables,
+        onSuccess,
+    }: InsightTileRefreshContext
+): Promise<InsightTileRefreshOutcome> {
+    const insight = tile.insight
+    const queryId = uuid()
+    const queryStartTime = performance.now()
+
+    // A task queued in the shared limiter can outlive its refresh, and must not touch the newer refresh's tile statuses.
+    if (methodOptions.signal?.aborted) {
+        return 'aborted'
+    }
+    actions.setRefreshStatus(insight.short_id, true, true)
+
+    try {
+        const refreshedInsight = await getInsightWithRetry(
+            currentTeamId,
+            insight,
+            dashboardId,
+            queryId,
+            forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
+            methodOptions,
+            filters,
+            variables,
+            tile.filters_overrides
+        )
+
+        if (methodOptions.signal?.aborted) {
+            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id, keepStatus: true })
+            return 'aborted'
+        }
+        const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
+        if (!refreshedInsight || isRefreshRejectionStub(refreshedInsight) || queryError) {
+            actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
+            return 'errored'
+        }
+        dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
+        actions.setRefreshStatus(insight.short_id)
+        actions.clearDeferredTileRefresh([tile.id])
+        const filterChange = onSuccess?.(insight.short_id)
+        reportDashboardTileRefreshed(
+            dashboardId,
+            tile,
+            urlFilters,
+            variables,
+            Math.floor(performance.now() - queryStartTime),
+            false,
+            filterChange
+        )
+        return refreshedInsight.is_cached ? 'cached' : 'refreshed'
+    } catch (e: any) {
+        if (methodOptions.signal?.aborted) {
+            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id, keepStatus: true })
+            return 'aborted'
+        }
+        if (shouldCancelQuery(e)) {
+            console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
+            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
+            return 'aborted'
+        }
+        actions.setRefreshError(insight.short_id, e)
+        return 'errored'
+    }
 }
 
 export interface DashboardLogicProps {
@@ -257,6 +398,18 @@ export enum RefreshDashboardItemsAction {
     Refresh = 'refresh',
     /** Refresh to apply temporary filters and variables. */
     Preview = 'preview',
+}
+
+function refreshesOnlyStaleTiles(
+    action: DashboardLoadAction | RefreshDashboardItemsAction,
+    forceRefresh: boolean | undefined
+): boolean {
+    return (
+        !forceRefresh &&
+        (action === DashboardLoadAction.InitialLoad ||
+            action === DashboardLoadAction.InitialLoadWithVariables ||
+            action === DashboardLoadAction.Update)
+    )
 }
 
 // to stop kea typegen getting confused
@@ -357,6 +510,7 @@ export interface dashboardLogicValues {
     cancellingPreview: boolean
     changedFilterCount: number
     collapsedTileGroupKeys: string[]
+    collapsedTileIds: number[]
     columns: number | null
     containerWidth: number | null
     currentDashboardSettings: DashboardSettings
@@ -385,6 +539,7 @@ export interface dashboardLogicValues {
     dashboardWidgetsEnabled: boolean
     dataColorTheme: DataColorTheme | null
     dataColorThemeId: number | null
+    deferredTileRefresh: DeferredTileRefresh
     effectiveBreakdownColors: BreakdownColorConfig[]
     effectiveEditBarFilters: DashboardFilter
     effectiveLastRefresh: Dayjs | null
@@ -432,6 +587,7 @@ export interface dashboardLogicValues {
     previewedDashboardSettings: DashboardSettings | null
     projectTreeRef: ProjectTreeRef
     refreshEligibilityTick: number
+    refreshEligibleLastRefresh: Dayjs | null
     refreshMetrics: {
         completed: number
         total: number
@@ -475,6 +631,7 @@ export interface dashboardLogicValues {
             error?: string | null
             fetchedAt?: number
             loading?: boolean
+            requestNumber?: number
         }
     >
     widgetResultsByTileId: Record<number, DashboardWidgetRunResultApi>
@@ -488,7 +645,13 @@ export interface dashboardLogicActions {
     abortAnyRunningQuery: () => {
         value: true
     }
-    abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => {
+    abortQuery: (payload: {
+        keepStatus?: boolean
+        queryId: string
+        queryStartTime: number
+        shortId: InsightShortId
+    }) => {
+        keepStatus?: boolean | undefined
         queryId: string
         queryStartTime: number
         shortId: InsightShortId
@@ -533,6 +696,13 @@ export interface dashboardLogicActions {
     cancelLayoutEdit: () => {
         value: true
     }
+    cancelWidgetRefresh: (
+        tileIds: number[],
+        requestNumber: number
+    ) => {
+        requestNumber: number
+        tileIds: number[]
+    }
     changeDashboardGridCompaction: (layoutCompaction: DashboardGridCompaction) => {
         layoutCompaction: DashboardGridCompaction
     }
@@ -544,6 +714,9 @@ export interface dashboardLogicActions {
     }
     clearDashboardSettingsUrlOverrides: () => {
         value: true
+    }
+    clearDeferredTileRefresh: (tileIds: number[]) => {
+        tileIds: number[]
     }
     clearInitialDashboardSettingsOverride: () => {
         value: true
@@ -588,6 +761,15 @@ export interface dashboardLogicActions {
     }
     dashboardNotFound: () => {
         value: true
+    }
+    deferTileRefresh: (
+        tileIds: number[],
+        forceRefresh: boolean,
+        settings?: DashboardSettings | null
+    ) => {
+        forceRefresh: boolean
+        settings: DashboardSettings | null
+        tileIds: number[]
     }
     discardDashboardChanges: () => {
         value: true
@@ -737,6 +919,13 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
+    preloadTileGroup: (
+        groupKey: string,
+        retryFailed?: boolean
+    ) => {
+        groupKey: string
+        retryFailed: boolean
+    }
     previewDashboardChanges: () => {
         value: true
     }
@@ -765,6 +954,9 @@ export interface dashboardLogicActions {
     refreshDashboardWidgets: (payload: { forceRefresh?: boolean; tileIds: number[] }) => {
         forceRefresh?: boolean | undefined
         tileIds: number[]
+    }
+    refreshExpandedDashboardWidgets: (forceRefresh: boolean) => {
+        forceRefresh: boolean
     }
     removeTile: (tile: DashboardTile) => {
         tile: DashboardTile
@@ -1070,10 +1262,12 @@ export interface dashboardLogicActions {
     setWidgetRefreshStatuses: (
         tileIds: number[],
         loading: boolean,
-        error?: string | null
+        error?: string | null,
+        requestNumber?: number
     ) => {
         error: string | null | undefined
         loading: boolean
+        requestNumber: number | undefined
         tileIds: number[]
     }
     setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => {
@@ -1321,6 +1515,7 @@ export interface dashboardLogicMeta {
             dashboard: DashboardType | null,
             tileGroupChoices: TileGroupChoices
         ) => string[]
+        collapsedTileIds: (tiles: DashboardTile[], collapsedTileGroupKeys: string[]) => number[]
         dashboardWidgetsEnabled: (
             featureFlags: FeatureFlagsSet,
             tiles: DashboardTile[],
@@ -1339,6 +1534,11 @@ export interface dashboardLogicMeta {
         isRefreshing: (refreshStatus: Record<string, RefreshStatus>) => (id: string) => boolean
         highlightedInsightId: (searchParams: Record<string, any>) => any
         sortedDates: (insightTiles: DashboardTile[]) => Dayjs[]
+        refreshEligibleLastRefresh: (
+            insightTiles: DashboardTile[],
+            collapsedTileIds: number[],
+            lastDashboardRefresh: Dayjs | null
+        ) => Dayjs | null
         oldestRefreshed: (sortedDates: Dayjs[], pageVisibility: boolean) => Dayjs | null
         effectiveLastRefresh: (lastDashboardRefresh: Dayjs | null, oldestRefreshed: Dayjs | null) => Dayjs | null
         nextAllowedDashboardRefresh: (lastDashboardRefresh: Dayjs | null) => Dayjs | null
@@ -1350,13 +1550,14 @@ export interface dashboardLogicMeta {
                     error?: string | null
                     fetchedAt?: number
                     loading?: boolean
+                    requestNumber?: number
                 }
             >,
             dashboardWidgetsEnabled: boolean
         ) => number | null
         blockRefresh: (
             nextAllowedDashboardRefresh: Dayjs | null,
-            effectiveLastRefresh: Dayjs | null,
+            refreshEligibleLastRefresh: Dayjs | null,
             widgetTiles: DashboardTile[],
             widgetRefreshStatus: Record<
                 number,
@@ -1364,11 +1565,13 @@ export interface dashboardLogicMeta {
                     error?: string | null
                     fetchedAt?: number
                     loading?: boolean
+                    requestNumber?: number
                 }
             >,
             refreshEligibilityTick: number,
             dashboardWidgetsEnabled: boolean,
             placement: DashboardPlacement,
+            collapsedTileIds: number[],
             pageVisibility: boolean
         ) => boolean
         canEditDashboard: (dashboard: DashboardType | null) => boolean
@@ -1415,7 +1618,11 @@ export interface dashboardLogicMeta {
             getTheme: (themeId: number | string | null | undefined) => DataColorTheme | null
         ) => DataColorTheme | null
         autoBreakdownColorsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        breakdownValuesIncomplete: (itemsLoading: boolean, insightTiles: DashboardTile[]) => boolean
+        breakdownValuesIncomplete: (
+            itemsLoading: boolean,
+            insightTiles: DashboardTile[],
+            deferredTileRefresh: DeferredTileRefresh
+        ) => boolean
         effectiveBreakdownColors: (
             temporaryBreakdownColors: BreakdownColorConfig[],
             dashboard: DashboardType | null,
@@ -1531,7 +1738,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
             previewUnsavedFilters?: boolean
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
+        refreshExpandedDashboardWidgets: (forceRefresh: boolean) => ({ forceRefresh }),
+        /** Tiles in collapsed groups wait here until a viewer points at or opens their group. */
+        deferTileRefresh: (tileIds: number[], forceRefresh: boolean, settings: DashboardSettings | null = null) => ({
+            tileIds,
+            forceRefresh,
+            settings,
+        }),
+        clearDeferredTileRefresh: (tileIds: number[]) => ({ tileIds }),
+        cancelWidgetRefresh: (tileIds: number[], requestNumber: number) => ({ tileIds, requestNumber }),
         toggleTileGroup: (groupKey: string) => ({ groupKey }),
+        preloadTileGroup: (groupKey: string, retryFailed: boolean = false) => ({ groupKey, retryFailed }),
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
         applyWidgetIssueMetadataChange: (payload: {
@@ -1541,10 +1758,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
             context: WidgetIssueMetadataContext
         }) => payload,
         setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => ({ results }),
-        setWidgetRefreshStatuses: (tileIds: number[], loading: boolean, error?: string | null) => ({
+        setWidgetRefreshStatuses: (
+            tileIds: number[],
+            loading: boolean,
+            error?: string | null,
+            requestNumber?: number
+        ) => ({
             tileIds,
             loading,
             error,
+            requestNumber,
         }),
         addWidgetTiles: (payload: {
             dashboardId: number
@@ -1568,7 +1791,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
         /** Number of insights enrolled in the current refresh cycle, captured up front. */
         setRefreshTilesTotal: (total: number) => ({ total }),
-        abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
+        abortQuery: (payload: {
+            queryId: string
+            queryStartTime: number
+            shortId: InsightShortId
+            keepStatus?: boolean
+        }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
 
@@ -2502,6 +2730,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
+        deferredTileRefresh: [
+            NO_DEFERRED_TILE_REFRESH,
+            {
+                // A refresh that skips fresh tiles must not drop the tiles an earlier refresh left waiting.
+                refreshDashboardItems: (state, { action, forceRefresh }): DeferredTileRefresh =>
+                    refreshesOnlyStaleTiles(action, forceRefresh) ? state : NO_DEFERRED_TILE_REFRESH,
+                deferTileRefresh: (state, { tileIds, forceRefresh, settings }) => {
+                    const pendingTileIds = [...new Set([...state.tileIds, ...tileIds])]
+                    return pendingTileIds.length > 0
+                        ? {
+                              tileIds: pendingTileIds,
+                              forceRefresh: state.forceRefresh || forceRefresh,
+                              settings: settings ?? state.settings,
+                          }
+                        : NO_DEFERRED_TILE_REFRESH
+                },
+                clearDeferredTileRefresh: (state, { tileIds }) => {
+                    const pendingTileIds = state.tileIds.filter((tileId) => !tileIds.includes(tileId))
+                    return pendingTileIds.length > 0 ? { ...state, tileIds: pendingTileIds } : NO_DEFERRED_TILE_REFRESH
+                },
+                cancelDashboardRefresh: (): DeferredTileRefresh => NO_DEFERRED_TILE_REFRESH,
+            },
+        ],
         refreshStatus: [
             {} as Record<string, RefreshStatus>,
             {
@@ -2513,8 +2764,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                           ? { loading: false, queued: true, timer: null }
                           : { refreshed: true, timer: state[shortId]?.timer || null },
                 }),
-                setRefreshStatuses: (state, { shortIds, loading, queued }) =>
-                    Object.fromEntries(
+                // Merges, so a group that loads while other tiles refresh keeps their statuses.
+                // A new refresh cycle clears the map through refreshDashboardItems.
+                setRefreshStatuses: (state, { shortIds, loading, queued }) => ({
+                    ...state,
+                    ...(Object.fromEntries(
                         shortIds.map((shortId) => [
                             shortId,
                             loading
@@ -2523,7 +2777,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                   ? { loading: false, queued: true, timer: null }
                                   : { refreshed: true, timer: state[shortId]?.timer || null },
                         ])
-                    ) as Record<string, RefreshStatus>,
+                    ) as Record<string, RefreshStatus>),
+                }),
                 setRefreshError: (state, { shortId, error }) => ({
                     ...state,
                     [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
@@ -2531,7 +2786,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshDashboardItems: () => ({}),
                 // Drop only the aborted tile so sibling tiles still in flight stay tracked; wiping the
                 // whole map here would make them count as completed and overstate "X out of Y".
-                abortQuery: (state, { shortId }) => {
+                abortQuery: (state, { shortId, keepStatus }) => {
+                    if (keepStatus) {
+                        return state
+                    }
                     const { [shortId]: _aborted, ...rest } = state
                     return rest
                 },
@@ -2807,15 +3065,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         widgetRefreshStatus: [
-            {} as Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
+            {} as Record<
+                number,
+                { loading?: boolean; error?: string | null; fetchedAt?: number; requestNumber?: number }
+            >,
             {
-                setWidgetRefreshStatuses: (state, { tileIds, loading, error }) => ({
+                cancelWidgetRefresh: (state, { tileIds, requestNumber }) => ({
+                    ...state,
+                    ...Object.fromEntries(
+                        tileIds
+                            .filter((id) => state[id]?.requestNumber === requestNumber)
+                            .map((id) => [id, { ...state[id], loading: false, fetchedAt: undefined }])
+                    ),
+                }),
+                setWidgetRefreshStatuses: (state, { tileIds, loading, error, requestNumber }) => ({
                     ...state,
                     ...Object.fromEntries(
                         tileIds.map((tileId) => [
                             tileId,
                             loading
-                                ? { ...state[tileId], loading: true, error: null }
+                                ? { ...state[tileId], loading: true, error: null, requestNumber }
                                 : {
                                       ...state[tileId],
                                       loading: false,
@@ -3268,6 +3537,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                       })
                     : [],
         ],
+        collapsedTileIds: [
+            (s) => [s.tiles, s.collapsedTileGroupKeys],
+            (tiles: DashboardTile[], collapsedTileGroupKeys: string[]): number[] =>
+                tiles
+                    .filter((tile) => !!tile.group_key && collapsedTileGroupKeys.includes(tile.group_key))
+                    .map((tile) => tile.id),
+        ],
         dashboardWidgetsEnabled: [
             (s) => [s.featureFlags, s.tiles, s.placement],
             (
@@ -3334,6 +3610,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return sortDayJsDates(validDates)
             },
         ],
+        // A refresh skips the tiles in closed groups, so only the other tiles decide whether a new one may run.
+        refreshEligibleLastRefresh: [
+            (s) => [s.insightTiles, s.collapsedTileIds, s.lastDashboardRefresh],
+            (
+                insightTiles: DashboardTile[],
+                collapsedTileIds: number[],
+                lastDashboardRefresh: Dayjs | null
+            ): Dayjs | null => {
+                const validDates = insightTiles
+                    .filter((tile) => !collapsedTileIds.includes(tile.id))
+                    .map((tile) => dayjs(tile.insight?.last_refresh))
+                    .filter((date) => date.isValid())
+                return sortDayJsDates(validDates)[0] ?? lastDashboardRefresh ?? null
+            },
+        ],
         oldestRefreshed: [
             // selecting page visibility to update the refresh when a page comes back into view
             (s) => [s.sortedDates, s.pageVisibility],
@@ -3397,32 +3688,37 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // page visibility is only here to trigger a recompute when the page is hidden/shown
             (s) => [
                 s.nextAllowedDashboardRefresh,
-                s.effectiveLastRefresh,
+                s.refreshEligibleLastRefresh,
                 s.widgetTiles,
                 s.widgetRefreshStatus,
                 s.refreshEligibilityTick,
                 s.dashboardWidgetsEnabled,
                 s.placement,
+                s.collapsedTileIds,
                 s.pageVisibility,
             ],
             (
                 nextAllowedDashboardRefresh: Dayjs,
-                effectiveLastRefresh: Dayjs | null,
+                refreshEligibleLastRefresh: Dayjs | null,
                 widgetTiles: DashboardTile[],
                 widgetRefreshStatus: Record<number, { loading?: boolean; error?: string | null; fetchedAt?: number }>,
                 _refreshEligibilityTick: number,
                 dashboardWidgetsEnabled: boolean,
-                placement: DashboardPlacement
+                placement: DashboardPlacement,
+                collapsedTileIds: number[]
             ) => {
                 return (
                     !(placement === DashboardPlacement.FeatureFlag) &&
                     !(placement === DashboardPlacement.Group) &&
                     !!nextAllowedDashboardRefresh &&
                     nextAllowedDashboardRefresh?.isAfter(now()) &&
-                    !isEffectiveRefreshStale(effectiveLastRefresh) &&
+                    !isEffectiveRefreshStale(refreshEligibleLastRefresh) &&
                     !(
                         dashboardWidgetsEnabled &&
                         widgetTiles.some((tile) => {
+                            if (collapsedTileIds.includes(tile.id)) {
+                                return false
+                            }
                             const status = widgetRefreshStatus[tile.id]
                             return !status?.error && isWidgetStale(status)
                         })
@@ -3596,9 +3892,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // aborted before the insight ever got results leaves the tile with result: null after
         // loading settles, hiding its breakdown values from the sharing check.
         breakdownValuesIncomplete: [
-            (s) => [s.itemsLoading, s.insightTiles],
-            (itemsLoading: boolean, insightTiles: DashboardTile[] | null): boolean =>
-                itemsLoading || hasUnresolvedBreakdownTiles(insightTiles),
+            (s) => [s.itemsLoading, s.insightTiles, s.deferredTileRefresh],
+            (
+                itemsLoading: boolean,
+                insightTiles: DashboardTile[] | null,
+                deferredTileRefresh: DeferredTileRefresh
+            ): boolean =>
+                itemsLoading ||
+                hasUnresolvedBreakdownTiles(insightTiles) ||
+                // A tile in a closed group keeps the results of the old filters until the group opens.
+                !!insightTiles?.some((tile) => deferredTileRefresh.tileIds.includes(tile.id)),
         ],
         // Persisted colors with unsaved edits merged over them, plus auto-assigned colors for
         // breakdown values shared by multiple tiles. This is both what tiles render and what a
@@ -3825,6 +4128,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (tile?.group_key) {
                 dashboardTileGroupChoicesLogic.actions.setTileGroupCollapsed(props.id, tile.group_key, false)
                 cache.revealedHighlightedInsightId = highlightedInsightId
+                actions.preloadTileGroup(tile.group_key, true)
             } else {
                 cache.revealedHighlightedInsightId = undefined
             }
@@ -4468,16 +4772,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         triggerDashboardRefresh: () => {
             actions.resetInterval()
             actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
-            if (
-                values.dashboardWidgetsEnabled &&
-                values.placement !== DashboardPlacement.Export &&
-                values.placement !== DashboardPlacement.Public
-            ) {
-                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
-                if (widgetTileIds.length > 0) {
-                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: true })
-                }
-            }
+            actions.refreshExpandedDashboardWidgets(true)
         },
         /** Called when a single insight is refreshed manually on the dashboard */
         refreshDashboardItem: async ({ tile }, breakpoint) => {
@@ -4502,6 +4797,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ? pendingFilterChange
                     : undefined
             filterChange?.remainingInsightIds.add(insight.short_id)
+            const signal = currentQuerySignal(cache)
+            const queryId = uuid()
+            const queryStartTime = performance.now()
 
             actions.setRefreshStatus(insight.short_id, true, true)
 
@@ -4516,19 +4814,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     currentTeamId,
                     insight,
                     dashboardId,
-                    uuid(),
+                    queryId,
                     'force_blocking',
-                    undefined,
+                    { signal },
                     effectiveRefreshFilters,
                     urlVariables,
                     tile.filters_overrides
                 )
 
+                if (signal.aborted) {
+                    actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id, keepStatus: true })
+                    return
+                }
                 const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
                 const succeeded = !!refreshedInsight && !isRefreshRejectionStub(refreshedInsight) && !queryError
                 if (succeeded) {
                     dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
                     actions.setRefreshStatus(insight.short_id)
+                    actions.clearDeferredTileRefresh([tile.id])
                 } else {
                     actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
                 }
@@ -4558,6 +4861,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     cache.pendingFilterChange = undefined
                 }
             } catch (e: any) {
+                if (signal.aborted) {
+                    actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id, keepStatus: true })
+                    return
+                }
                 actions.setRefreshError(insight.short_id, e)
             }
         },
@@ -4573,31 +4880,47 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : undefined
             const isInitialLoad =
                 action === DashboardLoadAction.InitialLoad || action === DashboardLoadAction.InitialLoadWithVariables
-            const isInitialLoadOrUpdate = isInitialLoad || action === DashboardLoadAction.Update
             const initialUrlOverridesArePreviewed =
                 isInitialLoad && !values.canAutoPreview && values.dashboardSettingsState === 'unsavedChanges'
 
             const dashboardId: number = props.id
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
-            if (filterChange) {
-                filterChange.remainingInsightIds = new Set(allInsightTiles.map((tile) => tile.insight!.short_id))
-            }
+            // Cache values used during and after the long-running fetch, since the logic
+            // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
+            // only cancels on newer invocations, not on unmount).
+            const { urlFilters, lastDashboardRefresh } = values
+            const urlVariables = settingsToRefresh.variables
 
-            const sortedTilesToRefresh = allInsightTiles
+            const staleTiles = allInsightTiles
                 // sort tiles so we poll them in the exact order they are computed on the backend
                 .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
                 .filter((t): t is DashboardTile & { insight: InsightModel } => !!t.insight)
                 // only refresh stale insights
                 .filter(
                     (t) =>
-                        forceRefresh ||
-                        !isInitialLoadOrUpdate ||
+                        !refreshesOnlyStaleTiles(action, forceRefresh) ||
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
+            if (filterChange) {
+                const insightIdsToRefresh = staleTiles.map((tile) => tile.insight.short_id)
+                filterChange.remainingInsightIds = new Set(
+                    refreshesOnlyStaleTiles(action, forceRefresh)
+                        ? [...filterChange.remainingInsightIds, ...insightIdsToRefresh]
+                        : insightIdsToRefresh
+                )
+            }
+            const collapsedTileIds = new Set(values.collapsedTileIds)
+            const sortedTilesToRefresh = staleTiles.filter((t) => !collapsedTileIds.has(t.id))
+            const deferredTileIds = staleTiles.filter((t) => collapsedTileIds.has(t.id)).map((t) => t.id)
+            const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
+            const deferredWidgetTileIds = widgetTileIds.filter((tileId) => collapsedTileIds.has(tileId))
+            const lastWidgetRequestBeforeRefresh: number = cache.widgetRequestCount ?? 0
+            actions.deferTileRefresh([...deferredTileIds, ...deferredWidgetTileIds], !!forceRefresh, settingsToRefresh)
 
             const tilesStaleCount = sortedTilesToRefresh.length
+            let abortedWidgetLoads: Promise<void>[] = []
             let tilesRefreshedCount = 0
             let tilesRefreshedCachedCount = 0
             let tilesErroredCount = 0
@@ -4617,77 +4940,46 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 await breakpoint()
 
+                abortedWidgetLoads = [...widgetLoadsInFlight(cache)]
                 actions.abortAnyRunningQuery()
-                cache.abortController = new AbortController()
-                const methodOptions: ApiMethodOptions = { signal: cache.abortController.signal }
+                const methodOptions: ApiMethodOptions = { signal: startQueryAbortController(cache).signal }
 
-                // Cache values used during and after the long-running fetch, since the logic
-                // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
-                // only cancels on newer invocations, not on unmount).
-                const { currentTeamId, externalFilters, urlFilters, dashboardLoadData, lastDashboardRefresh } = values
+                const { currentTeamId, externalFilters, dashboardLoadData } = values
                 const effectiveRefreshFilters = combineDashboardFilters(settingsToRefresh.filters, externalFilters)
-                const urlVariables = settingsToRefresh.variables
 
+                const tileRefreshContext: InsightTileRefreshContext = {
+                    actions,
+                    dashboardId,
+                    currentTeamId,
+                    forceRefresh: !!forceRefresh,
+                    methodOptions,
+                    filters: effectiveRefreshFilters,
+                    urlFilters,
+                    variables: urlVariables,
+                }
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
-                    const insight = tile.insight
-                    const queryId = uuid()
-                    const queryStartTime = performance.now()
-                    const dashboardId: number = props.id
-
                     // Set insight as refreshing
-                    actions.setRefreshStatus(insight.short_id, true, true)
-
-                    try {
-                        const insightRefreshStartTime = performance.now()
-                        const refreshedInsight = await getInsightWithRetry(
-                            currentTeamId,
-                            insight,
-                            dashboardId,
-                            queryId,
-                            forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
-                            methodOptions,
-                            effectiveRefreshFilters,
-                            urlVariables,
-                            tile.filters_overrides
-                        )
-
-                        const queryError = refreshedInsight ? getInsightQueryError(refreshedInsight) : null
-                        if (refreshedInsight && !isRefreshRejectionStub(refreshedInsight) && !queryError) {
-                            dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
-                            actions.setRefreshStatus(insight.short_id)
-                            tilesRefreshedCount++
-                            filterChange?.remainingInsightIds.delete(insight.short_id)
-                            if (refreshedInsight.is_cached) {
-                                tilesRefreshedCachedCount++
-                            }
-                            reportDashboardTileRefreshed(
-                                dashboardId,
-                                tile,
-                                urlFilters,
-                                urlVariables,
-                                Math.floor(performance.now() - insightRefreshStartTime),
-                                false
-                            )
+                    const outcome = await refreshInsightTile(tile, tileRefreshContext)
+                    if (filterChange && !methodOptions.signal?.aborted && cache.pendingFilterChange === filterChange) {
+                        if (outcome === 'refreshed' || outcome === 'cached') {
+                            filterChange.remainingInsightIds.delete(tile.insight.short_id)
                         } else {
-                            actions.setRefreshError(insight.short_id, queryError?.code ? queryError : undefined)
-                            filterChange?.remainingInsightIds.add(insight.short_id)
-                            tilesErroredCount++
+                            filterChange.remainingInsightIds.add(tile.insight.short_id)
                         }
-                    } catch (e: any) {
-                        filterChange?.remainingInsightIds.add(insight.short_id)
-                        if (shouldCancelQuery(e)) {
-                            console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-                            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
-                            tilesAbortedCount++
-                        } else {
-                            actions.setRefreshError(insight.short_id, e)
-                            tilesErroredCount++
+                    }
+                    if (outcome === 'errored') {
+                        tilesErroredCount++
+                    } else if (outcome === 'aborted') {
+                        tilesAbortedCount++
+                    } else {
+                        tilesRefreshedCount++
+                        if (outcome === 'cached') {
+                            tilesRefreshedCachedCount++
                         }
                     }
                 })
 
-                // Execute the fetches with concurrency limit of 4
-                await runWithLimit(fetchSyncInsightFunctions, 4)
+                await runWithSharedLimit(cache, 'insight', fetchSyncInsightFunctions)
                 breakpoint()
 
                 // REFRESH DONE: all insights have been refreshed
@@ -4716,6 +5008,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                 }
 
+                if (
+                    (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
+                    (tilesErroredCount > 0 || tilesAbortedCount > 0)
+                ) {
+                    actions.previewDashboardChangesFailure()
+                } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
+                    actions.setPreviewedDashboardSettings(settingsToRefresh)
+                }
+            } else {
+                if (deferredTileIds.length > 0) {
+                    // Requests from the previous cycle would otherwise land after, and over, the deferred loads.
+                    abortedWidgetLoads = [...widgetLoadsInFlight(cache)]
+                    actions.abortAnyRunningQuery()
+                }
+                if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
+                    // Every tile sits in a closed group, so nothing ran that could fail.
+                    actions.setPreviewedDashboardSettings(settingsToRefresh)
+                }
+            }
+
+            if (tilesStaleCount > 0 || deferredTileIds.length > 0) {
                 const refreshDurationMs = Math.floor(performance.now() - dashboardRefreshStartTime)
                 const filterChangeIsCurrent =
                     filterChange &&
@@ -4735,6 +5048,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh_duration_ms: refreshDurationMs,
                     total_tile_count: totalTileCount,
                     tiles_stale_count: tilesStaleCount,
+                    tiles_deferred_count: deferredTileIds.length,
                     tiles_refreshed_count: tilesRefreshedCount,
                     tiles_errored_count: tilesErroredCount,
                     tiles_aborted_count: tilesAbortedCount,
@@ -4749,15 +5063,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 if (filterChangeIsCurrent && allInsightsSucceeded) {
                     cache.pendingFilterChange = undefined
                 }
-
-                if (
-                    (previewUnsavedFilters || initialUrlOverridesArePreviewed) &&
-                    (tilesErroredCount > 0 || tilesAbortedCount > 0)
-                ) {
-                    actions.previewDashboardChangesFailure()
-                } else if (previewUnsavedFilters || initialUrlOverridesArePreviewed) {
-                    actions.setPreviewedDashboardSettings(settingsToRefresh)
-                }
             }
 
             if (
@@ -4770,25 +5075,168 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.forceRefreshIfStale()
             }
 
+            if (abortedWidgetLoads.length > 0) {
+                // An aborted widget shows as loading until its request settles, and would not load again below.
+                await Promise.allSettled(abortedWidgetLoads)
+                breakpoint()
+            }
+            const closedTileIdsNow = new Set(values.collapsedTileIds)
+            const unrequestedWidgetTileIds = widgetTileIdsNotRequestedSince(
+                widgetTileIds,
+                values.widgetRefreshStatus,
+                lastWidgetRequestBeforeRefresh
+            )
+            // The deferral above saw these groups open, so reopening them would otherwise load nothing.
+            const newlyClosedWidgetTileIds = unrequestedWidgetTileIds.filter(
+                (tileId) => !collapsedTileIds.has(tileId) && closedTileIdsNow.has(tileId)
+            )
+            if (newlyClosedWidgetTileIds.length > 0) {
+                actions.deferTileRefresh(newlyClosedWidgetTileIds, !!forceRefresh, settingsToRefresh)
+            }
+            const openUnrequestedWidgetTileIds = unrequestedWidgetTileIds.filter(
+                (tileId) => !closedTileIdsNow.has(tileId)
+            )
+            if (openUnrequestedWidgetTileIds.length > 0) {
+                actions.refreshDashboardWidgets({ tileIds: openUnrequestedWidgetTileIds, forceRefresh: !!forceRefresh })
+            }
+            const waitingOpenGroupKeys = new Set(
+                values.tiles
+                    .filter(
+                        (tile) =>
+                            tile.group_key &&
+                            !closedTileIdsNow.has(tile.id) &&
+                            values.deferredTileRefresh.tileIds.includes(tile.id)
+                    )
+                    .map((tile) => tile.group_key!)
+            )
+            waitingOpenGroupKeys.forEach((groupKey) => actions.preloadTileGroup(groupKey))
+        },
+        refreshExpandedDashboardWidgets: ({ forceRefresh }) => {
             if (
-                values.dashboardWidgetsEnabled &&
-                values.placement !== DashboardPlacement.Export &&
-                values.placement !== DashboardPlacement.Public
+                !values.dashboardWidgetsEnabled ||
+                values.placement === DashboardPlacement.Export ||
+                values.placement === DashboardPlacement.Public
             ) {
-                const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
-                if (widgetTileIds.length > 0) {
-                    actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: !!forceRefresh })
-                }
+                return
+            }
+            const collapsedTileIds = new Set(values.collapsedTileIds)
+            const expandedWidgetTileIds = values.widgetTiles
+                .map((tile) => tile.id)
+                .filter((tileId) => !collapsedTileIds.has(tileId))
+            if (expandedWidgetTileIds.length > 0) {
+                actions.refreshDashboardWidgets({ tileIds: expandedWidgetTileIds, forceRefresh })
             }
         },
         toggleTileGroup: ({ groupKey }) => {
             const collapse = !values.collapsedTileGroupKeys.includes(groupKey)
+            const groupTileIds = values.tiles.filter((tile) => tile.group_key === groupKey).map((tile) => tile.id)
+            const preloadedAt: number | undefined = cache.tileGroupPreloadedAt?.[groupKey]
             posthog.capture('dashboard tile group toggled', {
                 dashboard_id: props.id,
                 collapsed: collapse,
-                tile_count: values.tiles.filter((tile) => tile.group_key === groupKey).length,
+                tile_count: groupTileIds.length,
+                tiles_waiting_count: values.deferredTileRefresh.tileIds.filter((id) => groupTileIds.includes(id))
+                    .length,
+                ms_since_preload: preloadedAt === undefined ? null : Math.round(performance.now() - preloadedAt),
             })
             dashboardTileGroupChoicesLogic.actions.setTileGroupCollapsed(props.id, groupKey, collapse)
+            if (!collapse) {
+                actions.preloadTileGroup(groupKey, true)
+            }
+        },
+        preloadTileGroup: async ({ groupKey, retryFailed }) => {
+            const { tileIds: deferredTileIds, forceRefresh } = values.deferredTileRefresh
+            const loadingTileIds: Set<number> = (cache.preloadingTileIds ??= new Set<number>())
+            const tileIdsToLoad = new Set(
+                values.tiles
+                    .filter(
+                        (tile) =>
+                            tile.group_key === groupKey &&
+                            deferredTileIds.includes(tile.id) &&
+                            !loadingTileIds.has(tile.id) &&
+                            // A hover only guesses that the viewer opens the group, so it does not rerun a failed query.
+                            !values.widgetRefreshStatus[tile.id]?.loading &&
+                            (retryFailed ||
+                                !(tile.insight
+                                    ? values.refreshStatus[tile.insight.short_id]?.errored
+                                    : values.widgetRefreshStatus[tile.id]?.error))
+                    )
+                    .map((tile) => tile.id)
+            )
+            if (tileIdsToLoad.size === 0) {
+                return
+            }
+            cache.tileGroupPreloadedAt = { ...cache.tileGroupPreloadedAt, [groupKey]: performance.now() }
+            const signal = currentQuerySignal(cache)
+
+            const widgetTileIds = values.widgetTiles
+                .map((tile) => tile.id)
+                .filter((tileId) => tileIdsToLoad.has(tileId))
+            if (widgetTileIds.length > 0) {
+                actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh })
+            }
+
+            const insightTiles = values.insightTiles.filter(
+                (tile): tile is DashboardTile & { insight: InsightModel } =>
+                    !!tile.insight && tileIdsToLoad.has(tile.id)
+            )
+            if (insightTiles.length === 0) {
+                return
+            }
+            const { currentTeamId, externalFilters, urlFilters, refreshTilesTotal, refreshStatus } = values
+            const shortIds = insightTiles.map((tile) => tile.insight.short_id)
+            // Grow the "X out of Y" total, so tiles that already finished still count as done.
+            actions.setRefreshTilesTotal(
+                (refreshTilesTotal ?? Object.keys(refreshStatus).length) +
+                    shortIds.filter((shortId) => !(shortId in refreshStatus)).length
+            )
+            actions.setRefreshStatuses(shortIds, false, true)
+            const settings = values.deferredTileRefresh.settings ?? values.settingsForRefresh
+            const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
+            const filterChange =
+                pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settings)
+                    ? pendingFilterChange
+                    : undefined
+            shortIds.forEach((shortId) => filterChange?.remainingInsightIds.add(shortId))
+            const tileRefreshContext: InsightTileRefreshContext = {
+                actions,
+                dashboardId: props.id,
+                currentTeamId,
+                forceRefresh,
+                methodOptions: { signal },
+                filters: combineDashboardFilters(settings.filters, externalFilters),
+                urlFilters,
+                variables: settings.variables,
+                onSuccess: (shortId: InsightShortId): PendingFilterChange | undefined => {
+                    if (
+                        !filterChange ||
+                        signal.aborted ||
+                        cache.pendingFilterChange !== filterChange ||
+                        !dashboardSettingsMatch(settings, values.currentDashboardSettings)
+                    ) {
+                        return undefined
+                    }
+                    filterChange.remainingInsightIds.delete(shortId)
+                    if (filterChange.remainingInsightIds.size === 0) {
+                        cache.pendingFilterChange = undefined
+                    }
+                    return filterChange
+                },
+            }
+            insightTiles.forEach((tile) => loadingTileIds.add(tile.id))
+            // A tile leaves the waiting list only once it loads, because a failed or aborted tile still shows the
+            // results of the old filters.
+            await runWithSharedLimit(
+                cache,
+                'insight',
+                insightTiles.map((tile) => async () => {
+                    try {
+                        await refreshInsightTile(tile, tileRefreshContext)
+                    } finally {
+                        loadingTileIds.delete(tile.id)
+                    }
+                })
+            )
         },
         refreshDashboardWidgets: async ({ tileIds, forceRefresh }, breakpoint) => {
             if (
@@ -4811,23 +5259,39 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 )
             })
 
+            actions.clearDeferredTileRefresh(tileIds.filter((tileId) => !staleTileIds.includes(tileId)))
             if (staleTileIds.length === 0) {
                 return
             }
 
-            actions.setWidgetRefreshStatuses(staleTileIds, true)
+            // A count rather than a time, so a request in the same millisecond as a refresh still orders after it.
+            cache.widgetRequestCount = (cache.widgetRequestCount ?? 0) + 1
+            const requestNumber: number = cache.widgetRequestCount
+            actions.setWidgetRefreshStatuses(staleTileIds, true, null, requestNumber)
             await breakpoint()
 
             const projectId = String(values.currentTeamId)
             const dashboardId = props.id
+            // Read before queueing: an abort clears cache.abortController while a chunk still waits for the limiter.
+            const signal = currentQuerySignal(cache)
             const fetchFunctions = chunkTileIds(staleTileIds, 4).map((chunk) => async () => {
                 try {
-                    const results = await fetchRunWidgets(projectId, dashboardId, chunk, {
-                        signal: cache.abortController?.signal,
-                    })
-                    const resultsByTileId = Object.fromEntries(results.map((result) => [result.tile_id, result]))
+                    if (signal.aborted) {
+                        throw signal.reason
+                    }
+                    const results = await fetchRunWidgets(projectId, dashboardId, chunk, { signal })
+                    if (signal.aborted) {
+                        return
+                    }
+                    const ownedResults = results.filter(
+                        (result) => values.widgetRefreshStatus[result.tile_id]?.requestNumber === requestNumber
+                    )
+                    const resultsByTileId = Object.fromEntries(ownedResults.map((result) => [result.tile_id, result]))
                     actions.setWidgetRunResults(resultsByTileId)
-                    for (const result of results) {
+                    for (const result of ownedResults) {
+                        if (!result.error) {
+                            actions.clearDeferredTileRefresh([result.tile_id])
+                        }
                         actions.setWidgetRefreshStatuses(
                             [result.tile_id],
                             false,
@@ -4835,11 +5299,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                     }
                 } catch {
-                    actions.setWidgetRefreshStatuses(chunk, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+                    if (!signal.aborted) {
+                        const ownedTileIds = chunk.filter(
+                            (tileId) => values.widgetRefreshStatus[tileId]?.requestNumber === requestNumber
+                        )
+                        actions.setWidgetRefreshStatuses(ownedTileIds, false, DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE)
+                    }
+                } finally {
+                    if (signal.aborted) {
+                        actions.cancelWidgetRefresh(chunk, requestNumber)
+                    }
                 }
             })
 
-            await runWithLimit(fetchFunctions, 4)
+            const load = runWithSharedLimit(cache, 'widget', fetchFunctions)
+            const loadsInFlight = widgetLoadsInFlight(cache)
+            loadsInFlight.add(load)
+            try {
+                await load
+            } finally {
+                loadsInFlight.delete(load)
+            }
         },
         addWidgetTiles: async ({ dashboardId, widgets }) => {
             if (widgets.length === 0) {
@@ -5199,6 +5679,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortAnyRunningQuery: () => {
+            cache.preloadingTileIds = new Set<number>()
             if (cache.abortController) {
                 cache.abortController.abort()
                 cache.abortController = null
