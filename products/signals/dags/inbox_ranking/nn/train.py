@@ -23,7 +23,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_K
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.network import MultiHeadNetwork, export_onnx
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
-from products.signals.dags.inbox_ranking.nn.model import NetworkHead, TrainedNetwork
+from products.signals.dags.inbox_ranking.nn.model import NetworkHead, TrainedNetwork, network_vector_kinds
 from products.signals.dags.inbox_ranking.training.heads import Head
 from products.signals.dags.inbox_ranking.training.train import NULL_PERMUTATIONS, head_metrics
 
@@ -131,5 +131,5 @@ def train_network(
         skipped=tuple(skipped),
         network_train_rows=len(train_rows),
         refit_rows=len(refit_rows),
-        vector_kinds=VECTOR_KINDS if inputs.context is not None else (),
+        vector_kinds=network_vector_kinds(inputs),
     )

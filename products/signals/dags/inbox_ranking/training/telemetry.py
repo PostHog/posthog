@@ -49,6 +49,7 @@ _CANDIDATE_CONTEXT_KEYS = (
     "feature_schema_version",
     "lookback_days",
     "holdout_days",
+    "recipe_hash",
 )
 # Object names inside the models prefix; meaningless on a chart.
 _HEAD_FILE_KEYS = ("file", "holdout_file")
@@ -156,12 +157,15 @@ def promotion_event(
     champion_aucs: Mapping[str, float],
     champion_eces: Mapping[str, float],
     skipped_gates: Collection[str] = (),
+    recipe_hash: str | None = None,
+    incumbent_recipe_hash: str | None = None,
 ) -> TrainingEvent:
     """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout; after a promotion
     `champion_version` is the candidate, so the incumbent is carried separately. Every version here
     belongs to `model_name`: promotion compares a candidate to the champion of its own family.
 
-    `reason` is always the rule's reason, so a forced promotion still records why the rule refused it."""
+    `reason` is always the rule's reason, so a forced promotion still records why the rule refused it.
+    The two recipe hashes are None for a version written before the hash existed."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
@@ -177,6 +181,8 @@ def promotion_event(
             "skipped_heads": list(decision.skipped_heads),
             "champion_version": champion_version,
             "incumbent_champion_version": incumbent_champion_version,
+            "recipe_hash": recipe_hash,
+            "incumbent_recipe_hash": incumbent_recipe_hash,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
             **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
@@ -194,10 +200,12 @@ def serving_manifest_event(
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
     mirror_published: bool | None = None,
+    recipe_hashes: Mapping[str, str | None] | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
     the manifest is what makes the sweep serve anything, so a silent gap in this series would read
-    the same as a day of ordinary publishing."""
+    the same as a day of ordinary publishing. `recipe_hashes` maps a model key to the `recipe_hash`
+    of its `metadata.json`."""
     properties: dict[str, object] = {
         "model_version": partition_key,
         "run_id": run_id,
@@ -214,6 +222,7 @@ def serving_manifest_event(
             "served_key": manifest.served.key,
             "model_keys": [entry.key for entry in manifest.models],
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
+            "model_recipe_hashes": {entry.key: (recipe_hashes or {}).get(entry.key) for entry in manifest.models},
         }
     if mirror_published is not None:
         properties["mirror_published"] = mirror_published

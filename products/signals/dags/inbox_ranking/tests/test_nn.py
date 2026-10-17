@@ -1,6 +1,7 @@
 import io
 import json
 import datetime
+import dataclasses
 from typing import Any
 
 import pytest
@@ -14,6 +15,7 @@ from sklearn.metrics import roc_auc_score
 
 from posthog import settings
 
+from products.signals.backend.ranking.features import REPORT_EMBEDDINGS_FEATURE_SET
 from products.signals.backend.ranking.model_contract import model_mismatch
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.overrides import NO_OVERRIDES
@@ -41,17 +43,22 @@ from products.signals.dags.inbox_ranking.nn.model import (
     NetworkHead,
     TrainedNetwork,
     candidate_metadata,
+    network_recipe,
     onnx_probabilities,
 )
 from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, _SyntheticInbox
 from products.signals.dags.inbox_ranking.training.dag import (
     CHAMPION_FILE,
     METADATA_FILE,
+    booster_recipe,
     champion_object_key,
+    check_recipe,
     inbox_ranking_model_candidate,
     inbox_ranking_model_champion,
     model_object_key,
 )
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
+from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, RECIPE_KEY, model_recipe, recipe_hash
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics
 from products.signals.dags.inbox_ranking.training.unseen import NN_MODEL_NAME, REPORT_EMBEDDINGS_MODEL_NAME
@@ -79,8 +86,17 @@ class _S3:
     def get_paginator(self, _name):
         return self
 
-    def paginate(self, *, Bucket, Prefix):
-        yield {"Contents": [{"Key": key} for key in sorted(self.objects) if key.startswith(Prefix)]}
+    def paginate(self, *, Bucket, Prefix, Delimiter=None):
+        keys = [key for key in sorted(self.objects) if key.startswith(Prefix)]
+        if Delimiter is None:
+            yield {"Contents": [{"Key": key} for key in keys]}
+            return
+        folders = {
+            Prefix + key[len(Prefix) :].split(Delimiter)[0] + Delimiter
+            for key in keys
+            if Delimiter in key[len(Prefix) :]
+        }
+        yield {"CommonPrefixes": [{"Prefix": folder} for folder in sorted(folders)]}
 
     def delete_objects(self, *, Bucket, Delete):
         for obj in Delete["Objects"]:
@@ -290,3 +306,70 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
         auc = roc_auc_score(holdout.labels[rows, index], probabilities[head["head"]][rows])
         assert auc == pytest.approx(head["holdout_auc"], abs=1e-4)
         assert auc > 0.75
+
+
+def _stored_version(model_name: str, version: str, recipe: dict[str, Any] | None) -> tuple[str, bytes]:
+    metadata: dict[str, Any] = {"model_name": model_name, "model_version": version}
+    if recipe is not None:
+        metadata |= {RECIPE_KEY: recipe, RECIPE_HASH_KEY: recipe_hash(recipe)}
+    return model_object_key(PREFIX, model_name, version, METADATA_FILE), json.dumps(metadata).encode()
+
+
+ACTION = HEADS_BY_NAME["action"]
+
+
+def _action_recipe(head: Head) -> dict[str, Any]:
+    return model_recipe(
+        model_kind=ONNX_MODEL_KIND, feature_set=REPORT_EMBEDDINGS_FEATURE_SET, heads=[head], learner_params={}
+    )
+
+
+@pytest.mark.parametrize(
+    "stored, recipe, lookback_days, changed",
+    [
+        ({"2026-08-18": "booster"}, "booster", None, None),
+        ({"2026-08-18": "booster"}, "booster", 120, "lookback_days"),
+        ({"2026-08-18": "network"}, "network_more_epochs", None, "learner_params.epochs"),
+        ({"2026-08-17": "network", "2026-08-18": None}, "network_more_epochs", None, "learner_params.epochs"),
+        ({"2026-08-18": None}, "network_more_epochs", None, None),
+        ({"2026-08-20": "network"}, "network_more_epochs", None, None),
+        ({PARTITION: "network"}, "network", None, None),
+        ({PARTITION: "network"}, "network_more_epochs", None, "learner_params.epochs"),
+        ({"2026-08-18": "action"}, "action_without_status_labels", None, "heads.action.status_labels"),
+        ({"2026-08-18": "action"}, "action_without_label_columns", None, "heads.action.label_columns"),
+    ],
+    ids=[
+        "daily_retrain",
+        "env_lookback_change",
+        "network_config_change",
+        "skips_a_version_without_a_hash",
+        "nothing_hashed_to_compare",
+        "ignores_later_versions",
+        "rerun_with_the_same_recipe",
+        "rerun_with_another_recipe",
+        "head_status_labels_change",
+        "head_label_columns_change",
+    ],
+)
+def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored, recipe, lookback_days, changed):
+    recipes = {
+        "booster": lambda: booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET),
+        "network": lambda: network_recipe(NetworkConfig(), ()),
+        "network_more_epochs": lambda: network_recipe(NetworkConfig(epochs=NetworkConfig().epochs + 5), ()),
+        "action": lambda: _action_recipe(ACTION),
+        "action_without_status_labels": lambda: _action_recipe(dataclasses.replace(ACTION, status_labels=False)),
+        "action_without_label_columns": lambda: _action_recipe(dataclasses.replace(ACTION, label_columns=())),
+    }
+    objects = dict(
+        _stored_version("family", version, None if name is None else recipes[name]())
+        for version, name in stored.items()
+    )
+    if lookback_days is not None:
+        monkeypatch.setattr(settings, "INBOX_RANKING_TRAINING_LOOKBACK_DAYS", lookback_days)
+    check = lambda: check_recipe(_S3(objects), "bucket", PREFIX, "family", PARTITION, recipes[recipe]())
+    if changed is None:
+        check()
+        return
+    with pytest.raises(dagster.Failure) as failure:
+        check()
+    assert changed in (failure.value.description or "")
