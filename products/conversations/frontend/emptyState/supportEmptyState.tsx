@@ -34,7 +34,7 @@ export const supportEmptyState: SceneProductEmptyState = {
         // Settings are the next step in both modes: switching support on, then finishing a channel.
         primaryAction: { label: 'Open support settings', to: urls.supportSettings() },
         docsUrl: 'https://posthog.com/docs/support',
-        previewLabel: 'Your inbox, once tickets arrive',
+        previewLabel: 'Example: how your support inbox will look',
         Preview: SupportPreview,
     },
 }
