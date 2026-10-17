@@ -14,7 +14,7 @@ import {
   isReportTabReport,
   isRestorableReport,
   matchesReviewerScope,
-  partitionRunsTabReports,
+  orderedRunsTabReports,
   teammateInboxScope,
 } from "./reportMembership";
 
@@ -358,8 +358,8 @@ describe("tabFilters", () => {
   });
 });
 
-describe("partitionRunsTabReports", () => {
-  it("buckets queued / live / finished and sorts each newest-first", () => {
+describe("orderedRunsTabReports", () => {
+  it("sorts queued, live, and finished runs newest-first without grouping", () => {
     const queuedOld = fakeReport({
       id: "q-old",
       status: "potential",
@@ -388,27 +388,27 @@ describe("partitionRunsTabReports", () => {
       implementation_pr_url: "https://github.com/x/y/pull/1",
     });
 
-    const {
-      queued,
-      live: liveBucket,
-      finished,
-    } = partitionRunsTabReports([
+    const reports = [
       queuedOld,
       finishedReady,
       live,
       queuedNew,
       finishedFailed,
       pull,
-    ]);
+      fakeReport({ id: "resolved", status: "resolved" }),
+      fakeReport({ id: "suppressed", status: "suppressed" }),
+    ];
+    const originalReports = [...reports];
+    const runs = orderedRunsTabReports(reports);
 
-    expect(queued.map((r) => r.id)).toEqual(["q-new", "q-old"]);
-    expect(liveBucket.map((r) => r.id)).toEqual(["live"]);
-    // A ready PR row is also a finished run, so it lands in the finished bucket
-    // and is ordered purely by recency (06-09 > 06-05 > 06-02).
-    expect(finished.map((r) => r.id)).toEqual([
+    expect(runs.map((report) => report.id)).toEqual([
       "fin-failed",
+      "q-new",
+      "live",
       "pr",
       "fin-ready",
+      "q-old",
     ]);
+    expect(reports).toEqual(originalReports);
   });
 });
