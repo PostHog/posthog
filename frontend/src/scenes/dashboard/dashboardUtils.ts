@@ -625,8 +625,8 @@ function withoutCurrent(variable: Partial<MetricsDashboardVariable>): Partial<Me
     return definition
 }
 
-/** A saved metric variable goes into the URL and requests as its name and selection, so its query and options stay
- * out of them. The server and `combineSavedAndUrlFilters` put the saved definition back. */
+/** A saved metric variable goes into requests as its name and selection, and the server puts the saved definition back.
+ * A definition that is not saved yet goes in full, because the server does not know it. */
 export function withCompactMetricVariables(
     filters: DashboardFilter,
     saved: MetricsDashboardVariable[]
@@ -661,15 +661,28 @@ export function combineSavedAndUrlFilters(saved: DashboardFilter, url: Dashboard
     return combineDashboardFilters(saved, { ...url, metricVariables })
 }
 
+/** Analytics captures the page URL, so metric variables go into it as their names and selections only. A definition
+ * that is not saved yet stays in the page until the dashboard is saved. */
+function withMetricVariableSelections(filters: DashboardFilter): DashboardFilter {
+    if (!filters.metricVariables) {
+        return filters
+    }
+    return {
+        ...filters,
+        metricVariables: filters.metricVariables.map(
+            (variable) => ({ name: variable.name, current: variable.current }) as MetricsDashboardVariable
+        ),
+    }
+}
+
 export function searchParamsWithUrlFilters(
     searchParams: Record<string, any>,
     filters: DashboardFilter,
     persistedFilters: DashboardFilter = {}
 ): Record<string, any> {
     const nextSearchParams = { ...searchParams }
-    const saved = persistedFilters.metricVariables ?? []
-    const compact = withCompactMetricVariables(filters, saved)
-    if (!dashboardFilterOverrideChangesFilters(compact, withCompactMetricVariables(persistedFilters, saved))) {
+    const compact = withMetricVariableSelections(filters)
+    if (!dashboardFilterOverrideChangesFilters(compact, withMetricVariableSelections(persistedFilters))) {
         delete nextSearchParams[SEARCH_PARAM_FILTERS_KEY]
         return nextSearchParams
     }

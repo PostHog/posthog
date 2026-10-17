@@ -96,6 +96,22 @@ describe('searchParamsWithUrlFilters', () => {
         })
     })
 
+    it('keeps a metric variable that is not saved yet out of the URL', () => {
+        const draft: MetricsDashboardVariable = {
+            name: 'region',
+            source: 'custom',
+            customValues: ['private_option'],
+            current: { values: ['private_option'] },
+        }
+
+        const searchParams = searchParamsWithUrlFilters({}, { metricVariables: [draft] }, {})
+
+        expect(parseURLFilters(searchParams)).toEqual({
+            metricVariables: [{ name: 'region', current: { values: ['private_option'] } }],
+        })
+        expect(searchParams[SEARCH_PARAM_FILTERS_KEY]).not.toContain('customValues')
+    })
+
     it('keeps an override that clears an external filter', () => {
         const searchParams = searchParamsWithUrlFilters({}, { properties: [] }, { properties: propertyFilter })
 
