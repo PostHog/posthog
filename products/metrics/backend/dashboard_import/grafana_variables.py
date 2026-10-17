@@ -90,6 +90,10 @@ def _runs_live(regex: str | None) -> bool:
     # The options endpoint does not put variable values into the regex.
     if len(regex) > MAX_VALUE_LENGTH or referenced_names(regex):
         return False
+    # The options endpoint takes one match per option, so a flag such as `g`, which Grafana uses to take every match,
+    # changes the values.
+    if regex.startswith("/") and regex.rfind("/") > 0 and set(regex[regex.rfind("/") + 1 :]) - set("ims"):
+        return False
     try:
         pattern = re2.compile(re2_pattern(regex))
     except re2.error:
