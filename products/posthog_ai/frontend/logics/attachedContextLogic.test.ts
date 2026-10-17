@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import type { AttachedContextItem } from '../types/contextTypes'
+import { type AttachedContextItem, attachedContextItemKey } from '../types/contextTypes'
 import { attachedContextLogic } from './attachedContextLogic'
 
 describe('attachedContextLogic', () => {
@@ -109,5 +109,25 @@ describe('attachedContextLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.undismissContext('hog_flow:1', 'g')
         }).toMatchValues({ contextItems: groupItems('v2') })
+    })
+
+    it.each([
+        { name: 'an ungrouped chip', chip: { type: 'skill', key: 'shared' } as AttachedContextItem },
+        { name: 'a grouped chip', chip: { type: 'insight', key: 'a', dismissGroup: 'viewer' } as AttachedContextItem },
+    ])('dismissing $name hides it only in the scope it was closed in', async ({ chip }) => {
+        const otherScopeChip = { ...chip, key: chip.dismissGroup ? 'b' : chip.key }
+        logic.actions.setDismissScope('Workflow')
+        logic.actions.registerContext('scene', [chip])
+        logic.actions.dismissContext(attachedContextItemKey(chip), chip.dismissGroup)
+
+        await expectLogic(logic, () => {
+            logic.actions.setDismissScope('Insight')
+            logic.actions.registerContext('scene', [otherScopeChip])
+        }).toMatchValues({ contextItems: [otherScopeChip] })
+
+        await expectLogic(logic, () => {
+            logic.actions.setDismissScope('Workflow')
+            logic.actions.registerContext('scene', [chip])
+        }).toMatchValues({ contextItems: [] })
     })
 })

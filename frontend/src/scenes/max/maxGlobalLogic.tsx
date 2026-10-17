@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { Conversation, ConversationDetail, SidePanelTab } from '~/types'
 
+import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import { conversationsDestroy } from 'products/posthog_ai/frontend/generated/api'
 import { taskEventsLogic } from 'products/posthog_ai/frontend/logics/taskEventsLogic'
 import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
@@ -140,6 +141,9 @@ export interface maxGlobalLogicActions {
     requestAiAccess: () => {
         value: true
     } // aiConsentLogic
+    setDismissScope: (scope: string) => {
+        scope: string
+    } // attachedContextLogic
     locationChanged: ({
         method,
         pathname,
@@ -161,6 +165,30 @@ export interface maxGlobalLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
+    setExportedScene: (
+        exportedScene: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps>,
+        sceneId: string,
+        sceneKey: string | undefined,
+        params: import('../sceneTypes').SceneParams
+    ) => {
+        exportedScene: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps>
+        params: import('../sceneTypes').SceneParams
+        sceneId: string
+        sceneKey: string | undefined
+    } // sceneLogic
+    setScene: (
+        sceneId: string,
+        sceneKey: string | undefined,
+        params: import('../sceneTypes').SceneParams,
+        scrollToTop?: boolean | undefined,
+        exportedScene?: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps> | undefined
+    ) => {
+        exportedScene: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps> | undefined
+        params: import('../sceneTypes').SceneParams
+        sceneId: string
+        sceneKey: string | undefined
+        scrollToTop: boolean
+    } // sceneLogic
     openSidePanel: (
         tab: SidePanelTab,
         options?: string | undefined
@@ -296,6 +324,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         actions: [
             router,
             ['locationChanged'],
+            sceneLogic,
+            ['setScene', 'setExportedScene'],
+            attachedContextLogic,
+            ['setDismissScope'],
             sidePanelStateLogic,
             ['openSidePanel'],
             aiConsentLogic,
@@ -393,6 +425,8 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        setScene: ({ sceneId }) => actions.setDismissScope(sceneId),
+        setExportedScene: ({ sceneId }) => actions.setDismissScope(sceneId),
         setPhaiViewMode: ({ mode }) => {
             // The task list only loads on mount. A chat made on the legacy view has a task copy by the
             // time the user switches, and the merged list shows it as that task once it is loaded.
@@ -454,8 +488,9 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             }
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         actions.loadConversationHistory()
+        actions.setDismissScope(values.sceneId ?? '')
     }),
 
     selectors({
