@@ -222,7 +222,7 @@ Email: set the step's `type` to `function_email` instead of `function`. `from` i
 
 ## Structured output
 
-When the notify step or the user needs a specific field from the task, such as a verdict or a count, ask the task for it instead of parsing prose. Add an output variable per field with `result_path` `output.<name>` and a matching `variables` entry with the type (`string`, `number`, `boolean`). The task is told which fields to return, and `{variables.<name>}` holds the value afterwards. Skip this when `final_message` is enough.
+When the notify step or the user needs a specific field from the task, such as a verdict or a count, ask the task for it instead of parsing prose. Add an output variable per field with `result_path` `output.<name>` and a matching `variables` entry with the type (`string`, `number`, `boolean`). Put a `description` on each `output_variable` entry, next to its `result_path`, that says what the field should hold, such as `true only if a failing test reproduces the bug`. A `description` on the `variables` entry does not reach the task. The task is told which fields to return and what each holds, and `{variables.<name>}` holds the value afterwards. Skip this when `final_message` is enough.
 
 ## Test run
 

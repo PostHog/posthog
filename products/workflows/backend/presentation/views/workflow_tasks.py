@@ -13,6 +13,7 @@ from posthog.models.team.team import Team
 
 from products.tasks.backend.facade.workflow_tasks import (
     MAX_ATTACHED_SKILLS,
+    MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH,
     OUTPUT_FIELD_TYPES,
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
@@ -148,13 +149,29 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         ),
     )
 
-    def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
-        if value is None:
-            return None
+    output_field_descriptions = serializers.DictField(
+        child=serializers.CharField(max_length=MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH, allow_blank=True),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "What the agent should put in each output field, as {name: instruction}. Each name must also be in "
+            "`output_fields`. The agent sees each instruction as the field's JSON Schema description and in its prompt. "
+            "Whitespace runs collapse to one space, and a blank instruction is dropped."
+        ),
+    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        fields = attrs.get("output_fields")
+        descriptions = attrs.pop("output_field_descriptions", None)
+        if fields is None:
+            if descriptions:
+                raise serializers.ValidationError({"output_field_descriptions": "Requires output_fields."})
+            return attrs
         try:
-            return build_output_schema(value)
+            attrs["output_fields"] = build_output_schema(fields, descriptions)
         except WorkflowTaskOutputFieldsInvalid as exc:
-            raise serializers.ValidationError(str(exc))
+            raise serializers.ValidationError({"output_fields": str(exc)})
+        return attrs
 
 
 class WorkflowTaskResponseSerializer(serializers.Serializer):

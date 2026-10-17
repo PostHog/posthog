@@ -66,6 +66,13 @@ describe('hogFlowOutputMappingLogic', () => {
                     { key: 'y', result_path: 'foo', spread: false },
                 ],
             },
+            {
+                description: 'mapping with an instruction for the agent',
+                raw: [{ key: 'verdict', result_path: 'output.verdict', description: 'ship or hold' }],
+                expected: [
+                    { key: 'verdict', result_path: 'output.verdict', spread: undefined, description: 'ship or hold' },
+                ],
+            },
         ])('returns $expected given $description', ({ raw, expected }) => {
             expect(normalizeOutputVariable(raw as HogFlowAction['output_variable'])).toEqual(expected)
         })
@@ -108,6 +115,19 @@ describe('hogFlowOutputMappingLogic', () => {
             logic = hogFlowOutputMappingLogic({ id: WORKFLOW_ID })
             logic.mount()
         })
+
+        const selectStoredAction = async (node: HogFlowActionNode): Promise<void> => {
+            await expectLogic(wfLogic).toFinishAllListeners()
+            wfLogic.actions.setAutoSaveEnabled(false)
+            wfLogic.actions.setWorkflowValues({ actions: [...wfLogic.values.workflow.actions, node.data] })
+            await expectLogic(editorLogic, () => {
+                editorLogic.actions.setNodesRaw([node])
+                editorLogic.actions.setSelectedNodeId(node.id)
+            }).toMatchValues({ selectedNode: node })
+        }
+
+        const storedOutputVariable = (actionId: string): HogFlowAction['output_variable'] | undefined =>
+            wfLogic.values.workflow.actions.find((action) => action.id === actionId)?.output_variable
 
         describe('initial state', () => {
             it('starts with empty mappings and null pendingPath', () => {
@@ -257,28 +277,30 @@ describe('hogFlowOutputMappingLogic', () => {
                     mappings: [{ key: 'myVar', result_path: '', spread: true }],
                     expected: { key: 'myVar', result_path: null, spread: true },
                 },
+                {
+                    description: 'an instruction for the agent is included',
+                    mappings: [
+                        { key: 'verdict', result_path: 'output.verdict', description: 'ship or hold' },
+                        { key: 'score', result_path: 'output.score', description: '  ' },
+                    ],
+                    expected: [
+                        { key: 'verdict', result_path: 'output.verdict', description: 'ship or hold' },
+                        { key: 'score', result_path: 'output.score' },
+                    ],
+                },
+                {
+                    description: 'an instruction on a path the agent does not fill is dropped',
+                    mappings: [{ key: 'run', result_path: 'run_id', description: 'the old verdict instruction' }],
+                    expected: { key: 'run', result_path: 'run_id' },
+                },
             ])('$description', async ({ mappings, expected }) => {
-                const node = makeActionNode(ACTION_ID)
-                await expectLogic(editorLogic, () => {
-                    editorLogic.actions.setNodesRaw([node])
-                    editorLogic.actions.setSelectedNodeId(ACTION_ID)
-                }).toMatchValues({ selectedNode: node })
+                await selectStoredAction(makeActionNode(ACTION_ID))
 
-                let capturedOutputVariable: unknown = 'NOT_CAPTURED'
                 await expectLogic(logic, () => {
                     logic.actions.setMappings(mappings)
-                })
-                    .toDispatchActions([
-                        (action: any) => {
-                            if (action.type === wfLogic.actionCreators.setWorkflowAction('', {} as any).type) {
-                                capturedOutputVariable = action.payload.action?.output_variable ?? null
-                            }
-                            return action.type === wfLogic.actionCreators.setWorkflowAction('', {} as any).type
-                        },
-                    ])
-                    .toFinishAllListeners()
+                }).toFinishAllListeners()
 
-                expect(capturedOutputVariable).toEqual(expected)
+                expect(storedOutputVariable(ACTION_ID)).toEqual(expected)
             })
 
             it('does not include spread field when spread is falsy', async () => {
@@ -483,6 +505,23 @@ describe('hogFlowOutputMappingLogic', () => {
                     logic.actions.updateMappingResultPath(index, 'new.path')
                 }).toMatchValues({
                     mappings: expected,
+                })
+            })
+        })
+
+        describe('updateMappingDescription', () => {
+            it('saves the instruction the author types, trimmed', async () => {
+                await selectStoredAction(makeActionNode('action-instruction'))
+                logic.actions.initMappings([{ key: 'verdict', result_path: 'output.verdict' }])
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateMappingDescription(0, ' ship or hold ')
+                }).toFinishAllListeners()
+
+                expect(storedOutputVariable('action-instruction')).toEqual({
+                    key: 'verdict',
+                    result_path: 'output.verdict',
+                    description: 'ship or hold',
                 })
             })
         })

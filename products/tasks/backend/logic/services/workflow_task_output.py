@@ -8,6 +8,7 @@ from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, RESULT_ST
 
 OUTPUT_FIELD_TYPES = ("string", "number", "boolean")
 MAX_OUTPUT_FIELDS = 20
+MAX_OUTPUT_FIELD_DESCRIPTION_LENGTH = 500
 _OUTPUT_FIELD_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 # Keys the tasks product writes into `TaskRun.output` next to the agent's fields.
 RUN_OUTPUT_RESERVED_KEYS = frozenset(
@@ -19,7 +20,7 @@ class WorkflowTaskOutputFieldsInvalid(ValueError):
     pass
 
 
-def build_output_schema(fields: Mapping[str, str]) -> dict[str, Any]:
+def build_output_schema(fields: Mapping[str, str], descriptions: Mapping[str, str] | None = None) -> dict[str, Any]:
     """The JSON Schema the agent runtime enforces for the step's output fields.
 
     Built here from a flat name-to-type map so no caller hands the validator a schema of its
@@ -29,6 +30,12 @@ def build_output_schema(fields: Mapping[str, str]) -> dict[str, Any]:
         raise WorkflowTaskOutputFieldsInvalid("output_fields must name at least one field")
     if len(fields) > MAX_OUTPUT_FIELDS:
         raise WorkflowTaskOutputFieldsInvalid(f"output_fields allows at most {MAX_OUTPUT_FIELDS} fields")
+    descriptions = _normalized_descriptions(descriptions or {})
+    undeclared = sorted(set(descriptions) - set(fields))
+    if undeclared:
+        raise WorkflowTaskOutputFieldsInvalid(
+            f"output_field_descriptions names fields that output_fields does not declare: {', '.join(undeclared)}"
+        )
     properties: dict[str, dict[str, Any]] = {}
     for name, field_type in fields.items():
         if not _OUTPUT_FIELD_NAME.match(name):
@@ -44,17 +51,29 @@ def build_output_schema(fields: Mapping[str, str]) -> dict[str, Any]:
         properties[name] = {"type": field_type}
         if field_type == "string":
             properties[name]["maxLength"] = RESULT_STRING_CAP
+        if name in descriptions:
+            properties[name]["description"] = descriptions[name]
     return {"type": "object", "properties": properties, "required": list(properties)}
 
 
+def _normalized_descriptions(descriptions: Mapping[str, str]) -> dict[str, str]:
+    """One line per instruction, so each stays a single item in the prompt's field list."""
+    collapsed = {name: " ".join(description.split()) for name, description in descriptions.items()}
+    return {name: description for name, description in collapsed.items() if description}
+
+
 def output_fields_sentence(output_schema: Mapping[str, Any] | None) -> str | None:
-    """Tells the agent which fields the step reads and the budget they share with the message."""
+    """Tells the agent which fields the step reads, what each holds, and the budget they share with the message."""
     properties = (output_schema or {}).get("properties") or {}
     if not properties:
         return None
     listed = ", ".join(f"{name} ({spec.get('type', 'any')})" for name, spec in properties.items())
-    return (
+    sentence = (
         f"The workflow reads these fields from your structured output before it reads your final "
         f"message: {listed}. Keep each text field within {RESULT_STRING_CAP} characters. The fields "
         f"and the message share a {RESULT_BYTE_CAP} byte budget, and the fields take priority."
     )
+    described = [f"- {name}: {spec['description']}" for name, spec in properties.items() if spec.get("description")]
+    if described:
+        sentence += "\n\nWhat to put in each field:\n" + "\n".join(described)
+    return sentence

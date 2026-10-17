@@ -33,7 +33,7 @@ Every action object has these common fields plus a type-specific `config`:
 - `id` — unique within the workflow; edges reference it by `from`/`to`.
 - `on_error` — optional; **only `continue` or `abort`.** Omit to use the default.
 - `filters` — optional property filters gating the action: `{properties: [<cond>]}`. Send `properties`, not `bytecode`.
-- `output_variable` — optional; store a step result into a workflow variable. `{key, result_path?, spread?}`.
+- `output_variable` — optional; store a step result into a workflow variable. `{key, result_path?, spread?, description?}`. On an AI task step, `description` tells the agent what to put in an `output.<name>` field.
 
 ## Action types and their `config`
 

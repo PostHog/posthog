@@ -647,6 +647,25 @@ class TestWorkflowTasksAPI(APIBaseTest):
         prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
         assert "verdict (string), score (number)" in prompt
         assert f"Keep each text field within {RESULT_STRING_CAP} characters" in prompt
+        assert "What to put in each field" not in prompt
+
+    def test_the_output_field_descriptions_reach_the_schema_and_the_prompt(self) -> None:
+        response = self._post(
+            {
+                "output_fields": {"report_id": "string", "reproduced": "boolean"},
+                "output_field_descriptions": {"reproduced": "true only if a failing test reproduces the bug"},
+            }
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.json_schema is not None
+        assert task.json_schema["properties"] == {
+            "report_id": {"type": "string", "maxLength": RESULT_STRING_CAP},
+            "reproduced": {"type": "boolean", "description": "true only if a failing test reproduces the bug"},
+        }
+        prompt = TaskRun.objects.get(task=task).state["initial_prompt_override"]
+        assert "What to put in each field:\n- reproduced: true only if a failing test reproduces the bug" in prompt
 
     def test_rejects_output_fields_the_step_result_cannot_carry(self) -> None:
         response = self._post({"output_fields": {"final_message": "string"}})

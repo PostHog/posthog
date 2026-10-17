@@ -465,7 +465,7 @@ export const HogFlowsCreateBody = () => zod
                         .unknown()
                         .optional()
                         .describe(
-                            'Output variable for downstream actions: {key, result_path?, spread?, label?} or a list of those.'
+                            'Output variable for downstream actions: {key, result_path?, spread?, label?, description?} or a list of those. On an AI task step, description tells the agent what to put in an output.<name> field.'
                         ),
                 })
             )
