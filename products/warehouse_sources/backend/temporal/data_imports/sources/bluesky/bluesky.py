@@ -1,6 +1,5 @@
-from collections.abc import Callable
+from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import quote
 
 from posthog.dataclasses import frozen
 
@@ -13,17 +12,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
-    rest_api_resources,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
-    Endpoint,
-    EndpointResource,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
@@ -31,13 +27,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 class BlueskyResumeConfig:
     # Flat listings resume from the next page cursor.
     cursor: Optional[str] = None
-    # Post fan-out tables resume from the state the fan-out checkpoints: which posts finished and
-    # where the current one stopped.
-    fanout_state: Optional[dict[str, Any]] = None
-
-
-# Parent resource name for the post fan-out; child rows receive its fields as `_posts_<field>`.
-_POSTS_PARENT = "posts"
+    # Post fan-out tables resume from a fixed-size position: the cursor of the feed page, the post
+    # on that page to continue from, and that post's next child page. A list of finished posts
+    # would grow with the account's history and be rewritten on every checkpoint.
+    feed_cursor: Optional[str] = None
+    post_uri: Optional[str] = None
+    child_cursor: Optional[str] = None
 
 
 def _cursor_paginator() -> JSONResponseCursorPaginator:
@@ -46,16 +41,15 @@ def _cursor_paginator() -> JSONResponseCursorPaginator:
     return JSONResponseCursorPaginator(cursor_path="cursor", cursor_param="cursor")
 
 
-def _posts_endpoint(actor: str) -> Endpoint:
-    return {
-        "path": "/xrpc/app.bsky.feed.getAuthorFeed",
-        # `posts_no_replies` keeps this table to the author's own posts and reposts,
-        # matching what most brand/marketing tracking cares about (own content, not
-        # every reply the account has made).
-        "params": {"actor": actor, "limit": 100, "filter": "posts_no_replies"},
-        "data_selector": "feed[*].post",
-        "paginator": _cursor_paginator(),
-    }
+_FEED_PATH = "/xrpc/app.bsky.feed.getAuthorFeed"
+_FEED_DATA_SELECTOR = "feed[*].post"
+
+
+def _feed_params(actor: str) -> dict[str, Any]:
+    # `posts_no_replies` keeps this table to the author's own posts and reposts,
+    # matching what most brand/marketing tracking cares about (own content, not
+    # every reply the account has made).
+    return {"actor": actor, "limit": 100, "filter": "posts_no_replies"}
 
 
 def get_resource(name: str, actor: str) -> EndpointResource:
@@ -77,7 +71,12 @@ def get_resource(name: str, actor: str) -> EndpointResource:
             "table_name": "posts",
             "write_disposition": "replace",
             "table_format": "delta",
-            "endpoint": _posts_endpoint(actor),
+            "endpoint": {
+                "path": _FEED_PATH,
+                "params": _feed_params(actor),
+                "data_selector": _FEED_DATA_SELECTOR,
+                "paginator": _cursor_paginator(),
+            },
         },
         "Followers": {
             "name": "Followers",
@@ -107,53 +106,99 @@ def get_resource(name: str, actor: str) -> EndpointResource:
     return resources[name]
 
 
-def _add_encoded_uri(post: dict[str, Any]) -> dict[str, Any]:
-    # The fan-out binds the parent field into the path with `str.format`, which applies no
-    # escaping, and a did:web AT-URI can carry a percent-encoded port.
-    post["encoded_uri"] = quote(post["uri"], safe="")
-    return post
+def _fanout_row(endpoint: str, config: PostFanoutEndpoint, post_uri: str, row: dict[str, Any]) -> dict[str, Any]:
+    row[config.parent_uri_column] = post_uri
+    if endpoint == "Likes":
+        # A like row has no id of its own, so the liker's DID keys it within the post.
+        actor = row.get("actor") or {}
+        row["actor_did"] = actor.get("did")
+    return row
 
 
-def _child_row_mapper(name: str, config: PostFanoutEndpoint) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    parent_key = f"_{_POSTS_PARENT}_uri"
-
-    def _map(row: dict[str, Any]) -> dict[str, Any]:
-        row[config.parent_uri_column] = row.pop(parent_key, None)
-        if name == "Likes":
-            # A like row has no id of its own, so the liker's DID keys it within the post.
-            actor = row.get("actor") or {}
-            row["actor_did"] = actor.get("did")
-        return row
-
-    return _map
+def _cursor_from_state(state: Optional[dict[str, Any]]) -> Optional[str]:
+    cursor = (state or {}).get("cursor")
+    return str(cursor) if cursor else None
 
 
-def get_post_fanout_resources(name: str, actor: str) -> list[EndpointResource]:
-    config = POST_FANOUT_ENDPOINTS[name]
-    parent: EndpointResource = {
-        "name": _POSTS_PARENT,
-        "endpoint": _posts_endpoint(actor),
-        "data_map": _add_encoded_uri,
-    }
-    child: EndpointResource = {
-        "name": name,
-        "table_name": name.lower(),
-        "write_disposition": "replace",
-        "table_format": "delta",
-        "endpoint": {
-            # The post URI rides in a query param; the resolve binding only substitutes into the path.
-            "path": f"{config.path}?uri={{uri}}",
-            "params": {
-                "uri": {"type": "resolve", "resource": _POSTS_PARENT, "field": "encoded_uri"},
-                "limit": 100,
-            },
-            "data_selector": config.data_selector,
-            "paginator": _cursor_paginator(),
-        },
-        "include_from_parent": ["uri"],
-        "data_map": _child_row_mapper(name, config),
-    }
-    return [parent, child]
+def post_fanout_rows(
+    actor: str,
+    endpoint: str,
+    resumable_source_manager: ResumableSourceManager[BlueskyResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    config = POST_FANOUT_ENDPOINTS[endpoint]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    page_cursor = resume.feed_cursor if resume else None
+    resume_post = resume.post_uri if resume else None
+    resume_child_cursor = resume.child_cursor if resume else None
+    # A repost of the account's own post puts the same post in the feed twice.
+    seen: set[str] = set()
+
+    next_feed: dict[str, Optional[str]] = {}
+    next_child: dict[str, Optional[str]] = {}
+
+    def remember_feed(state: Optional[dict[str, Any]], has_next: bool) -> None:
+        next_feed["cursor"] = _cursor_from_state(state)
+
+    def remember_child(state: Optional[dict[str, Any]], has_next: bool) -> None:
+        next_child["cursor"] = _cursor_from_state(state)
+
+    client = RESTClient(base_url=BASE_URL)
+    try:
+        for posts in client.paginate(
+            path=_FEED_PATH,
+            params=_feed_params(actor),
+            paginator=_cursor_paginator(),
+            data_selector=_FEED_DATA_SELECTOR,
+            initial_paginator_state={"cursor": page_cursor} if page_cursor else None,
+            page_state_hook=remember_feed,
+        ):
+            next_page_cursor = next_feed.get("cursor")
+            uris = [post["uri"] for post in posts]
+            start = uris.index(resume_post) if resume_post in uris else 0
+            for index in range(start, len(uris)):
+                uri = uris[index]
+                if uri in seen:
+                    continue
+                seen.add(uri)
+
+                if index + 1 < len(uris):
+                    after_post: Optional[BlueskyResumeConfig] = BlueskyResumeConfig(
+                        feed_cursor=page_cursor, post_uri=uris[index + 1]
+                    )
+                elif next_page_cursor:
+                    after_post = BlueskyResumeConfig(feed_cursor=next_page_cursor)
+                else:
+                    after_post = None
+
+                child_cursor = resume_child_cursor if uri == resume_post else None
+                for rows in client.paginate(
+                    path=config.path,
+                    params={"uri": uri, "limit": 100},
+                    paginator=_cursor_paginator(),
+                    data_selector=config.data_selector,
+                    initial_paginator_state={"cursor": child_cursor} if child_cursor else None,
+                    page_state_hook=remember_child,
+                ):
+                    if next_child.get("cursor"):
+                        resumable_source_manager.save_state(
+                            BlueskyResumeConfig(
+                                feed_cursor=page_cursor, post_uri=uri, child_cursor=next_child["cursor"]
+                            )
+                        )
+                    elif after_post is not None:
+                        resumable_source_manager.save_state(after_post)
+
+                    if rows:
+                        yield [_fanout_row(endpoint, config, uri, row) for row in rows]
+                    else:
+                        resumable_source_manager.safe_point()
+
+            resume_post = None
+            resume_child_cursor = None
+            page_cursor = next_page_cursor
+            resumable_source_manager.safe_point()
+    finally:
+        client.session.close()
 
 
 def bluesky_source(
@@ -164,26 +209,6 @@ def bluesky_source(
     resumable_source_manager: ResumableSourceManager[BlueskyResumeConfig],
 ) -> Resource:
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-
-    if endpoint in POST_FANOUT_ENDPOINTS:
-        fanout_config: RESTAPIConfig = {
-            "client": {"base_url": BASE_URL},
-            "resources": list(get_post_fanout_resources(endpoint, actor)),
-        }
-
-        def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            if state:
-                resumable_source_manager.save_state(BlueskyResumeConfig(fanout_state=state))
-
-        resources = rest_api_resources(
-            fanout_config,
-            team_id,
-            job_id,
-            db_incremental_field_last_value=None,
-            resume_hook=save_fanout_checkpoint,
-            initial_paginator_state=resume_config.fanout_state if resume_config else None,
-        )
-        return next(resource for resource in resources if resource.name == endpoint)
 
     config: RESTAPIConfig = {
         "client": {"base_url": BASE_URL},

@@ -189,23 +189,47 @@ class TestBlueskyPostFanout:
         ]
 
     @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
-    def test_resume_skips_posts_already_synced(
+    @pytest.mark.parametrize(
+        ("resume_state", "expected_child_requests", "expected_rows"),
+        [
+            (
+                BlueskyResumeConfig(post_uri=POST_1, child_cursor="child-2"),
+                [(POST_1, "child-2"), (POST_2, None)],
+                slice(1, None),
+            ),
+            (BlueskyResumeConfig(feed_cursor="feed-2"), [(POST_2, None)], slice(2, None)),
+        ],
+    )
+    def test_resume_continues_from_saved_position(
+        self,
+        endpoint: str,
+        list_key: str,
+        child_row: Callable[[int], dict[str, Any]],
+        expected_keys: list[tuple[str, str]],
+        resume_state: BlueskyResumeConfig,
+        expected_child_requests: list[tuple[str, str | None]],
+        expected_rows: slice,
+    ) -> None:
+        result = self._driver().run(endpoint, _post_fanout_script(list_key, child_row), resume_state=resume_state)
+
+        assert result.raised is None
+        child_requests = [r for r in result.requests if not r.path.endswith("getAuthorFeed")]
+        assert [(r.param("uri"), r.param("cursor")) for r in child_requests] == expected_child_requests
+        assert [tuple(row[key] for key in PRIMARY_KEYS[endpoint]) for row in result.rows] == expected_keys[
+            expected_rows
+        ]
+
+    @pytest.mark.parametrize(("endpoint", "list_key", "child_row", "expected_keys"), POST_FANOUT_CASES)
+    def test_saves_fixed_size_position_before_each_child_page(
         self,
         endpoint: str,
         list_key: str,
         child_row: Callable[[int], dict[str, Any]],
         expected_keys: list[tuple[str, str]],
     ) -> None:
-        script = _post_fanout_script(list_key, child_row)
-        first_run = self._driver().run(endpoint, script)
-        after_post_1 = next(
-            state
-            for state in first_run.saved_states
-            if state.fanout_state and len(state.fanout_state["completed"]) == 1
-        )
+        result = self._driver().run(endpoint, _post_fanout_script(list_key, child_row))
 
-        resumed = self._driver().run(endpoint, script, resume_state=after_post_1)
-
-        assert resumed.raised is None
-        assert [r.param("uri") for r in resumed.requests if not r.path.endswith("getAuthorFeed")] == [POST_2]
-        assert [tuple(row[key] for key in PRIMARY_KEYS[endpoint]) for row in resumed.rows] == expected_keys[2:]
+        assert result.saved_states == [
+            BlueskyResumeConfig(post_uri=POST_1, child_cursor="child-2"),
+            BlueskyResumeConfig(feed_cursor="feed-2"),
+        ]

@@ -11,11 +11,13 @@ from products.warehouse_sources.backend.facade.source_config import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky import (
     BlueskyResumeConfig,
     bluesky_source,
+    post_fanout_rows,
     validate_credentials as validate_bluesky_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
+    POST_FANOUT_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
@@ -122,6 +124,16 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
         resumable_source_manager: ResumableSourceManager[BlueskyResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        partition_keys = PARTITION_FIELDS.get(inputs.schema_name)
+        if inputs.schema_name in POST_FANOUT_ENDPOINTS:
+            return SourceResponse(
+                name=inputs.schema_name,
+                items=lambda: post_fanout_rows(config.actor, inputs.schema_name, resumable_source_manager),
+                primary_keys=PRIMARY_KEYS[inputs.schema_name],
+                partition_mode="datetime",
+                partition_keys=partition_keys,
+            )
+
         resource = bluesky_source(
             actor=config.actor,
             endpoint=inputs.schema_name,
@@ -129,7 +141,6 @@ class BlueskySource(ResumableSource[BlueskySourceConfig, BlueskyResumeConfig]):
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
         )
-        partition_keys = PARTITION_FIELDS.get(inputs.schema_name)
         return SourceResponse(
             name=resource.name,
             items=lambda: resource,
