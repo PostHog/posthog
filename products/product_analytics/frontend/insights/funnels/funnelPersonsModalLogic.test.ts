@@ -1,3 +1,4 @@
+import { render } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -174,6 +175,24 @@ describe('funnelPersonsModalLogic', () => {
 
             const { query } = (openPersonsModal as jest.Mock).mock.calls[0][0]
             expect(query.compare).toBeUndefined()
+        })
+
+        test.each([
+            ['openPersonsModalForStep', { custom_name: 'Success' }, 'Success'],
+            ['openPersonsModalForStep', {}, 'Pageview'],
+            ['openPersonsModalForSeries', { custom_name: 'Success' }, 'Success'],
+            ['openPersonsModalForSeries', {}, 'Pageview'],
+        ] as const)('%s titles the modal with the chart label (%j)', (action, stepOverrides, expectedLabel) => {
+            const step = makeStep({ order: 1, ...stepOverrides })
+            if (action === 'openPersonsModalForStep') {
+                logic.actions.openPersonsModalForStep({ step, converted: true })
+            } else {
+                logic.actions.openPersonsModalForSeries({ series: makeSeries({ order: 1 }), step, converted: true })
+            }
+
+            const { title } = (openPersonsModal as jest.Mock).mock.calls[0][0]
+            const { container } = render(title)
+            expect(container.textContent).toContain(`Completed step 2 • ${expectedLabel}`)
         })
     })
 
