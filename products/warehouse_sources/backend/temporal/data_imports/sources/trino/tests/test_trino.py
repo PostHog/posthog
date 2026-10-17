@@ -640,6 +640,16 @@ def test_build_pipeline_fails_permanently_when_the_table_is_gone() -> None:
     assert error_message_matches(str(raised.value), TrinoSource().get_non_retryable_errors())
 
 
+def test_worker_node_communication_failures_are_classified_as_retryable() -> None:
+    message = (
+        "Encountered too many errors talking to a worker node. The node may have crashed or be "
+        "under too much load. This is probably a transient issue, so please retry your query in a "
+        "few minutes. (getting task status http://10.0.0.5:8080/v1/task/x - 38 failures)"
+    )
+
+    assert error_message_matches(message, TrinoSource().get_retryable_errors())
+
+
 def test_build_pipeline_refuses_a_disallowed_host_before_connecting() -> None:
     with (
         patch(f"{_TRINO_MODULE}.connect_trino") as mock_connect,
