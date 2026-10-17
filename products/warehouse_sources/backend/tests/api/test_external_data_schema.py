@@ -3260,6 +3260,47 @@ class TestUpdateExternalDataSchema:
         assert schema.table_id == table.id
         assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
+    def test_delete_data_turns_off_sync_and_pauses_schedule(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.STRIPE,
+            job_inputs={},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            external_data_source=source,
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="Customer",
+            should_sync=True,
+            sync_type=ExternalDataSchema.SyncType.FULL_REFRESH,
+            table=table,
+        )
+
+        views = "products.warehouse_sources.backend.presentation.views.external_data_schema"
+        with (
+            mock.patch(f"{views}.external_data_workflow_exists", return_value=True),
+            mock.patch(f"{views}.pause_external_data_schedule") as mock_pause,
+            mock.patch("products.data_warehouse.backend.facade.api.get_s3_client"),
+        ):
+            response = client.delete(f"/api/environments/{team.pk}/external_data_schemas/{schema.id}/delete_data")
+
+        assert response.status_code == 200
+        mock_pause.assert_called_once_with(str(schema.id))
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert schema.table_id is None
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
     def test_update_schema_change_sync_type_with_invalid_type(self, team, user, client: HttpClient, temporal):
         client.force_login(user)
         source_id = create_external_data_source_ok(client, team.pk)
