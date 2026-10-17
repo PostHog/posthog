@@ -36,6 +36,18 @@ pub(crate) trait Settlement: Send + Sync {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 }
 
+fn release_taken(
+    ledger: &TopicOffsetLedger,
+    due: Option<HashMap<TopicPartition, Offset>>,
+) -> Option<HashMap<TopicPartition, Offset>> {
+    if let Some(due) = &due {
+        for topic_partition in due.keys() {
+            ledger.release_taken(topic_partition);
+        }
+    }
+    due
+}
+
 pub(crate) fn for_granularity(
     granularity: CompletionGranularity,
     ledger: Arc<TopicOffsetLedger>,
@@ -54,11 +66,22 @@ pub(crate) fn charge_offsets(
     generation: u64,
     offsets: &[i64],
 ) {
+    charge_offsets_with(ledger, topic_partition, generation, offsets, Charge::ZERO);
+}
+
+#[cfg(test)]
+pub(crate) fn charge_offsets_with(
+    ledger: &TopicOffsetLedger,
+    topic_partition: &TopicPartition,
+    generation: u64,
+    offsets: &[i64],
+    charge_each: Charge,
+) {
     ledger
         .charge(
             topic_partition,
             generation,
-            offsets.iter().map(|&o| (Offset(o), Charge::ZERO)),
+            offsets.iter().map(|&o| (Offset(o), charge_each)),
         )
         .expect("the test ledger accepts the charge");
 }

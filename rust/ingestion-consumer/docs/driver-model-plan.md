@@ -607,32 +607,29 @@ Exit criterion at the canary: zero ledger errors and gap walks, and a stalled pa
 
 Outcome: no partition's uncommitted work exceeds its budget, in events and bytes. The in-flight admission cap is gone. Needs cycles 2 and 8.
 
-**Verify:** change 23's gauges run on all lanes with the budget unset.
-Exit criterion: `ingestion_consumer_budget_outstanding_events` summed per pod tracks the admission cap's occupancy, and `ingestion_consumer_budget_paused_partitions` stays flat at zero.
+**Verify:** the ledger's uncommitted gauges run on all lanes with no budget set.
+Exit criterion: `kafka_consumer_ledger_uncommitted_events` summed per pod tracks the admission cap's occupancy.
 
 The budget is per partition, and so is the pause. One budget for the whole assignment would let a stalled partition fill it and pause every other partition with it, which undoes cycle 8. Per-partition commits are a hard prerequisite for the same reason: at `poll` granularity a stalled partition holds the commits, and so the refunds, of every partition in its poll, so every budget fills together.
 
-### 23. Add the budget accounting (implement)
+### 23. Make the uncommitted accounting exact (implement)
 
-**Task:** Track each partition's uncommitted work in events and bytes. Ship with no budget set: the admission cap still governs alone.
+**Task:** Count each partition's uncommitted work in events and bytes exactly: everything polled and not yet covered by a submitted commit. No budget exists yet: the admission cap still governs alone.
 
-**Goal:** The budget exists and reports before it constrains.
+**Goal:** The number the budget will bound exists and reports before anything constrains it.
 
 - Charge each message to its partition on poll. The ledger slots already carry the costs (change 2).
-- Refund the charge when the commit that covers the message is issued. A revoked partition refunds everything it holds.
-- Gauge the outstanding charge per partition.
-- New config: the budget per partition in events and in bytes, and the low watermark as a fraction of the budget (default 0.8). Unset means no constraint.
-- The budget is a fixed amount per partition, not a share of a pod-wide amount. A rebalance changes how many partitions a pod holds, not how much each one may expose, so the value does not move at rebalances.
+- Refund the charge when the commit that covers the message goes out. The ledger keeps a take's offsets and charge until the settlement releases them as it hands the frontier out, which is when the consumer submits the commit; before this change the take itself was the refund, so under the interval pacer the gauges ran up to one interval ahead of the commits. A revoked partition drops everything it holds.
+- The ledger gauges the result per partition. The budget's config and its pause gauges arrive with change 24, where they are read.
 
 **Interfaces:**
 
-- Modify `Config`: add the per-partition budget, default unset.
-- Modify `IngestionConsumer`: track charge and refund through `OffsetLedger`. No polling change while the budget is unset.
+- Modify `PartitionOffsetLedger` and `TopicOffsetLedger`: `uncommitted` reports the window plus the takes not yet released; `release_taken` releases them.
+- Modify `Settlement`: `take_due` and `take_all` release the takes of every partition they hand out.
 
 **Metrics:**
 
-- Add `ingestion_consumer_budget_outstanding_events{topic,partition}` and `ingestion_consumer_budget_outstanding_bytes{topic,partition}` (gauges).
-- Add `ingestion_consumer_budget_paused_partitions` (gauge) and `ingestion_consumer_budget_pauses_total{topic,partition}` (counter). Both stay flat until change 24.
+- `kafka_consumer_ledger_uncommitted_offsets{topic,partition}`, `kafka_consumer_ledger_uncommitted_events{topic,partition}` and `kafka_consumer_ledger_uncommitted_bytes{topic,partition}` now include takes whose commit has not gone out. No new series.
 
 ### 24. Enable the budget (switchover)
 
@@ -646,9 +643,16 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 - Keep polling while partitions are paused. A paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive; an unpolled consumer does neither. An assignment resets librdkafka's pause flags, so a partition that arrives starts unpaused, with a fresh ledger generation and zero charge.
 - Watch the paused-partitions gauge and `ingestion_lag_ms`. Rollback is unsetting the values.
 
+- The budget is a fixed amount per partition, not a share of a pod-wide amount. A rebalance changes how many partitions a pod holds, not how much each one may expose, so the value does not move at rebalances.
+
 **Interfaces:**
 
-- Modify `IngestionConsumer`: pause and resume one partition at a time through the Kafka client.
+- Modify `Config`: add the budget per partition in events and in bytes, and the low watermark as a fraction of the budget (default 0.8). Unset means no constraint.
+- Modify `IngestionConsumer`: pause and resume one partition at a time through the Kafka client, from the ledger's `uncommitted` per partition.
+
+**Metrics:**
+
+- Add `ingestion_consumer_budget_paused_partitions` (gauge) and `ingestion_consumer_budget_pauses_total{topic,partition}` (counter).
 
 ### 25. Remove the in-flight admission cap (cleanup)
 
@@ -743,7 +747,7 @@ The steady-state dashboard after the migration:
 - Delivery: `ingestion_lag_ms`, the `ingestion_consumer_messages_processed_total` rate, and the two sentinel violation counters, which must stay at zero.
 - Commits: `kafka_consumer_ledger_uncommitted_offsets` per partition (frontier lag, and the ring-leak detector) and the `ingestion_consumer_offset_commits_total` rate.
 - Scheduling: the key-table gauges and `ingestion_consumer_parked_retries_total`.
-- Admission: the budget gauges and `ingestion_consumer_budget_paused`.
+- Admission: `kafka_consumer_ledger_uncommitted_events` and `kafka_consumer_ledger_uncommitted_bytes` per partition, and `ingestion_consumer_budget_paused_partitions`.
 - Requests: the request-size histograms, `ingestion_consumer_transport_duration_seconds`, `ingestion_consumer_governor_permits`, `ingestion_consumer_request_rtt_seconds`, and `ingestion_consumer_request_budget_partials_total`.
 - Rebalance: `ingestion_consumer_drain_duration_seconds` and `ingestion_consumer_drain_dropped_messages_total`.
 

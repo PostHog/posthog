@@ -45,11 +45,11 @@ impl Settlement for PollSettlement {
     }
 
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        self.pacer.take_due(now)
+        super::release_taken(&self.ledger, self.pacer.take_due(now))
     }
 
     fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        self.pacer.take_all()
+        super::release_taken(&self.ledger, self.pacer.take_all())
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
@@ -211,6 +211,18 @@ mod tests {
         settlement.settle_poll(&[poll.slice()]);
 
         assert!(settlement.take_due(Instant::now()).is_none());
+    }
+
+    #[test]
+    fn a_retired_poll_is_uncommitted_until_its_frontier_goes_out() {
+        let (ledger, settlement) = settlement();
+        let poll = charged(&ledger, 0, 10, 11);
+
+        settlement.settle_poll(&[poll.slice()]);
+        assert_eq!(ledger.uncommitted(&poll.topic_partition).offsets, 2);
+
+        settlement.take_due(Instant::now());
+        assert_eq!(ledger.uncommitted(&poll.topic_partition).offsets, 0);
     }
 
     #[test]
