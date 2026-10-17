@@ -106,7 +106,7 @@ function AgentPrompt(props: MessageTemplateLogicProps): JSX.Element {
                         header: 'Show full prompt',
                         content: (
                             <pre
-                                className="m-0 max-h-60 overflow-auto whitespace-pre-wrap break-words text-xs"
+                                className="m-0 whitespace-pre-wrap break-words text-xs"
                                 data-attr="message-template-agent-prompt"
                             >
                                 {agentPrompt}
