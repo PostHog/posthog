@@ -35,7 +35,7 @@ def opted_out(team_id: int, category_key: str | None, search: str | None) -> Que
     )
     if search:
         opt_outs = opt_outs.filter(identifier__icontains=search)
-    return opt_outs.order_by("-updated_at")  # Order by most recently updated first
+    return opt_outs.order_by("-updated_at", "-id")  # Most recent first, with a stable tie-breaker
 
 
 def _sync_after_commit(team_id: int, identifier: str) -> None:
