@@ -14,12 +14,17 @@ def forwards(apps, schema_editor):
     ExternalDataSchema = apps.get_model("warehouse_sources", "ExternalDataSchema")
 
     # One row per configured Sentry table (thousands, not events-scale) — a per-row loop is fine.
-    schemas = ExternalDataSchema.objects.filter(
-        source__source_type="Sentry",
-        deleted=False,
-        name__in=AFFECTED_SCHEMA_NAMES,
-        sync_type_config__incremental_field="dateCreated",
-    ).iterator()
+    # Load only these columns: `data_warehouse` 0052 adds `enabled_columns` and can run after this migration.
+    schemas = (
+        ExternalDataSchema.objects.filter(
+            source__source_type="Sentry",
+            deleted=False,
+            name__in=AFFECTED_SCHEMA_NAMES,
+            sync_type_config__incremental_field="dateCreated",
+        )
+        .only("id", "sync_type_config")
+        .iterator()
+    )
 
     for schema in schemas:
         schema.sync_type_config["incremental_field"] = "dateReceived"

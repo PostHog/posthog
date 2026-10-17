@@ -25,11 +25,16 @@ def forwards(apps, schema_editor):
     ExternalDataSchema = apps.get_model("warehouse_sources", "ExternalDataSchema")
 
     # One row per configured Stripe table (thousands, not events-scale) — a per-row loop is fine.
-    schemas = ExternalDataSchema.objects.filter(
-        source__source_type="Stripe",
-        deleted=False,
-        sync_type_config__incremental_field__in=["created_at", "created"],
-    ).iterator()
+    # Load only these columns: `data_warehouse` 0052 adds `enabled_columns` and can run after this migration.
+    schemas = (
+        ExternalDataSchema.objects.filter(
+            source__source_type="Stripe",
+            deleted=False,
+            sync_type_config__incremental_field__in=["created_at", "created"],
+        )
+        .only("id", "name", "sync_type_config")
+        .iterator()
+    )
 
     for schema in schemas:
         incremental_field = schema.sync_type_config.get("incremental_field")
