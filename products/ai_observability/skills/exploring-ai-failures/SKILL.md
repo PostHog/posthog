@@ -41,9 +41,9 @@ high volume, `exploring-llm-clusters`.
 | `posthog:generate-app-url`      | Build a region- and project-qualified deep link to a trace or list       |
 
 Detailed queries for each strategy below are in
-[references/finding-traces.md](references/finding-traces.md). The full `$ai_*` event schema (and the
-`events` vs `ai_events` split for heavy content like `$ai_input`/`$ai_output_choices`) lives in
-`exploring-llm-traces/references/events-and-properties.md`.
+[references/finding-traces.md](references/finding-traces.md). That file also explains the `events` vs
+`ai_events` split: heavy content like `$ai_input` / `$ai_output_choices` is not on `events`. For the
+full `$ai_*` event schema, load the `exploring-llm-traces` skill.
 
 ## Work with the user
 
