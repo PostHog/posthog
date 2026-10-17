@@ -12,7 +12,7 @@ interface InsightSelectorProps {
     tiles: DashboardTile[]
     selectedInsightIds: number[]
     onChange: (ids: number[]) => void
-    onDefaultsApplied?: (selectedIds: number[]) => void
+    onDefaultsApplied?: (selectedIds: number[], replacedStaleSelection: boolean) => void
 }
 
 export function InsightSelector({
@@ -44,7 +44,7 @@ export function InsightSelector({
         if (insightTiles.length > 0 && validSelectedIds.length === 0 && !userHasInteracted) {
             const defaultSelection = insightTiles.slice(0, MAX_INSIGHTS).map((tile) => tile.insight!.id)
             onChange(defaultSelection)
-            onDefaultsApplied?.(defaultSelection)
+            onDefaultsApplied?.(defaultSelection, selectedInsightIds.length > 0)
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [insightTiles, validSelectedIds, userHasInteracted])

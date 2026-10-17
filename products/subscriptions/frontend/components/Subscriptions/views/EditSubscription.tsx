@@ -206,21 +206,31 @@ export function SubscriptionFormSkeleton(): JSX.Element {
 function DashboardInsightsField({
     dashboard,
     onDefaultsApplied,
+    staleSelectionReplaced,
 }: {
     dashboard: DashboardType
-    onDefaultsApplied: (selectedIds: number[]) => void
+    onDefaultsApplied: (selectedIds: number[], replacedStaleSelection: boolean) => void
+    staleSelectionReplaced: boolean
 }): JSX.Element {
     return (
         <LemonField name="dashboard_export_insights" label="Insights to include">
             {({ value, onChange }) => (
-                <InsightSelector
-                    tiles={dashboard.tiles}
-                    selectedInsightIds={value ?? []}
-                    onChange={onChange}
-                    // The logic decides whether the auto-selection resets the form to a clean state
-                    // or joins a prefill's baseline — see applyDefaultSelectedInsights.
-                    onDefaultsApplied={onDefaultsApplied}
-                />
+                <>
+                    {staleSelectionReplaced && (
+                        <LemonBanner type="warning" className="mb-2">
+                            The insights this subscription sends are no longer on this dashboard, so each delivery
+                            fails. The current insights are now selected. Save to start sending again.
+                        </LemonBanner>
+                    )}
+                    <InsightSelector
+                        tiles={dashboard.tiles}
+                        selectedInsightIds={value ?? []}
+                        onChange={onChange}
+                        // The logic decides whether the auto-selection resets the form to a clean state
+                        // or joins a prefill's baseline — see applyDefaultSelectedInsights.
+                        onDefaultsApplied={onDefaultsApplied}
+                    />
+                </>
             )}
         </LemonField>
     )
@@ -259,6 +269,7 @@ export function EditSubscription({
         summaryQuota,
         testDeliveryLoading,
         storedTeamsWebhookHost,
+        staleInsightSelectionReplaced,
     } = useValues(logic)
     const { previewLoading, previewError, previewImageUrl } = useValues(logic)
     const { applyDefaultSelectedInsights, generatePreview, sendTestDelivery, replaceTeamsWebhook } = useActions(logic)
@@ -435,6 +446,7 @@ export function EditSubscription({
                             <DashboardInsightsField
                                 dashboard={dashboard}
                                 onDefaultsApplied={applyDefaultSelectedInsights}
+                                staleSelectionReplaced={staleInsightSelectionReplaced}
                             />
                         )}
 

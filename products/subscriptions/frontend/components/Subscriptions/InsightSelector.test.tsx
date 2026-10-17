@@ -100,19 +100,22 @@ describe('InsightSelector', () => {
         expect(onChange).toHaveBeenCalledWith([102])
     })
 
-    it('auto-selects first N insights when empty and calls onDefaultsApplied', () => {
+    it.each([
+        ['nothing is selected', [], false],
+        ['every selected insight left the dashboard', [998, 999], true],
+    ])('auto-selects first N insights when %s and calls onDefaultsApplied', (_name, selected, replacedStale) => {
         const onChange = jest.fn()
         const onDefaultsApplied = jest.fn()
 
         renderInsightSelector({
             tiles: createMockTiles() as DashboardTile[],
-            selectedInsightIds: [],
+            selectedInsightIds: selected as number[],
             onChange,
             onDefaultsApplied,
         })
 
-        expect(onChange).toHaveBeenCalledWith([101, 102, 103])
-        expect(onDefaultsApplied).toHaveBeenCalledWith([101, 102, 103])
+        expect(onChange).toHaveBeenLastCalledWith([101, 102, 103])
+        expect(onDefaultsApplied).toHaveBeenCalledWith([101, 102, 103], replacedStale)
     })
 
     it('filters out stale IDs that no longer exist in tiles', () => {

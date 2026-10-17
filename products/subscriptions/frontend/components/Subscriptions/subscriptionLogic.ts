@@ -317,6 +317,7 @@ export interface subscriptionLogicValues {
     previewImageUrl: string | null
     previewLoading: boolean
     showSubscriptionErrors: boolean
+    staleInsightSelectionReplaced: boolean
     storedTeamsWebhookHost: string | null
     subscription: SubscriptionType
     subscriptionAllErrors: Record<string, any>
@@ -343,8 +344,12 @@ export interface subscriptionLogicActions {
     applyDefaultIntegration: (integrationId: number) => {
         integrationId: number
     }
-    applyDefaultSelectedInsights: (selectedIds: number[]) => {
+    applyDefaultSelectedInsights: (
+        selectedIds: number[],
+        replacedStaleSelection?: boolean
+    ) => {
         selectedIds: number[]
+        replacedStaleSelection: boolean
     }
     clearStaleManualErrors: () => {
         value: true
@@ -566,7 +571,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
-        applyDefaultSelectedInsights: (selectedIds: number[]) => ({ selectedIds }),
+        applyDefaultSelectedInsights: (selectedIds: number[], replacedStaleSelection: boolean = false) => ({
+            selectedIds,
+            replacedStaleSelection,
+        }),
         applyDefaultIntegration: (integrationId: number) => ({ integrationId }),
         replaceTeamsWebhook: true,
         clearStaleManualErrors: true,
@@ -634,6 +642,14 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             false,
             {
                 loadSubscriptionSuccess: () => true,
+            },
+        ],
+        staleInsightSelectionReplaced: [
+            false,
+            {
+                applyDefaultSelectedInsights: (_, { replacedStaleSelection }) => replacedStaleSelection,
+                loadSubscriptionSuccess: () => false,
+                resetSubscription: () => false,
             },
         ],
     }),
@@ -847,7 +863,17 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 actions.setSubscriptionManualErrors({})
             }
         },
-        applyDefaultSelectedInsights: ({ selectedIds }) => {
+        applyDefaultSelectedInsights: ({ selectedIds, replacedStaleSelection }) => {
+            if (replacedStaleSelection) {
+                // The saved ids are all gone from the dashboard, so every delivery fails. The new
+                // selection is a real change the user must be able to save.
+                actions.setSubscriptionValue('dashboard_export_insights', selectedIds)
+                posthog.capture('subscription stale insights replaced', {
+                    subscription_id: props.id,
+                    dashboard_id: props.dashboardId,
+                })
+                return
+            }
             if (cache.prefillBaseline) {
                 // Prefilled form: the auto-selection joins the programmatic baseline. A reset here
                 // would wipe the "changed" flag the prefill deliberately set (disabling Create), so
