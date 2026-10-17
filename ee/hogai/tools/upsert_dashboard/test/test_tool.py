@@ -31,13 +31,18 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
-from products.product_analytics.backend.facade.models import Insight
+from products.product_analytics.backend.facade.models import Insight, InsightVariable
 
 from ee.hogai.artifacts.types import ModelArtifactResult, StateArtifactResult, VisualizationWithSourceResult
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolFatalError, MaxToolRetryableError
-from ee.hogai.tools.upsert_dashboard.tool import CreateDashboardToolArgs, UpdateDashboardToolArgs, UpsertDashboardTool
+from ee.hogai.tools.upsert_dashboard.tool import (
+    CreateDashboardToolArgs,
+    DuplicateDashboardToolArgs,
+    UpdateDashboardToolArgs,
+    UpsertDashboardTool,
+)
 from ee.hogai.utils.types import AssistantState
 
 DEFAULT_TRENDS_QUERY = TrendsQuery(series=[EventsNode(name="$pageview")])
@@ -1793,6 +1798,98 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(created_props["template_key"], None)
         self.assertEqual(created_props["duplicated"], False)
         self.assertEqual(created_props["duplicated_from_dashboard_id"], None)
+
+    async def _create_variable_dashboard(self) -> tuple[Dashboard, Insight, InsightVariable, InsightVariable]:
+        subscription = await InsightVariable.objects.acreate(
+            team=self.team, name="Subscription", code_name="subscription_id", type=InsightVariable.Type.STRING
+        )
+        rate = await InsightVariable.objects.acreate(
+            team=self.team, name="Rate", code_name="rate", type=InsightVariable.Type.NUMBER
+        )
+        insight = await Insight.objects.acreate(
+            team=self.team,
+            created_by=self.user,
+            name="Spend",
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT sum(amount) * {variables.rate} FROM events WHERE id = {variables.subscription_id}",
+                },
+                "chartSettings": {"yAxis": [{"column": "spend", "settings": {"formatting": {"prefix": "$"}}}]},
+            },
+            saved=True,
+        )
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Subscription usage",
+            description="Usage for one subscription",
+            created_by=self.user,
+            filters={"date_from": "-30d"},
+            variables={
+                str(subscription.id): {
+                    "code_name": "subscription_id",
+                    "variableId": str(subscription.id),
+                    "value": "sub_a",
+                },
+                str(rate.id): {"code_name": "rate", "variableId": str(rate.id), "value": 2},
+            },
+        )
+        layouts = {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts=layouts)
+        text = await Text.objects.acreate(team=self.team, body="Notes")
+        await DashboardTile.objects.acreate(dashboard=dashboard, text=text, layouts={})
+        return dashboard, insight, subscription, rate
+
+    @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
+    async def test_duplicate_dashboard_keeps_variables_and_chart_settings(self, mock_report):
+        source, source_insight, subscription, rate = await self._create_variable_dashboard()
+
+        _, artifact = await self._create_tool()._arun_impl(
+            DuplicateDashboardToolArgs(
+                dashboard_id=str(source.id),
+                name="Subscription B usage",
+                variable_values={"subscription_id": "sub_b"},
+            )
+        )
+
+        assert artifact is not None
+        copy = await Dashboard.objects.aget(id=artifact["dashboard_id"])
+        self.assertEqual(copy.description, "Usage for one subscription")
+        self.assertEqual(copy.filters, {"date_from": "-30d"})
+        assert copy.variables is not None
+        self.assertEqual(copy.variables[str(subscription.id)]["value"], "sub_b")
+        self.assertEqual(copy.variables[str(rate.id)]["value"], 2)
+        source_variables = (await Dashboard.objects.aget(id=source.id)).variables
+        assert source_variables is not None
+        self.assertEqual(source_variables[str(subscription.id)]["value"], "sub_a")
+
+        tiles = [t async for t in DashboardTile.objects.filter(dashboard=copy).select_related("insight")]
+        insight_tiles = [t for t in tiles if t.insight is not None]
+        self.assertEqual(len(tiles), 2)
+        self.assertEqual(len(insight_tiles), 1)
+        assert insight_tiles[0].insight is not None
+        self.assertNotEqual(insight_tiles[0].insight.id, source_insight.id)
+        self.assertEqual(insight_tiles[0].insight.query, source_insight.query)
+        self.assertEqual(insight_tiles[0].layouts, {"sm": {"x": 0, "y": 0, "w": 6, "h": 5}})
+
+        created_props = next(c[0][2] for c in mock_report.call_args_list if c[0][1] == "dashboard created")
+        self.assertEqual(created_props["duplicated"], True)
+        self.assertEqual(created_props["duplicated_from_dashboard_id"], source.id)
+
+    async def test_duplicate_dashboard_rejects_unknown_variable(self):
+        source, *_ = await self._create_variable_dashboard()
+
+        with self.assertRaises(MaxToolRetryableError) as error:
+            await self._create_tool()._arun_impl(
+                DuplicateDashboardToolArgs(
+                    dashboard_id=str(source.id), name="Copy", variable_values={"customer_id": "sub_b"}
+                )
+            )
+
+        self.assertIn("customer_id", str(error.exception))
+        self.assertIn("subscription_id", str(error.exception))
+        self.assertEqual(await Dashboard.objects.filter(team=self.team).acount(), 1)
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_update_dashboard_reports_dashboard_updated(self, mock_report):
