@@ -6,6 +6,7 @@
  */
 import fs from 'node:fs'
 import path from 'node:path'
+import { parse as parseYaml } from 'yaml'
 
 /**
  * Resolve the OpenAPI schema path, respecting OPENAPI_SCHEMA_PATH env override.
@@ -85,4 +86,35 @@ export function isQueryWrappersConfig(parsed) {
  */
 export function isToolsConfig(parsed) {
     return typeof parsed === 'object' && parsed !== null && 'tools' in parsed
+}
+
+/**
+ * Parse a YAML tool definition and return operationIds plus all exclude_params
+ * grouped by operationId for schema-level exclusion before Orval runs.
+ */
+export function parseToolDefinition(filePath) {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const parsed = parseYaml(content)
+    const operationIds = new Set()
+    /** @type {Map<string, string[]>} */
+    const schemaExclusions = new Map()
+
+    if (parsed?.tools) {
+        for (const tool of Object.values(parsed.tools)) {
+            if (!tool?.enabled || !tool?.operation) {
+                continue
+            }
+
+            operationIds.add(tool.operation)
+            const excludeParams = [...new Set(tool.exclude_params ?? [])].sort()
+            const previous = schemaExclusions.get(tool.operation)
+            if (previous && JSON.stringify(previous) !== JSON.stringify(excludeParams)) {
+                throw new Error(
+                    `Tools on "${tool.operation}" in ${filePath} exclude different params. Give them the same exclude_params.`
+                )
+            }
+            schemaExclusions.set(tool.operation, excludeParams)
+        }
+    }
+    return { operationIds, schemaExclusions }
 }

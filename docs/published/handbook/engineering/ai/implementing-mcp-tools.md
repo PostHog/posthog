@@ -572,6 +572,10 @@ Product teams own their definitions and control which operations are exposed as 
    For a PATCH action with required request fields, set `param_overrides.<field>.required: true`.
    The MCP tool then requires the field, even when the generated PATCH body marks it optional.
 
+   Enabled tools that share one `operation` in the same YAML file must list the same fields in `exclude_params`.
+   An omitted list counts as empty; order and duplicate entries do not matter. Disabled tools do not count.
+   Conflicting lists fail the build, because those tools share one generated request body schema.
+
    Unknown keys are rejected at build time (Zod `.strict()`) to catch typos early.
 
    For list tools with a UI app, set `response.text_include` to the dot-path fields an agent
