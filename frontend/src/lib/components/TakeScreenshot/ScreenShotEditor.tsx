@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import * as director from '@posthog/brand/hoggies/png/director'
 import { IconPencil, IconUndo } from '@posthog/icons'
-import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect, lemonToast } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { getSeriesColorPalette } from 'lib/colors'
@@ -350,21 +350,15 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         if (!canvas) {
             return
         }
-        const dataURL = canvas.toDataURL('image/png')
-
-        async function dataURLtoFile(dataurl: string, filename: string): Promise<File> {
-            const res = await fetch(dataurl)
-            const blob = await res.blob()
-            return new File([blob], filename, { type: blob.type })
+        // `fetch` of a data: URL breaks under the CSP `connect-src`, so read the blob from the canvas.
+        const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+        if (!blob) {
+            lemonToast.error('Could not save the screenshot. Please try again.')
+            return
         }
 
-        // Assume imageFile is a File object if it exists, to satisfy TypeScript for now.
-        // Ideally, this type comes from the Kea logic.
-        const currentImageFile = imageFile
-
-        const finalFilename = currentImageFile ? `edited-${currentImageFile.name}` : 'edited-screenshot.png'
-        const editedFile = await dataURLtoFile(dataURL, finalFilename)
-        downloadFile(editedFile)
+        const finalFilename = imageFile ? `edited-${imageFile.name}` : 'edited-screenshot.png'
+        downloadFile(new File([blob], finalFilename, { type: blob.type }))
     }
 
     if (isLoading) {
