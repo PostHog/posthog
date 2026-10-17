@@ -4,7 +4,7 @@ import datetime as dt
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -235,7 +235,7 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
         assert results["baseline"]["total_count"] == 2
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
-    def test_both_windows_share_one_deadline_below_the_slot_ttl(self) -> None:
+    def test_both_windows_share_one_deadline(self) -> None:
         self._insert([self._log("deploy marker line", day=23), self._log("deploy marker line", day=16)])
         query = LogsQuery(
             dateRange=DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:00Z"),
@@ -244,26 +244,25 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
             serviceNames=[],
             searchTerm=None,
         )
-        clock = MagicMock(return_value=100.0)
         budgets = []
 
-        def execute_with_elapsed_time(*args, **kwargs):
-            budgets.append(kwargs["settings"].max_execution_time)
-            result = execute_hogql_query(*args, **kwargs)
-            clock.return_value += 200
-            return result
+        with patch("products.logs.backend.patterns_query_runner.monotonic", return_value=100.0) as clock:
 
-        with (
-            patch("products.logs.backend.pattern_diff.monotonic", clock),
-            patch("products.logs.backend.patterns_query_runner.monotonic", clock),
-            patch(
-                "products.logs.backend.patterns_query_runner.execute_hogql_query",
-                side_effect=execute_with_elapsed_time,
-            ),
-            self.assertRaises(ClickHouseQueryTimeOut),
-        ):
-            run_patterns_diff(self.team, query, None)
+            def execute_with_elapsed_time(*args, **kwargs):
+                budgets.append(kwargs["settings"].max_execution_time)
+                result = execute_hogql_query(*args, **kwargs)
+                clock.return_value += 200
+                return result
 
-        # Two queries per window. The deadline is 420 seconds away, so the third query gets the 20 seconds left and
-        # no query gets more than its own 60-second limit.
+            with (
+                patch(
+                    "products.logs.backend.patterns_query_runner.execute_hogql_query",
+                    side_effect=execute_with_elapsed_time,
+                ),
+                self.assertRaises(ClickHouseQueryTimeOut),
+            ):
+                run_patterns_diff(self.team, query, None, deadline=520.0)
+
+        # Two queries per window. The third query gets the 20 seconds left, and no query gets more than its own
+        # 60-second limit.
         assert budgets == [60, 60, 20]
