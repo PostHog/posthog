@@ -4,6 +4,7 @@ from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.ast import ArithmeticOperationOp
+from posthog.hogql.base import AST
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
 from posthog.hogql.errors import NotImplementedError
@@ -188,6 +189,9 @@ class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
     def visit_array(self, node: ast.Array) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
 
+    def visit_unknown(self, node: AST) -> bool:
+        return False
+
 
 def is_time_or_interval_constant(expr: ast.Expr, tombstone_string: Optional[str] = None) -> bool:
     return IsTimeOrIntervalConstantVisitor(tombstone_string).visit(expr)
@@ -272,6 +276,10 @@ class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
 
     def visit_array(self, node: ast.Array) -> bool:
         return all(self.visit(arg) for arg in node.exprs)
+
+    def visit_unknown(self, node: AST) -> bool:
+        # Array access, tuple access, lambdas and other node types fall through here. False is the safe answer.
+        return False
 
 
 class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
@@ -378,6 +386,9 @@ class IsStartOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_array(self, node: ast.Array) -> bool:
+        return False
+
+    def visit_unknown(self, node: AST) -> bool:
         return False
 
 
@@ -509,6 +520,9 @@ class IsEndOfPeriodConstantVisitor(Visitor[bool], ABC):
         return False
 
     def visit_array(self, node: ast.Array) -> bool:
+        return False
+
+    def visit_unknown(self, node: AST) -> bool:
         return False
 
 
