@@ -42,6 +42,7 @@ from posthog.models.file_system.file_system import (
     FileSystem,
     create_or_update_file,
     join_path,
+    project_team_ids,
     split_path,
     surface_q,
 )
@@ -301,6 +302,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"id": str(folder.id) if folder else None, "path": folder.path if folder else None})
 
     @cached_property
+    def _project_team_ids(self) -> builtins.list[int]:
+        return project_team_ids(self.team.project_id)
+
+    @cached_property
     def _denied_short_id_refs(self) -> dict[tuple[str, int], builtins.list[str]]:
         if not self.user_access_control:
             return {}
@@ -325,10 +330,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not EE_AVAILABLE or not user_access_control.access_controls_supported:
             return None
 
-        team_ids = Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True)
         return {
             team_id
-            for team_id, team_access in user_access_control.for_team_ids(team_ids).items()
+            for team_id, team_access in user_access_control.for_team_ids(self._project_team_ids).items()
             if team_access.has_project_access
         }
 
@@ -486,7 +490,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
         Show all objects belonging to the project, restricted to this viewset's surface.
         """
-        return queryset.filter(surface_q(self.file_system_surface), team__project_id=self.team.project_id)
+        return queryset.filter(surface_q(self.file_system_surface), team_id__in=self._project_team_ids)
 
     def _scope_by_project_and_environment(self, queryset: QuerySet) -> QuerySet:
         """
@@ -572,8 +576,9 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         entry_types = ("notebook", "insight") if include_content_type else ("insight",)
         entry_teams = {
             str(entry_id): team_id
+            # nosemgrep: idor-lookup-without-team (team_id__in limits rows to this project's environments)
             for entry_id, team_id in FileSystem.objects.filter(
-                team__project_id=self.team.project_id,
+                team_id__in=self._project_team_ids,
                 id__in=[item["id"] for item in results if item.get("type") in entry_types],
             ).values_list("id", "team_id")
         }
@@ -609,7 +614,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not refs:
                 continue
             model = apps.get_model(app_label, model_name)
-            queryset = model.objects.filter(team__project_id=self.team.project_id, short_id__in=refs, deleted=False)
+            queryset = model.objects.filter(team_id__in=self._project_team_ids, short_id__in=refs, deleted=False)
             if entry_type == "notebook":
                 queryset = queryset.alias(
                     _markdown_type=Func(
