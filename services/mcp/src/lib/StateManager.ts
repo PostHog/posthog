@@ -5,6 +5,7 @@ import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
     ErrorCode,
+    hasTimeoutCause,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -449,6 +450,8 @@ export class StateManager {
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
         ttlMs?: number
+        /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
+        expectTimeouts?: boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -467,7 +470,9 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
@@ -582,6 +587,7 @@ export class StateManager {
             fetchedAtKey: `gatewayToolsFetchedAt:${projectId}` as const,
             fetcher: () => this._api.getGatewayTools(projectId),
             ttlMs: GATEWAY_TOOLS_CACHE_TTL_MS,
+            expectTimeouts: true,
         })
     }
 

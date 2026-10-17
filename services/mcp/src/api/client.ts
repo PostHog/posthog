@@ -73,6 +73,10 @@ const API_REQUEST_TIMEOUT_MS = 2 * 60 * 1000
 const LONG_RUNNING_API_REQUEST_TIMEOUT_MS = 10 * 60 * 1000
 const LONG_RUNNING_API_PATH = /\/(query|run_insights|mcp_tools\/execute_sql)\/$|\/(max_tools|autoresearch)\//
 
+// The connected-tool list is optional context for every `exec`, so a slow response must
+// not hold the command for the full default deadline. The caller serves the cached list.
+const GATEWAY_TOOLS_TIMEOUT_MS = 10 * 1000
+
 function apiRequestTimeoutMs(url: string): number {
     return LONG_RUNNING_API_PATH.test(url.split('?')[0]!) ? LONG_RUNNING_API_REQUEST_TIMEOUT_MS : API_REQUEST_TIMEOUT_MS
 }
@@ -638,18 +642,19 @@ export class ApiClient {
     }
 
     /** Pass `idempotent` for a non-GET request that has no upstream effect, so
-     *  a transport fault retries it like a safe method. */
+     *  a transport fault retries it like a safe method. Pass `timeoutMs` to
+     *  override the per-attempt deadline. */
     private async fetchJson<T>(
         url: string,
         options?: RequestInit,
-        { idempotent = false }: { idempotent?: boolean } = {}
+        { idempotent = false, timeoutMs: timeoutOverrideMs }: { idempotent?: boolean; timeoutMs?: number } = {}
     ): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
         const isSafeMethod = idempotent || SAFE_HTTP_METHODS.has(method.toUpperCase())
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
         let rateLimitRetries = 0
         let transportRetries = 0
-        const timeoutMs = apiRequestTimeoutMs(url)
+        const timeoutMs = timeoutOverrideMs ?? apiRequestTimeoutMs(url)
 
         for (;;) {
             let response: Response
@@ -1725,7 +1730,9 @@ export class ApiClient {
     /** Every third-party MCP tool the caller can reach, across all their gateway connections. */
     async getGatewayTools(projectId: string): Promise<Schemas.AvailableToolsResponse> {
         const result = await this.fetchJson<Schemas.AvailableToolsResponse>(
-            `${this.baseUrl}/api/projects/${projectId}/mcp_server_installations/available_tools/`
+            `${this.baseUrl}/api/projects/${projectId}/mcp_server_installations/available_tools/`,
+            undefined,
+            { timeoutMs: GATEWAY_TOOLS_TIMEOUT_MS }
         )
         if (!result.success) {
             throw result.error

@@ -787,5 +787,15 @@ describe('ApiClient', () => {
                 expect(await pending).toMatchObject({ timedOut: true })
             }
         )
+
+        it('ends a slow connected-tool list request well before the default deadline', async () => {
+            stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+            const pending = client.getGatewayTools('17').catch((error) => error)
+
+            await vi.advanceTimersByTimeAsync(10 * 1000)
+
+            expect(await pending).toMatchObject({ timedOut: true })
+        })
     })
 })

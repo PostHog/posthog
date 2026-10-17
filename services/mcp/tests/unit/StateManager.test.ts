@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogTransportError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -1030,6 +1030,39 @@ describe('StateManager', () => {
 
             const second = await stateManager.getOrFetchGroupTypes(projectId)
             expect(second).toEqual(mockGroupTypes)
+        })
+    })
+
+    describe('getOrFetchGatewayTools', () => {
+        const projectId = '42'
+        const timeout = new PostHogTransportError({
+            url: 'https://us.posthog.com/api/projects/42/mcp_server_installations/available_tools/',
+            method: 'GET',
+            attempts: 1,
+            retryable: true,
+            cause: new DOMException('No response within 10 seconds', 'TimeoutError'),
+        })
+        const serverError = new PostHogApiError({
+            status: 500,
+            statusText: 'Internal Server Error',
+            body: '',
+            url: 'https://us.posthog.com/api/projects/42/mcp_server_installations/available_tools/',
+            method: 'GET',
+        })
+
+        it.each([
+            ['a timeout', timeout, false],
+            ['an HTTP 500', serverError, true],
+        ])('returns the cached list on %s (reported: %s)', async (_name, error, reported) => {
+            const cachedTools = { results: [] }
+            await cache.set(`gatewayTools:${projectId}` as any, cachedTools as any)
+            const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+            ;(stateManager as any)._api = { getGatewayTools: vi.fn().mockRejectedValue(error) }
+
+            const result = await stateManager.getOrFetchGatewayTools(projectId)
+
+            expect(result).toEqual(cachedTools)
+            expect(reportSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
         })
     })
 
