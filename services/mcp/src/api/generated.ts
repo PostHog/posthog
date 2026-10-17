@@ -116909,7 +116909,7 @@ export namespace Schemas {
          */
       customValues?: string[] | null;
       /**
-         * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group.
+         * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.
          * @maxLength 1024
          * @nullable
          */
