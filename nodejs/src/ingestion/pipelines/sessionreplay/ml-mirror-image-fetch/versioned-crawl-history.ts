@@ -1,7 +1,7 @@
 import { CrawlHistoryItem, CrawlHistoryStore } from './crawl-history'
 
-/** A v2 or v3 reference carries its dataset version, so the two never share a frontier entry. */
-const SCOPED_URL_REF = /^imageurl:v[23]:/
+/** A v2, v3 or v4 reference carries its dataset version, so no two versions share a frontier entry. */
+const SCOPED_URL_REF = /^imageurl:v[234]:/
 
 export class VersionedCrawlHistory implements CrawlHistoryStore {
     constructor(
