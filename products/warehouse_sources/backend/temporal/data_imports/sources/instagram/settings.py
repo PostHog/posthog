@@ -46,8 +46,9 @@ MAX_INSIGHTS_LOOKBACK_DAYS = 365 * 2
 # requested on its own and an unsupported one is skipped rather than failing the sync.
 ACCOUNT_INSIGHT_METRICS: tuple[str, ...] = ("reach", "views")
 
-# Per-media metrics, keyed by `media_product_type`. Stories expose a different set from
-# feed posts and reels.
+# Per-media metrics, keyed by `media_product_type`. Each list must match Meta's media
+# insights table exactly: one metric that does not apply to the post fails the whole
+# request, and the sync then skips every metric for that post.
 DEFAULT_MEDIA_INSIGHT_METRICS: tuple[str, ...] = (
     "reach",
     "likes",
@@ -58,10 +59,20 @@ DEFAULT_MEDIA_INSIGHT_METRICS: tuple[str, ...] = (
     "views",
 )
 MEDIA_INSIGHT_METRICS: dict[str, tuple[str, ...]] = {
-    "FEED": DEFAULT_MEDIA_INSIGHT_METRICS,
-    "REELS": DEFAULT_MEDIA_INSIGHT_METRICS,
+    "FEED": (*DEFAULT_MEDIA_INSIGHT_METRICS, "follows", "profile_visits"),
+    "REELS": (*DEFAULT_MEDIA_INSIGHT_METRICS, "ig_reels_avg_watch_time", "ig_reels_video_view_total_time"),
     "AD": DEFAULT_MEDIA_INSIGHT_METRICS,
-    "STORY": ("reach", "replies", "views"),
+    "STORY": ("reach", "replies", "views", "follows", "profile_visits"),
+}
+
+# Per-media `(metric, breakdown)` pairs, keyed by `media_product_type`. Meta rejects a
+# breakdown on a metric that does not support it, so each pair is a separate request.
+MEDIA_INSIGHT_BREAKDOWNS: dict[str, tuple[tuple[str, str], ...]] = {
+    "FEED": (("profile_activity", "action_type"),),
+    "STORY": (
+        ("profile_activity", "action_type"),
+        ("navigation", "story_navigation_action_type"),
+    ),
 }
 
 
@@ -142,6 +153,18 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         edge="media",
         child_edge="insights",
         primary_keys=["media_id", "metric"],
+        incremental_fields=[],
+        partition_key="media_timestamp",
+        sort_mode="desc",
+        timestamp_fields=("media_timestamp",),
+    ),
+    # One row per (media, metric, breakdown value). Only feed posts and stories have
+    # breakdowns, so other media issue no request.
+    "media_insights_breakdowns": InstagramEndpointConfig(
+        name="media_insights_breakdowns",
+        edge="media",
+        child_edge="insights",
+        primary_keys=["media_id", "metric", "breakdown", "breakdown_value"],
         incremental_fields=[],
         partition_key="media_timestamp",
         sort_mode="desc",
