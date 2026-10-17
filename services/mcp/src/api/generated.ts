@@ -67363,6 +67363,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly content_hash: string | null;
+      /**
+         * The start of a sentence that asks a coding agent to change this template's file, such as ``In `emails/welcome.html`, change ``. Complete the sentence, then add a blank line and `change_prompt_context`. Null unless `managed_by` is `code`.
+         * @nullable
+         */
+      readonly change_prompt_starter: string | null;
+      /**
+         * What a coding agent needs to change this template's file, as a block that starts with `About this file:`: the key, repository and commit, the file format, the `{{ variables.* }}` the file uses, how the change goes live, and a link to the template. An agent that can reach the repository edits the file following it. Null unless `managed_by` is `code`.
+         * @nullable
+         */
+      readonly change_prompt_context: string | null;
     }
 
     /**
@@ -83341,6 +83351,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly content_hash?: string | null;
+      /**
+         * The start of a sentence that asks a coding agent to change this template's file, such as ``In `emails/welcome.html`, change ``. Complete the sentence, then add a blank line and `change_prompt_context`. Null unless `managed_by` is `code`.
+         * @nullable
+         */
+      readonly change_prompt_starter?: string | null;
+      /**
+         * What a coding agent needs to change this template's file, as a block that starts with `About this file:`: the key, repository and commit, the file format, the `{{ variables.* }}` the file uses, how the change goes live, and a link to the template. An agent that can reach the repository edits the file following it. Null unless `managed_by` is `code`.
+         * @nullable
+         */
+      readonly change_prompt_context?: string | null;
     }
 
     export interface PatchedMoveTileRequest {
