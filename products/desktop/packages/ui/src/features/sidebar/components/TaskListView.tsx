@@ -19,7 +19,6 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { DragBatchLabel } from "@posthog/ui/features/sidebar/components/DragBatchLabel";
 import { DraggableFolder } from "@posthog/ui/features/sidebar/components/DraggableFolder";
 import { GroupWorktreesSection } from "@posthog/ui/features/sidebar/components/GroupWorktreesSection";
-import { taskMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import { SidebarSection } from "@posthog/ui/features/sidebar/components/SidebarSection";
 import { TaskRow } from "@posthog/ui/features/sidebar/components/TaskRow";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
@@ -265,11 +264,8 @@ export function TaskListView({
           onDragStart={(event) => pinDrag.onItemDragStart(task, event)}
           onDragEnd={pinDrag.onItemDragEnd}
           timestamp={task[timestampKey]}
-          subtitle={taskMetadata(
-            task,
-            creatorNameByTaskId.get(task.id),
-            listItemMetadataFields,
-          )}
+          metadataFields={listItemMetadataFields}
+          creatorName={creatorNameByTaskId.get(task.id)}
           depth={depth}
         />
       </FilingTaskAnimation>
@@ -532,11 +528,8 @@ export function TaskListView({
                   onEditSubmit={() => undefined}
                   onEditCancel={() => undefined}
                   timestamp={dragState.items[0][timestampKey]}
-                  subtitle={taskMetadata(
-                    dragState.items[0],
-                    creatorNameByTaskId.get(dragState.items[0].id),
-                    listItemMetadataFields,
-                  )}
+                  metadataFields={listItemMetadataFields}
+                  creatorName={creatorNameByTaskId.get(dragState.items[0].id)}
                   withPrStatus={false}
                 />
               )}

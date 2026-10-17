@@ -2,6 +2,9 @@ import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
 import { useFilingTasksStore } from "@posthog/ui/features/canvas/stores/filingTasksStore";
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { TaskItem } from "@posthog/ui/features/sidebar/components/items/TaskItem";
+import { taskMetadata } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
+import type { ListItemMetadataField } from "@posthog/ui/features/sidebar/listItemAppearance";
+import { usePrPipelineStatus } from "@posthog/ui/features/sidebar/usePrPipelineStatus";
 import { useTaskPrStatus } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import { useWorkspace } from "@posthog/ui/features/workspace/useWorkspace";
 
@@ -21,7 +24,9 @@ interface TaskRowProps {
   onDragStart?: (event: React.DragEvent) => void;
   onDragEnd?: (event: React.DragEvent) => void;
   timestamp: number;
-  subtitle?: React.ReactNode;
+  /** The second row's fields, in the order the appearance dialog stored. */
+  metadataFields: readonly ListItemMetadataField[];
+  creatorName?: string;
   depth?: number;
   /**
    * Whether to resolve the PR's state — a query per row into the host, where it
@@ -49,7 +54,8 @@ export function TaskRow({
   onDragStart,
   onDragEnd,
   timestamp,
-  subtitle,
+  metadataFields,
+  creatorName,
   depth = 0,
   withPrStatus = true,
 }: TaskRowProps) {
@@ -57,12 +63,17 @@ export function TaskRow({
   const effectiveMode =
     workspace?.mode ??
     (task.taskRunEnvironment === "cloud" ? "cloud" : undefined);
-  const { prState, hasDiff } = useTaskPrStatus({
+  const { prState, hasDiff, prUrl } = useTaskPrStatus({
     // An empty id is the hook's own "nothing to look up", so this registers no
     // query rather than a second observer that would refetch behind the drag.
     id: withPrStatus ? task.id : "",
     cloudPrUrl: task.cloudPrUrl,
     taskRunEnvironment: task.taskRunEnvironment,
+  });
+  const pipeline = usePrPipelineStatus({
+    prUrl: task.cloudPrUrl ?? prUrl,
+    prState,
+    enabled: withPrStatus,
   });
   const archivePresentation = useArchivingTasksStore((state) =>
     state.hiddenArchivingTaskIds.has(task.id)
@@ -79,7 +90,13 @@ export function TaskRow({
       depth={depth}
       taskId={task.id}
       label={task.title}
-      subtitle={subtitle}
+      subtitle={taskMetadata(
+        task,
+        creatorName,
+        metadataFields,
+        undefined,
+        pipeline,
+      )}
       isActive={isActive}
       isSelected={isSelected}
       isArchiving={archivePresentation === "progress"}

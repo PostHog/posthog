@@ -94,6 +94,46 @@ describe("list item appearance", () => {
     expect(taskMetadataSegments(task, "Ada Lovelace", [])).toEqual([]);
   });
 
+  it("says where the PR's CI and merge queue are, in the configured order", () => {
+    const segments = taskMetadataSegments(
+      task,
+      undefined,
+      ["mergeQueue", "ci"],
+      undefined,
+      {
+        ci: { state: "failing", total: 40, failed: 2, pending: 3 },
+        mergeQueue: "testing",
+      },
+    );
+
+    expect(
+      segments.map(({ text, title, status }) => ({ text, title, status })),
+    ).toEqual([
+      {
+        text: "Merging soon",
+        title: "The merge queue is testing this pull request",
+        status: "queue",
+      },
+      {
+        text: "2 CI failures",
+        title: "2 failed, 3 running of 40 checks",
+        status: "ci-failing",
+      },
+    ]);
+  });
+
+  it("drops the CI and merge queue fields for a session with no open PR", () => {
+    expect(
+      taskMetadataSegments(
+        task,
+        undefined,
+        ["ci", "mergeQueue"],
+        undefined,
+        null,
+      ),
+    ).toEqual([]);
+  });
+
   it("sanitizes persisted fields to known unique values", () => {
     expect(
       sanitizeListItemMetadataFields([

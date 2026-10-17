@@ -374,6 +374,8 @@ export interface TaskListAppearanceChangedProperties {
     | "branch"
     | "creator"
     | "activity"
+    | "ci"
+    | "mergeQueue"
   )[];
   secondary_field_count: number;
   surface: TaskListSurface;

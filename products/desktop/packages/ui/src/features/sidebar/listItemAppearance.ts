@@ -1,6 +1,12 @@
 import { repositoryLabel } from "@posthog/core/sidebar/groupTasks";
 import type { TaskData } from "@posthog/core/sidebar/sidebarData.types";
-import { formatAbsoluteDateTime, formatRelativeAge } from "@posthog/shared";
+import {
+  formatAbsoluteDateTime,
+  formatRelativeAge,
+  type PrCiSummary,
+  type PrMergeQueueState,
+  type PrPipelineStatus,
+} from "@posthog/shared";
 
 export const LIST_ITEM_METADATA_FIELDS = [
   "space",
@@ -8,6 +14,8 @@ export const LIST_ITEM_METADATA_FIELDS = [
   "branch",
   "creator",
   "activity",
+  "ci",
+  "mergeQueue",
 ] as const;
 
 export type ListItemMetadataField = (typeof LIST_ITEM_METADATA_FIELDS)[number];
@@ -19,7 +27,26 @@ export const LIST_ITEM_METADATA_LABELS: Record<ListItemMetadataField, string> =
     branch: "Branch",
     creator: "Creator",
     activity: "Last activity",
+    ci: "CI status",
+    mergeQueue: "Merge queue",
   };
+
+/** Fields a row can only fill by asking GitHub about the session's PR. */
+export const PR_PIPELINE_METADATA_FIELDS: readonly ListItemMetadataField[] = [
+  "ci",
+  "mergeQueue",
+];
+
+/**
+ * The mark a status segment carries in front of its text. Named by meaning
+ * rather than by icon, so the pure segment logic stays free of React.
+ */
+export type ListItemMetadataStatus =
+  | "ci-running"
+  | "ci-failing"
+  | "ci-passing"
+  | "queue"
+  | "queue-problem";
 
 /**
  * One field's value. `title` carries what the short text leaves out, which the
@@ -29,6 +56,7 @@ export const LIST_ITEM_METADATA_LABELS: Record<ListItemMetadataField, string> =
 export interface ListItemMetadataValue {
   text: string;
   title?: string;
+  status?: ListItemMetadataStatus;
 }
 
 export interface ListItemMetadataSegment extends ListItemMetadataValue {
@@ -98,12 +126,79 @@ export function listItemMetadataSegments(
   for (const field of fields) {
     const value = values[field];
     if (!value) continue;
-    const { text, title } =
-      typeof value === "string" ? { text: value, title: undefined } : value;
+    const { text, title, status } =
+      typeof value === "string"
+        ? { text: value, title: undefined, status: undefined }
+        : value;
     if (!text.trim()) continue;
-    segments.push({ field, text: text.trim(), title });
+    segments.push({ field, text: text.trim(), title, status });
   }
   return segments;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? "" : "s"}`;
+}
+
+/** CI on the PR's head commit, as one phrase with the counts behind it. */
+export function ciValue(
+  ci: PrCiSummary | null | undefined,
+): ListItemMetadataValue | undefined {
+  if (!ci) return undefined;
+  const counts = [
+    ci.failed > 0 ? `${ci.failed} failed` : null,
+    ci.pending > 0 ? `${ci.pending} running` : null,
+  ].filter(Boolean);
+  const title = counts.length
+    ? `${counts.join(", ")} of ${plural(ci.total, "check")}`
+    : `${plural(ci.total, "check")}, none failed`;
+  switch (ci.state) {
+    case "failing":
+      return {
+        text: plural(ci.failed, "CI failure"),
+        title,
+        status: "ci-failing",
+      };
+    case "running":
+      return { text: "CI running", title, status: "ci-running" };
+    case "passing":
+      return { text: "CI passed", title, status: "ci-passing" };
+  }
+}
+
+const MERGE_QUEUE_VALUES: Record<PrMergeQueueState, ListItemMetadataValue> = {
+  queuing: {
+    text: "Queuing",
+    title:
+      "Submitted to the merge queue. It joins the queue when checks and approvals pass.",
+    status: "queue",
+  },
+  queued: {
+    text: "In queue",
+    title: "In the merge queue, waiting for its turn",
+    status: "queue",
+  },
+  testing: {
+    text: "Merging soon",
+    title: "The merge queue is testing this pull request",
+    status: "queue",
+  },
+  failed: {
+    text: "Queue failed",
+    title: "The merge queue could not merge this pull request",
+    status: "queue-problem",
+  },
+  removed: {
+    text: "Removed from queue",
+    title: "Removed from the merge queue. Submit it again when it is ready.",
+    status: "queue-problem",
+  },
+};
+
+export function mergeQueueValue(
+  state: PrMergeQueueState | null | undefined,
+): ListItemMetadataValue | undefined {
+  return state ? MERGE_QUEUE_VALUES[state] : undefined;
 }
 
 export function taskMetadataSegments(
@@ -114,6 +209,7 @@ export function taskMetadataSegments(
   creatorName: string | undefined,
   fields: readonly ListItemMetadataField[],
   spaceName?: string,
+  pipeline?: PrPipelineStatus | null,
 ): ListItemMetadataSegment[] {
   return listItemMetadataSegments(
     {
@@ -122,6 +218,8 @@ export function taskMetadataSegments(
       branch: task.linkedBranch ?? task.branchName,
       creator: creatorName,
       activity: activityValue(task.lastActivityAt),
+      ci: ciValue(pipeline?.ci),
+      mergeQueue: mergeQueueValue(pipeline?.mergeQueue),
     },
     fields,
   );

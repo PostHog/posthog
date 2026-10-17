@@ -74,6 +74,8 @@ import {
   getPrDiffStatsBatchOutput,
   getPrInfoByUrlInput,
   getPrInfoByUrlOutput,
+  getPrPipelineStatusInput,
+  getPrPipelineStatusOutput,
   getPrReviewCommentsInput,
   getPrReviewCommentsOutput,
   getPrTemplateInput,
@@ -559,6 +561,15 @@ export const gitRouter = router({
     .output(getPrChecksOutput)
     .query(({ ctx, input }) =>
       getWorkspaceClient(ctx.container).git.getPrChecks.query({
+        prUrl: input.prUrl,
+      }),
+    ),
+
+  getPrPipelineStatus: publicProcedure
+    .input(getPrPipelineStatusInput)
+    .output(getPrPipelineStatusOutput)
+    .query(({ ctx, input }) =>
+      getWorkspaceClient(ctx.container).git.getPrPipelineStatus.query({
         prUrl: input.prUrl,
       }),
     ),

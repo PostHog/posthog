@@ -3,10 +3,14 @@ import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 import { metadataFromValues } from "@posthog/ui/features/sidebar/components/ListItemMetadata";
 import {
   activityValue,
+  ciValue,
   type ListItemMetadataField,
   type ListItemMetadataValue,
+  mergeQueueValue,
 } from "@posthog/ui/features/sidebar/listItemAppearance";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
+import { usePrPipelineStatus } from "@posthog/ui/features/sidebar/usePrPipelineStatus";
+import type { SidebarPrState } from "@posthog/ui/features/sidebar/useTaskPrStatus";
 import type { ReactNode } from "react";
 
 /**
@@ -44,13 +48,26 @@ function channelItemFacts(
 
 /**
  * The second row under a session's name, in the order the appearance dialog
- * stored.
+ * stored. `pr` is the row's own PR lookup, which the CI and merge queue fields
+ * build on.
  */
 export function useChannelItemMetadata(
   item: ChannelItemModel,
   spaceName?: string,
+  pr?: { prUrl?: string | null; prState?: SidebarPrState },
 ): ReactNode | undefined {
   const fields = useSidebarStore((state) => state.listItemMetadataFields);
+  const pipeline = usePrPipelineStatus({
+    prUrl: item.kind === "task" ? pr?.prUrl : null,
+    prState: pr?.prState,
+  });
   if (fields.length === 0) return undefined;
-  return metadataFromValues(channelItemFacts(item, spaceName), fields);
+  return metadataFromValues(
+    {
+      ...channelItemFacts(item, spaceName),
+      ci: ciValue(pipeline?.ci),
+      mergeQueue: mergeQueueValue(pipeline?.mergeQueue),
+    },
+    fields,
+  );
 }

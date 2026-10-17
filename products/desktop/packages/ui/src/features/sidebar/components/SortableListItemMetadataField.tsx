@@ -1,10 +1,12 @@
 import { useSortable } from "@dnd-kit/react/sortable";
 import {
+  CheckCircle,
   Clock,
   DotsSixVertical,
   GitBranch,
   GitFork,
   Hash,
+  Queue,
   User,
 } from "@phosphor-icons/react";
 import { Checkbox, cn, Label } from "@posthog/quill";
@@ -23,6 +25,8 @@ const FIELD_ICONS: Record<
   branch: GitBranch,
   creator: User,
   activity: Clock,
+  ci: CheckCircle,
+  mergeQueue: Queue,
 };
 
 export function SortableListItemMetadataField({
