@@ -24,6 +24,7 @@ from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSou
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES
 from posthog.dataclasses import frozen
 from posthog.errors import ExposedCHQueryError
 from posthog.models import Team
@@ -204,6 +205,7 @@ class _Expansion:
     filled: dict[str, Variable]
     resolved: set[str] = dataclasses.field(default_factory=set)
     started: int = 0
+    characters: int = 0
 
 
 def fill_all_values(
@@ -269,6 +271,10 @@ def _expand(
             slot=slot,
             expansion=expansion,
         )
+        # The values go into the query text, which ClickHouse caps at MAX_QUERY_SIZE_BYTES. Half of it is left for the query.
+        expansion.characters += sum(len(option) + 4 for option in options)
+        if expansion.characters > MAX_QUERY_SIZE_BYTES // 2:
+            raise ValueError("The variables set to All have too many values for one query. Select fewer values.")
         expansion.filled[name] = with_values(variable, options)
         expansion.resolved.add(name)
 

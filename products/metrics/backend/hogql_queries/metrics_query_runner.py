@@ -7,6 +7,7 @@ bypasses the facade, so the viewer, MCP tools, and insights all share one
 query path.
 """
 
+from contextlib import nullcontext
 from functools import partial
 from typing import TYPE_CHECKING, Optional, cast
 
@@ -227,15 +228,19 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             variables = from_query(self.query.variables)
             definitions = query_definitions(self.query.variables)
             if definitions and self.query.language == MetricsQueryLanguage.SQL:
+                slot = partial(query_concurrency_slots, self.team, dashboard_id=dashboard_id)
                 date_range = metrics_query_date_range(self.team, self.query.dateRange)
+                # `all` looks up the earliest event, which is a query, so it counts against the same limits.
+                with slot() if self.query.dateRange and self.query.dateRange.date_from == "all" else nullcontext():
+                    date_from, date_to = date_range.date_from(), date_range.date_to()
                 variables = fill_all_values(
                     team=self.team,
                     names=sql_referenced_names(self.query.sql),
                     variables=variables,
                     definitions=definitions,
-                    date_from=date_range.date_from(),
-                    date_to=date_range.date_to(),
-                    slot=partial(query_concurrency_slots, self.team, dashboard_id=dashboard_id),
+                    date_from=date_from,
+                    date_to=date_to,
+                    slot=slot,
                 )
             self._loaded_variables = variables
         return self._loaded_variables
