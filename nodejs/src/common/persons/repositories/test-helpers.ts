@@ -67,8 +67,6 @@ export function createPersonUpdateFields(
 ): PersonUpdateFields {
     return {
         properties: updates.properties ?? person.properties,
-        properties_last_updated_at: updates.properties_last_updated_at ?? person.properties_last_updated_at,
-        properties_last_operation: updates.properties_last_operation ?? person.properties_last_operation,
         is_identified: updates.is_identified ?? person.is_identified,
         created_at: updates.created_at ?? person.created_at,
         ...(updates.version !== undefined && { version: updates.version }),
