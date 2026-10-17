@@ -235,6 +235,10 @@ class TestInjectFreshTokensOnResumeActivity:
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
                 return_value="oauth_new",
             ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.run_gateway_env_vars",
+                return_value={},
+            ),
         ):
             prepared = async_to_sync(activity_environment.run)(
                 prepare_sandbox_for_repository,
@@ -292,6 +296,10 @@ class TestInjectFreshTokensOnResumeActivity:
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.create_oauth_access_token_for_run",
                 return_value="oauth_new",
             ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.run_gateway_env_vars",
+                return_value={},
+            ),
         ):
             prepared = async_to_sync(activity_environment.run)(
                 prepare_sandbox_for_repository,
@@ -341,6 +349,10 @@ class TestInjectFreshTokensOnResumeActivity:
             ),
             patch(
                 "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_git_identity_env_vars",
+                return_value={},
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.provision_sandbox.run_gateway_env_vars",
                 return_value={},
             ),
         ):
