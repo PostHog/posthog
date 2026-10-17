@@ -21,20 +21,23 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationGroup,
+    DeliveryPath,
     DestinationType,
     EventKindSpec,
     OwnedAlertDestination,
+    SourceKind,
 )
 
 from ..logic import (
     delivery_destinations,
+    delivery_path,
     destination_bucket_report,
     destination_configs,
     destination_eligibility,
     destinations,
     insight_alert_destinations,
 )
-from .contracts import AlertInternalEvent, DestinationBucket, DestinationEligibility
+from .contracts import AlertInternalEvent, DeliveryPathChoice, DestinationBucket, DestinationEligibility
 
 ALERT_NOTIFICATION_FLUSH_TIMEOUT_SECONDS: Final = 10.0
 
@@ -242,14 +245,11 @@ def list_delivery_destination_groups(
 
 
 def classify_alert_destinations(
-    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], lock: bool = False
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> tuple[DestinationEligibility, ...]:
-    """Every destination function of one alert, with what native delivery cannot carry for each.
-
-    With `lock`, call inside a transaction: the function rows stay locked until it ends.
-    """
+    """Every destination function of one alert, with what native delivery cannot carry for each."""
     return destination_eligibility.classify_alert_destinations(
-        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids, lock=lock
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
 
 
@@ -270,3 +270,21 @@ def bucket_for(eligibility: DestinationEligibility) -> DestinationBucket:
 def bucket_report_lines(team_alerts: Iterable[tuple[int, str]], *, allowed_event_ids: Collection[str]) -> Iterator[str]:
     """One line per destination of the given (team id, alert id) pairs, then the count per bucket and per reason."""
     return destination_bucket_report.bucket_report_lines(team_alerts, allowed_event_ids=allowed_event_ids)
+
+
+def team_delivery_paths(
+    *, source: SourceKind, team_id: int, alert_ids: Sequence[str], allowed_event_ids: Collection[str]
+) -> dict[str, DeliveryPathChoice]:
+    """Whether native delivery may send each alert's destinations now, and why not when it may not."""
+    return delivery_path.team_delivery_paths(
+        source=source, team_id=team_id, alert_ids=alert_ids, allowed_event_ids=allowed_event_ids
+    )
+
+
+def choose_delivery_path(
+    *, source: SourceKind, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
+) -> DeliveryPath:
+    """The platform's delivery path chooser, which `products.alerts` registers when Django starts."""
+    return delivery_path.delivery_path(
+        source=source, team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
