@@ -192,4 +192,169 @@ describe('LemonInput', () => {
 
         expect(input.value).toBe('abc')
     })
+
+    describe('Enter while composing with an IME', () => {
+        it.each([
+            ['isComposing is set (Chrome, Firefox)', { isComposing: true }],
+            ['only keyCode 229 is reported (Safari)', { keyCode: 229 }],
+        ])('hides the confirming Enter from onKeyDown and onPressEnter when %s', (_, eventInit) => {
+            const onKeyDown = jest.fn()
+            const onPressEnter = jest.fn()
+            const { container } = render(<LemonInput onKeyDown={onKeyDown} onPressEnter={onPressEnter} />)
+
+            fireEvent.keyDown(container.querySelector('input')!, { key: 'Enter', ...eventInit })
+
+            expect(onKeyDown).not.toHaveBeenCalled()
+            expect(onPressEnter).not.toHaveBeenCalled()
+        })
+
+        it('leaves a regular Enter to onKeyDown when a consumer passes one, as before', () => {
+            const onKeyDown = jest.fn()
+            const onPressEnter = jest.fn()
+            const { container } = render(<LemonInput onKeyDown={onKeyDown} onPressEnter={onPressEnter} />)
+
+            fireEvent.keyDown(container.querySelector('input')!, { key: 'Enter' })
+
+            expect(onKeyDown).toHaveBeenCalledTimes(1)
+            expect(onPressEnter).not.toHaveBeenCalled()
+        })
+
+        it('passes a regular Enter to onPressEnter when there is no onKeyDown', () => {
+            const onPressEnter = jest.fn()
+            const { container } = render(<LemonInput onPressEnter={onPressEnter} />)
+
+            fireEvent.keyDown(container.querySelector('input')!, { key: 'Enter' })
+
+            expect(onPressEnter).toHaveBeenCalledTimes(1)
+        })
+
+        it('still passes other keys to onKeyDown while composing', () => {
+            const onKeyDown = jest.fn()
+            const { container } = render(<LemonInput onKeyDown={onKeyDown} />)
+
+            fireEvent.keyDown(container.querySelector('input')!, { key: 'Escape', isComposing: true })
+
+            expect(onKeyDown).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('a consumer onKeyDown keeps replacing the internal handler', () => {
+        // Fixes the behavior before the IME change: with an onKeyDown, none of the internal key handling ran.
+        it('does not end a number draft on Enter', () => {
+            function Harness(): JSX.Element {
+                const [value, setValue] = useState<number | undefined>(30)
+                return (
+                    <LemonInput
+                        type="number"
+                        value={value}
+                        onChange={(next) => setValue(Number.isNaN(next) ? 100 : next)}
+                        onKeyDown={() => {}}
+                    />
+                )
+            }
+            const { container } = render(<Harness />)
+            const input = container.querySelector<HTMLInputElement>('input')!
+
+            fireEvent.focus(input)
+            fireEvent.change(input, { target: { value: '' } })
+            fireEvent.keyDown(input, { key: 'Enter' })
+
+            expect(input.value).toBe('')
+        })
+
+        it('does not apply the stopPropagation prop', () => {
+            const onParentKeyDown = jest.fn()
+            const { container } = render(
+                <div onKeyDown={onParentKeyDown}>
+                    <LemonInput stopPropagation onKeyDown={() => {}} />
+                </div>
+            )
+
+            fireEvent.keyDown(container.querySelector('input')!, { key: 'a' })
+
+            expect(onParentKeyDown).toHaveBeenCalledTimes(1)
+        })
+
+        it('applies the stopPropagation prop when there is no onKeyDown', () => {
+            const onParentKeyDown = jest.fn()
+            const { container } = render(
+                <div onKeyDown={onParentKeyDown}>
+                    <LemonInput stopPropagation />
+                </div>
+            )
+
+            fireEvent.keyDown(container.querySelector('input')!, { key: 'a' })
+
+            expect(onParentKeyDown).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('Enter while composing with an IME inside an Enter-handling parent', () => {
+        // A dialog form that submits on Enter is the real-world parent. The consumer handler either
+        // stops the Enter itself (as the workflow reject-reason field does) or has no handler at all.
+        const stopsEnter = (e: React.KeyboardEvent): void => {
+            if (e.key === 'Enter') {
+                e.stopPropagation()
+            }
+        }
+
+        it.each([
+            ['isComposing is set', { isComposing: true }],
+            ['only keyCode 229 is reported', { keyCode: 229 }],
+        ])('does not let the confirming Enter reach the parent when %s', (_, eventInit) => {
+            const onParentKeyDown = jest.fn()
+            const { container } = render(
+                <div onKeyDown={onParentKeyDown}>
+                    <LemonInput value="" />
+                    <LemonInput value="" onKeyDown={stopsEnter} />
+                </div>
+            )
+
+            for (const field of Array.from(container.querySelectorAll('input'))) {
+                fireEvent.keyDown(field, { key: 'Enter', ...eventInit })
+            }
+
+            expect(onParentKeyDown).not.toHaveBeenCalled()
+        })
+
+        it('does not preventDefault the confirming Enter', () => {
+            const { container } = render(<LemonInput value="" />)
+            const notPrevented = fireEvent.keyDown(container.querySelector('input')!, {
+                key: 'Enter',
+                isComposing: true,
+            })
+
+            expect(notPrevented).toBe(true)
+        })
+
+        it('keeps bubbling a regular Enter unless the consumer stops it', () => {
+            const onParentKeyDown = jest.fn()
+            const { container } = render(
+                <div onKeyDown={onParentKeyDown}>
+                    <LemonInput value="" />
+                    <LemonInput value="" onKeyDown={stopsEnter} />
+                </div>
+            )
+            const [plain, stopping] = Array.from(container.querySelectorAll('input'))
+
+            fireEvent.keyDown(stopping, { key: 'Enter' })
+            expect(onParentKeyDown).not.toHaveBeenCalled()
+
+            fireEvent.keyDown(plain, { key: 'Enter' })
+            expect(onParentKeyDown).toHaveBeenCalledTimes(1)
+        })
+
+        it('keeps bubbling other keys while composing', () => {
+            const onParentKeyDown = jest.fn()
+            const { container } = render(
+                <div onKeyDown={onParentKeyDown}>
+                    <LemonInput value="" />
+                </div>
+            )
+
+            fireEvent.keyDown(container.querySelector('input')!, { key: 'Escape', isComposing: true })
+
+            expect(onParentKeyDown).toHaveBeenCalledTimes(1)
+        })
+    })
 })

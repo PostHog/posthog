@@ -102,6 +102,7 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
         onChange,
         onFocus,
         onBlur,
+        onKeyDown,
         onPressEnter,
         status = 'default',
         allowClear, // Default handled inside the component
@@ -300,10 +301,24 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                         onBlur?.(event)
                     }}
                     onKeyDown={(event) => {
+                        // The Enter that confirms an IME candidate is not a commit: neither onPressEnter nor the
+                        // consumer's onKeyDown should see it, and it must not bubble to an enclosing Enter handler
+                        // (for example a dialog form that submits on Enter). Don't preventDefault, the browser
+                        // still needs the key to finish the composition. Safari ends the composition before
+                        // keydown fires (isComposing is already false), but still reports keyCode 229.
+                        if (event.key === 'Enter' && (event.nativeEvent.isComposing || event.keyCode === 229)) {
+                            event.stopPropagation()
+                            return
+                        }
+                        // A consumer's onKeyDown takes over from here, as it did when it was spread over this handler.
+                        if (onKeyDown) {
+                            onKeyDown(event)
+                            return
+                        }
                         if (stopPropagation) {
                             event.stopPropagation()
                         }
-                        if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                        if (event.key === 'Enter') {
                             // Enter commits without blurring — through onPressEnter, and through a
                             // surrounding form's implicit submission even when there is no handler
                             // here. End the draft either way, so the field stops showing empty while
