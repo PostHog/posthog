@@ -63,6 +63,37 @@ describe('TeamService', () => {
             expect(fetchSpy).toHaveBeenCalledTimes(1)
         })
 
+        it('should refresh on a token miss and return a team that turned on recording since the last refresh', async () => {
+            await teamService.getTeamByToken('valid-token')
+
+            fetchSpy.mockResolvedValue({
+                tokenMap: {
+                    'valid-token': { teamId: 1, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true },
+                    'new-token': { teamId: 3, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false },
+                },
+                retentionMap: { 1: '30d', 3: '90d' },
+            })
+            jest.advanceTimersByTime(30 * 1000 + 1)
+
+            const team = await teamService.getTeamByToken('new-token')
+            expect(team).toEqual({ teamId: 3, consoleLogIngestionEnabled: false, aiTrainingOptedIn: false })
+            expect(fetchSpy).toHaveBeenCalledTimes(2)
+            expect(await teamService.getRetentionPeriodByTeamId(3)).toBe('90d')
+        })
+
+        it('should not refresh on token misses within the minimum refresh interval', async () => {
+            await teamService.getTeamByToken('valid-token')
+            jest.advanceTimersByTime(30 * 1000 + 1)
+
+            expect(await teamService.getTeamByToken('unknown-token')).toBeNull()
+            expect(fetchSpy).toHaveBeenCalledTimes(2)
+
+            jest.advanceTimersByTime(29 * 1000)
+            expect(await teamService.getTeamByToken('unknown-token')).toBeNull()
+            expect(await teamService.getTeamByToken('other-unknown-token')).toBeNull()
+            expect(fetchSpy).toHaveBeenCalledTimes(2)
+        })
+
         it('should refresh after max age', async () => {
             await teamService.getTeamByToken('valid-token')
             expect(fetchSpy).toHaveBeenCalledTimes(1)

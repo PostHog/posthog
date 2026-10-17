@@ -13,6 +13,10 @@ interface TeamServiceData {
     retentionMap: Record<TeamId, string>
 }
 
+// A team that turns on recording is not in the cached list until the next refresh. On a token miss we
+// refresh before we drop the message, but not more often than this, so unknown tokens cannot load Postgres.
+const TOKEN_MISS_REFRESH_MIN_INTERVAL_MS = 30 * 1000
+
 export class TeamService {
     private readonly teamRefresher: BackgroundRefresher<TeamServiceData>
 
@@ -33,9 +37,33 @@ export class TeamService {
         const teamConfig = tokenMap[token]
 
         if (!teamConfig?.teamId) {
+            return await this.getTeamByTokenAfterRefresh(token)
+        }
+
+        return teamConfig
+    }
+
+    private async getTeamByTokenAfterRefresh(token: string): Promise<TeamForReplay | null> {
+        let refreshed: TeamServiceData | undefined
+        try {
+            refreshed = await this.teamRefresher.refreshIfOlderThan(TOKEN_MISS_REFRESH_MIN_INTERVAL_MS)
+        } catch (e) {
+            logger.error('Error refreshing team tokens', e)
+            TeamServiceMetrics.incrementRefreshErrors()
+        }
+
+        if (!refreshed) {
+            TeamServiceMetrics.incrementTokenMiss('refresh_skipped')
             return null
         }
 
+        const teamConfig = refreshed.tokenMap[token]
+        if (!teamConfig?.teamId) {
+            TeamServiceMetrics.incrementTokenMiss('not_found')
+            return null
+        }
+
+        TeamServiceMetrics.incrementTokenMiss('found_after_refresh')
         return teamConfig
     }
 
