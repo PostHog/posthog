@@ -67,6 +67,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     cached_response: CachedLogsQueryResponse
     use_stored_patterns: bool = True
     query_deadline: float | None = None
+    _run_deadline: float | None = None
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -115,10 +116,13 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def _calculate(self) -> LogsQueryResponse:
         reason = "comparison" if not self.use_stored_patterns else "flag_disabled"
+        self._run_deadline = self.query_deadline
         if self.use_stored_patterns and self._stored_patterns_enabled:
             stored_deadline = monotonic() + max(1, self.settings.max_execution_time or 60)
             # A caller's deadline still applies when it ends sooner.
-            self.query_deadline = min(self.query_deadline or stored_deadline, stored_deadline)
+            self._run_deadline = (
+                stored_deadline if self.query_deadline is None else min(self.query_deadline, stored_deadline)
+            )
             versions = self._execute(
                 parse_select(
                     "SELECT pattern_version, count(), countIf(trim(pattern) != '') FROM logs WHERE {where} GROUP BY pattern_version",
@@ -334,8 +338,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def _execute(self, query: ast.SelectQuery | ast.SelectSetQuery):
         settings = self.settings.model_copy()
-        if self.query_deadline is not None:
-            remaining = int(self.query_deadline - monotonic())
+        if self._run_deadline is not None:
+            remaining = int(self._run_deadline - monotonic())
             if remaining < 1:
                 raise ClickHouseQueryTimeOut()
             # The deadline bounds the whole run. It must not give one query more time than its own limit.
@@ -350,7 +354,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             limit_context=self.limit_context,
             settings=settings,
         )
-        if self.query_deadline is not None and monotonic() >= self.query_deadline:
+        if self._run_deadline is not None and monotonic() >= self._run_deadline:
             raise ClickHouseQueryTimeOut()
         return response
 
