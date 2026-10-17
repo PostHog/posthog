@@ -210,6 +210,27 @@ describe('integrationsLogic', () => {
                 expect(logic.values.linkedGithubInstallationLoading).toBe(false)
             }
         )
+
+        it('sends a member without personal GitHub proof to GitHub OAuth instead of failing', async () => {
+            jest.spyOn(integrationsApi, 'integrationsGithubLinkExistingCreate').mockRejectedValue(
+                new ApiError('needs personal github', 400, undefined, {
+                    code: 'github_link_existing_personal_github_required',
+                })
+            )
+            const authorize = jest
+                .spyOn(integrationsApi, 'integrationsGithubOauthAuthorizeCreate')
+                .mockResolvedValue({ oauth_url: '#github-oauth' })
+
+            await expectLogic(logic, () => logic.actions.linkExistingGithubInstallation('12345'))
+                .toDispatchActions(['linkExistingGithubInstallationSuccess'])
+                .toNotHaveDispatchedActions(['linkExistingGithubInstallationFailure'])
+
+            expect(authorize).toHaveBeenCalledWith(
+                String(MOCK_TEAM_ID),
+                expect.objectContaining({ installation_id: '12345' })
+            )
+            expect(window.location.hash).toBe('#github-oauth')
+        })
     })
 
     describe('GitHub repositories', () => {
