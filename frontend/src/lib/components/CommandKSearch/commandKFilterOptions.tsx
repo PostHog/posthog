@@ -103,10 +103,8 @@ const isExcluded = (raw: string): boolean => raw.startsWith('-') || raw.startsWi
 
 const includedWords = (freeText: string): string[] =>
     tokenize(freeText)
-        .map((token) => token.raw)
-        .filter((raw) => !isExcluded(raw))
-        .map(unquote)
-        .filter(Boolean)
+        .map((token) => unquote(token.raw))
+        .filter((word) => word && !isExcluded(word))
 
 const includedNames = (filters: QueryChip[]): string[] =>
     filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
