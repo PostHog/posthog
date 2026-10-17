@@ -1,5 +1,4 @@
 import { IconMCP } from '@posthog/icons'
-import { Badge, Dot } from '@posthog/quill'
 
 import { Logomark } from 'lib/brand'
 import { IconSlack } from 'lib/lemon-ui/icons'
@@ -27,10 +26,9 @@ export function WaysToUseSurfaces({ onSurfaceLinkClick }: WaysToUseSurfacesProps
                     description="See what changed today, ask PostHog AI, and open any product."
                     illustration={<WebAppIllustration />}
                     action={
-                        <Badge>
-                            <Dot variant="success" pulse />
-                            You are here
-                        </Badge>
+                        <WaysToUseSurfaceLink surface="chat" to={urls.taskNewSession()} onClick={onSurfaceLinkClick}>
+                            Start a chat
+                        </WaysToUseSurfaceLink>
                     }
                 />
                 <WaysToUseSurfaceCard

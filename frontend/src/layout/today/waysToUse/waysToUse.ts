@@ -6,7 +6,7 @@ export const WAYS_TO_USE_PARAM = 'ways_to_use'
 
 const NEWCOMER_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
-export type WaysToUseSurface = 'slack' | 'mcp'
+export type WaysToUseSurface = 'chat' | 'slack' | 'mcp'
 
 export type WaysToUseCloseSource = 'get_started' | 'dismiss' | 'surface_link'
 
