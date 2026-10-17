@@ -2879,7 +2879,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # Don't cache debug queries with errors and export queries
             errors: Optional[list[Any]] = fresh_response_dict.get("error", None)
             has_error = errors is not None and len(errors) > 0
-            cacheable = not has_error and self.limit_context != LimitContext.EXPORT
+            cache_skip_reason: Optional[str]
+            if has_error:
+                cache_skip_reason = "error"
+            elif self.limit_context == LimitContext.EXPORT:
+                cache_skip_reason = "export"
+            else:
+                cache_skip_reason = self._cache_skip_reason(query_result)
+            cacheable = cache_skip_reason is None
 
             # Stored with the results, so a cache hit carries the numbers of the run that produced
             # them.
@@ -2950,6 +2957,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 "cache_hit": False,
                 "last_refresh": last_refresh.isoformat(),
                 "cache_write_success": stored,
+                "cache_skip_reason": cache_skip_reason,
                 "cache_age_override": getattr(self, "_cache_age_override", None),
                 "calculation_trigger": query_run.trigger,
                 "response_time_ms": query_run.elapsed_ms(),
@@ -3351,6 +3359,14 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def validators(self) -> Sequence[QueryValidationRule[Q]]:
         """Overridden by subclasses to add validation rules."""
         return ()
+
+    def _cache_skip_reason(self, result: R) -> Optional[str]:
+        """Why a successful result must not be cached, or None to cache it.
+
+        Override for results that only describe a transient state, so the next request computes again
+        instead of being served the same state until the cache entry goes stale.
+        """
+        return None
 
     def _is_stale_for_request(self, last_refresh: Optional[datetime], lazy: bool = False) -> bool:
         """Staleness decision for this request, honoring `_cache_age_override` when set.

@@ -225,6 +225,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             self._capture_query_event("marketing analytics query failed", start, error=e)
             raise
 
+    def _cache_skip_reason(self, result: ResponseType) -> Optional[str]:
+        # The background warm usually lands within minutes, and a cached not-ready entry would keep serving the
+        # "computing" state until the entry goes stale.
+        if getattr(result, "precomputeNotReady", False):
+            return "precompute_not_ready"
+        return super()._cache_skip_reason(result)
+
     def _capture_query_event(self, event: str, start: float, error: Optional[BaseException] = None) -> None:
         try:
             duration_ms = (time.perf_counter() - start) * 1000

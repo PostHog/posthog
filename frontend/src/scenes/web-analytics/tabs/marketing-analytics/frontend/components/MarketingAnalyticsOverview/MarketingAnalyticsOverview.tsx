@@ -1,4 +1,4 @@
-import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -13,6 +13,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
+import { useRefetchWhileNotReady } from '~/scenes/marketing-analytics/useMarketingAnalyticsPrecompute'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
 import {
@@ -43,12 +44,16 @@ export function MarketingAnalyticsOverview(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
     const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
+    const { loadData } = useActions(logic)
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
     const marketingOverviewQueryResponse = response as MarketingAnalyticsAggregatedQueryResponse | undefined
 
     const samplingRate = marketingOverviewQueryResponse?.samplingRate
+    const precomputeNotReady = !responseLoading && marketingOverviewQueryResponse?.precomputeNotReady === true
+
+    useRefetchWhileNotReady(precomputeNotReady, props.query, loadData)
 
     const validationWarnings = useMemo(() => validateConversionGoals(conversion_goals), [conversion_goals])
 
@@ -75,7 +80,7 @@ export function MarketingAnalyticsOverview(props: {
 
     // A cold precompute window comes back as an empty result, which the metric grid would render as a row
     // of blanks. Say it is still being prepared instead.
-    if (!responseLoading && marketingOverviewQueryResponse?.precomputeNotReady) {
+    if (precomputeNotReady) {
         return <MarketingAnalyticsNotReady />
     }
 
