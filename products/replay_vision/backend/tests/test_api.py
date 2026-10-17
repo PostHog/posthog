@@ -2293,8 +2293,15 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
             completed_at=timezone.now(),
         )
         self._create_observation(session_id="c")  # pending
-        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
+        with CaptureQueriesContext(connection) as queries:
+            resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}stats/")
         self.assertEqual(resp.status_code, 200)
+        # With no restricted experiment, the status count must stay answerable from (scanner, status).
+        status_count_sql = [
+            q["sql"] for q in queries if q["sql"].startswith('SELECT "replay_vision_replayobservation"."status" AS')
+        ]
+        self.assertEqual(len(status_count_sql), 1)
+        self.assertNotIn("scanner_snapshot", status_count_sql[0])
         body = resp.json()
         self.assertEqual(body["status_counts"]["total"], 4)
         self.assertEqual(body["status_counts"]["succeeded"], 1)
