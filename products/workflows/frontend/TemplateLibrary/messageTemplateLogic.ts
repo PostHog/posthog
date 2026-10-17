@@ -48,6 +48,7 @@ export interface messageTemplateLogicValues {
     message: any
     messageLoading: boolean
     originalTemplate: MessageTemplate
+    refusedEdits: MessageTemplate | null
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -117,6 +118,9 @@ export interface messageTemplateLogicActions {
         value: true
     }
     duplicateTemplateDone: () => {
+        value: true
+    }
+    duplicateWithMyChanges: () => {
         value: true
     }
     keepMyTemplateVersion: () => {
@@ -236,6 +240,9 @@ export interface messageTemplateLogicActions {
     }
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
+    }
+    setRefusedEdits: (edits: MessageTemplate | null) => {
+        edits: MessageTemplate | null
     }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
@@ -411,6 +418,18 @@ export type messageTemplateLogicType = MakeLogicType<
     messageTemplateLogicMeta
 >
 
+async function openCopyOf(source: MessageTemplate): Promise<boolean> {
+    try {
+        const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(source))
+        lemonToast.success('Template duplicated successfully')
+        router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
+        return true
+    } catch (error: any) {
+        lemonToast.error(error?.detail || 'Failed to duplicate template')
+        return false
+    }
+}
+
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
     props({} as MessageTemplateLogicProps),
@@ -424,6 +443,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
         duplicateTemplateDone: true,
+        setRefusedEdits: (edits: MessageTemplate | null) => ({ edits }),
+        duplicateWithMyChanges: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
@@ -490,7 +511,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             false,
             {
                 duplicateTemplate: () => true,
+                duplicateWithMyChanges: () => true,
                 duplicateTemplateDone: () => false,
+            },
+        ],
+        // Unsaved edits that the server refused because an upload claimed the template back for code.
+        refusedEdits: [
+            null as MessageTemplate | null,
+            {
+                setRefusedEdits: (_, { edits }) => edits,
             },
         ],
         transactionalTab: [
@@ -696,7 +725,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             if (errorObject?.code === 'immutable') {
-                lemonToast.error(errorObject.detail)
+                // An upload claimed the template back for code. Reloading turns the page read-only.
+                actions.setRefusedEdits(values.template)
+                actions.syncExternalEdit()
                 return
             }
             lemonToast.error('Failed to save template. Please try again.')
@@ -736,14 +767,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 actions.duplicateTemplateDone()
                 return
             }
-            try {
-                const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(values.template))
-                lemonToast.success('Template duplicated successfully')
-                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
-            } catch (error: any) {
-                lemonToast.error(error?.detail || 'Failed to duplicate template')
-            } finally {
-                actions.duplicateTemplateDone()
+            await openCopyOf(values.template)
+            actions.duplicateTemplateDone()
+        },
+        duplicateWithMyChanges: async () => {
+            const edits = values.refusedEdits
+            const copied = edits !== null && (await openCopyOf(edits))
+            actions.duplicateTemplateDone()
+            if (copied) {
+                actions.setRefusedEdits(null)
             }
         },
         deleteTemplate: async () => {

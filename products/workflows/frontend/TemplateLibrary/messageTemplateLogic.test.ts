@@ -112,17 +112,10 @@ describe('messageTemplateLogic', () => {
                 toast: 'Failed to save template. Please try again.',
                 withButton: false,
             },
-            {
-                description: 'a code-managed template shows why the server refused the edit',
-                status: 403,
-                code: 'immutable',
-                toast: 'nope',
-                withButton: false,
-            },
-        ])('$description', async ({ status, code, toast, withButton }) => {
+        ])('$description', async ({ status, toast, withButton }) => {
             useMocks({
                 patch: {
-                    '/api/environments/:team_id/messaging_templates/:id/': () => [status, { code, detail: 'nope' }],
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [status, { detail: 'nope' }],
                 },
             })
 
@@ -499,6 +492,70 @@ describe('messageTemplateLogic', () => {
                 'source_ref',
             ].filter((field) => field in patchBodies[1])
             expect(serverOwnedFieldsSent).toEqual([])
+        })
+    })
+
+    describe('claimed back by an upload while editing', () => {
+        let serverTemplate: Record<string, unknown>
+        let createBodies: Record<string, unknown>[]
+
+        beforeEach(async () => {
+            serverTemplate = { ...CODE_MANAGED, managed_by: 'gui' }
+            createBodies = []
+            useMocks({
+                get: { '/api/environments/:team_id/messaging_templates/:id/': () => [200, serverTemplate] },
+                patch: {
+                    '/api/environments/:team_id/messaging_templates/:id/': () => [
+                        403,
+                        { type: 'invalid_request', code: 'immutable', detail: 'This template is managed by code.' },
+                    ],
+                },
+                post: {
+                    '/api/environments/:team_id/messaging_templates/': async ({ request }: { request: Request }) => {
+                        createBodies.push(await request.json())
+                        return [201, { id: 'copy-id' }]
+                    },
+                },
+            })
+            logic = messageTemplateLogic({ id: 'existing-id' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadTemplateSuccess'])
+
+            logic.actions.setTemplateValue('name', 'Welcome, edited here')
+            logic.actions.setTemplateValue('content.email.subject', 'Edited subject')
+            serverTemplate = CODE_MANAGED
+            await expectLogic(logic, () => {
+                logic.actions.submitTemplate()
+            })
+                .toDispatchActions(['saveTemplateFailure', 'loadTemplateSuccess'])
+                .toFinishAllListeners()
+        })
+
+        it('reloads the template read-only and offers to duplicate the unsaved edits', async () => {
+            await expectLogic(logic).toMatchValues({
+                isCodeManaged: true,
+                templateChanged: false,
+                refusedEdits: expect.objectContaining({ name: 'Welcome, edited here' }),
+            })
+            expect(logic.values.template.name).toBe('Welcome')
+        })
+
+        it('duplicates the unsaved edits without its key, ownership, source or hash', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.duplicateWithMyChanges()
+            }).toFinishAllListeners()
+
+            expect(createBodies).toEqual([
+                {
+                    name: 'Welcome, edited here (copy)',
+                    description: 'Sent after signup',
+                    content: {
+                        ...CODE_MANAGED.content,
+                        email: { ...CODE_MANAGED.content.email, subject: 'Edited subject' },
+                    },
+                },
+            ])
+            await expectLogic(logic).toMatchValues({ refusedEdits: null })
         })
     })
 
