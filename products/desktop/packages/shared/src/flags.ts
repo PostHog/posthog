@@ -60,11 +60,6 @@ export const TASK_COST_VISIBLE_FLAG = featureFlagKeys.TASK_COST_VISIBLE_FLAG;
 export const ANNOUNCEMENTS_FLAG = featureFlagKeys.ANNOUNCEMENTS_FLAG;
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = featureFlagKeys.SIGNALS_PR_REFUNDS_FLAG;
-/**
- * Gates reports living in the channels sidebar: the per-space Reports tab and its
- * report detail route, plus report entries in the feed.
- */
-export const CHANNEL_REPORTS_FLAG = featureFlagKeys.CHANNEL_REPORTS_FLAG;
 
 /**
  * One-report-at-a-time keyboard triage inside the reports inbox. On by
