@@ -196,7 +196,7 @@ class GrafanaDashboardParser:
             for item in templating
             if isinstance(item, dict) and item.get("type") == "datasource" and isinstance(item.get("query"), str)
         }
-        self._variables = TemplateVariables.from_templating(templating)
+        self._variables = TemplateVariables.from_templating(templating, self._datasource_type)
         self._has_adhoc_filters = any(isinstance(item, dict) and item.get("type") == "adhoc" for item in templating)
         self._used_keys: set[str] = set()
 

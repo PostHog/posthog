@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from typing import Any
+
+import re2
 
 from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
+from products.metrics.backend.variable_options import re2_pattern
 from products.metrics.backend.variables import (
     VARIABLE_NAME,
     Substitution,
@@ -27,6 +31,8 @@ MAX_NAME_LENGTH = 128
 MAX_QUERY_LENGTH = 10_000
 MAX_VALUE_LENGTH = 1024
 MAX_VALUES = 1000
+# The datasources whose variable queries the PromQL options endpoint can run. None is the default datasource.
+_PROMQL_DATASOURCES = frozenset({None, "prometheus"})
 
 
 def _strings(value: Any) -> tuple[str, ...]:
@@ -57,9 +63,19 @@ def _within_limits(values: list[str]) -> bool:
     return len(values) <= MAX_VALUES and all(len(value) <= MAX_VALUE_LENGTH for value in values)
 
 
-def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Variable) -> MetricsDashboardVariable | None:
+def _is_re2(regex: str | None) -> bool:
+    try:
+        re2.compile(re2_pattern(regex))
+    except re2.error:
+        return False
+    return True
+
+
+def _live_definition(
+    name: str, kind: Any, item: dict[str, Any], variable: Variable, datasource_type: str | None
+) -> MetricsDashboardVariable | None:
     """The dashboard variable that keeps a Grafana variable live. None when it cannot stay live."""
-    if not VARIABLE_NAME.match(name):
+    if not VARIABLE_NAME.match(name) or variable.default_format is not None:
         return None
     if len(name) > MAX_NAME_LENGTH:
         return None
@@ -70,6 +86,9 @@ def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Varia
     if kind == "query":
         query = _query_text(item)
         if not _PROMQL_VARIABLE_QUERY.match(query) or _RANGE_MACRO.search(query) or len(query) > MAX_QUERY_LENGTH:
+            return None
+        # Grafana runs the regex in JavaScript, and the options endpoint runs it with RE2, which has no lookaround.
+        if datasource_type not in _PROMQL_DATASOURCES or not _is_re2(_regex(item)):
             return None
         # A live All without an allValue matches every value, so it must not drop a filter that limits the options.
         if include_all and all_value is None and ("{" in query or _regex(item)):
@@ -114,13 +133,31 @@ def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Varia
     )
 
 
+def _resolvable(
+    live: dict[str, MetricsDashboardVariable], variables: dict[str, Variable]
+) -> dict[str, MetricsDashboardVariable]:
+    """The live variables whose queries refer only to live variables or to variables with a saved value."""
+    while True:
+        kept = {
+            name: definition
+            for name, definition in live.items()
+            if not definition.query or not substitute_promql(definition.query, variables, keep=live).unresolved
+        }
+        if len(kept) == len(live):
+            return kept
+        live = kept
+
+
 class TemplateVariables:
     def __init__(self, variables: dict[str, Variable], live: dict[str, MetricsDashboardVariable] | None = None) -> None:
         self._variables = variables
         self._live = live or {}
 
     @classmethod
-    def from_templating(cls, items: Any) -> TemplateVariables:
+    def from_templating(
+        cls, items: Any, datasource_type: Callable[[Any], str | None] = lambda _: None
+    ) -> TemplateVariables:
+        """`datasource_type` gives the type of a Grafana datasource reference, or None when it is unknown."""
         variables: dict[str, Variable] = {}
         live: dict[str, MetricsDashboardVariable] = {}
         for item in items if isinstance(items, list) else []:
@@ -147,16 +184,21 @@ class TemplateVariables:
                 # Grafana puts allValue into the query as it is, so it is written with PromQL string escapes.
                 all_value = _PROMQL_ESCAPE.sub(r"\1", all_value)
             is_all = ALL_VALUE in values or (current.get("text") == "All" and bool(item.get("includeAll")))
+            selected = tuple(value for value in values if value != ALL_VALUE)
+            # Grafana puts the value of a text box into a regex matcher as it is, so it can hold a regex.
+            as_written = kind in ("textbox", "constant") and any(regex_escape(value) != value for value in selected)
             variable = Variable(
-                values=tuple(value for value in values if value != ALL_VALUE),
+                values=selected,
                 is_all=is_all,
                 all_value=all_value or None,
                 options=options,
+                default_format="raw" if as_written else None,
             )
             variables[item["name"]] = variable
-            if definition := _live_definition(item["name"], kind, item, variable):
+            definition = _live_definition(item["name"], kind, item, variable, datasource_type(item.get("datasource")))
+            if definition is not None:
                 live[item["name"]] = definition
-        return cls(variables, live)
+        return cls(variables, _resolvable(live, variables))
 
     def summary(self) -> dict[str, str]:
         return {
