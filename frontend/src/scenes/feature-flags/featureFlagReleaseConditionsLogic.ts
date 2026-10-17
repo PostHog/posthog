@@ -96,7 +96,7 @@ function getPropertyValueError(property: AnyPropertyFilter): string | undefined 
     if (isPropertyFilterWithOperator(property) && isOperatorSemver(property.operator)) {
         const allowWildcard = property.operator === PropertyOperator.SemverWildcard
         if (typeof property.value !== 'string' || !isValidSemverValue(property.value, { allowWildcard })) {
-            return 'Enter a valid semver value (e.g. 1.2.3)'
+            return 'Enter a version like 1.2.3. To match other text, use "contains" or "matches regex" instead.'
         }
     }
     return undefined
