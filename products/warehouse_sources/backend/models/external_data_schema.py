@@ -579,6 +579,14 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         return "consolidated"
 
     @property
+    def keeps_cdc_history(self) -> bool:
+        return self.mode_keeps_cdc_history(self.sync_type, self.cdc_table_mode)
+
+    @classmethod
+    def mode_keeps_cdc_history(cls, sync_type: str | None, cdc_table_mode: str | None) -> bool:
+        return sync_type == cls.SyncType.CDC and cdc_table_mode in ("cdc_only", "both")
+
+    @property
     def should_use_incremental_field(self):
         return self.is_incremental or self.is_append or self.is_webhook
 

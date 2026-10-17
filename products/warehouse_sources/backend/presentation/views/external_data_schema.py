@@ -70,6 +70,8 @@ from products.warehouse_sources.backend.facade.source_management import (
     SourceRegistry,
     WebhookSource,
     add_table_failure_message,
+    companion_tables,
+    deregister_companion_table,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
@@ -171,6 +173,29 @@ def _cdc_table_mode_change_needs_resnapshot(old_mode: str | None, new_mode: str 
     old_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(old_mode or "", frozenset())
     new_targets = _CDC_WRITE_TARGETS_BY_TABLE_MODE.get(new_mode or "", frozenset())
     return bool(new_targets - old_targets)
+
+
+def _keeps_cdc_history_after(instance: ExternalDataSchema, data: dict[str, Any]) -> bool:
+    sync_type = data["sync_type"] if "sync_type" in data else instance.sync_type
+    # update() ignores a null or unknown mode and keeps the stored one.
+    table_mode = data.get("cdc_table_mode")
+    if table_mode not in ("consolidated", "cdc_only", "both"):
+        table_mode = instance.cdc_table_mode
+    return ExternalDataSchema.mode_keeps_cdc_history(sync_type, table_mode)
+
+
+def _require_editor_access_to_history_table(request: Request | None, view: Any, schema: ExternalDataSchema) -> None:
+    """Deregistering the history table deletes it, so it needs the access a table delete needs.
+
+    The permission class resolves access through `schema.table` only, and in `both` mode that is the
+    consolidated table.
+    """
+    if request is None or view is None or is_service_auth(request):
+        return
+    for table in companion_tables(schema):
+        level = view.user_access_control.get_user_access_level(table)
+        if level is None or not access_level_satisfied_for_resource("warehouse_table", level, "editor"):
+            raise PermissionDenied("You do not have editor access to the history table of this table.")
 
 
 def _concrete_field_names(validated_data: dict[str, Any]) -> list[str]:
@@ -906,6 +931,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         instance: ExternalDataSchema,
         validated_data: dict[str, Any],
         original_sync_type_config: dict[str, Any],
+        drops_cdc_history: bool = False,
     ) -> ExternalDataSchema:
         """Persist the update onto a freshly-locked row, writing only the fields this request changed.
 
@@ -937,6 +963,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             for attr, value in validated_data.items():
                 setattr(locked, attr, value)
             locked.save(update_fields=_concrete_field_names(validated_data))
+            # In the same transaction, so a failed cleanup rolls the mode change back with it.
+            if drops_cdc_history and not locked.keeps_cdc_history:
+                deregister_companion_table(locked)
             return locked
 
     def update(self, instance: ExternalDataSchema, validated_data: dict[str, Any]) -> ExternalDataSchema:
@@ -945,6 +974,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+        drops_cdc_history = instance.keeps_cdc_history and not _keeps_cdc_history_after(instance, data)
+        if drops_cdc_history:
+            _require_editor_access_to_history_table(self.context.get("request"), self.context.get("view"), instance)
 
         api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
@@ -1465,7 +1497,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # Persist under a row lock, replaying only the sync_type_config keys this request changed
         # so a concurrent CDC extract activity's writes aren't reverted by the full-instance save.
-        updated_instance = self._save_merging_sync_type_config(instance, validated_data, original_sync_type_config)
+        updated_instance = self._save_merging_sync_type_config(
+            instance, validated_data, original_sync_type_config, drops_cdc_history=drops_cdc_history
+        )
         if publication_removal is not None:
             self._run_temporal_side_effect(publication_removal)
 
@@ -2017,10 +2051,14 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance: ExternalDataSchema = self.get_object()
+        _require_editor_access_to_history_table(request, self, instance)
 
         if instance.table:
             instance.table.soft_delete()
         instance.soft_delete()
+        # In `both` mode the history table is not the schema's linked table. After the schema delete,
+        # so a load that registers the table later reads the deleted schema and deregisters it itself.
+        deregister_companion_table(instance)
 
         # CDC teardown, both best-effort: leaving the table in the publication makes the
         # customer's WAL carry its changes forever, and the buffer files are raw change data

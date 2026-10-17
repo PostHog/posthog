@@ -35,7 +35,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
-from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
+from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_table import (
+    companion_table_name,
+    deregister_companion_table,
+)
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -301,10 +304,7 @@ def own_linked_table(schema: ExternalDataSchema, pipeline: ExternalDataSource) -
     table = schema.table
     if table is None:
         return None
-    names = resolve_table_and_folder_names(schema.name, schema.resolved_s3_folder_name)
-    table_name = build_table_name(pipeline, names.table_storage_name)
-    companion_name = build_table_name(pipeline, companion_resource_name(schema.name))
-    return None if table.name == companion_name != table_name else table
+    return None if table.name == companion_table_name(schema, pipeline) else table
 
 
 def find_orphan_table(schema: ExternalDataSchema, source: ExternalDataSource) -> DataWarehouseTable | None:
@@ -614,6 +614,12 @@ async def register_cdc_companion_table(
 
     @database_sync_to_async_pool
     def _register():
+        # A load that started before the schema dropped its history target must not bring the record back.
+        current_schema = ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).exclude(deleted=True).first()
+        if current_schema is None or not current_schema.keeps_cdc_history:
+            logger.warning("Skipping `register_cdc_companion_table`: the schema no longer keeps CDC history")
+            return
+
         job = ExternalDataJob.objects.prefetch_related("pipeline").get(pk=run_id)
 
         normalized_resource_name = NamingConvention.normalize_identifier(resource_name)
@@ -684,6 +690,18 @@ async def register_cdc_companion_table(
 
             def _persist_columns() -> None:
                 with transaction.atomic():
+                    # The schema update that drops history holds this row lock while it saves, and it
+                    # deregisters the table after the save. So either this read sees the dropped target,
+                    # or the deregister runs after this commit and finds the record.
+                    locked_schema = (
+                        ExternalDataSchema.objects.select_for_update()
+                        .filter(id=schema_id, team_id=team_id)
+                        .exclude(deleted=True)
+                        .first()
+                    )
+                    if locked_schema is None or not locked_schema.keeps_cdc_history:
+                        deregister_companion_table(locked_schema or current_schema)
+                        return
                     companion_table.set_columns(columns)
                     companion_table.save(update_fields=["columns", "column_order"])
 

@@ -337,13 +337,84 @@ class TestRegisterCDCCompanionTable(BaseTest):
 # pool (database_sync_to_async_pool), which can't see an atomic TestCase's uncommitted rows.
 @pytest.mark.django_db(transaction=True)
 class TestRegisterCdcCompanionTableStamp:
+    def _history_schema(self, team, source: ExternalDataSource, cdc_table_mode: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(
+            name="orders",
+            team=team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_table_mode": cdc_table_mode},
+        )
+
+    def test_a_load_that_outlives_the_history_target_does_not_register_the_table(self, team):
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = self._history_schema(team, source, cdc_table_mode="consolidated")
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", return_value={}),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_cdc",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_a",
+            )
+
+        assert not DataWarehouseTable.objects.filter(team_id=team.pk, external_data_source_id=source.pk).exists()
+
+    @pytest.mark.parametrize("drop", ["mode_change", "schema_delete"])
+    def test_a_load_that_races_the_history_target_drop_leaves_no_live_record(self, team, drop: str):
+        source = ExternalDataSource.objects.create(
+            source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
+        )
+        schema = self._history_schema(team, source, cdc_table_mode="both")
+        job = ExternalDataJob.objects.create(
+            team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
+        )
+
+        def drop_history_target_mid_registration() -> dict:
+            if drop == "schema_delete":
+                ExternalDataSchema.objects.filter(id=schema.id).update(deleted=True)
+            else:
+                ExternalDataSchema.objects.filter(id=schema.id).update(
+                    sync_type_config={"cdc_table_mode": "consolidated"}
+                )
+            return {}
+
+        with (
+            patch.object(DataWarehouseTable, "get_columns", side_effect=drop_history_target_mid_registration),
+            patch.object(DataWarehouseTable, "get_count", return_value=100),
+        ):
+            async_to_sync(register_cdc_companion_table)(
+                run_id=str(job.id),
+                team_id=team.pk,
+                schema_id=schema.id,
+                resource_name="orders_cdc",
+                row_count=100,
+                table_format=DataWarehouseTableFormat.DeltaS3Wrapper,
+                queryable_folder="orders_cdc__query_a",
+            )
+
+        assert not DataWarehouseTable.objects.filter(
+            team_id=team.pk, external_data_source_id=source.pk, deleted=False
+        ).exists()
+
     def test_stamps_the_companion_folder_activation_on_the_schema(self, team):
         # The companion table shares the schema row with the snapshot table, so its stamp has to land
         # under its own folder name or the snapshot's publish step would read the wrong flip time.
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
         )
-        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        schema = self._history_schema(team, source, cdc_table_mode="both")
         job = ExternalDataJob.objects.create(
             team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
         )
@@ -374,7 +445,7 @@ class TestRegisterCdcCompanionTableStamp:
         source = ExternalDataSource.objects.create(
             source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), team=team, source_type="Postgres"
         )
-        schema = ExternalDataSchema.objects.create(name="orders", team=team, source=source)
+        schema = self._history_schema(team, source, cdc_table_mode="both")
         job = ExternalDataJob.objects.create(
             team=team, pipeline=source, schema=schema, status=ExternalDataJobStatus.RUNNING, rows_synced=10
         )
