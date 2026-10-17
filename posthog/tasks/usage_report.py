@@ -1436,10 +1436,13 @@ def get_teams_with_feature_flag_requests_count_in_period(
         # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         return sync_execute(
             f"""
-            SELECT distinct_id as team, sum(toInt64OrZero({count_expr})) as sum
-            FROM {events_read_table(use_new)}
-            WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp >= %(begin)s AND timestamp < %(end)s
-            AND has([%(validity_token)s], {token_expr})
+            SELECT team, sum(request_count) as sum
+            FROM (
+                SELECT DISTINCT distinct_id as team, uuid, toDate(timestamp), toInt64OrZero({count_expr}) as request_count
+                FROM {events_read_table(use_new)}
+                WHERE team_id = %(team_to_query)s AND event=%(target_event)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+                AND has([%(validity_token)s], {token_expr})
+            )
             GROUP BY team
         """,
             {
@@ -1480,15 +1483,18 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
         return sync_execute(
             f"""
             SELECT
-                distinct_id as team,
-                arrayJoin(JSONExtractKeys({sdk_breakdown_expr})) as sdk,
-                sum(JSONExtractInt({sdk_breakdown_expr}, sdk)) as sum
-            FROM {events_read_table(use_new)}
-            WHERE team_id = %(team_to_query)s
-              AND event = %(target_event)s
-              AND timestamp >= %(begin)s AND timestamp < %(end)s
-              AND has([%(validity_token)s], {token_expr})
-              AND {sdk_breakdown_expr} != ''
+                team,
+                arrayJoin(JSONExtractKeys(sdk_breakdown)) as sdk,
+                sum(JSONExtractInt(sdk_breakdown, sdk)) as sum
+            FROM (
+                SELECT DISTINCT distinct_id as team, uuid, toDate(timestamp), {sdk_breakdown_expr} as sdk_breakdown
+                FROM {events_read_table(use_new)}
+                WHERE team_id = %(team_to_query)s
+                  AND event = %(target_event)s
+                  AND timestamp >= %(begin)s AND timestamp < %(end)s
+                  AND has([%(validity_token)s], {token_expr})
+                  AND {sdk_breakdown_expr} != ''
+            )
             GROUP BY team, sdk
         """,
             {

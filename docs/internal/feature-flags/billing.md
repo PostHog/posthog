@@ -144,7 +144,7 @@ A Celery task aggregates Redis counters and emits PostHog events every 30 minute
 
 **Source files:**
 
-- `posthog/models/feature_flag/flag_analytics.py` - Aggregation logic
+- `products/feature_flags/backend/usage_export.py` - Pending exports and acknowledged delivery
 - `posthog/tasks/tasks.py` - Task definition (`calculate_decide_usage`)
 - `posthog/tasks/scheduled.py` - Schedule configuration
 
@@ -163,21 +163,20 @@ sender.add_periodic_task(
 
 For each team (excluding internal metrics and demo teams):
 
-1. **Acquire distributed lock**: `posthog:decide_analytics:lock:{team_id}` with 60-second timeout
-2. **Extract counters**: Read all time buckets except the current one (still being filled)
-3. **Extract SDK breakdown**: Read all SDK-specific counters using pipelining
-4. **Consume buckets**: Delete processed buckets from Redis
-5. **Emit events**: Send `decide usage` and `local evaluation usage` events to PostHog
+1. Acquire the existing per-team lock.
+2. Atomically move completed two-minute buckets and their SDK counts into a pending export in Redis.
+3. Retain the export UUID, timestamp and counts until capture acknowledges delivery.
+4. Send bounded batches through the capture endpoint.
+5. Remove only the pending exports that the endpoint acknowledged.
 
-The "skip current bucket" behavior prevents counting requests that are still being recorded:
+A failed request or worker restart leaves the pending export available for the next run.
+The exporter reports failed deliveries and continues with later batches, so one failure does not stop the remaining teams.
+Retries preserve the UUID and timestamp, so billing queries can deduplicate an export even when capture accepted it but its response was lost.
+New increments remain in the source hashes while an export waits for acknowledgement.
+A completed bucket can export even when no later request creates another bucket.
 
-```python
-# The latest bucket is still being filled, so we don't want to delete it nor count it.
-# It will be counted in a later iteration, when it's not being filled anymore.
-if time_buckets and len(time_buckets) > 1:
-    for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
-        # Process and delete this bucket
-```
+Pending exports use the same Redis persistence guarantees as the source counters.
+Capture acknowledgement does not certify downstream ClickHouse storage.
 
 ## Step 3: Event emission
 
@@ -346,12 +345,34 @@ ORDER BY timestamp DESC
 LIMIT 100
 ```
 
+### Compare export and request periods
+
+The export timestamp records aggregation time.
+The `min_time` and `max_time` properties identify the first and last source buckets; the last bucket covers another 120 seconds.
+Use the read-only diagnostic to compare realtime records over each export's source window:
+
+```bash
+python manage.py compare_flag_usage_windows --team-id 123 --export-date 2026-06-02
+```
+
+Use `--request-type local_evaluation` for definitions requests.
+The command bounds the export scan to one day, rejects more than 200 exports, and rejects source windows longer than seven days.
+Source windows can overlap or contain gaps, so do not sum their realtime counts.
+Producer flushes can cross bucket boundaries, so an individual window can retain a small timing difference.
+
 ### Force aggregation for a team
 
 ```python
-from posthog.models.feature_flag.flag_analytics import capture_team_decide_usage
-from posthoganalytics import Posthog
+from posthog.ph_client import get_regional_ph_client
+from posthog.redis import get_client
+from products.feature_flags.backend.usage_export import FlagUsageExporter
 
-ph_client = Posthog(project_api_key='...', host='...')
-capture_team_decide_usage(ph_client, team_id=123, team_uuid='...')
+ph_client = get_regional_ph_client(sync_mode=True)
+if ph_client:
+    try:
+        exporter = FlagUsageExporter(ph_client, get_client())
+        exporter.capture_team(team_id=123, team_uuid="...")
+        exporter.flush()
+    finally:
+        ph_client.shutdown()
 ```

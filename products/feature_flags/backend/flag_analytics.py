@@ -1,12 +1,9 @@
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Q
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
@@ -16,14 +13,11 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
 from posthog.models import Team
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_TABLE
-from posthog.redis import get_client, redis
+from posthog.redis import get_client
 
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-if TYPE_CHECKING:
-    from posthoganalytics import Posthog
 
 REDIS_LOCK_TOKEN = "posthog:decide_analytics:lock"
 CACHE_BUCKET_SIZE = 60 * 2  # duration in seconds
@@ -100,139 +94,6 @@ def increment_request_count(
         time_bucket = str(int(time.time() / CACHE_BUCKET_SIZE))
         key_name = get_team_request_key(team_id, request_type)
         client.hincrby(key_name, time_bucket, count)
-    except Exception as error:
-        capture_exception(error)
-
-
-def _extract_total_count_for_key_from_redis_hash(client: redis.Redis, key: str) -> tuple[int, int, int]:
-    total_count = 0
-    existing_values = client.hgetall(key)
-    time_buckets = existing_values.keys()
-    min_time = int(time.time())
-    max_time = 0
-    # The latest bucket is still being filled, so we don't want to delete it nor count it.
-    # It will be counted in a later iteration, when it's not being filled anymore.
-    if time_buckets and len(time_buckets) > 1:
-        # redis returns encoded bytes, so we need to convert them into unix epoch for sorting
-        for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
-            min_time = min(min_time, int(time_bucket) * CACHE_BUCKET_SIZE)
-            max_time = max(max_time, int(time_bucket) * CACHE_BUCKET_SIZE)
-            total_count += int(existing_values[time_bucket])
-            client.hdel(key, time_bucket)
-
-    return total_count, min_time, max_time
-
-
-def _extract_sdk_breakdown_from_redis(
-    client: redis.Redis, team_id: int, request_type: FlagRequestType
-) -> dict[str, int]:
-    """
-    Extract per-SDK request counts from Redis, consuming the buckets.
-    Returns a dict mapping SDK name to total count.
-
-    Uses Redis pipelining to fetch all SDK keys in a single round-trip,
-    then deletes consumed buckets in another round-trip.
-    """
-    # Build all keys upfront
-    keys = [get_team_request_library_key(team_id, request_type, library) for library in SDK_LIBRARIES]
-
-    # Pipeline HGETALL for all SDK keys in one round-trip
-    pipe = client.pipeline(transaction=False)
-    for key in keys:
-        pipe.hgetall(key)
-    results = pipe.execute()
-
-    # Process results and collect buckets to delete
-    sdk_breakdown: dict[str, int] = {}
-    deletions: list[tuple[str, list[bytes]]] = []
-
-    for library, key, existing_values in zip(SDK_LIBRARIES, keys, results):
-        if not existing_values:
-            continue
-
-        time_buckets = existing_values.keys()
-        # The latest bucket is still being filled, so we don't want to delete it nor count it.
-        # It will be counted in a later iteration, when it's not being filled anymore.
-        if len(time_buckets) <= 1:
-            continue
-
-        total_count = 0
-        buckets_to_delete: list[bytes] = []
-
-        # Sort buckets and skip the latest one (still being filled)
-        for time_bucket in sorted(time_buckets, key=lambda bucket: int(bucket))[:-1]:
-            total_count += int(existing_values[time_bucket])
-            buckets_to_delete.append(time_bucket)
-
-        if total_count > 0:
-            sdk_breakdown[library] = total_count
-            deletions.append((key, buckets_to_delete))
-
-    # Pipeline all deletions in one round-trip
-    if deletions:
-        pipe = client.pipeline(transaction=False)
-        for key, buckets in deletions:
-            for bucket in buckets:
-                pipe.hdel(key, bucket)
-        pipe.execute()
-
-    return sdk_breakdown
-
-
-def capture_usage_for_all_teams(ph_client: "Posthog") -> None:
-    for team in Team.objects.exclude(Q(organization__for_internal_metrics=True) | Q(is_demo=True)).only("id", "uuid"):
-        capture_team_decide_usage(ph_client, team.id, team.uuid)
-
-
-def _capture_team_usage_for_request_type(
-    ph_client: "Posthog",
-    client: redis.Redis,
-    team_id: int,
-    team_uuid: str,
-    request_type: FlagRequestType,
-    billing_token: str | None,
-) -> None:
-    key_name = get_team_request_key(team_id, request_type)
-    total_count, min_time, max_time = _extract_total_count_for_key_from_redis_hash(client, key_name)
-    sdk_breakdown = _extract_sdk_breakdown_from_redis(client, team_id, request_type)
-
-    if total_count == 0 or not billing_token:
-        return
-
-    properties: dict = {
-        "count": total_count,
-        "team_id": team_id,
-        "team_uuid": team_uuid,
-        "min_time": min_time,
-        "max_time": max_time,
-        "token": billing_token,
-    }
-    if sdk_breakdown:
-        properties["sdk_breakdown"] = sdk_breakdown
-
-    ph_client.capture(
-        distinct_id=team_id,
-        event=USAGE_EVENT_NAMES[request_type],
-        properties=properties,
-    )
-
-
-def capture_team_decide_usage(ph_client: "Posthog", team_id: int, team_uuid: str) -> None:
-    try:
-        client = get_client()
-
-        with client.lock(f"{REDIS_LOCK_TOKEN}:{team_id}", timeout=60, blocking=False):
-            billing_token = settings.DECIDE_BILLING_ANALYTICS_TOKEN
-            for request_type in (
-                FlagRequestType.DECIDE,
-                FlagRequestType.LOCAL_EVALUATION,
-                FlagRequestType.REMOTE_CONFIG,
-            ):
-                _capture_team_usage_for_request_type(ph_client, client, team_id, team_uuid, request_type, billing_token)
-
-    except redis.exceptions.LockError:
-        # lock wasn't acquired, which means another worker is working on this, so we don't need to do anything
-        pass
     except Exception as error:
         capture_exception(error)
 

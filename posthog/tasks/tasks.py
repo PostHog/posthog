@@ -1018,15 +1018,17 @@ def process_scheduled_changes() -> None:
 
 @shared_task(ignore_result=True)
 def calculate_decide_usage() -> None:
-    from products.feature_flags.backend.flag_analytics import (
+    from products.feature_flags.backend.usage_export import (
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
-    ph_client = get_regional_ph_client()
+    ph_client = get_regional_ph_client(sync_mode=True)
 
     if ph_client:
-        capture_decide_usage_for_all_teams(ph_client)
-        ph_client.shutdown()
+        try:
+            capture_decide_usage_for_all_teams(ph_client)
+        finally:
+            ph_client.shutdown()
 
 
 @shared_task(ignore_result=True)
