@@ -495,6 +495,14 @@ def test_imported_variable_regex_keeps_its_flags() -> None:
     assert [definition.regex for definition in variables.definitions()] == ["/api-(.*)/i"]
 
 
+def test_an_all_value_keeps_its_grafana_text() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "job", "type": "custom", "query": "a,b", "allValue": "api\\\\..*", "current": {"value": "$__all"}}]
+    )
+
+    assert variables.substitute('up{job=~"$job"}').text == 'up{job=~"api\\\\..*"}'
+
+
 def test_a_listed_all_matches_only_the_listed_values() -> None:
     variables = TemplateVariables.from_templating(
         [{"name": "env", "type": "custom", "query": "prod,dev", "includeAll": True, "current": {"value": "$__all"}}]

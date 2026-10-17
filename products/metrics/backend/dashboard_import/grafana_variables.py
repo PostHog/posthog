@@ -19,6 +19,7 @@ from products.metrics.backend.variables import (
 _SKIPPED_TYPES = frozenset({"datasource", "adhoc", "groupby"})
 ALL_VALUE = "$__all"
 _PROMQL_VARIABLE_QUERY = re.compile(r"^\s*(label_values|label_names|metrics|query_result)\s*\(", re.IGNORECASE)
+_PROMQL_ESCAPE = re.compile(r"\\(.)")
 # Macros such as $__rate_interval, which only resolve inside a panel.
 _RANGE_MACRO = re.compile(r"\$\{?__|\[\[__")
 # The limits of the variable options endpoint, so that each live variable can load its options.
@@ -142,6 +143,9 @@ class TemplateVariables:
                 if isinstance(option, dict) and option.get("value") not in (None, ALL_VALUE)
             )
             all_value = item.get("allValue") if isinstance(item.get("allValue"), str) else None
+            if all_value:
+                # Grafana puts allValue into the query as it is, so it is written with PromQL string escapes.
+                all_value = _PROMQL_ESCAPE.sub(r"\1", all_value)
             is_all = ALL_VALUE in values or (current.get("text") == "All" and bool(item.get("includeAll")))
             variable = Variable(
                 values=tuple(value for value in values if value != ALL_VALUE),
