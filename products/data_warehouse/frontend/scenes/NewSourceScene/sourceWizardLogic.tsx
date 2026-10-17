@@ -432,6 +432,7 @@ export interface SourceWizardLogicProps {
     availableSources: Record<string, SourceConfigResponseApi>
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
+    requiredTableSyncType?: 'full_refresh'
     /** Onboarding: pre-select every syncable table with smart defaults for a one-click sync */
     autoConfigureTables?: boolean
 }
@@ -2549,6 +2550,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                     for (const schema of requiredSchemas) {
                         schema.should_sync = true
+                        schema.sync_type = props.requiredTableSyncType ?? schema.sync_type
                     }
                     // createSource reads hasWebhookSchemas off databaseSchema to decide whether the
                     // new source still needs its webhook registered.

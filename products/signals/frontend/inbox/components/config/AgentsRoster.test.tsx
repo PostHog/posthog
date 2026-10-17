@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
 
 const SCANNERS = Array.from({ length: 10 }, (_, index) => ({
@@ -44,6 +45,18 @@ describe('AgentsRoster', () => {
     })
     afterEach(cleanup)
 
+    it('renders a window of external sources and finds an unmounted source through search', async () => {
+        render(<AgentsRoster />)
+
+        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
+        expect(screen.queryByText('GitLab')).not.toBeInTheDocument()
+
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitLab')
+
+        expect(await screen.findByText('GitLab')).toBeInTheDocument()
+        expect(screen.getByLabelText('Arm Support')).toBeInTheDocument()
+    })
+
     // The cap keeps a long user-created list from burying the sources below it, but a filter that
     // could not reach past it would make a scanner unfindable by name.
     it('caps the scanner list, and lets both the filter and Show more reach past the cap', async () => {
@@ -70,10 +83,15 @@ describe('AgentsRoster', () => {
             },
         })
         render(<AgentsRoster />)
+        signalSourcesLogic.actions.loadSources()
 
         expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeDisabled()
-        expect(screen.getByLabelText('Arm GitHub issues')).toBeDisabled()
+        await userEvent.type(screen.getByLabelText('Search external sources'), 'GitHub issues')
+        const githubButton = await screen.findByLabelText('Turn on GitHub issues')
+        expect(githubButton).toHaveAttribute('aria-disabled', 'true')
+        await userEvent.click(githubButton)
+        expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
         expect(screen.queryByText('Connect')).not.toBeInTheDocument()
     })
 })

@@ -7,6 +7,7 @@ import {
     LemonButton,
     LemonInput,
     LemonSkeleton,
+    LemonSelect,
     LemonSwitch,
     LemonTag,
     Link,
@@ -16,10 +17,10 @@ import {
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { CISignalsSyncStatusEnumApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
 
+import { isExternalSignalSource } from '../../externalSignalSources'
 import { sourceSteeringIsSet } from '../../logics/sourceSteeringModalLogic'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import type { SourceProductDataStatus, SourceProductStatus } from '../../signalSourcesLogic'
@@ -28,6 +29,7 @@ import { getSourceProductMeta } from '../badges/sourceProductIcons'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition, AgentRosterGroup, AgentRosterSource } from './agentRosterMeta'
 import { LinearTeamsModal } from './LinearTeamsModal'
 import { SourceSteeringModal } from './SourceSteeringModal'
+import { VirtualizedSourceList } from './VirtualizedSourceList'
 
 type AgentRosterStatus = 'standby' | 'watching' | 'syncing' | 'sync_failed'
 
@@ -108,6 +110,7 @@ interface SourceFilters {
 /** Per-source derived state assembled by `AgentsRoster` from `signalSourcesLogic`. */
 interface AgentSourceState {
     armed: boolean
+    connected?: boolean
     loading: boolean
     /** True for data-warehouse sources that haven't been connected yet – shows a Connect button. */
     requiresSetup: boolean
@@ -529,58 +532,79 @@ const AgentRow = memo(function AgentRow({
     const productOff = product?.enabled === false
     // An off product blocks arming (the source would watch nothing), never disarming.
     const armingBlocked = productOff && !armed
-    const tag = notableTag(status, armed, productOff, product)
+    const warehouseSource = isExternalSignalSource(agent.source)
+    const tag =
+        warehouseSource && !loading && !armed
+            ? { label: state.connected ? 'Connected · Off' : 'Not connected', type: 'default' as LemonTagType }
+            : notableTag(status, armed, productOff, product)
     // A source whose entities the user creates gets no master switch. Arming it would write to
     // every entity at once, and turning it off and on again would not restore the earlier subset.
     const hasMasterSwitch = !agent.entitiesAreUserCreated
     const enabledCount = entities.filter((entity) => entity.enabled).length
     return (
-        <div>
+        <div data-attr="signal-source-row" data-source={agent.source}>
             {/* A legacy row stays dimmed even while in use, so it reads as the older option. */}
             <div
-                onClick={onExpand}
-                className={`group flex h-13 cursor-pointer items-center gap-2 px-2 transition-colors ${
+                className={`group flex min-h-13 items-center gap-2 px-2 py-2 transition-colors ${
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
                 {!redesign && <StatusDot status={status} product={product} productOff={productOff} />}
-                <AgentIcon source={agent} />
-                <div className="flex min-w-0 flex-1 flex-col">
-                    <div className="flex items-center gap-2">
-                        <span
-                            className={`truncate text-sm leading-5 ${armed ? 'font-medium text-default' : 'text-secondary'}`}
-                        >
-                            {agent.label}
-                        </span>
-                        {agent.alpha && (
-                            <LemonTag type="completion" size="small">
-                                Alpha
-                            </LemonTag>
-                        )}
-                        {agent.legacy && (
-                            <LemonTag type="caution" size="small">
-                                Legacy
-                            </LemonTag>
-                        )}
+                <button
+                    type="button"
+                    className="flex min-w-0 flex-1 items-center gap-2 border-0 bg-transparent p-0 text-left"
+                    onClick={onExpand}
+                    aria-expanded={expanded}
+                    aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
+                    data-attr="signal-source-expand"
+                >
+                    <AgentIcon source={agent} />
+                    <div className="flex min-w-0 flex-1 flex-col">
+                        <div className="flex items-center gap-2">
+                            <span
+                                className={`truncate text-sm leading-5 ${armed ? 'font-medium text-default' : 'text-secondary'}`}
+                            >
+                                {agent.label}
+                            </span>
+                            {agent.alpha && (
+                                <LemonTag type="completion" size="small">
+                                    Alpha
+                                </LemonTag>
+                            )}
+                            {agent.legacy && (
+                                <LemonTag type="caution" size="small">
+                                    Legacy
+                                </LemonTag>
+                            )}
+                        </div>
+                        <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
+                        {agent.category && <span className="truncate text-xs text-muted">{agent.category}</span>}
                     </div>
-                    <span className="truncate text-xs leading-4 text-muted">{agent.watches}</span>
-                </div>
+                </button>
                 {tag && (
                     <LemonTag type={tag.type} size="small">
                         {tag.label}
                     </LemonTag>
                 )}
-                <span className="w-38 shrink-0 truncate text-right text-xs text-muted">
-                    {entities.length > 0 && `${enabledCount} of ${entities.length} ${agent.entityNoun} on`}
-                </span>
+                {entities.length > 0 && (
+                    <span className="shrink-0 truncate text-right text-xs text-muted">
+                        {enabledCount} of {entities.length} {agent.entityNoun} on
+                    </span>
+                )}
                 {(loading || requiresSetup || hasMasterSwitch) && (
-                    // eslint-disable-next-line react/no-unknown-property
-                    <div className="flex w-13 shrink-0 justify-end" onClick={(e) => e.stopPropagation()}>
+                    <div className={`flex shrink-0 justify-end ${warehouseSource ? 'w-20' : 'w-13'}`}>
                         {loading ? (
                             <Spinner className="text-base" />
-                        ) : requiresSetup ? (
-                            <LemonButton type="secondary" size="xsmall" onClick={() => onToggle(agent.source)}>
-                                Connect
+                        ) : warehouseSource || requiresSetup ? (
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                onClick={() => onToggle(agent.source)}
+                                disabledReason={state.blockedReason}
+                                aria-label={`${requiresSetup ? 'Connect' : armed ? 'Pause' : 'Turn on'} ${agent.label}`}
+                                data-attr="signal-source-toggle"
+                            >
+                                {requiresSetup ? 'Connect' : armed ? 'Pause' : 'Turn on'}
                             </LemonButton>
                         ) : (
                             <LemonSwitch
@@ -597,8 +621,6 @@ const AgentRow = memo(function AgentRow({
                         )}
                     </div>
                 )}
-                {/* A real button inside the clickable row, so keyboard users can reach the
-                    expansion (and the controls inside it, like steering). */}
                 <LemonButton
                     size="xsmall"
                     icon={
@@ -606,10 +628,7 @@ const AgentRow = memo(function AgentRow({
                             className={`shrink-0 text-muted transition-transform ${expanded ? 'rotate-90' : ''}`}
                         />
                     }
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        onExpand()
-                    }}
+                    onClick={onExpand}
                     aria-expanded={expanded}
                     aria-label={`${expanded ? 'Collapse' : 'Expand'} ${agent.label}`}
                 />
@@ -656,13 +675,17 @@ function agentListClassName(redesign: boolean): string {
 export function AgentsRoster(): JSX.Element {
     const redesign = useFeatureFlag('INBOX_REDESIGN')
     const {
+        externalSourceStates,
+        rosterGroups,
+        filteredRosterGroups,
+        sourceSearchQuery,
+        sourceCategory,
+        sourceCategoryOptions,
+        sourcesLoadError,
         conversationsConfig,
         evalReportsConfig,
         anomalyInvestigationConfig,
-        githubIssuesConfig,
         linearIssuesConfig,
-        zendeskTicketsConfig,
-        pgAnalyzeIssuesConfig,
         healthChecksConfig,
         ciSignalsConfig,
         ciSignalsConfigLoading,
@@ -675,10 +698,7 @@ export function AgentsRoster(): JSX.Element {
         isEvalReportsToggling,
         isAnomalyInvestigationToggling,
         isErrorTrackingToggling,
-        isGithubIssuesToggling,
         isLinearIssuesToggling,
-        isZendeskTicketsToggling,
-        isPgAnalyzeIssuesToggling,
         isHealthChecksToggling,
         isCiSignalsToggling,
         productStatusBySource,
@@ -689,6 +709,9 @@ export function AgentsRoster(): JSX.Element {
         linearTeamsPicker,
     } = useValues(signalSourcesLogic)
     const {
+        setSourceSearchQuery,
+        setSourceCategory,
+        loadSources,
         openLinearTeamsPicker,
         closeLinearTeamsPicker,
         toggleConversations,
@@ -704,7 +727,6 @@ export function AgentsRoster(): JSX.Element {
         loadProductDataEvents,
         loadSourceConfigs,
     } = useActions(signalSourcesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [expandedSource, setExpandedSource] = useState<AgentRosterSource | null>(null)
     // Which modal is open is a view concern; the form and save live in sourceSteeringModalLogic.
     const [steeringTarget, setSteeringTarget] = useState<{ configs: SignalSourceConfig[]; label: string } | null>(null)
@@ -739,15 +761,19 @@ export function AgentsRoster(): JSX.Element {
                 entitiesLoading: false,
                 steeringConfigs: [] as SignalSourceConfig[],
             }
-            const dwState = (config: SignalSourceConfig | null, loading: boolean): AgentSourceState => ({
-                ...base,
-                armed: !!config?.enabled,
-                loading,
-                // No config row yet → the source has never been connected; surface a Connect button.
-                requiresSetup: config === null,
-                syncStatus: config?.status,
-                steeringConfigs: config ? [config] : [],
-            })
+            if (isExternalSignalSource(source)) {
+                const state = externalSourceStates[source]
+                return {
+                    ...base,
+                    armed: !!state.config?.enabled,
+                    connected: state.connected,
+                    loading: state.loading,
+                    requiresSetup: state.requiresSetup,
+                    syncStatus: state.config?.status,
+                    steeringConfigs: state.config ? [state.config] : [],
+                    blockedReason: state.blockedReason,
+                }
+            }
             switch (source) {
                 case 'error_tracking':
                     return {
@@ -805,14 +831,6 @@ export function AgentsRoster(): JSX.Element {
                         syncStatus: healthChecksConfig?.status,
                         steeringConfigs: healthChecksConfig ? [healthChecksConfig] : [],
                     }
-                case 'github':
-                    return dwState(githubIssuesConfig, isGithubIssuesToggling)
-                case 'linear':
-                    return dwState(linearIssuesConfig, isLinearIssuesToggling)
-                case 'zendesk':
-                    return dwState(zendeskTicketsConfig, isZendeskTicketsToggling)
-                case 'pganalyze':
-                    return dwState(pgAnalyzeIssuesConfig, isPgAnalyzeIssuesToggling)
                 case 'engineering_analytics':
                     return {
                         ...base,
@@ -825,6 +843,7 @@ export function AgentsRoster(): JSX.Element {
             }
         },
         [
+            externalSourceStates,
             errorTrackingEntities,
             errorTrackingConfigs,
             errorTrackingTypeStates,
@@ -840,14 +859,8 @@ export function AgentsRoster(): JSX.Element {
             isAnomalyInvestigationToggling,
             healthChecksConfig,
             isHealthChecksToggling,
-            githubIssuesConfig,
-            isGithubIssuesToggling,
             linearIssuesConfig,
             isLinearIssuesToggling,
-            zendeskTicketsConfig,
-            isZendeskTicketsToggling,
-            pgAnalyzeIssuesConfig,
-            isPgAnalyzeIssuesToggling,
             ciSignalsConfig,
             ciSignalsConfigLoading,
             ciSignalsIsFullyEnabled,
@@ -876,6 +889,10 @@ export function AgentsRoster(): JSX.Element {
 
     const handleToggle = useCallback(
         (source: AgentRosterSource) => {
+            if (isExternalSignalSource(source)) {
+                initiateDataWarehouseSourceToggle(source)
+                return
+            }
             switch (source) {
                 case 'replay_vision':
                     // Switched per scanner, in the expanded list. No row-level control to fire.
@@ -894,12 +911,6 @@ export function AgentsRoster(): JSX.Element {
                     return
                 case 'health_checks':
                     toggleHealthChecks()
-                    return
-                case 'github':
-                case 'linear':
-                case 'zendesk':
-                case 'pganalyze':
-                    initiateDataWarehouseSourceToggle(source)
                     return
                 case 'engineering_analytics':
                     toggleCiSignals()
@@ -928,16 +939,83 @@ export function AgentsRoster(): JSX.Element {
         [toggleScannerSignals, toggleErrorTrackingType]
     )
 
-    const visibleGroups = AGENT_ROSTER_GROUPS.map((group) => ({
-        ...group,
-        agents: group.agents.filter((agent) => !agent.flag || featureFlags[agent.flag]),
-    }))
+    const renderAgent = useCallback(
+        (agent: AgentRosterDefinition): JSX.Element => {
+            const state = stateFor(agent.source)
+            // Steering needs a persisted row to write to, so optimistic `new_`
+            // placeholder rows wait until the reload lands. Disabled sources keep
+            // the control: enabling starts a sync immediately, so rules must be
+            // settable before the first sync runs.
+            const steeringConfigs =
+                agent.steerable &&
+                state.steeringConfigs.length > 0 &&
+                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
+                    ? state.steeringConfigs
+                    : null
+            const filters =
+                agent.source === 'linear' && linearIssuesConfig && !linearIssuesConfig.id.startsWith('new_')
+                    ? {
+                          summary: linearTeamsSummary(linearIssuesConfig),
+                          changeLabel: 'Change teams',
+                          onChange: () => openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
+                          // A save or reload can replace the row, and the picker reads it on open.
+                          disabledReason: isLinearIssuesToggling
+                              ? 'Saving'
+                              : sourceConfigsLoading
+                                ? 'Refreshing'
+                                : undefined,
+                      }
+                    : undefined
+            return (
+                <AgentRow
+                    key={agent.source}
+                    agent={agent}
+                    state={state}
+                    product={productStatusBySource[agent.source]}
+                    expanded={expandedSource === agent.source}
+                    enablingProduct={
+                        !!enablingProduct && enablingProduct === productStatusBySource[agent.source]?.enablement
+                    }
+                    onExpand={() => setExpandedSource((current) => (current === agent.source ? null : agent.source))}
+                    onToggle={handleToggle}
+                    onToggleEntity={handleToggleEntity}
+                    onEnableProduct={(product) => product.enablement && enableSourceProduct(product.enablement)}
+                    filters={filters}
+                    onSteer={
+                        steeringConfigs
+                            ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
+                            : undefined
+                    }
+                    onRetryData={loadProductDataEvents}
+                />
+            )
+        },
+        [
+            stateFor,
+            linearIssuesConfig,
+            openLinearTeamsPicker,
+            isLinearIssuesToggling,
+            sourceConfigsLoading,
+            productStatusBySource,
+            expandedSource,
+            enablingProduct,
+            handleToggle,
+            handleToggleEntity,
+            enableSourceProduct,
+            loadProductDataEvents,
+        ]
+    )
 
-    const allAgents = visibleGroups.flatMap((group) => group.agents)
+    const allAgents = rosterGroups.flatMap((group) => group.agents)
     const armedCount = allAgents.filter((agent) => stateFor(agent.source).armed).length
 
     return (
         <div className="flex flex-col gap-3">
+            {sourcesLoadError && (
+                <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadSources() }}>
+                    Couldn't load your connections. Retry to check which sources are already connected.
+                </LemonBanner>
+            )}
             {sourceConfigsLoadFailed && (
                 // Without the configs every data-import source reads as never connected, so warn
                 // instead of letting a person act on switches that do not reflect the server.
@@ -965,68 +1043,39 @@ export function AgentsRoster(): JSX.Element {
                 </div>
             )}
 
-            {visibleGroups.map((group) => (
+            {filteredRosterGroups.map((group) => (
                 <div key={group.label} className={agentGroupClassName(redesign)}>
                     <AgentRosterGroupHeader group={group} redesign={redesign} />
+                    {group.id === 'external' && (
+                        <div className="flex flex-wrap items-center gap-2 py-2">
+                            <LemonInput
+                                type="search"
+                                value={sourceSearchQuery}
+                                onChange={setSourceSearchQuery}
+                                placeholder="Search sources"
+                                aria-label="Search external sources"
+                                data-attr="signal-sources-search"
+                                className="min-w-40 flex-1"
+                            />
+                            <LemonSelect
+                                value={sourceCategory}
+                                onChange={setSourceCategory}
+                                options={sourceCategoryOptions}
+                                data-attr="signal-sources-category"
+                            />
+                        </div>
+                    )}
+                    {group.agents.length === 0 && (
+                        <LemonBanner type="info">
+                            No sources match your search. Try another name or category.
+                        </LemonBanner>
+                    )}
                     <div className={agentListClassName(redesign)}>
-                        {group.agents.map((agent) => {
-                            const state = stateFor(agent.source)
-                            // Steering needs a persisted row to write to, so optimistic `new_`
-                            // placeholder rows wait until the reload lands. Disabled sources keep
-                            // the control: enabling starts a sync immediately, so rules must be
-                            // settable before the first sync runs.
-                            const steeringConfigs =
-                                agent.steerable &&
-                                state.steeringConfigs.length > 0 &&
-                                state.steeringConfigs.every((config) => !config.id.startsWith('new_'))
-                                    ? state.steeringConfigs
-                                    : null
-                            const filters =
-                                agent.source === 'linear' &&
-                                linearIssuesConfig &&
-                                !linearIssuesConfig.id.startsWith('new_')
-                                    ? {
-                                          summary: linearTeamsSummary(linearIssuesConfig),
-                                          changeLabel: 'Change teams',
-                                          onChange: () =>
-                                              openLinearTeamsPicker({ enableOnSave: false, viaSetupWizard: false }),
-                                          // A save or reload can replace the row, and the picker reads it on open.
-                                          disabledReason: isLinearIssuesToggling
-                                              ? 'Saving'
-                                              : sourceConfigsLoading
-                                                ? 'Refreshing'
-                                                : undefined,
-                                      }
-                                    : undefined
-                            return (
-                                <AgentRow
-                                    key={agent.source}
-                                    agent={agent}
-                                    state={state}
-                                    product={productStatusBySource[agent.source]}
-                                    expanded={expandedSource === agent.source}
-                                    enablingProduct={
-                                        !!enablingProduct &&
-                                        enablingProduct === productStatusBySource[agent.source]?.enablement
-                                    }
-                                    onExpand={() =>
-                                        setExpandedSource((current) => (current === agent.source ? null : agent.source))
-                                    }
-                                    onToggle={handleToggle}
-                                    onToggleEntity={handleToggleEntity}
-                                    onEnableProduct={(product) =>
-                                        product.enablement && enableSourceProduct(product.enablement)
-                                    }
-                                    filters={filters}
-                                    onSteer={
-                                        steeringConfigs
-                                            ? () => setSteeringTarget({ configs: steeringConfigs, label: agent.label })
-                                            : undefined
-                                    }
-                                    onRetryData={loadProductDataEvents}
-                                />
-                            )
-                        })}
+                        {group.id === 'external' ? (
+                            <VirtualizedSourceList sources={group.agents} renderSource={renderAgent} />
+                        ) : (
+                            group.agents.map(renderAgent)
+                        )}
                     </div>
                 </div>
             ))}

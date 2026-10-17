@@ -16,6 +16,7 @@ import {
     IconReceipt,
 } from '@posthog/icons'
 
+import { EXTERNAL_SIGNAL_SOURCES } from '../../externalSignalSources'
 import { SignalSourceProduct } from '../../types'
 
 interface SourceProductMeta {
@@ -34,6 +35,21 @@ interface SourceProductMeta {
  * `getSourceProductMeta`, which returns `null` for unknown keys.
  */
 export const SOURCE_PRODUCT_META: Partial<Record<SignalSourceProduct, SourceProductMeta>> = {
+    ...Object.fromEntries(
+        EXTERNAL_SIGNAL_SOURCES.map((source) => [
+            source.source,
+            {
+                Icon:
+                    source.sourceType === 'ticket'
+                        ? IconSupport
+                        : source.category === 'Security' || source.category === 'Error tracking'
+                          ? IconBug
+                          : IconDatabase,
+                colorClass: 'text-secondary',
+                label: source.label,
+            },
+        ])
+    ),
     [SignalSourceProduct.SessionReplay]: {
         Icon: IconRewindPlay,
         colorClass: 'text-warning',

@@ -20,7 +20,7 @@ export function DataSourceSetup({
     onComplete: () => void
 }): JSX.Element {
     const { availableSources, availableSourcesLoading } = useValues(availableSourcesLogic)
-    const { dwSourceType, requiredTables } = WAREHOUSE_SOURCE_SETUP[source]
+    const { dwSourceType, requiredTables, requiredTableSyncType } = WAREHOUSE_SOURCE_SETUP[source]
 
     if (availableSourcesLoading || availableSources === null) {
         return <LemonSkeleton />
@@ -37,6 +37,7 @@ export function DataSourceSetup({
             props={{
                 availableSources,
                 requiredTables,
+                requiredTableSyncType,
                 onComplete,
             }}
         >
