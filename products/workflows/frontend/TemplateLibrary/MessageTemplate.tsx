@@ -22,6 +22,7 @@ import { WorkflowMetrics } from '../Workflows/WorkflowMetrics'
 import { WorkflowRevisions } from '../Workflows/WorkflowRevisions'
 import { CodeManagedSource } from './CodeManagedSource'
 import { CodeManagedTag } from './CodeManagedTag'
+import { EditWithAgentButton } from './EditWithAgentButton'
 import { MakeTransactionalPrompt } from './MakeTransactionalPrompt'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateMenu } from './MessageTemplateMenu'
@@ -215,7 +216,9 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                     Discard changes
                                 </LemonButton>
                             )}
-                            {!isCodeManaged && (
+                            {isCodeManaged ? (
+                                <EditWithAgentButton {...props} />
+                            ) : (
                                 <LemonButton
                                     type="primary"
                                     htmlType="submit"
@@ -272,8 +275,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                             'data-attr': 'message-template-code-managed-duplicate',
                         }}
                     >
-                        This template is managed by code, so it can't be changed here. To change it, edit the file and
-                        upload it again. To edit it here, duplicate it or stop managing it in code.
+                        This template is managed by code, so it can't be changed here. To change it, edit its file, or
+                        let your coding agent do it.
                     </LemonBanner>
                 )}
 
