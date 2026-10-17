@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiConfig } from 'lib/api'
+import { isQueryConflictError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
@@ -321,8 +322,14 @@ export interface dataWarehouseViewsLogicActions {
         viewId: string
     }
     updateDataWarehouseSavedQuery: (view: DataWarehouseSavedQueryUpdate) => DataWarehouseSavedQueryUpdate
-    updateDataWarehouseSavedQueryFailed: (viewId: string) => {
+    updateDataWarehouseSavedQueryFailed: (
+        viewId: string,
+        error?: unknown,
+        request?: DataWarehouseSavedQueryUpdate
+    ) => {
         viewId: string
+        error: unknown
+        request: DataWarehouseSavedQueryUpdate | undefined
     }
     updateDataWarehouseSavedQueryFailure: (
         error: string,
@@ -439,7 +446,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         ],
     }),
     actions({
-        updateDataWarehouseSavedQueryFailed: (viewId: string) => ({ viewId }),
+        // `request` is the payload object itself, so a caller can match a failure to its own save.
+        updateDataWarehouseSavedQueryFailed: (
+            viewId: string,
+            error?: unknown,
+            request?: DataWarehouseSavedQueryUpdate
+        ) => ({ viewId, error, request }),
         materializationChanged: (viewId: string) => ({ viewId }),
         runDataWarehouseSavedQuerySuccess: (viewId: string) => ({ viewId }),
         runDataWarehouseSavedQuery: (viewId: string, fullRefresh?: boolean) => ({ viewId, fullRefresh }),
@@ -597,7 +609,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                             return savedQuery
                         })
                     } catch (error) {
-                        actions.updateDataWarehouseSavedQueryFailed(view.id)
+                        actions.updateDataWarehouseSavedQueryFailed(view.id, error, view)
                         throw error
                     }
                 },
@@ -677,6 +689,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             // without an extra reload. A reload here would also race the materialize reload below
             // (create-with-materialize) and could revert is_materialized back to false.
             actions.refreshDatabaseSchema()
+        },
+        createDataWarehouseSavedQueryFailure: ({ errorObject }) => {
+            // Create upserts by name, so a new view whose name is taken and whose query differs gets
+            // the 409 query conflict. initKea shows no generic toast for a 409, so show one here.
+            if (isQueryConflictError(errorObject)) {
+                lemonToast.error(
+                    'A view with this name already exists. Choose another name, or open that view to edit it.'
+                )
+            }
         },
         createDataWarehouseSavedQueryFolderSuccess: () => {
             actions.loadDataWarehouseSavedQueries()
