@@ -1,6 +1,8 @@
+import gzip
 import json
+import time
 from collections.abc import Iterator
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs
 
@@ -12,8 +14,15 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.amazon_selling_partner import (
     ACCESS_DENIED_MESSAGE,
     LWA_REJECTED_MESSAGE,
+    MISSING_MARKETPLACES_MESSAGE,
+    SELLER_ONLY_MESSAGE,
     UNAVAILABLE_MESSAGE,
+    VENDOR_ONLY_MESSAGE,
     AmazonSellingPartnerResumeConfig,
+    VendorReportError,
+    parse_marketplace_ids,
+    probe_endpoint_permissions,
+    report_windows,
     to_iso8601,
     transaction_windows,
     validate_credentials,
@@ -21,6 +30,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_sel
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.settings import (
     EARLIEST_START,
     ORDERS_INCLUDED_DATA,
+    REPORT_DOCUMENTS_PATH as DOCUMENTS_PATH,
+    REPORTS_PATH,
+    VENDOR_REPORTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.source import (
     AmazonSellingPartnerSource,
@@ -508,30 +520,55 @@ class TestErrors:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        ("token_answer", "probe_answer", "expected"),
+        ("token_answer", "sellers_answer", "reports_answer", "marketplace_ids", "expected"),
         [
-            (LWA_INVALID_GRANT, None, (False, LWA_REJECTED_MESSAGE)),
-            (ScriptedResponse(status=503, json={}), None, (False, UNAVAILABLE_MESSAGE)),
-            (TOKEN, ScriptedResponse(json={"payload": []}), (True, None)),
-            (TOKEN, SP_API_FORBIDDEN, (False, ACCESS_DENIED_MESSAGE)),
+            (LWA_INVALID_GRANT, None, None, ["A"], (False, LWA_REJECTED_MESSAGE)),
+            (ScriptedResponse(status=503, json={}), None, None, ["A"], (False, UNAVAILABLE_MESSAGE)),
+            (TOKEN, ScriptedResponse(json={"payload": []}), None, [], (True, None)),
+            # Vendor accounts get 403 from the Sellers API, so the Reports API decides.
+            (TOKEN, SP_API_FORBIDDEN, ScriptedResponse(json={"reports": []}), ["A"], (True, None)),
+            (
+                TOKEN,
+                SP_API_FORBIDDEN,
+                ScriptedResponse(json={"reports": []}),
+                [],
+                (False, MISSING_MARKETPLACES_MESSAGE),
+            ),
+            # Wrong region or an app with no roles: both APIs refuse, so creation fails.
+            (TOKEN, SP_API_FORBIDDEN, SP_API_FORBIDDEN, ["A"], (False, ACCESS_DENIED_MESSAGE)),
+            (
+                TOKEN,
+                ScriptedResponse(status=401, json={"errors": [{"code": "Unauthorized"}]}),
+                None,
+                ["A"],
+                (False, ACCESS_DENIED_MESSAGE),
+            ),
         ],
     )
     def test_maps_the_vendor_answers(
-        self, token_answer: ScriptedResponse, probe_answer: ScriptedResponse | None, expected: tuple[bool, str | None]
+        self,
+        token_answer: ScriptedResponse,
+        sellers_answer: ScriptedResponse | None,
+        reports_answer: ScriptedResponse | None,
+        marketplace_ids: list[str],
+        expected: tuple[bool, str | None],
     ) -> None:
-        def respond(request: RecordedRequest) -> ScriptedResponse:
-            if request.path == TOKEN_PATH:
-                return token_answer
-            assert probe_answer is not None
-            return probe_answer
+        answers = {TOKEN_PATH: token_answer, PARTICIPATIONS_PATH: sellers_answer, REPORTS_PATH: reports_answer}
 
-        with scripted_network(respond) as network:
-            assert validate_credentials("na", "client", "secret", "Atzr|refresh") == expected
-        assert network.requests_log[-1].path == (TOKEN_PATH if probe_answer is None else PARTICIPATIONS_PATH)
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            answer = answers[request.path]
+            assert answer is not None, request.path
+            return answer
+
+        with scripted_network(respond):
+            assert validate_credentials("na", "client", "secret", "Atzr|refresh", marketplace_ids) == expected
 
     def test_a_network_failure_is_reported_as_unavailable(self) -> None:
         with scripted_network(always(requests.ConnectionError("boom"))):
-            assert validate_credentials("na", "client", "secret", "Atzr|refresh") == (False, UNAVAILABLE_MESSAGE)
+            assert validate_credentials("na", "client", "secret", "Atzr|refresh", ["A"]) == (
+                False,
+                UNAVAILABLE_MESSAGE,
+            )
 
 
 @pytest.mark.parametrize(
@@ -557,3 +594,444 @@ def test_transaction_windows_are_contiguous_and_end_before_the_request_margin() 
     assert windows[0].posted_after == start
     assert windows[-1].posted_before == NOW - timedelta(seconds=180)
     assert transaction_windows(NOW - timedelta(seconds=60), NOW) == []
+
+
+DOCUMENT_URL = "https://tortuga-prod-na.s3-external-1.amazonaws.com/doc.json?X-Amz-Signature=0123456789abcdef"
+
+
+def _gzip_json(body: dict[str, Any]) -> bytes:
+    return gzip.compress(json.dumps(body).encode())
+
+
+class _ReportsVendor:
+    """A scripted Reports API: each created report runs through the given statuses, then serves its rows."""
+
+    def __init__(self, statuses: list[str], documents: list[dict[str, Any]]) -> None:
+        self.statuses = statuses
+        self.documents = documents
+        self.created: list[dict[str, Any]] = []
+        self.polls: dict[str, int] = {}
+
+    def __call__(self, request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        if request.method == "POST" and request.path == REPORTS_PATH:
+            self.created.append(request.json())
+            return ScriptedResponse(status=202, json={"reportId": f"r{len(self.created)}"})
+        if request.path.startswith(f"{REPORTS_PATH}/"):
+            report_id = request.path.rsplit("/", 1)[1]
+            poll = self.polls.get(report_id, 0)
+            self.polls[report_id] = poll + 1
+            status = self.statuses[min(poll, len(self.statuses) - 1)]
+            body: dict[str, Any] = {"reportId": report_id, "processingStatus": status}
+            if status in ("DONE", "FATAL"):
+                body["reportDocumentId"] = f"doc-{report_id}"
+            return ScriptedResponse(json=body)
+        if request.path.startswith(f"{DOCUMENTS_PATH}/"):
+            return ScriptedResponse(
+                json={"reportDocumentId": "doc", "url": DOCUMENT_URL, "compressionAlgorithm": "GZIP"}
+            )
+        if request.path == "/doc.json":
+            index = sum(1 for poll_count in self.polls.values() if poll_count) - 1
+            return ScriptedResponse(body=_gzip_json(self.documents[min(index, len(self.documents) - 1)]))
+        raise AssertionError(f"unexpected request {request.method} {request.url}")
+
+
+class TestVendorReports:
+    @pytest.fixture(autouse=True)
+    def frozen_clock(self) -> Iterator[None]:
+        with time_machine.travel(NOW, tick=False):
+            yield
+
+    def test_daily_report_walks_windows_from_the_watermark_and_tags_rows(self) -> None:
+        vendor = _ReportsVendor(
+            ["IN_QUEUE", "IN_PROGRESS", "DONE"],
+            [
+                {"salesByAsin": [{"asin": "B01", "startDate": "2026-09-28", "shippedUnits": 3}]},
+                {"salesByAsin": [{"asin": "B02", "startDate": "2026-10-05", "shippedUnits": 1}]},
+            ],
+        )
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_sales", vendor, incremental_field="startDate", db_incremental_field_last_value=date(2026, 9, 28)
+        )
+
+        assert result.raised is None
+        assert vendor.created == [
+            {
+                "reportType": "GET_VENDOR_SALES_REPORT",
+                "marketplaceIds": ["ATVPDKIKX0DER"],
+                "reportOptions": {
+                    "reportPeriod": "DAY",
+                    "distributorView": "MANUFACTURING",
+                    "sellingProgram": "RETAIL",
+                },
+                "dataStartTime": "2026-09-28T00:00:00Z",
+                "dataEndTime": "2026-10-04T23:59:59Z",
+            },
+            {
+                "reportType": "GET_VENDOR_SALES_REPORT",
+                "marketplaceIds": ["ATVPDKIKX0DER"],
+                "reportOptions": {
+                    "reportPeriod": "DAY",
+                    "distributorView": "MANUFACTURING",
+                    "sellingProgram": "RETAIL",
+                },
+                "dataStartTime": "2026-10-05T00:00:00Z",
+                "dataEndTime": "2026-10-11T23:59:59Z",
+            },
+        ]
+        assert result.rows == [
+            {"marketplaceId": "ATVPDKIKX0DER", "asin": "B01", "startDate": "2026-09-28", "shippedUnits": 3},
+            {"marketplaceId": "ATVPDKIKX0DER", "asin": "B02", "startDate": "2026-10-05", "shippedUnits": 1},
+        ]
+        download = next(request for request in result.requests if request.path == "/doc.json")
+        assert "x-amz-access-token" not in download.headers
+        assert result.committed_states[:2] == [
+            AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER",
+                window_start="2026-09-28T00:00:00Z",
+                window_end="2026-10-04T23:59:59Z",
+                report_id="r1",
+            ),
+            AmazonSellingPartnerResumeConfig(marketplace_id="ATVPDKIKX0DER", window_start="2026-10-05T00:00:00Z"),
+        ]
+        assert result.final_state == AmazonSellingPartnerResumeConfig(completed_marketplaces=["ATVPDKIKX0DER"])
+
+    def test_resume_polls_the_saved_report_instead_of_creating_one(self) -> None:
+        vendor = _ReportsVendor(["DONE"], [{"inventoryByAsin": [{"asin": "B03", "startDate": "2026-10-05"}]}])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_inventory",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", window_start="2026-10-05T00:00:00Z", report_id="r9"
+            ),
+        )
+
+        assert result.raised is None
+        assert vendor.created == []
+        assert vendor.polls == {"r9": 1}
+        assert [row["asin"] for row in result.rows] == ["B03"]
+
+    def test_resume_skips_rows_of_the_report_already_handed_on(self) -> None:
+        rows = [{"asin": f"B{index:05}", "startDate": "2026-10-01"} for index in range(4500)]
+        vendor = _ReportsVendor(["DONE"], [{"forecastByAsin": rows}])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_forecasts",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", report_id="r7", rows_done=2000
+            ),
+        )
+
+        assert result.raised is None
+        assert vendor.created == []
+        assert [row["asin"] for row in result.rows] == [row["asin"] for row in rows[2000:]]
+        assert result.saved_states[0] == AmazonSellingPartnerResumeConfig(
+            marketplace_id="ATVPDKIKX0DER", report_id="r7", rows_done=4000
+        )
+
+    def test_resume_polls_a_saved_report_older_than_the_moving_lookback_floor(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_real_time_sales",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER", window_start="2026-09-16T11:00:00Z", report_id="r5"
+            ),
+        )
+
+        assert result.raised is None
+        assert "r5" in vendor.polls
+        assert vendor.created[0]["dataStartTime"] == "2026-09-17T11:00:00Z"
+
+    def test_resume_starts_the_next_window_where_the_saved_report_ended(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_real_time_sales",
+            vendor,
+            resume_state=AmazonSellingPartnerResumeConfig(
+                marketplace_id="ATVPDKIKX0DER",
+                window_start="2026-10-15T08:00:00Z",
+                window_end="2026-10-15T09:00:00Z",
+                report_id="r6",
+            ),
+        )
+
+        assert result.raised is None
+        assert "r6" in vendor.polls
+        assert [(body["dataStartTime"], body["dataEndTime"]) for body in vendor.created] == [
+            ("2026-10-15T09:00:00Z", "2026-10-15T11:00:00Z")
+        ]
+
+    def test_forecasts_request_one_report_per_marketplace_without_a_date_range(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("ATVPDKIKX0DER,A2EUQ1WTGCTBG2").run("vendor_forecasts", vendor)
+
+        assert result.raised is None
+        assert vendor.created == [
+            {
+                "reportType": "GET_VENDOR_FORECASTING_REPORT",
+                "marketplaceIds": [marketplace],
+                "reportOptions": {"sellingProgram": "RETAIL"},
+            }
+            for marketplace in ("ATVPDKIKX0DER", "A2EUQ1WTGCTBG2")
+        ]
+        assert result.rows == []
+        assert result.final_state == AmazonSellingPartnerResumeConfig(
+            completed_marketplaces=["ATVPDKIKX0DER", "A2EUQ1WTGCTBG2"]
+        )
+
+    def test_real_time_sales_sends_the_marketplace_currency(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+
+        result = _driver("A1F83G8C2ARO7P").run(
+            "vendor_real_time_sales",
+            vendor,
+            incremental_field="startTime",
+            db_incremental_field_last_value=datetime(2026, 10, 14, 9, 30, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert vendor.created == [
+            {
+                "reportType": "GET_VENDOR_REAL_TIME_SALES_REPORT",
+                "marketplaceIds": ["A1F83G8C2ARO7P"],
+                "reportOptions": {"currencyCode": "GBP"},
+                "dataStartTime": start,
+                "dataEndTime": end,
+            }
+            for start, end in [
+                ("2026-10-14T09:00:00Z", "2026-10-15T09:00:00Z"),
+                ("2026-10-15T09:00:00Z", "2026-10-15T11:00:00Z"),
+            ]
+        ]
+
+    def test_a_fatal_report_raises_with_amazons_error_details(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/doc.json":
+                return ScriptedResponse(body=_gzip_json({"errorDetails": "Report date range is not available yet."}))
+            return vendor(request)
+
+        vendor = _ReportsVendor(["FATAL"], [])
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert isinstance(result.raised, VendorReportError)
+        assert str(result.raised) == (
+            "Amazon could not generate the GET_VENDOR_FORECASTING_REPORT report: Report date range is not available yet."
+        )
+        # The failed report is dropped, so the retry creates a new one instead of polling it again.
+        assert result.final_state == AmazonSellingPartnerResumeConfig(marketplace_id="ATVPDKIKX0DER")
+
+    def test_a_failed_download_keeps_the_presigned_url_out_of_the_error(self) -> None:
+        vendor = _ReportsVendor(["DONE"], [])
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path == "/doc.json":
+                return ScriptedResponse(status=403, body=b"<Error><Code>AccessDenied</Code></Error>")
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert str(result.raised) == "Amazon report document download returned status=403"
+
+    def test_create_report_waits_out_a_rate_limit(self) -> None:
+        vendor = _ReportsVendor(["CANCELLED"], [])
+        throttled = [ScriptedResponse(status=429, json={"errors": [{"code": "QuotaExceeded"}]})]
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.method == "POST" and request.path == REPORTS_PATH and throttled:
+                return throttled.pop()
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert result.raised is None
+        assert [request.method for request in result.requests if request.path == REPORTS_PATH] == ["POST", "POST"]
+
+    @pytest.mark.parametrize(
+        ("fatal_reports", "expected_starts", "expected_rows"),
+        [
+            (
+                {"r1"},
+                ["2026-09-21T00:00:00Z", "2026-09-21T00:00:00Z", "2026-09-28T00:00:00Z", "2026-10-05T00:00:00Z"],
+                3,
+            ),
+            (
+                {"r1", "r2", "r3"},
+                [
+                    "2026-09-21T00:00:00Z",
+                    "2026-09-21T00:00:00Z",
+                    "2026-09-21T00:00:00Z",
+                    "2026-09-28T00:00:00Z",
+                    "2026-10-05T00:00:00Z",
+                ],
+                2,
+            ),
+        ],
+    )
+    def test_a_fatal_old_window_is_retried_then_skipped(
+        self, fatal_reports: set[str], expected_starts: list[str], expected_rows: int
+    ) -> None:
+        vendor = _ReportsVendor(["DONE"], [{"salesByAsin": [{"asin": "B07", "startDate": "2026-10-05"}]}])
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            report_id = request.path.rsplit("/", 1)[1]
+            if request.path.startswith(f"{REPORTS_PATH}/") and report_id in fatal_reports:
+                return ScriptedResponse(json={"reportId": report_id, "processingStatus": "FATAL"})
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run(
+            "vendor_sales", respond, incremental_field="startDate", db_incremental_field_last_value=date(2026, 9, 21)
+        )
+
+        assert result.raised is None
+        assert [body["dataStartTime"] for body in vendor.created] == expected_starts
+        assert [row["asin"] for row in result.rows] == ["B07"] * expected_rows
+
+    def test_a_document_url_outside_amazon_is_refused(self) -> None:
+        vendor = _ReportsVendor(["DONE"], [])
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.startswith(f"{DOCUMENTS_PATH}/"):
+                return ScriptedResponse(json={"reportDocumentId": "doc", "url": "https://evil.example.com/doc.json"})
+            return vendor(request)
+
+        result = _driver("ATVPDKIKX0DER").run("vendor_forecasts", respond)
+
+        assert isinstance(result.raised, ValueError)
+        assert all(request.origin != "https://evil.example.com" for request in result.requests)
+
+    def test_vendor_tables_need_marketplace_ids(self) -> None:
+        result = _driver().run("vendor_sales", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert str(result.raised) == MISSING_MARKETPLACES_MESSAGE
+        assert result.requests == []
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "start", "resumed", "expected"),
+    [
+        # A full refresh of a daily report starts at the oldest day Amazon keeps and stops four days back.
+        ("vendor_sales", None, False, ("2022-10-17T00:00:00Z", "2022-10-23T23:59:59Z", 208, "2026-10-11T23:59:59Z")),
+        # An hourly report stops at the last hour that closed five minutes before now.
+        (
+            "vendor_real_time_sales",
+            None,
+            False,
+            ("2026-09-16T12:00:00Z", "2026-09-17T12:00:00Z", 29, "2026-10-15T11:00:00Z"),
+        ),
+        ("vendor_sales", datetime(2026, 10, 12, tzinfo=UTC), False, None),
+        # A resumed report keeps its start after the lookback floor moved past it.
+        (
+            "vendor_real_time_sales",
+            datetime(2026, 9, 16, 11, tzinfo=UTC),
+            True,
+            ("2026-09-16T11:00:00Z", "2026-09-17T11:00:00Z", 29, "2026-10-15T11:00:00Z"),
+        ),
+    ],
+)
+def test_report_windows(
+    endpoint: str, start: datetime | None, resumed: bool, expected: tuple[str, str, int, str] | None
+) -> None:
+    windows = report_windows(VENDOR_REPORTS[endpoint], start, NOW, resumed=resumed)
+
+    if expected is None:
+        assert windows == []
+        return
+    first_start, first_end, count, last_end = expected
+    assert (windows[0].data_start_time, windows[0].data_end_time, len(windows), windows[-1].data_end_time) == (
+        first_start,
+        first_end,
+        count,
+        last_end,
+    )
+
+
+PARTICIPATING_IN_A = ScriptedResponse(
+    json={"payload": [{"marketplace": {"id": "A"}, "participation": {"isParticipating": True}}]}
+)
+
+
+@pytest.mark.parametrize(
+    ("forbidden_paths", "marketplace_ids", "expected", "probed_paths"),
+    [
+        (
+            {REPORTS_PATH},
+            "A",
+            {"orders": None, "inventory_summaries": None, "vendor_sales": VENDOR_ONLY_MESSAGE},
+            [ORDERS_PATH, SUMMARIES_PATH, REPORTS_PATH],
+        ),
+        (
+            {ORDERS_PATH, SUMMARIES_PATH},
+            "A",
+            {"orders": SELLER_ONLY_MESSAGE, "inventory_summaries": SELLER_ONLY_MESSAGE, "vendor_sales": None},
+            [ORDERS_PATH, SUMMARIES_PATH, REPORTS_PATH],
+        ),
+        (
+            set(),
+            None,
+            {"orders": None, "inventory_summaries": None, "vendor_sales": MISSING_MARKETPLACES_MESSAGE},
+            [ORDERS_PATH, PARTICIPATIONS_PATH, SUMMARIES_PATH, REPORTS_PATH],
+        ),
+        (
+            {PARTICIPATIONS_PATH},
+            None,
+            {"orders": None, "inventory_summaries": SELLER_ONLY_MESSAGE, "vendor_sales": MISSING_MARKETPLACES_MESSAGE},
+            [ORDERS_PATH, PARTICIPATIONS_PATH, REPORTS_PATH],
+        ),
+    ],
+)
+def test_probe_endpoint_permissions(
+    forbidden_paths: set[str], marketplace_ids: str | None, expected: dict[str, str | None], probed_paths: list[str]
+) -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        if request.path in forbidden_paths:
+            return SP_API_FORBIDDEN
+        return PARTICIPATING_IN_A if request.path == PARTICIPATIONS_PATH else ScriptedResponse(json={})
+
+    with scripted_network(respond) as network:
+        permissions = probe_endpoint_permissions(
+            "na", "client", "secret", "Atzr|refresh", parse_marketplace_ids(marketplace_ids), list(expected)
+        )
+
+    assert permissions == expected
+    assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == probed_paths
+
+
+def test_probes_past_the_setup_budget_leave_access_unknown() -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        time.sleep(40)
+        return SP_API_FORBIDDEN
+
+    with scripted_network(respond) as network:
+        permissions = probe_endpoint_permissions(
+            "na", "client", "secret", "Atzr|refresh", ["A"], ["orders", "transactions", "vendor_sales"]
+        )
+
+    assert permissions == {"orders": SELLER_ONLY_MESSAGE, "transactions": None, "vendor_sales": None}
+    assert [request.path for request in network.requests_log if request.path != TOKEN_PATH] == [ORDERS_PATH]
+
+
+def test_a_transient_marketplace_discovery_failure_leaves_inventory_access_unknown() -> None:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == TOKEN_PATH:
+            return TOKEN
+        return ScriptedResponse(status=400, json={"errors": [{"code": "InvalidInput"}]})
+
+    with scripted_network(respond):
+        permissions = probe_endpoint_permissions("na", "client", "secret", "Atzr|refresh", [], ["inventory_summaries"])
+
+    assert permissions == {"inventory_summaries": None}

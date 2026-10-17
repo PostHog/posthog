@@ -11,9 +11,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldSelectConfigOption,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.amazon_selling_partner import (
+    MISSING_MARKETPLACES_MESSAGE,
     AmazonSellingPartnerResumeConfig,
     amazon_selling_partner_source,
     parse_marketplace_ids,
+    probe_endpoint_permissions,
     validate_credentials as validate_amazon_selling_partner_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.amazon_selling_partner.settings import (
@@ -64,7 +66,9 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             "HTTP 400 from the OAuth2 token endpoint": "Amazon rejected the refresh token. Re-authorize the app for this seller and update the refresh token.",
             "HTTP 401 from the OAuth2 token endpoint": "Amazon rejected the Login with Amazon client ID or client secret. Check them in the Amazon developer console and update the source.",
             "401 Client Error: Unauthorized for url: https://sellingpartnerapi": "Amazon rejected the access token. Re-authorize the app for this seller and update the refresh token.",
-            "403 Client Error: Forbidden for url: https://sellingpartnerapi": "Amazon refused access to this table. Check that the app has the role the table needs and that the seller authorized it.",
+            "403 Client Error: Forbidden for url: https://sellingpartnerapi": "Amazon refused access to this table. Check that the app has the role the table needs and that the account authorized it.",
+            MISSING_MARKETPLACES_MESSAGE: MISSING_MARKETPLACES_MESSAGE,
+            "Unknown Amazon marketplace ID for real-time sales": "A marketplace ID in the source settings is not one Amazon lists. Check the IDs and update the source.",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -98,7 +102,27 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_amazon_selling_partner_credentials(
-            config.region, config.client_id, config.client_secret, config.refresh_token
+            config.region,
+            config.client_id,
+            config.client_secret,
+            config.refresh_token,
+            parse_marketplace_ids(config.marketplace_ids),
+        )
+
+    def get_endpoint_permissions(
+        self,
+        config: AmazonSellingPartnerSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        return probe_endpoint_permissions(
+            config.region,
+            config.client_id,
+            config.client_secret,
+            config.refresh_token,
+            parse_marketplace_ids(config.marketplace_ids),
+            endpoints,
         )
 
     def get_resumable_source_manager(
@@ -134,11 +158,13 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
             name=ExternalDataSourceType.AMAZONSELLINGPARTNER,
             category=DataWarehouseSourceCategory.E_COMMERCE,
             label="Amazon Selling Partner",
-            keywords=["sp-api", "seller central", "amazon seller", "fba"],
+            keywords=["sp-api", "seller central", "vendor central", "amazon seller", "amazon vendor", "fba"],
             caption=(
-                "Syncs orders, order items, financial transactions and FBA inventory from your Amazon seller account. "
+                "Seller accounts sync orders, order items, financial transactions and FBA inventory. "
                 "The app needs the Inventory and Order Tracking, Finance and Accounting and Amazon Fulfillment roles. "
-                "Orders and order items read the same Amazon endpoint, so syncing both takes twice as long."
+                "Orders and order items read the same Amazon endpoint, so syncing both takes twice as long. "
+                "Vendor accounts sync daily sales, inventory, net pure product margin, forecasts and hourly sales "
+                "reports, which need the Brand Analytics role and your marketplace IDs."
             ),
             iconPath="/static/services/amazon_selling_partner.png",
             docsUrl="https://posthog.com/docs/cdp/sources/amazon-selling-partner",
@@ -184,7 +210,7 @@ class AmazonSellingPartnerSource(ResumableSource[AmazonSellingPartnerSourceConfi
                     SourceFieldInputConfig(
                         name="marketplace_ids",
                         label="Marketplace IDs",
-                        caption="Comma-separated. Applies to orders, order items and inventory, while transactions always cover every marketplace. Leave blank to use every marketplace the seller sells in.",
+                        caption="Comma-separated. Required for vendor reports. For sellers it applies to orders, order items and inventory, while transactions always cover every marketplace. Sellers can leave it blank to use every marketplace they sell in.",
                         type=SourceFieldInputConfigType.TEXT,
                         required=False,
                         placeholder="ATVPDKIKX0DER, A1F83G8C2ARO7P",
