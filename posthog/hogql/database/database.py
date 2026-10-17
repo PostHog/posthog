@@ -70,8 +70,7 @@ from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.billing_usage_records import BillingUsageRecordsTable
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
-from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
-from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
+from posthog.hogql.database.schema.cohort_people import CohortMembership, CohortPeople, RawCohortPeople
 from posthog.hogql.database.schema.document_embeddings import (
     HOGQL_MODEL_TABLES,
     DocumentEmbeddingsTable,
@@ -380,7 +379,8 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
     "session_replay_events": TableNode(name="session_replay_events", table=SessionReplayEventsTable()),
     "cohort_people": TableNode(name="cohort_people", table=CohortPeople()),
     "static_cohort_people": TableNode(name="static_cohort_people", table=StaticCohortPeople()),
-    "cohort_membership": TableNode(name="cohort_membership", table=CohortMembershipTable()),
+    # Kept only so saved queries still resolve; new queries should use `cohort_people`.
+    "cohort_membership": TableNode(name="cohort_membership", table=CohortMembership(), hidden=True),
     "precalculated_events": TableNode(name="precalculated_events", table=PrecalculatedEventsTable()),
     "precalculated_person_properties": TableNode(
         name="precalculated_person_properties", table=PrecalculatedPersonPropertiesTable()
@@ -1416,8 +1416,9 @@ class Database(BaseModel):
         self,
         context: HogQLContext,
         include_only: set[str] | None = None,
-        include_hidden_posthog_tables: bool = False,
+        include_all_posthog_tables: bool = False,
         include_fields: bool = True,
+        include_hidden_tables: bool = False,
     ) -> dict[str, DatabaseSchemaTable]:
         # The schema browser and editor list every table, so deferred revenue views must exist
         # here. A partial request (the sidebar hydrating one table's fields) skips the build
@@ -1453,11 +1454,13 @@ class Database(BaseModel):
 
         # PostHog tables
         posthog_table_names = (
-            []
-            if self._is_direct_query()
-            else self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
+            [] if self._is_direct_query() else self.get_posthog_table_names(include_hidden=include_all_posthog_tables)
         )
         for table_name in posthog_table_names:
+            # `include_all_posthog_tables` widens the name list; this skips nodes marked `hidden=True`,
+            # which still resolve in queries but stay out of the schema browser.
+            if not include_hidden_tables and self.get_table_node(table_name).hidden:
+                continue
             if include_only and table_name not in include_only:
                 continue
 

@@ -971,7 +971,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
                 team_id=self.team.pk, team=self.team, database=database, user=self.user, modifiers=modifiers
             )
             serialized = database.serialize(
-                context, include_only={"persons", "events"}, include_hidden_posthog_tables=True
+                context, include_only={"persons", "events"}, include_all_posthog_tables=True
             )
             persons_fields = set(serialized["persons"].fields.keys())
             person_join_fields = set(serialized["events"].fields["person"].fields or [])
