@@ -19,6 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
+import { ReplaySnapshotFrame } from 'scenes/session-recordings/player/ReplaySnapshotFrame'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -489,13 +490,12 @@ function RecordingBackgroundPreview({
                 measured ? (
                     // eslint-disable-next-line react/forbid-dom-props
                     <div className="relative" style={{ height: height * scale }}>
-                        <iframe
-                            srcDoc={html}
+                        <ReplaySnapshotFrame
+                            html={html}
                             title="Selected session recording background"
                             sandbox="allow-same-origin"
                             tabIndex={-1}
                             className="absolute top-0 left-0 origin-top-left border-0 bg-white pointer-events-none ph-no-capture"
-                            // eslint-disable-next-line react/forbid-dom-props
                             style={{ width, height, transform: `scale(${scale})` }}
                         />
                     </div>
@@ -506,8 +506,8 @@ function RecordingBackgroundPreview({
                     <div className="w-full" style={{ aspectRatio: `${width} / ${height}` }} />
                 )
             ) : (
-                <iframe
-                    srcDoc={html}
+                <ReplaySnapshotFrame
+                    html={html}
                     title="Selected session recording background"
                     sandbox="allow-same-origin"
                     tabIndex={-1}
