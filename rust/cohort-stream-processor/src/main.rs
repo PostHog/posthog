@@ -821,8 +821,10 @@ fn init_tracing() {
             .boxed()
     };
 
-    tracing_subscriber::registry()
-        .with(log_layer)
-        .with(hotpath::sqlx_tracing_layer())
-        .init();
+    let subscriber = tracing_subscriber::registry().with(log_layer);
+    // Without `hotpath`, this returns an unfiltered no-op layer. That layer lifts the max level to
+    // TRACE, so every DEBUG/TRACE call site builds its event, sqlx's per-query log included.
+    #[cfg(feature = "hotpath")]
+    let subscriber = subscriber.with(hotpath::sqlx_tracing_layer());
+    subscriber.init();
 }
