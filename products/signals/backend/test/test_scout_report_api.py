@@ -74,6 +74,9 @@ JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
+INBOX_NOTIFICATION_PATH = (
+    "products.signals.backend.temporal.inbox_notification.start_report_inbox_notification_workflow"
+)
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
 METRICS_GATE_PATH = "products.signals.backend.scout_harness.tools.report.organization_report_metrics_enabled"
 # The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
@@ -120,6 +123,7 @@ class TestScoutReportAPI(APIBaseTest):
         # organization in, so the metric cases assert the contract rather than the rollout; the two
         # gate tests below turn it back off.
         self.metrics_enabled_mock = patch(METRICS_GATE_PATH, return_value=True).start()
+        self.inbox_notification_mock = patch(INBOX_NOTIFICATION_PATH, new_callable=AsyncMock).start()
         self.addCleanup(patch.stopall)
 
     def _emit_url(self, run_id: str) -> str:
@@ -1599,6 +1603,34 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         assert autostart.await_args is not None
         assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+
+    def test_emit_report_starts_standard_inbox_notification_for_reviewers(self) -> None:
+        self._seed_skill_owner("octocat")
+        run = _make_run(self.team)
+        payload = self._payload(suggested_reviewers=[{"github_login": "octocat"}])
+
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+
+        assert response.status_code == status.HTTP_200_OK
+        self.inbox_notification_mock.assert_awaited_once_with(
+            team_id=self.team.id, report_id=response.json()["report_id"]
+        )
+
+    def test_emit_report_retry_retries_failed_inbox_notification_handoff(self) -> None:
+        run = _make_run(self.team)
+        payload = self._payload()
+        self.inbox_notification_mock.side_effect = [RuntimeError("Temporal unavailable"), None]
+
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            first_response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+
+        assert first_response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["idempotent_replay"] is True
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        assert self.inbox_notification_mock.await_count == 2
 
     def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
         # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,

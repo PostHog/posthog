@@ -1549,6 +1549,14 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 
 
+async def _maybe_start_inbox_notification(*, team_id: int, report_id: str) -> None:
+    from products.signals.backend.temporal.inbox_notification import (  # noqa: PLC0415 — break worker-boot import cycle
+        start_report_inbox_notification_workflow,
+    )
+
+    await start_report_inbox_notification_workflow(team_id=team_id, report_id=report_id)
+
+
 # Telemetry caps for the report content carried on the lifecycle events. The signal channel surfaces a
 # finding's content on `signal_emitted` (via `_telemetry_props_from_extra`); the report channel now does
 # the same so internal consumers (dashboards, alerts, CDP forwards) can act on a report's substance, not
@@ -2133,6 +2141,8 @@ async def emit_report(
             team_id=team.id, idempotency_key=emit_key
         )
     if existing is not None:
+        if existing.status == SignalReport.Status.READY:
+            await _maybe_start_inbox_notification(team_id=team.id, report_id=existing.report_id)
         return await finish(_replay_result(existing))
 
     # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
@@ -2245,6 +2255,8 @@ async def emit_report(
                 delivery_id=persisted.report_id,
             )
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+        if judgement.status == SignalReport.Status.READY:
+            await _maybe_start_inbox_notification(team_id=team.id, report_id=persisted.report_id)
     return await finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -2328,6 +2340,8 @@ def emit_report_sync(
     else:
         existing = find_scout_report_by_idempotency_key(team_id=team.id, idempotency_key=emit_key)
     if existing is not None:
+        if existing.status == SignalReport.Status.READY:
+            async_to_sync(_maybe_start_inbox_notification)(team_id=team.id, report_id=existing.report_id)
         return finish(_replay_result(existing))
 
     reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
@@ -2431,6 +2445,8 @@ def emit_report_sync(
                 delivery_id=persisted.report_id,
             )
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+        if judgement.status == SignalReport.Status.READY:
+            async_to_sync(_maybe_start_inbox_notification)(team_id=team.id, report_id=persisted.report_id)
     return finish(_emit_result(persisted.report_id, judgement))
 
 

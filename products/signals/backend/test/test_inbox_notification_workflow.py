@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.apps import apps
 from django.test import override_settings
@@ -21,8 +21,10 @@ from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     InboxNotificationState,
     SignalReportInboxNotificationWorkflow,
+    SignalsNotReadyForNotificationError,
     _compute_inbox_notification_state,
     _send_report_inbox_notifications,
+    start_report_inbox_notification_workflow,
 )
 
 TASK_QUEUE = "test-inbox-notification-queue"
@@ -119,6 +121,24 @@ def test_send_skips_when_report_not_ready(team):
         sent = _send_report_inbox_notifications(team.id, str(report.id))
     assert sent == 0
     mock_dispatch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_start_report_inbox_notification_workflow_uses_standard_flow() -> None:
+    client = AsyncMock()
+    with patch(
+        "products.signals.backend.temporal.inbox_notification.async_connect",
+        new=AsyncMock(return_value=client),
+    ):
+        await start_report_inbox_notification_workflow(team_id=17, report_id="report-id")
+
+    client.start_workflow.assert_awaited_once()
+    args, kwargs = client.start_workflow.await_args
+    assert args == (
+        SignalReportInboxNotificationWorkflow.run,
+        InboxNotificationInput(team_id=17, report_id="report-id"),
+    )
+    assert kwargs["id"] == SignalReportInboxNotificationWorkflow.workflow_id_for(17, "report-id")
 
 
 class _Recorder:
@@ -223,6 +243,10 @@ async def test_workflow_notifies_even_without_pr(states, timeout_seconds, polls)
 def test_send_stamps_the_report_and_refuses_a_second_send(team):
     report = _make_report(team)
     with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+            return_value=[{"source_product": "product_analytics"}],
+        ),
         patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch,
         patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets") as writeback,
     ):
@@ -238,12 +262,18 @@ def test_send_stamps_the_report_and_refuses_a_second_send(team):
 
 
 @pytest.mark.django_db
-def test_send_retries_transient_clickhouse_failure_before_claiming_report(team):
+@pytest.mark.parametrize(
+    "first_result",
+    [ClickHouseAtCapacity(), []],
+    ids=["transient_clickhouse_failure", "signals_not_ingested"],
+)
+def test_send_retries_evidence_fetch_before_claiming_report(team, first_result):
     report = _make_report(team)
+    signals = [{"source_product": "product_analytics"}]
     with (
         patch(
             "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
-            side_effect=[ClickHouseAtCapacity(), []],
+            side_effect=[first_result, signals],
         ) as fetch,
         patch("products.signals.backend.temporal.inbox_notification._fetch_signals_for_notification.retry.sleep"),
         patch("products.signals.backend.temporal.inbox_notification.post_report_findings_to_tickets"),
@@ -257,6 +287,26 @@ def test_send_retries_transient_clickhouse_failure_before_claiming_report(team):
     dispatch.assert_called_once()
     report.refresh_from_db()
     assert report.inbox_notified_at is not None
+
+
+@pytest.mark.django_db
+def test_send_does_not_claim_report_before_signals_are_ingested(team):
+    report = _make_report(team)
+    with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+            return_value=[],
+        ) as fetch,
+        patch("products.signals.backend.temporal.inbox_notification._fetch_signals_for_notification.retry.sleep"),
+        patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch,
+        pytest.raises(SignalsNotReadyForNotificationError),
+    ):
+        _send_report_inbox_notifications(team.id, str(report.id))
+
+    assert fetch.call_count == 4
+    dispatch.assert_not_called()
+    report.refresh_from_db()
+    assert report.inbox_notified_at is None
 
 
 @pytest.mark.asyncio
@@ -278,7 +328,13 @@ def test_send_releases_the_claim_when_no_card_went_out(team, outcome):
     dispatch, such as the unretried ClickHouse read that re-derives the signals, must leave the report
     eligible too; the claim is taken below that read, so there is nothing left to release."""
     report = _make_report(team)
-    with patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch:
+    with (
+        patch(
+            "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
+            return_value=[{"source_product": "product_analytics"}],
+        ),
+        patch("products.signals.backend.slack_inbox_notifications.dispatch_inbox_item_notifications") as dispatch,
+    ):
         if outcome == "raised_before_dispatch":
             with patch(
                 "products.signals.backend.temporal.inbox_notification.fetch_signals_for_report_sync",
