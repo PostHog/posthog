@@ -2248,7 +2248,9 @@ class TestProperty(BaseTest):
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
         # array properties and loses its lowercase index hint, so the name pattern pins the set.
-        by_name = {op for op in PropertyOperator if op.value.startswith(("not_", "is_not"))}
+        by_name = {
+            op for op in PropertyOperator if op.value.startswith(("not_", "is_not")) or op.value.endswith("_neq")
+        }
         assert {op for op in PropertyOperator if operator_is_negative(op)} == by_name
 
     def test_flag_evaluates_to_produces_neutral_expr(self):
@@ -2789,7 +2791,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
     EVENT = "purchase"
     SCORED_EVENT = "scored"
     EXCEPTION_EVENT = "exception"
-    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only"}
+    ARRAYS_WITHOUT_MATCH = {"types_missing", "types_empty", "types_nonmatch_only", "types_versions"}
     ARRAYS_WITH_MATCH = {"types_match_only", "types_mixed"}
 
     @classmethod
@@ -2826,6 +2828,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ("types_match_only", ["ReferenceError"]),
             ("types_nonmatch_only", ["OtherError"]),
             ("types_mixed", ["ReferenceError", "OtherError"]),
+            ("types_versions", ["1.2.3", "2.0.0"]),
         ]:
             _create_event(
                 team=cls.team,
@@ -2993,6 +2996,11 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
                 ARRAYS_WITHOUT_MATCH,
             ),
             ("is_not_set", {"operator": "is_not_set"}, {"types_missing", "types_empty"}),
+            (
+                "semver_neq",
+                {"value": "1.2.3", "operator": "semver_neq"},
+                (ARRAYS_WITHOUT_MATCH - {"types_versions"}) | ARRAYS_WITH_MATCH,
+            ),
             # positive baseline: the mixed row holds a match, so it belongs on this side and only this side
             (
                 "icontains_multi_value",
