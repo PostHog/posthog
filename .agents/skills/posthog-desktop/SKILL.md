@@ -51,16 +51,16 @@ Anything else outside the tree: stop and ask.
 
 ## Toolchain — root CLAUDE.md does not apply here
 
-| Root monorepo says                                    | In products/desktop use                                       |
-| ----------------------------------------------------- | ------------------------------------------------------------- |
-| `ruff` / `mypy` / pytest                              | nothing — no Python app code here                             |
-| oxlint + Oxfmt, `pnpm --filter=@posthog/frontend fix` | `pnpm lint` (Biome check --write), `pnpm format`              |
-| Jest, `hogli test`                                    | Vitest (`pnpm test`), Playwright (`pnpm test:e2e`)            |
-| `pnpm --filter=@posthog/frontend typescript:check`    | `pnpm typecheck` (turbo, all packages)                        |
-| Kea logics, `typegen:write`                           | Zustand stores + InversifyJS services; no kea, no typegen     |
-| LemonUI in `frontend/` and `products/*/frontend/`     | `@posthog/quill` + Tailwind + Radix Themes                    |
-| `hogli build:openapi` → generated frontend types      | `packages/api-client/src/generated.ts` (hand-maintained here) |
-| 4-space / repo Prettier habits                        | Biome, 2-space, double quotes                                 |
+| Root monorepo says                                    | In products/desktop use                                                                                                                       |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ruff` / `mypy` / pytest                              | nothing — no Python app code here                                                                                                             |
+| oxlint + Oxfmt, `pnpm --filter=@posthog/frontend fix` | `pnpm lint` (Biome check --write), `pnpm format`                                                                                              |
+| Jest, `hogli test`                                    | Vitest (`pnpm test`), Playwright (`pnpm test:e2e`)                                                                                            |
+| `pnpm --filter=@posthog/frontend typescript:check`    | `pnpm typecheck` (turbo, all packages)                                                                                                        |
+| Kea logics, `typegen:write`                           | Zustand stores + InversifyJS services; no kea, no typegen                                                                                     |
+| LemonUI in `frontend/` and `products/*/frontend/`     | `@posthog/quill` + Tailwind + Radix Themes                                                                                                    |
+| `hogli build:openapi` → generated frontend types      | It also generates `packages/api-client/src/generated.ts` from an endpoint allowlist; never edit it by hand (see `products/desktop/AGENTS.md`) |
+| 4-space / repo Prettier habits                        | Biome, 2-space, double quotes                                                                                                                 |
 
 Commands (from `products/desktop/`): `pnpm install`, `pnpm dev`, `pnpm build`, `pnpm typecheck`,
 `pnpm lint`, `pnpm test`, `pnpm test:e2e`, `pnpm --filter <pkg> <task>`,
