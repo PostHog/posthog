@@ -51432,9 +51432,17 @@ export namespace Schemas {
       latest_error: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface ExternalDataSourceRevenueAnalyticsConfig {
       enabled?: boolean;
       include_invoiceless_charges?: boolean;
+      /**
+         * Stripe product IDs whose invoice lines are left out of revenue analytics, for example a prepaid credit product that pays for other invoices. Charges without an invoice are not affected. Blank and duplicate IDs are dropped. At most 100 IDs.
+         * @items.maxLength 255
+         */
+      excluded_product_ids?: string[];
     }
 
     export type ExternalDataSourceSerializersSchemasItem = { [key: string]: unknown };

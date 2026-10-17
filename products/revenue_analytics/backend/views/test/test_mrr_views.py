@@ -1,4 +1,8 @@
+import csv
+import json
+from datetime import UTC, datetime
 from decimal import Decimal
+from io import StringIO
 from pathlib import Path
 
 import time_machine
@@ -12,14 +16,18 @@ from posthog.test.base import (
 )
 from unittest.mock import ANY
 
+from django.conf import settings
+
 from posthog.schema import CurrencyCode, HogQLQueryModifiers, HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.models.utils import uuid7
+from posthog.storage import object_storage
 
 from products.revenue_analytics.backend.views.schemas.mrr import SCHEMA as MRR_SCHEMA
+from products.revenue_analytics.backend.views.schemas.revenue_item import SCHEMA as REVENUE_ITEM_SCHEMA
 from products.revenue_analytics.backend.views.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
@@ -212,6 +220,72 @@ class TestMRRViewsE2E(ClickhouseTestMixin, QueryMatchingTest, APIBaseTest):
                 ("stripe.posthog_test", "cus_6", "sub_6", Decimal("0")),
             ],
         )
+
+    def test_excluded_product_ids_drop_revenue_items_and_mrr(self) -> None:
+        with (Path(__file__).parent / "data" / "stripe_invoices.csv").open() as invoice_file:
+            invoices = list(csv.DictReader(invoice_file))
+        for month, product_id in [(4, "prod_2"), (5, "prod_1")]:
+            invoices.append(
+                invoices[0]
+                | {
+                    "id": f"in_product_switch_{month}",
+                    "customer": "cus_product_switch",
+                    "subscription": "sub_product_switch",
+                    "lines": json.dumps(
+                        {
+                            "data": [
+                                {
+                                    "id": f"il_product_switch_{month}",
+                                    "amount": 10000,
+                                    "currency": "gbp",
+                                    "price": {"product": product_id},
+                                    "period": {
+                                        "start": int(datetime(2025, month, 1, tzinfo=UTC).timestamp()),
+                                        "end": int(datetime(2025, month + 1, 1, tzinfo=UTC).timestamp()),
+                                    },
+                                }
+                            ]
+                        }
+                    ),
+                }
+            )
+        invoice_csv = StringIO()
+        writer = csv.DictWriter(invoice_csv, fieldnames=list(invoices[0]))
+        writer.writeheader()
+        writer.writerows(invoices)
+        object_storage.write(
+            f"{INVOICES_TEST_BUCKET}{settings.XDIST_SUFFIX}/{self.invoices_table.name}/data.csv",
+            invoice_csv.getvalue(),
+        )
+
+        self.source.revenue_analytics_config.excluded_product_ids = ["prod_1"]
+        self.source.revenue_analytics_config.save()
+
+        revenue_items = self._execute_query(
+            ast.SelectQuery(
+                select=[ast.Field(chain=["product_id"])],
+                distinct=True,
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=[f"stripe.posthog_test.{REVENUE_ITEM_SCHEMA.source_suffix}"])
+                ),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["product_id"]))],
+            )
+        )
+        product_ids = [row[0] for row in revenue_items.results]
+        self.assertNotIn("prod_1", product_ids)
+        self.assertIn("prod_2", product_ids)
+
+        mrr = self._execute_query(
+            ast.SelectQuery(
+                select=[ast.Field(chain=["customer_id"]), ast.Field(chain=["mrr"])],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[f"stripe.posthog_test.{MRR_SCHEMA.source_suffix}"])),
+                order_by=[ast.OrderExpr(expr=ast.Field(chain=["customer_id"]))],
+            )
+        )
+        mrr_by_customer = dict(mrr.results)
+        self.assertEqual(mrr_by_customer["cus_1"], Decimal("0"))
+        self.assertEqual(mrr_by_customer["cus_2"], Decimal("40.8052916666"))
+        self.assertEqual(mrr_by_customer["cus_product_switch"], Decimal("0"))
 
     def test_query_output_events(self):
         self.team.revenue_analytics_config.events = [

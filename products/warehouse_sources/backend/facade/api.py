@@ -178,6 +178,7 @@ def _to_revenue_source(source: _ExternalDataSource) -> contracts.RevenueSource:
             )
             for schema in source.schemas.all()
         ),
+        excluded_product_ids=tuple(settings.excluded_product_ids) if settings is not None else (),
     )
 
 

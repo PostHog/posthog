@@ -19,6 +19,7 @@ from posthog.api.utils import action
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.revenue_analytics.backend.facade.api import remove_person_join
@@ -42,10 +43,28 @@ from . import base, helpers
 tracer = trace.get_tracer(__name__)
 
 
-class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
+MAX_EXCLUDED_PRODUCT_IDS = 100
+
+
+class ExternalDataSourceRevenueAnalyticsConfigSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
+    excluded_product_ids = serializers.ListField(
+        child=serializers.CharField(max_length=255, allow_blank=True),
+        required=False,
+        help_text=(
+            "Stripe product IDs whose invoice lines are left out of revenue analytics, for example a prepaid credit "
+            f"product that pays for other invoices. Charges without an invoice are not affected. Blank and duplicate IDs are dropped. At most {MAX_EXCLUDED_PRODUCT_IDS} IDs."
+        ),
+    )
+
     class Meta:
         model = ExternalDataSourceRevenueAnalyticsConfig
-        fields = ["enabled", "include_invoiceless_charges"]
+        fields = ["enabled", "include_invoiceless_charges", "excluded_product_ids"]
+
+    def validate_excluded_product_ids(self, value: list[str]) -> list[str]:
+        product_ids = list(dict.fromkeys(product_id for product_id in value if product_id))
+        if len(product_ids) > MAX_EXCLUDED_PRODUCT_IDS:
+            raise serializers.ValidationError(f"Exclude at most {MAX_EXCLUDED_PRODUCT_IDS} products.")
+        return product_ids
 
 
 class ExternalDataSourceConnectionMetadataSerializer(serializers.Serializer):
@@ -336,7 +355,9 @@ class ExternalDataSourceConnectionOptionsMixin(base.ExternalDataSourceViewSetBas
         external_data_source = self.get_object()
         config = external_data_source.revenue_analytics_config_safe
 
-        config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(config, data=request.data, partial=True)
+        config_serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(
+            config, data=request.data, partial=True, context=self.get_serializer_context()
+        )
         config_serializer.is_valid(raise_exception=True)
         config_serializer.save()
 

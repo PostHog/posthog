@@ -73,7 +73,25 @@ def _calculate_months_for_period(start_timestamp: ast.Expr, end_timestamp: ast.E
     )
 
 
-def build(handle: SourceHandle) -> BuiltQuery:
+def _invoice_item_where(excluded_product_ids: tuple[str, ...]) -> ast.Expr:
+    # Only include paid invoices because they're the ones that represent revenue
+    paid = ast.Field(chain=["paid"])
+    if not excluded_product_ids:
+        return paid
+
+    return ast.And(
+        exprs=[
+            paid,
+            ast.CompareOperation(
+                op=ast.CompareOperationOp.NotIn,
+                left=ast.Field(chain=["product_id"]),
+                right=ast.Tuple(exprs=[ast.Constant(value=product_id) for product_id in excluded_product_ids]),
+            ),
+        ]
+    )
+
+
+def build(handle: SourceHandle, *, apply_product_exclusions: bool = True) -> BuiltQuery:
     """
     Revenue Analytics Revenue Item View with Revenue Recognition Support
 
@@ -370,8 +388,7 @@ def build(handle: SourceHandle) -> BuiltQuery:
                         ),
                     ],
                     select_from=ast.JoinExpr(table=ast.Field(chain=[invoice_table.name])),
-                    # Only include paid invoices because they're the ones that represent revenue
-                    where=ast.Field(chain=["paid"]),
+                    where=_invoice_item_where(source.excluded_product_ids if apply_product_exclusions else ()),
                 ),
             ),
         )

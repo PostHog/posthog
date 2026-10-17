@@ -62,6 +62,10 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataSourceDestination,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
+from products.warehouse_sources.backend.presentation.views.external_data_source.connection_options import (
+    MAX_EXCLUDED_PRODUCT_IDS,
+    ExternalDataSourceRevenueAnalyticsConfigSerializer,
+)
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
     INVALID_CREDENTIALS_FALLBACK_MESSAGE,
@@ -9356,6 +9360,7 @@ class TestExternalDataSource(APIBaseTest):
             data={
                 "enabled": False,
                 "include_invoiceless_charges": False,
+                "excluded_product_ids": [" prod_credit ", "prod_credit", "", "prod_bonus"],
             },
         )
 
@@ -9367,12 +9372,14 @@ class TestExternalDataSource(APIBaseTest):
         config_data = payload["revenue_analytics_config"]
         assert config_data["enabled"] is False
         assert config_data["include_invoiceless_charges"] is False
+        assert config_data["excluded_product_ids"] == ["prod_credit", "prod_bonus"]
 
         # Verify in database
         source.refresh_from_db()
         config = source.revenue_analytics_config
         assert config.enabled is False
         assert config.include_invoiceless_charges is False
+        assert config.excluded_product_ids == ["prod_credit", "prod_bonus"]
 
     def test_revenue_analytics_config_partial_update(self):
         source = self._create_external_data_source()
@@ -14775,6 +14782,21 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.source_type == "Custom"
         assert source.created_via == ExternalDataSource.CreatedVia.MCP
+
+
+class TestRevenueAnalyticsConfigSerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("at_limit", MAX_EXCLUDED_PRODUCT_IDS, True),
+            ("over_limit", MAX_EXCLUDED_PRODUCT_IDS + 1, False),
+        ]
+    )
+    def test_excluded_product_ids_limit(self, _name: str, count: int, is_valid: bool) -> None:
+        serializer = ExternalDataSourceRevenueAnalyticsConfigSerializer(
+            data={"excluded_product_ids": [f"prod_{index}" for index in range(count)]}, partial=True
+        )
+
+        assert serializer.is_valid() is is_valid
 
 
 class TestGetDirectConnectionMetadata(SimpleTestCase):
