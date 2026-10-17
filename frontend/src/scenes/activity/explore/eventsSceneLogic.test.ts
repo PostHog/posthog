@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 
 import { FlagEvaluationsModeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
@@ -32,23 +33,29 @@ describe('eventsSceneLogic', () => {
         logic.mount()
     })
 
-    it('picks up a drill-down events query from the #q= hash', async () => {
-        // The "View events" persons-modal action deep-links here with an events DataTableNode in the hash.
-        const query: DataTableNode = {
-            kind: NodeKind.DataTableNode,
-            source: {
-                kind: NodeKind.EventsQuery,
-                select: ['*', 'event', 'person', 'timestamp'],
-                event: '$pageview',
-                after: 'all',
-            } as any,
-            full: true,
-        }
+    const drillDownQuery = (select?: string[]): DataTableNode => ({
+        kind: NodeKind.DataTableNode,
+        source: { kind: NodeKind.EventsQuery, ...(select ? { select } : {}), event: '$pageview', after: 'all' } as any,
+        full: true,
+    })
 
+    test.each<[string, DataTableNode, DataTableNode]>([
+        // The "View events" persons-modal action deep-links here with an events DataTableNode in the hash.
+        [
+            'a drill-down events query',
+            drillDownQuery(['*', 'event', 'person', 'timestamp']),
+            drillDownQuery(['*', 'event', 'person', 'timestamp']),
+        ],
+        [
+            'an events query without select',
+            drillDownQuery(),
+            drillDownQuery(defaultDataTableColumns(NodeKind.EventsQuery)),
+        ],
+    ])('picks up %s from the #q= hash', async (_, query, expected) => {
         router.actions.push(combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url)
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.query).toEqual(query)
+        expect(logic.values.query).toEqual(expected)
     })
 
     test.each<[string, FlagEvaluationsModeEnumApi, Partial<EventsQuery>, FlagCallsNote | null]>([
