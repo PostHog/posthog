@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from uuid import uuid4
 
@@ -17,10 +18,16 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.messaging.backend.facade.api import rewrite_template_content
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
+
+
+def _replace(blob: Any, old: str, new: str) -> tuple[Any, int]:
+    serialized = json.dumps(blob)
+    return json.loads(serialized.replace(old, new)), serialized.count(old)
 
 
 @patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
@@ -342,6 +349,22 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.json()["draft_content"]["email"] == draft["email"]
         assert response.json()["content"]["email"]["subject"] == "Reset your password"
         assert self._workflow(self.hog_flow_id)["version"] == 1
+
+    def test_rewriting_a_transactional_templates_content_writes_a_new_workflow_version(
+        self, mock_post, _flag, _capture
+    ):
+        old_url, new_url = "https://assets.example.com/old.png", "https://assets.example.com/new.png"
+        template = self._template({"email": {"subject": "Welcome", "html": f"<img src='{old_url}' />"}})
+        hog_flow_id = make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
+
+        occurrences = rewrite_template_content(
+            template.id, lambda blob: _replace(blob, old_url, new_url), team_ids=[self.team.id], dry_run=False
+        )
+
+        assert occurrences == 1
+        workflow = self._workflow(hog_flow_id)
+        assert workflow["version"] == 2
+        assert workflow["actions"][1]["config"]["inputs"]["email"]["value"]["html"] == f"<img src='{new_url}' />"
 
     @parameterized.expand([("marketing_category",), ("no_email_content",)])
     def test_a_template_whose_workflow_was_deleted_takes_edits_it_could_not_send_with(
