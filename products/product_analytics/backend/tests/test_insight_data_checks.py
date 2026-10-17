@@ -17,7 +17,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
-from posthog.models import PropertyDefinition
+from posthog.models import PersonalAPIKey, PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
@@ -786,10 +786,24 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
                 True,
                 0,
             ),
+            (
+                "member_for_a_token_confined_to_the_project",
+                MEMBER_EMAIL,
+                [*CHECK_SCOPES, "organization_member:read", "organization:read"],
+                True,
+                0,
+                True,
+            ),
         ]
     )
     def test_matches_a_team_email_only_for_a_caller_who_may_read_it(
-        self, _name: str, email: str, scopes: list[str] | None, member_is_visible: bool, internal_user_events: int
+        self,
+        _name: str,
+        email: str,
+        scopes: list[str] | None,
+        member_is_visible: bool,
+        internal_user_events: int,
+        confined_to_the_project: bool = False,
     ) -> None:
         self._create_user(MEMBER_EMAIL)
         OrganizationDomain.objects.create(organization=self.organization, domain="acme.example", verified_at=NOW)
@@ -801,6 +815,8 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
         headers = {}
         if scopes is not None:
             headers = {"authorization": f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"}
+            if confined_to_the_project:
+                PersonalAPIKey.objects.filter(user=self.user).update(scoped_teams=[self.team.id])
             self.client.logout()
 
         response = self.client.post(

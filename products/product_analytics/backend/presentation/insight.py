@@ -102,7 +102,11 @@ from posthog.models.organization import Organization
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.permissions import TeamMemberStrictManagementPermission, get_authenticator_scopes
+from posthog.permissions import (
+    TeamMemberStrictManagementPermission,
+    get_authenticator_scoped_team_ids,
+    get_authenticator_scopes,
+)
 from posthog.query_cache import QueryCache
 from posthog.query_scan.serve import hydrate_scan_summary
 from posthog.rate_limit import (
@@ -2617,10 +2621,15 @@ When set, the specified dashboard's filters and date range override will be appl
         return Response(InsightDataChecksSerializer(checks).data)
 
     def _team_email_access(self) -> TeamEmailAccess:
-        # A session has no scopes. A token may only match the emails it could read through the organization's API.
-        scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        # A session has no scopes. A token may only match the emails it could read through the organization's API,
+        # which rejects a token confined to some projects.
+        authenticator = self.request.successful_authenticator
+        scopes = get_authenticator_scopes(authenticator)
+        project_scoped = bool(get_authenticator_scoped_team_ids(authenticator))
 
         def holds(scope: str) -> bool:
+            if project_scoped:
+                return False
             return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [scope])
 
         return TeamEmailAccess(
