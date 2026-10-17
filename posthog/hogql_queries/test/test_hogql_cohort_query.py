@@ -541,6 +541,48 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn(str(new_person.uuid), member_ids)
         self.assertNotIn(str(old_person.uuid), member_ids)
 
+    def test_person_property_operators_calculate_cohort_membership(self) -> None:
+        first = _create_person(
+            team=self.team,
+            distinct_ids=["first"],
+            properties={"email": "first@example.com", "birth_date": "2000-01-01"},
+            immediate=True,
+        )
+        second = _create_person(
+            team=self.team,
+            distinct_ids=["second"],
+            properties={"email": "second@example.org"},
+            immediate=True,
+        )
+        flush_persons_and_events()
+
+        for key, operator, value, expected in (
+            ("email", "starts_with", "first", first),
+            ("email", "not_starts_with", "first", second),
+            ("email", "ends_with", ".org", second),
+            ("email", "not_ends_with", ".org", first),
+            ("birth_date", "is_set", None, first),
+            ("birth_date", "is_not_set", None, second),
+        ):
+            with self.subTest(operator=operator):
+                cohort = Cohort.objects.create(
+                    team=self.team,
+                    name=f"{operator} cohort",
+                    filters={
+                        "properties": {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "type": "AND",
+                                    "values": [{"key": key, "type": "person", "operator": operator, "value": value}],
+                                }
+                            ],
+                        }
+                    },
+                )
+                cohort.calculate_people_ch(pending_version=0)
+                self.assertEqual(self._cohort_member_ids(cohort, 0), {str(expected.uuid)})
+
     def _cohort_member_ids(self, cohort: Cohort, version: int) -> set[str]:
         rows = sync_execute(
             "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
