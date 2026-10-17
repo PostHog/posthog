@@ -2461,6 +2461,18 @@ class TestPrinter(BaseTest):
     def test_select_cross_join_subquery_uses_generated_alias(self, _name: str, query: str) -> None:
         self.assertIn("AS __join_1", self._select(query))
 
+    @parameterized.expand(
+        [
+            ("cross_join", "SELECT 1 FROM (SELECT 1) CROSS JOIN (SELECT 2)"),
+            ("inner_join", "SELECT 1 FROM (SELECT 1 AS a) INNER JOIN (SELECT 1 AS b) ON a = b"),
+        ]
+    )
+    def test_select_first_subquery_in_join_uses_generated_alias(self, _name: str, query: str) -> None:
+        printed = self._select(query)
+
+        self.assertIn("AS __join_1", printed)
+        self.assertIn("AS __join_2", printed)
+
     def test_select_cross_join_subquery_avoids_later_alias(self) -> None:
         printed = self._select("SELECT 1 FROM events CROSS JOIN (SELECT 1) CROSS JOIN events AS __join_1")
 

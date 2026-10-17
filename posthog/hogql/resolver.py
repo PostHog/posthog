@@ -1592,7 +1592,7 @@ class Resolver(CloningVisitor):
             if node.alias is None:
                 if self._join_chain_has_using(node):
                     node.alias = self._synthesize_using_join_alias(scope)
-                elif node.join_type is not None:
+                elif node.join_type is not None or node.next_join is not None:
                     node.alias = self._synthesize_join_alias(scope, node)
 
             node.table = cast("ast.SelectQuery | ast.SelectSetQuery", super().visit(node.table))
