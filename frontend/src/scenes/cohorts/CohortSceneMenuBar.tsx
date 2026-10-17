@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconClock, IconCopy, IconLetter, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
+import { IconClock, IconCopy, IconLetter, IconPlus, IconRefresh, IconSend, IconTrash } from '@posthog/icons'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { SceneMenuBarAddToNotebook } from 'lib/components/Scenes/SceneMenuBarAddToNotebook'
@@ -25,6 +25,8 @@ import { CohortType } from '~/types'
 
 import { captureMessageAudienceClicked } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
+import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+
 const RESOURCE_TYPE = 'cohort'
 
 export function CohortSceneMenuBar({ id }: { id?: CohortType['id'] }): JSX.Element | null {
@@ -37,8 +39,10 @@ export function CohortSceneMenuBar({ id }: { id?: CohortType['id'] }): JSX.Eleme
 
 function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element | null {
     const logic = cohortEditLogic({ id })
-    const { cohort, cohortLoading } = useValues(logic)
-    const { duplicateCohort, deleteCohort, restoreCohort } = useActions(logic)
+    const { cohort, cohortLoading, staticCohortMode } = useValues(logic)
+    const { duplicateCohort, deleteCohort, restoreCohort, setCsvUploadModalOpen } = useActions(logic)
+    const modalLogic = addPersonToCohortModalLogic({ id })
+    const { showAddPersonToCohortModal } = useActions(modalLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     if (!cohort) {
@@ -153,6 +157,29 @@ function CohortSceneMenuBarInner({ id }: { id?: CohortType['id'] }): JSX.Element
             </SceneMenuBarMenu>
             {!isDeleted && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                    {!isNewCohort && cohort.is_static && staticCohortMode === 'people' && (cohort.count ?? 0) > 0 && (
+                        <>
+                            <SceneMenuBarSubMenu label="Add users">
+                                <SceneMenuBarItem
+                                    onClick={() => setCsvUploadModalOpen(true)}
+                                    opensFloatingUi
+                                    data-attr={`${RESOURCE_TYPE}-menubar-upload-csv`}
+                                >
+                                    <IconPlus />
+                                    Upload a CSV
+                                </SceneMenuBarItem>
+                                <SceneMenuBarItem
+                                    onClick={showAddPersonToCohortModal}
+                                    opensFloatingUi
+                                    data-attr={`${RESOURCE_TYPE}-menubar-add-users-manually`}
+                                >
+                                    <IconPlus />
+                                    Add users manually
+                                </SceneMenuBarItem>
+                            </SceneMenuBarSubMenu>
+                            <SceneMenuBarSeparator />
+                        </>
+                    )}
                     <SceneMenuBarItem
                         onClick={() => duplicateCohort(false)}
                         disabled={isNewCohort || cohort.is_static === true || (cohort.is_calculating ?? false)}

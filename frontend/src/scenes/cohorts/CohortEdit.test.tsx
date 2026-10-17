@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -9,6 +9,7 @@ import { NEW_COHORT } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { urls } from 'scenes/urls'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
@@ -637,6 +638,7 @@ describe('cohortEditLogic', () => {
 
     describe('add users controls on an existing people cohort', () => {
         afterEach(() => {
+            act(() => navigation3000Logic.actions.setZenMode(false, 'url'))
             cleanup()
         })
 
@@ -671,6 +673,30 @@ describe('cohortEditLogic', () => {
                 expect(dropzone).not.toBeInTheDocument()
                 expect(addUsersMenu).toBeInTheDocument()
             }
+        })
+
+        it('keeps the add users controls available in zen mode', async () => {
+            const cohortId = 23
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        ...mockCohort,
+                        id: cohortId,
+                        name: 'People cohort 3',
+                        is_static: true,
+                        filters: { properties: { type: 'OR', values: [] } },
+                        count: 3,
+                    },
+                },
+            })
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findAllByText('People cohort 3')
+            act(() => navigation3000Logic.actions.setZenMode(true, 'url'))
+
+            expect(await screen.findByText('Upload a CSV')).toBeInTheDocument()
+            expect(screen.getByRole('button', { name: 'Add users manually' })).toBeInTheDocument()
+            expect(screen.getByText('Drag a file here or click to browse for a file')).toBeInTheDocument()
         })
     })
 

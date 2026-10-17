@@ -50,6 +50,7 @@ import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
+import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -250,11 +251,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { zenMode } = useValues(navigation3000Logic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const isPeopleStaticCohort = cohort.is_static && staticCohortMode === 'people'
-    // Once the cohort has people, the add-users controls move into a compact menu next to Save.
-    const showAddUsersMenu = !isNewCohort && isPeopleStaticCohort && (cohort.count ?? 0) > 0
+    const hasAddUsersMenu = !isNewCohort && isPeopleStaticCohort && (cohort.count ?? 0) > 0
+    const showAddUsersMenu = hasAddUsersMenu && !zenMode
     const broadcastDisabledReason = cohortBroadcastDisabledReason(cohort)
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
     const warningLogic = cohortCountWarningLogic({ cohort, query: effectiveQuery, dataNodeLogicKey })
@@ -759,6 +761,18 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
                                                 />
                                             )}
                                         </LemonField>
+                                        {!isNewCohort && zenMode && (
+                                            <>
+                                                <LemonDivider label="OR" />
+                                                <LemonButton
+                                                    type="secondary"
+                                                    onClick={showAddPersonToCohortModal}
+                                                    data-attr="cohort-add-users-modal-open"
+                                                >
+                                                    Add users manually
+                                                </LemonButton>
+                                            </>
+                                        )}
                                     </SceneSection>
                                     {isNewCohort && (
                                         <>
