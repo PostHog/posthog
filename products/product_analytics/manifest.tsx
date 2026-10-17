@@ -108,7 +108,8 @@ export const manifest: ProductManifest = {
             name: 'Insight',
             iconType: 'product_analytics',
             href: (ref: string) => urls.insightView(ref as InsightShortId),
-            listHref: (query?: FileSystemListQuery) => combineUrl(urls.savedInsights(), { search: query?.search }).url,
+            listHref: (query?: FileSystemListQuery) =>
+                combineUrl(urls.savedInsights(), { search: query?.searchText }).url,
             iconColor: ['var(--color-product-product-analytics-light)'],
             filterKey: 'insight',
         },

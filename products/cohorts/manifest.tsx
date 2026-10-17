@@ -35,7 +35,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-cohorts-dark)',
             ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
-            listHref: (query?: FileSystemListQuery) => combineUrl(urls.cohorts(), { search: query?.search }).url,
+            listHref: (query?: FileSystemListQuery) => combineUrl(urls.cohorts(), { search: query?.searchText }).url,
             filterKey: 'cohort',
         },
     },

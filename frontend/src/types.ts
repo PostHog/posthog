@@ -7890,18 +7890,14 @@ export interface CoreMemory {
 
 export type FileSystemIconColor = [string] | [string, string]
 
-/** A search that a list page can open with, such as from Command K's "View all" row. Empty parts are omitted. */
 export interface FileSystemListQuery {
-    /** The text that is not a filter */
-    search?: string
-    /** The filters other than the type, then the text, in Command K syntax: `createdBy:me -in:Growth checkout` */
-    query?: string
+    searchText?: string
+    queryWithoutType?: string
 }
 
 export interface FileSystemType {
     href?: (ref: string) => string
-    // The product's own list page, which Library opens for this type instead of its generic table.
-    // A page that reads a search from its URL can build it from the query; others ignore it.
+    // The product's own list page, which Library opens for this type instead of its generic table
     listHref?: (query?: FileSystemListQuery) => string
     // Visual name of the product
     name: string

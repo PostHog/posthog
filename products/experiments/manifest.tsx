@@ -54,7 +54,8 @@ export const manifest: ProductManifest = {
             name: 'Experiment',
             iconType: 'experiment',
             href: (ref: string) => urls.experiment(ref),
-            listHref: (query?: FileSystemListQuery) => combineUrl(urls.experiments(), { search: query?.search }).url,
+            listHref: (query?: FileSystemListQuery) =>
+                combineUrl(urls.experiments(), { search: query?.searchText }).url,
             iconColor: ['var(--color-product-experiments-light)'],
             filterKey: 'experiment',
         },

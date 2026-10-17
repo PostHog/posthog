@@ -22,7 +22,7 @@ export const manifest: ProductManifest = {
             name: 'Survey',
             iconType: 'survey',
             href: (ref: string) => urls.survey(ref),
-            listHref: (query?: FileSystemListQuery) => combineUrl(urls.surveys(), { search: query?.search }).url,
+            listHref: (query?: FileSystemListQuery) => combineUrl(urls.surveys(), { search: query?.searchText }).url,
             iconColor: ['var(--color-product-surveys-light)'],
             filterKey: 'survey',
         },

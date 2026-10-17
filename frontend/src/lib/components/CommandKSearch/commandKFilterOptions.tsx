@@ -9,7 +9,16 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { FileSystemListQuery, OrganizationMemberType, UserType } from '~/types'
 
-import { FilterOptions, QueryChip, ResolvedQuery, ValueOption, queryAsText, tokenize, unquote } from './commandKQuery'
+import {
+    FilterOptions,
+    QueryChip,
+    ResolvedQuery,
+    ValueOption,
+    parseToken,
+    queryAsText,
+    tokenize,
+    unquote,
+} from './commandKQuery'
 import type { ViewAll } from './commandKSections'
 
 /** Short words people type for a type, on top of its name and key. */
@@ -95,17 +104,22 @@ export function buildFilterOptions(
 
 /** List pages for types whose manifest registers no `listHref`. */
 const LIST_HREF_FALLBACKS: Record<string, (query: FileSystemListQuery) => string> = {
-    dashboard: ({ search }) => combineUrl(urls.dashboards(), { search }).url,
+    dashboard: ({ searchText }) => combineUrl(urls.dashboards(), { search: searchText }).url,
     notebook: () => urls.notebooks(),
 }
 
-/** Everything in the query except the type, which the list page already implies. */
+const includedWords = (freeText: string): string[] =>
+    tokenize(freeText)
+        .map((token) => token.raw)
+        .filter((raw) => !parseToken(raw).negated)
+        .map(unquote)
+
+const includedNames = (filters: QueryChip[]): string[] =>
+    filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
+
 const listQueryFor = (typeChip: QueryChip, { filters, freeText }: ResolvedQuery): FileSystemListQuery => ({
-    search:
-        tokenize(freeText)
-            .map((token) => unquote(token.raw))
-            .join(' ') || undefined,
-    query:
+    searchText: [...includedNames(filters), ...includedWords(freeText)].join(' ') || undefined,
+    queryWithoutType:
         queryAsText(
             freeText,
             filters.filter((filter) => filter !== typeChip)
