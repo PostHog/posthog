@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterable
 from dataclasses import field
 from typing import Literal, TypedDict
@@ -352,6 +353,49 @@ def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> 
     ).candidates
     reachable = [candidate for candidate in candidates if bot_is_ready(candidate)]
     return reachable if len(reachable) > 1 else []
+
+
+# Slack wraps links, user mentions and channel mentions in angle brackets.
+_SLACK_ENTITY_RE = re.compile(r"<[^<>]*>")
+_PROJECT_LINK_RE = re.compile(r"/project/(\d+)(?!\d)")
+_PROJECT_ID_RE = re.compile(r"(?<!\w)project\s+#?(\d+)(?!\w)", re.IGNORECASE)
+# A shorter name matches too many ordinary words.
+_MIN_PROJECT_NAME_LENGTH = 3
+
+
+def project_named_in_text(text: str, projects: list[Integration]) -> Integration | None:
+    """The one project that ``text`` names, or ``None``.
+
+    This is the cheap, deterministic subset of the ``project_route`` prompt rules, for the
+    webhook path where a model call does not fit the Slack ack budget. A project counts as
+    named by its id in a ``/project/<id>`` link or as ``project <id>``, or by its whole name
+    as a separate phrase. When one name is part of a longer one ("Fernwood" in "Fernwood
+    sandbox"), only the longer one counts. A message that names two projects names none.
+    """
+    by_team_id = {project.team_id: project for project in projects}
+    named: dict[int, Integration] = {}
+    for match in [*_PROJECT_LINK_RE.finditer(text), *_PROJECT_ID_RE.finditer(text)]:
+        project = by_team_id.get(int(match.group(1)))
+        if project is not None:
+            named[project.id] = project
+
+    plain_text = _SLACK_ENTITY_RE.sub(" ", text)
+    name_spans: list[tuple[int, int, Integration]] = []
+    for project in projects:
+        words = (project.team.name or "").split()
+        if len(" ".join(words)) < _MIN_PROJECT_NAME_LENGTH:
+            continue
+        pattern = re.compile(r"(?<!\w)" + r"\s+".join(re.escape(word) for word in words) + r"(?!\w)", re.IGNORECASE)
+        name_spans.extend((m.start(), m.end(), project) for m in pattern.finditer(plain_text))
+    for start, end, project in name_spans:
+        inside_longer_name = any(
+            other_start <= start and end <= other_end and (other_end - other_start) > (end - start)
+            for other_start, other_end, _ in name_spans
+        )
+        if not inside_longer_name:
+            named[project.id] = project
+
+    return next(iter(named.values())) if len(named) == 1 else None
 
 
 @frozen

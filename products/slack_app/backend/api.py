@@ -73,6 +73,7 @@ from products.slack_app.backend.services.integration_resolver import (
     UserResolutionFailure,
     load_integrations,
     pick_a_project_message,
+    project_named_in_text,
     resolve_from_candidates,
     resolve_user_for_workspace,
     unresolved_user_properties,
@@ -101,7 +102,7 @@ from products.slack_app.backend.services.slack_messages import (
     post_slack_thread_reply,
     unwrap_slack_links,
 )
-from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
+from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES, bot_is_ready
 from products.slack_app.backend.services.slack_settings import (
     resolve_channel_welcome_mode,
     resolve_untagged_followup_mode,
@@ -1860,6 +1861,40 @@ def _post_pick_a_project_hint(
     return _post_slack_user_feedback(probe, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
 
 
+def _project_named_in_mention(
+    event: dict[str, Any],
+    candidates: list[Integration],
+    slack_team_id: str,
+    *,
+    posthog_user: User,
+) -> Integration | None:
+    """The project an unrouted mention names in its text, so it needs no picker.
+
+    ``candidates`` holds only the projects this user can access. Installs that cannot
+    answer a mention are left out, the same as in ``routable_projects``.
+    """
+    text = event.get("text")
+    if not isinstance(text, str):
+        return None
+    named = project_named_in_text(text, [candidate for candidate in candidates if bot_is_ready(candidate)])
+    if named is None:
+        return None
+    logger.info(
+        "slack_app_project_named_in_mention",
+        slack_team_id=slack_team_id,
+        integration_id=named.id,
+        project_candidate_count=len(candidates),
+    )
+    capture_slack_event(
+        named,
+        "slack app project named in mention",
+        slack_user_id=event.get("user") if isinstance(event.get("user"), str) else None,
+        posthog_user=posthog_user,
+        candidate_count=len(candidates),
+    )
+    return named
+
+
 def _post_project_picker(
     candidates: list[Integration],
     event: dict[str, Any],
@@ -2960,6 +2995,10 @@ def route_posthog_code_event_to_relevant_region(
                 )
                 return ROUTE_HANDLED_LOCALLY
             mention_target = untagged_followup_mapping.integration
+        elif mention_target is None and (
+            named_target := _project_named_in_mention(event, candidates, slack_team_id, posthog_user=posthog_user)
+        ):
+            mention_target = named_target
         elif mention_target is None:
             picker_shown = _post_project_picker(
                 candidates,
