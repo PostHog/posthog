@@ -563,6 +563,19 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('taxonomic-filter-searchfield')).toHaveValue('')
         })
 
+        it('does not offer to show a category when the host owns the search input', async () => {
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+                hideSearchInput: true,
+                searchQuery: 'person',
+            })
+
+            await waitFor(() => {
+                expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
+            })
+            expect(inVisibleTab(screen.queryAllByTestId('taxonomic-show-group-person_properties'))).toBeUndefined()
+        })
+
         it('does not offer a jump to a render-backed group with no real matches', async () => {
             // SQL expression is render-backed: its affordance row makes totalListCount non-zero for
             // any query, but it has no actual search results. It must not produce a bogus jump button.

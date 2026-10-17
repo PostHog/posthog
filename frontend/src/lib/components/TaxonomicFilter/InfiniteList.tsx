@@ -727,6 +727,7 @@ function InfiniteListEmptyState(): JSX.Element {
         infiniteListCounts,
         infiniteListResultCounts,
         eventNames,
+        ownsSearchInput,
     } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab, setSearchQuery } = useActions(taxonomicFilterLogic)
     const { reportTaxonomicFilterCategorySelected } = useActions(eventUsageLogic)
@@ -756,7 +757,8 @@ function InfiniteListEmptyState(): JSX.Element {
         allSectionHasResults
 
     // A search for a category's name offers that whole category, and replaces the named jump to it below.
-    const namedGroupType = emptySearchQuery ? null : groupNamedBySearch(searchQuery, taxonomicGroupTypes)
+    const namedGroupType =
+        emptySearchQuery || !ownsSearchInput ? null : groupNamedBySearch(searchQuery, taxonomicGroupTypes)
     const namedGroupName = taxonomicGroups.find((g) => g.type === namedGroupType)?.name
 
     // Named jumps come first because they say where the match is. The "all" jump stays as the fallback.
