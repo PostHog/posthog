@@ -66,9 +66,11 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.models import Survey
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -409,6 +411,8 @@ class AutoProjectMiddleware:
                 # The token names no project the person can open. The address keeps the token,
                 # which tells them nothing about the project behind it.
                 if user.team:
+                    if item_redirect := self.redirect_to_project_of_item(request, path_parts):
+                        return item_redirect
                     request.project_access_denied = path_parts[1]  # type: ignore
 
             if len(path_parts) >= 2 and path_parts[0] == "project" and path_parts[1].isdigit():
@@ -430,6 +434,8 @@ class AutoProjectMiddleware:
                 except Team.DoesNotExist:
                     pass
                 if not switched and path_parts[0] == "project":
+                    if item_redirect := self.redirect_to_project_of_item(request, path_parts):
+                        return item_redirect
                     # We keep serving the user's own team here, so the app must say so instead of
                     # rendering that team under another project's address.
                     request.project_access_denied = path_parts[1]  # type: ignore
@@ -440,10 +446,25 @@ class AutoProjectMiddleware:
                 self.switch_team_if_needed_and_allowed(request, target_queryset)
         return self.get_response(request)
 
+    def redirect_to_project_of_item(self, request: HttpRequest, path_parts: list[str]) -> Optional[HttpResponse]:
+        # Links often carry another project's id, for example from docs or a teammate in another
+        # organization. When the item in the path lives in a project the person can open, send them there.
+        target_queryset = self.get_target_queryset_for_path_parts(path_parts[2:])
+        if target_queryset is None:
+            return None
+        user = cast(User, request.user)
+        self.switch_team_if_needed_and_allowed(request, target_queryset)
+        if user.team is None or not target_queryset.filter(team=user.team).exists():
+            return None
+        new_path = "/".join(["project", str(user.team.pk), *path_parts[2:]])
+        search_params = request.GET.urlencode()
+        return redirect(f"/{new_path}?{search_params}" if search_params else f"/{new_path}")
+
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
         # TODO: Remove this method, as all relevant links now have `project_id_in_url``
+        return self.get_target_queryset_for_path_parts(request.path.strip("/").split("/"))
 
-        path_parts = request.path.strip("/").split("/")
+    def get_target_queryset_for_path_parts(self, path_parts: list[str]) -> Optional[QuerySet]:
         # Sync the paths with urls.ts!
         if len(path_parts) >= 2:
             if path_parts[0] == "dashboard":
@@ -472,6 +493,18 @@ class AutoProjectMiddleware:
                 if cohort_id.isnumeric():
                     # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
                     return Cohort.objects.filter(deleted=False, id=cohort_id)
+            elif path_parts[0] == "experiments":
+                experiment_id = path_parts[1]
+                if experiment_id.isnumeric():
+                    # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
+                    return Experiment.objects.filter(deleted=False, id=experiment_id)
+            elif path_parts[0] == "surveys":
+                try:
+                    survey_id = uuid.UUID(path_parts[1])
+                except ValueError:
+                    return None
+                # nosemgrep: idor-lookup-without-team (permission check via middleware prevents access)
+                return Survey.objects.filter(id=survey_id)
         return None
 
     def switch_team_if_needed_and_allowed(self, request: HttpRequest, target_queryset: QuerySet):

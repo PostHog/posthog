@@ -54,6 +54,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
+from products.surveys.backend.models import Survey
 
 
 def _social_auth_backend() -> BaseAuth:
@@ -674,6 +675,31 @@ class TestAutoProjectMiddleware(APIBaseTest):
         assert project_2_request.status_code == 200
         assert response_users_api.json().get("team", {}).get("id") == self.team.id
         assert self.app_context(project_2_request)["project_access_denied"] == str(self.no_access_team.pk)
+
+    @parameterized.expand(
+        [
+            ("survey", lambda team: f"surveys/{Survey.objects.create(team=team, name='s', type='popover').id}"),
+            ("dashboard", lambda team: f"dashboard/{Dashboard.objects.create(team=team).id}"),
+        ]
+    )
+    def test_refused_project_redirects_to_own_project_when_item_is_there(self, _name, make_item_path):
+        item_path = make_item_path(self.team)
+
+        for refused_project in [str(self.no_access_team.pk), "999999", self.no_access_team.api_token]:
+            res = self.client.get(f"/project/{refused_project}/{item_path}?tab=results")
+
+            assert res.status_code == 302, refused_project
+            assert res.headers["Location"] == f"/project/{self.team.pk}/{item_path}?tab=results"
+
+    def test_refused_project_still_denied_when_item_is_in_refused_project(self):
+        survey = Survey.objects.create(team=self.no_access_team, name="s", type="popover")
+
+        res = self.client.get(f"/project/{self.no_access_team.pk}/surveys/{survey.id}")
+
+        assert res.status_code == 200
+        assert self.app_context(res)["project_access_denied"] == str(self.no_access_team.pk)
+        self.user.refresh_from_db()
+        assert self.user.current_team_id == self.team.pk
 
     def test_project_unchanged_when_accessing_missing_project_by_id(self):
         project_1_request = self.client.get(f"/project/{self.team.pk}/home")
