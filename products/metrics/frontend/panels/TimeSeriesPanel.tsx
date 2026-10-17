@@ -57,7 +57,8 @@ export function TimeSeriesPanel({
     const chartSeries = useMemo<Series[]>(() => {
         const names = formatSeriesNames(
             series.map((s) => ({ labels: s.labels, metric_name: s.metricName ?? undefined, clause: s.clause })),
-            fallbackName
+            fallbackName,
+            display?.legendFormat
         )
         return series.map((s, index) => {
             const data = s.points.map((p) => p.value ?? 0)
@@ -73,7 +74,7 @@ export function TimeSeriesPanel({
                 ...(partialFraction !== null ? { stroke: { partial: { fromIndex: data.length - 1 } } } : {}),
             }
         })
-    }, [series, fallbackName, isArea, partialFraction, query])
+    }, [series, fallbackName, display?.legendFormat, isArea, partialFraction, query])
     // `MetricsPanel` gives every series the same resolved unit, so the first series speaks for the chart.
     const unit = series[0]?.unit ?? undefined
     const plottedValues = useMemo(() => chartSeries.flatMap((s) => s.data), [chartSeries])

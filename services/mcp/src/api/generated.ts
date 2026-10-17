@@ -58128,6 +58128,14 @@ export namespace Schemas {
       rangeFunction?: MetricsRangeFunction | null;
     }
 
+    export type MetricsCombineSeries = typeof MetricsCombineSeries[keyof typeof MetricsCombineSeries];
+
+
+    export const MetricsCombineSeries = {
+      Max: 'max',
+      Min: 'min',
+    } as const;
+
     export type MetricsReducer = typeof MetricsReducer[keyof typeof MetricsReducer];
 
 
@@ -58198,9 +58206,13 @@ export namespace Schemas {
     }
 
     export interface MetricsDisplaySettings {
+      /** `stat` display only: collapse grouped series into one before reducing, keeping the highest (or lowest) series in each bucket, so the tile headlines the worst host instead of one card per host. */
+      combineSeries?: MetricsCombineSeries | null;
       goalLines?: GoalLine[] | null;
       /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
       legendCalcs?: MetricsReducer[] | null;
+      /** Series name template, Grafana's `legendFormat`: each `{{label}}` becomes that label's value, e.g. "{{service.name}} · {{host.name}}". Unset names a series by its `key=value` labels. */
+      legendFormat?: string | null;
       /** How a null bucket renders on a time-series chart. */
       nullMode?: MetricsNullMode | null;
       /** How scalar panels and legend calcs collapse a series to one number. */

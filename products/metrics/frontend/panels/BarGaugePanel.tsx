@@ -5,6 +5,7 @@ import { BarChart } from '@posthog/quill-charts'
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
 
+import { seriesLabelText } from '../components/metricsSeries'
 import { flattenSeriesRows } from './metricsReduce'
 import { thresholdColor } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
@@ -42,6 +43,15 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
         ],
         [rows, reducer, fallbackName, display.thresholds]
     )
+    // Bars run sideways so every series gets a readable label on its own row. A tile has a fixed
+    // height, so rows that do not fit are dropped from the bottom of the ranking instead of growing it.
+    const config = useMemo(
+        () => ({
+            axisOrientation: 'horizontal' as const,
+            bars: { fitToHeight: true, valueDomain: { min: display.yAxis?.min, max: display.yAxis?.max } },
+        }),
+        [display.yAxis?.min, display.yAxis?.max]
+    )
     // `MetricsPanel` gives every series the same resolved unit, so the first row speaks for the chart.
     const formatValue = useMemo(
         () =>
@@ -52,16 +62,8 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
         [rows, reducer]
     )
     const labels = useMemo(
-        () =>
-            rows.map(
-                (row) =>
-                    Object.entries(row.labels)
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join(', ') ||
-                    row.metricName ||
-                    fallbackName
-            ),
-        [rows, fallbackName]
+        () => rows.map((row) => seriesLabelText(row.labels, display.legendFormat) || row.metricName || fallbackName),
+        [rows, fallbackName, display.legendFormat]
     )
 
     if (rows.length === 0) {
@@ -73,6 +75,7 @@ export function BarGaugePanel({ series, display, fallbackName }: MetricsPanelPro
             <BarChart
                 series={chartSeries}
                 labels={labels}
+                config={config}
                 theme={theme}
                 tooltip={(ctx) => {
                     const row = rows[ctx.dataIndex]

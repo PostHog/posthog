@@ -38947,10 +38947,19 @@
             "enum": ["linear", "log"],
             "type": "string"
         },
+        "MetricsCombineSeries": {
+            "description": "How the `stat` display collapses grouped series into one.",
+            "enum": ["max", "min"],
+            "type": "string"
+        },
         "MetricsDisplaySettings": {
             "additionalProperties": false,
             "description": "Presentation only. The query engine never reads this, and it's stripped from the result cache key, so changing any of it re-renders without re-running the query.",
             "properties": {
+                "combineSeries": {
+                    "$ref": "#/definitions/MetricsCombineSeries",
+                    "description": "`stat` display only: collapse grouped series into one before reducing, keeping the highest (or lowest) series in each bucket, so the tile headlines the worst host instead of one card per host."
+                },
                 "goalLines": {
                     "items": {
                         "$ref": "#/definitions/GoalLine"
@@ -38963,6 +38972,10 @@
                         "$ref": "#/definitions/MetricsReducer"
                     },
                     "type": "array"
+                },
+                "legendFormat": {
+                    "description": "Series name template, Grafana's `legendFormat`: each `{{label}}` becomes that label's value, e.g. \"{{service.name}} · {{host.name}}\". Unset names a series by its `key=value` labels.",
+                    "type": "string"
                 },
                 "nullMode": {
                     "$ref": "#/definitions/MetricsNullMode",

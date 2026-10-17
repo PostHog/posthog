@@ -2226,6 +2226,11 @@ class MetricsAxisScale(StrEnum):
     LOG = "log"
 
 
+class MetricsCombineSeries(StrEnum):
+    MAX = "max"
+    MIN = "min"
+
+
 class MetricsDisplayType(StrEnum):
     LINE = "line"
     AREA = "area"
