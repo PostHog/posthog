@@ -116908,6 +116908,12 @@ export namespace Schemas {
          * @items.maxLength 1024
          */
       customValues?: string[] | null;
+      /**
+         * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group.
+         * @maxLength 1024
+         * @nullable
+         */
+      regex?: string | null;
       /** The current selection of the other dashboard variables that the query can refer to. */
       variables?: _MetricVariableSelection[];
       /**

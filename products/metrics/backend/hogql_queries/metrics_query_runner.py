@@ -216,12 +216,12 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
         if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
         try:
-            self._load_all_options()
+            self._load_all_options(dashboard_id)
         except ValueError as exc:
             raise ExposedHogQLError(str(exc)) from exc
         return super()._call_with_rate_limits(dashboard_id=dashboard_id)
 
-    def _load_all_options(self) -> dict[str, Variable]:
+    def _load_all_options(self, dashboard_id: int | None = None) -> dict[str, Variable]:
         if self._loaded_variables is None:
             self._enforce_alpha_gates_without_a_request_user()
             variables = from_query(self.query.variables)
@@ -235,7 +235,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     definitions=definitions,
                     date_from=date_range.date_from(),
                     date_to=date_range.date_to(),
-                    slot=partial(query_concurrency_slots, self.team),
+                    slot=partial(query_concurrency_slots, self.team, dashboard_id=dashboard_id),
                 )
             self._loaded_variables = variables
         return self._loaded_variables
