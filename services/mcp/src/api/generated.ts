@@ -5538,6 +5538,7 @@ export namespace Schemas {
     export interface ResultCustomizationByValue {
       assignmentBy?: 'value';
       color?: DataColorToken | null;
+      customColor?: string | null;
       hidden?: boolean | null;
     }
 
@@ -10626,6 +10627,14 @@ export namespace Schemas {
       xStartAtZero?: boolean | null;
     }
 
+    export type ValueLabelPosition = typeof ValueLabelPosition[keyof typeof ValueLabelPosition];
+
+
+    export const ValueLabelPosition = {
+      End: 'end',
+      Center: 'center',
+    } as const;
+
     export type DisplayType = typeof DisplayType[keyof typeof DisplayType];
 
 
@@ -10685,6 +10694,7 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      barGap?: number | null;
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
       chartStyle?: ChartStyle | null;
@@ -10711,8 +10721,14 @@ export namespace Schemas {
       showYAxisBorder?: boolean | null;
       /** Whether we fill the bars to 100% in stacked mode */
       stackBars100?: boolean | null;
+      valueLabelBackground?: boolean | null;
+      valueLabelFontSize?: number | null;
+      valueLabelPosition?: ValueLabelPosition | null;
+      valueLabelRotation?: number | null;
       xAxis?: ChartAxis | null;
+      xAxisDateFormat?: string | null;
       xAxisLabel?: string | null;
+      xAxisTickRotation?: number | null;
       yAxis?: ChartAxis[] | null;
       /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
       yAxisAtZero?: boolean | null;

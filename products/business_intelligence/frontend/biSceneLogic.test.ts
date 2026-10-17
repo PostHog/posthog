@@ -302,7 +302,7 @@ describe('biSceneLogic', () => {
         expect(logic.values.worksheet.config.source).toBeNull()
         const dataLogic = dataNodeLogic({
             key: logic.values.dataNodeKey,
-            query: logic.values.worksheet.source,
+            query: getBIVisualizationSource(logic.values.worksheet),
             autoLoad: false,
         })
         const unmount = dataLogic.mount()
