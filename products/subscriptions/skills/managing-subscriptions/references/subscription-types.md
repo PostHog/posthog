@@ -7,7 +7,7 @@ It rejects a subscription that combines resource fields.
 | Resource type | Source                      | Destinations        | AI behavior                         | Type-specific options                      |
 | ------------- | --------------------------- | ------------------- | ----------------------------------- | ------------------------------------------ |
 | `insight`     | One saved insight           | Email, Slack, Teams | Optional AI summary                 | No dashboard tile selection                |
-| `dashboard`   | 1 through 10 selected tiles | Email, Slack, Teams | Optional AI summary                 | Tile selection and Slack image layout      |
+| `dashboard`   | 1 through 20 selected tiles | Email, Slack, Teams | Optional AI summary                 | Tile selection and Slack image layout      |
 | `ai_prompt`   | One free-text prompt        | Email, Slack, Teams | AI report uses billable model calls | Analysis window and report display options |
 
 ## Insight snapshot
@@ -24,7 +24,7 @@ It does not accept `dashboard_export_insights` or `ai_prompt_config`.
 ## Dashboard snapshot
 
 Set `dashboard` to the numeric dashboard ID.
-Set `dashboard_export_insights` to 1 through 10 insight IDs from that dashboard.
+Set `dashboard_export_insights` to 1 through 20 insight IDs from that dashboard.
 
 Use `posthog:dashboard-get` to read the tiles.
 Ask the user which tiles to include.
