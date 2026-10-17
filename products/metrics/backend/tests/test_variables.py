@@ -87,6 +87,7 @@ def test_substitutes_promql(_name: str, expr: str, variable: Variable, expected:
     [
         ("label_replace_replacement", 'label_replace(up, "dst", "$name", "src", "(?P<name>.*)")', ()),
         ("label_join_separator", 'label_join(up, "dst", "$separator", "job", "env")', ("separator",)),
+        ("label_replace_regex_escape", 'label_replace(up, "dst", "matched", "src", "prefix\\\\$USD")', ()),
         ("matcher", 'up{job="$job"}', ("job",)),
     ]
 )
