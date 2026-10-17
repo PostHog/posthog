@@ -239,13 +239,25 @@ export function variablesToReload(previous: MetricsDashboardVariable[], next: Me
 const MAX_REGEX_SIZE = 10000
 
 /** About how many instructions RE2 compiles the pattern to: a counted repeat such as `{3}` copies what it repeats. */
+/** The index after the `\E` that ends the quote at `index`, or the end of the pattern. */
+function quotedEnd(pattern: string, index: number): number {
+    const end = pattern.indexOf('\\E', index + 2)
+    return end < 0 ? pattern.length : end + 2
+}
+
 function regexSize(pattern: string): number {
     const groups: number[] = [0]
     let last = 0
     let index = 0
     while (index < pattern.length) {
         const char = pattern[index]
-        if (char === '(') {
+        if (pattern.startsWith('\\Q', index)) {
+            // `\Q...\E` quotes its text, so a bracket or a count inside it is a literal character.
+            const end = quotedEnd(pattern, index)
+            last = 1
+            groups[groups.length - 1] += end - index
+            index = end
+        } else if (char === '(') {
             groups.push(0)
             last = 0
             index++
@@ -282,7 +294,11 @@ function withoutAnyByteClass(pattern: string): string {
     let inClass = false
     for (let index = 0; index < pattern.length; index++) {
         const char = pattern[index]
-        if (char === '\\') {
+        if (pattern.startsWith('\\Q', index)) {
+            const end = quotedEnd(pattern, index)
+            result += pattern.slice(index, end)
+            index = end - 1
+        } else if (char === '\\') {
             const next = pattern[index + 1] ?? ''
             result += !inClass && next === 'C' ? '.' : char + next
             index++
