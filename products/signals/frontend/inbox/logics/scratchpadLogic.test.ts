@@ -11,6 +11,7 @@ import { initKeaTests } from '~/test/init'
 import type { ScratchpadEntryApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { PANEL_LOAD_TIMEOUT_MS } from '../utils/panelLoadTimeout'
+import { forgetUnreachableReports } from '../utils/unreachableReports'
 import {
     SCRATCHPAD_FETCH_LIMIT,
     SCRATCHPAD_PREVIEW_CHARS,
@@ -65,6 +66,7 @@ describe('scratchpadLogic', () => {
     afterEach(() => {
         logic.unmount()
         jest.useRealTimers()
+        forgetUnreachableReports()
     })
 
     it('asks for previews rather than full bodies on the list read', async () => {
@@ -485,15 +487,20 @@ describe('scratchpadLogic', () => {
     // A stored null asserts the report is gone and stops the key being asked for again, so a
     // transient failure that stores one pins the row to its shortened UUID for the whole session.
     // Only a 404 is terminal; anything else has to stay unresolved for a later pass to retry.
+    // The 404 also has to outlive the mount, or every page load asks for the same dead id.
     it.each([
         [404, true],
         [500, false],
     ])('remembers a missing report title after status %s: %s', async (status, remembered) => {
         const reportId = '01a0918c-5f5f-74c4-b539-c634a8cb990a'
+        let reportRequests = 0
         useMocks({
             get: {
                 [SCRATCHPAD_URL]: () => [200, [entry(`judged:${reportId}`, 'note')]],
-                '/api/projects/:team_id/signals/reports/:id/': () => [status, {}],
+                '/api/projects/:team_id/signals/reports/:id/': () => {
+                    reportRequests += 1
+                    return [status, {}]
+                },
             },
         })
 
@@ -502,6 +509,13 @@ describe('scratchpadLogic', () => {
 
         expect(Object.hasOwn(logic.values.reportTitles, reportId)).toBe(remembered)
         expect(logic.values.unresolvedReportIds).toEqual(remembered ? [] : [reportId])
+
+        logic.unmount()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(reportRequests).toBe(remembered ? 1 : 2)
+        expect(Object.hasOwn(logic.values.reportTitles, reportId)).toBe(remembered)
     })
 
     // The harness writes every scout row under the canonical project, so a report a scratchpad key

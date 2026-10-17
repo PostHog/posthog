@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { createElement, Fragment } from 'react'
 
@@ -407,6 +407,11 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         deleteDashboardTemplateSuccess: async () => {
             refreshDashboardTemplateListsAfterMutation()
         },
+        openDashboardTemplateEditor: () => {
+            if (!values.templateSchema && !values.templateSchemaLoading) {
+                actions.getTemplateSchema()
+            }
+        },
         closeDashboardTemplateEditor: () => {
             actions.clear()
         },
@@ -492,7 +497,4 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getTemplateSchema()
-    }),
 ])

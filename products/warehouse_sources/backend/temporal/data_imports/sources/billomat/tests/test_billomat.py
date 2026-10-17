@@ -1,11 +1,9 @@
 import json
-from collections.abc import Iterable
 from datetime import date, datetime
-from typing import Any, cast
+from typing import Any
 
 import pytest
 from unittest import mock
-from unittest.mock import MagicMock, patch
 
 from requests import Response
 
@@ -14,35 +12,18 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.billomat.b
     BillomatResumeConfig,
     _extract_total_count,
     _format_date,
-    billomat_source,
     validate_credentials as validate_billomat_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source import BillomatSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.billomat import (
     BillomatRegisteredAppConfig,
     BillomatSourceConfig,
 )
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "Clients",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestFormatDate:
@@ -89,111 +70,69 @@ class TestBillomatPaginator:
 class TestBillomatSourceResumeBehavior:
     """End-to-end pagination/resume behaviour of ``billomat_source`` via ``rest_api_resource``."""
 
-    def _drive(
-        self,
-        endpoint: str,
-        manager: MagicMock,
-        responses: list[Response],
-        should_use_incremental_field: bool = False,
-        db_incremental_field_last_value: Any = None,
-    ) -> tuple[MagicMock, list[dict[str, Any]]]:
-        sent_params: list[dict[str, Any]] = []
-        response_iter = iter(responses)
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(BillomatSource(), BillomatSourceConfig(billomat_id="acme", api_key="test-key"))
 
-        def fake_send(request: Any, *_args: Any, **_kwargs: Any) -> Response:
-            sent_params.append(dict(request.params or {}))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.billomat.billomat.make_tracked_session"
-        ) as MockSession:
-            mock_session = MockSession.return_value
-            mock_session.headers = {}
-            mock_session.prepare_request.side_effect = lambda req: req
-            mock_session.send.side_effect = fake_send
-
-            resource = billomat_source(
-                api_key="test-key",
-                billomat_id="acme",
-                app_id=None,
-                app_secret=None,
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                resumable_source_manager=manager,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-                should_use_incremental_field=should_use_incremental_field,
-            )
-            list(cast(Iterable[Any], resource))
-            return mock_session, sent_params
+    @staticmethod
+    def _page(wrapper: str, item: str, row: dict[str, Any], total: str) -> ScriptedResponse:
+        return ScriptedResponse(json={wrapper: {item: [row], "total": total}})
 
     def test_fresh_run_saves_page_after_each_non_terminal_page(self) -> None:
         # `total` (2500) needs 3 pages at the real per_page (1000): pages 1 and 2 leave more
         # records than fetched so far, page 3 covers the rest and stops without a 4th request.
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run(
+            "Clients",
+            [
+                self._page("clients", "client", {"id": 1}, "2500"),
+                self._page("clients", "client", {"id": 2}, "2500"),
+                self._page("clients", "client", {"id": 3}, "2500"),
+            ],
+        )
 
-        responses = [
-            _make_http_response({"clients": {"client": [{"id": 1}], "total": "2500"}}),
-            _make_http_response({"clients": {"client": [{"id": 2}], "total": "2500"}}),
-            _make_http_response({"clients": {"client": [{"id": 3}], "total": "2500"}}),
-        ]
-        _, sent_params = self._drive("Clients", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [1, 2, 3]
-
-        saved = [call.args[0] for call in manager.save_state.call_args_list]
-        assert saved == [
+        assert result.raised is None
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+        assert result.saved_states == [
             BillomatResumeConfig(next_page=2),
             BillomatResumeConfig(next_page=3),
         ]
 
     def test_resume_seeds_paginator_with_saved_page(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = True
-        manager.load_state.return_value = BillomatResumeConfig(next_page=5)
+        result = self._driver().run(
+            "Clients",
+            [self._page("clients", "client", {"id": "50"}, "50")],
+            resume_state=BillomatResumeConfig(next_page=5),
+        )
 
-        responses = [_make_http_response({"clients": {"client": [{"id": "50"}], "total": "50"}})]
-        _, sent_params = self._drive("Clients", manager, responses)
-
-        assert [p.get("page") for p in sent_params] == [5]
-        manager.load_state.assert_called_once()
+        assert result.raised is None
+        assert result.params("page") == ["5"]
 
     def test_does_not_load_state_when_cannot_resume(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
+        result = self._driver().run("Clients", [self._page("clients", "client", {"id": "1"}, "1")])
 
-        responses = [_make_http_response({"clients": {"client": [{"id": "1"}], "total": "1"}})]
-        self._drive("Clients", manager, responses)
-
-        manager.load_state.assert_not_called()
+        assert result.raised is None
+        assert result.params("page") == ["1"]
 
     def test_incremental_run_sends_formatted_from_param(self) -> None:
-        manager = MagicMock(spec=ResumableSourceManager)
-        manager.can_resume.return_value = False
-
-        responses = [_make_http_response({"invoices": {"invoice": [{"id": "1"}], "total": "1"}})]
-        _, sent_params = self._drive(
+        result = self._driver().run(
             "Invoices",
-            manager,
-            responses,
+            [self._page("invoices", "invoice", {"id": "1"}, "1")],
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2024, 5, 1),
         )
 
-        assert sent_params[0]["from"] == "2024-05-01"
+        assert result.raised is None
+        assert result.requests[0].param("from") == "2024-05-01"
 
 
 class TestValidateCredentials:
-    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.billomat.billomat.make_tracked_session")
-    def test_registered_app_headers_included_when_both_present(self, mock_session_factory: MagicMock) -> None:
-        mock_session_factory.return_value.get.return_value = MagicMock(status_code=200)
+    def test_registered_app_headers_included_when_both_present(self) -> None:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_billomat_credentials("api-key", "acme", "app-1", "app-secret-1") is True
 
-        validate_billomat_credentials("api-key", "acme", "app-1", "app-secret-1")
-
-        headers = mock_session_factory.call_args.kwargs["headers"]
-        assert headers["X-AppId"] == "app-1"
-        assert headers["X-AppSecret"] == "app-secret-1"
+        assert network.requests_log[0].headers["x-appid"] == "app-1"
+        assert network.requests_log[0].headers["x-appsecret"] == "app-secret-1"
 
 
 class TestBillomatSource:
@@ -257,29 +196,28 @@ class TestBillomatSource:
         assert error_message == expected_message
         mock_validate.assert_called_once_with("test-key", "acme", None, None)
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source.billomat_source")
-    def test_source_for_pipeline_only_passes_last_value_when_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(
-            schema_name="Invoices",
+    def test_source_for_pipeline_only_passes_last_value_when_incremental(self) -> None:
+        result = SourceDriver(self.source, self.config).run(
+            "Invoices",
+            [ScriptedResponse(json={"invoices": {"invoice": [{"id": "1"}], "total": "1"}})],
             should_use_incremental_field=True,
             db_incremental_field_last_value=date(2024, 1, 1),
         )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+        assert result.raised is None
+        assert result.requests[0].param("from") == "2024-01-01"
 
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] == date(2024, 1, 1)
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.billomat.source.billomat_source")
-    def test_source_for_pipeline_passes_registered_app_credentials(self, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_passes_registered_app_credentials(self) -> None:
         config = BillomatSourceConfig(
             billomat_id="acme",
             api_key="test-key",
             registered_app=BillomatRegisteredAppConfig(app_id="app-1", app_secret="secret-1", enabled=True),
         )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, config).run(
+            "Clients",
+            [ScriptedResponse(json={"clients": {"client": [{"id": "1"}], "total": "1"}})],
+        )
 
-        self.source.source_for_pipeline(config, manager, _make_inputs())
-
-        assert mock_source.call_args.kwargs["app_id"] == "app-1"
-        assert mock_source.call_args.kwargs["app_secret"] == "secret-1"
+        assert result.raised is None
+        assert result.requests[0].headers["x-appid"] == "app-1"
+        assert result.requests[0].headers["x-appsecret"] == "secret-1"

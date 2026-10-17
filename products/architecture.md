@@ -449,6 +449,18 @@ If both presentation and logic need the same utility (caching, permissions, etc.
 
 User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
 
+A view that fetches a contract from the facade has no model instance for DRF's `get_object()` to check.
+It still checks object access through the same permission stack, with an `ObjectAccessRef` from `products/access_control/backend/facade/contracts.py` in place of the instance:
+
+- Override `safely_get_object()` to fetch the contract through the facade. `TeamAndOrgViewSetMixin` forbids overriding `get_object()` itself.
+- Build `ObjectAccessRef(resource=..., id=..., team_id=..., created_by_id=...)` from the contract and return it. Return `None` for a missing object, which becomes a 404.
+- The mixin's `get_object()` then calls `check_object_permissions` on the reference. Every permission class on the view runs, and `AccessControlPermission` resolves the object's access from the reference.
+- `LogEntryMixin` and `AppMetricsMixin` read only `.id` from `get_object()`, so they keep working without the model.
+- An action that needs the contract itself can fetch it, build the reference, and call `self.check_object_permissions(self.request, ref)` directly.
+
+Do not call `AccessControlPermission` methods by hand, and do not pass `UserAccessControl` or a required level into the facade.
+A resource that inherits access from a parent object (`RESOURCE_FALLBACK_MAP`) needs the model instance, and a reference for it raises.
+
 The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
 
 ### Why not mix with the facade?

@@ -1,45 +1,38 @@
-import json
 from typing import Any
-from urllib.parse import parse_qs, urlparse
 
 import pytest
 from unittest import mock
 
 import requests
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiceninja import (
+    InvoiceninjaSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja import (
     invoiceninja as invoiceninja_module,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.invoiceninja import (
     InvoiceNinjaHostNotAllowedError,
     InvoiceNinjaResumeConfig,
-    invoiceninja_source,
     normalize_base_url,
     validate_credentials,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.invoiceninja.source import InvoiceninjaSource
 
 
-def _response(*, status_code: int = 200, body: Any = None, location: str | None = None) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode() if body is not None else b""
-    if location is not None:
-        resp.headers["Location"] = location
-    return resp
-
-
-def _page(
+def _scripted_page(
     rows: list[dict[str, Any]],
     *,
     current_page: int | None = None,
     total_pages: int | None = None,
     links_next: Any = "__omit__",
-    with_meta: bool = True,
-) -> Response:
+) -> ScriptedResponse:
     pagination: dict[str, Any] = {}
     if current_page is not None:
         pagination["current_page"] = current_page
@@ -47,60 +40,11 @@ def _page(
         pagination["total_pages"] = total_pages
     if links_next != "__omit__":
         pagination["links"] = {"next": links_next}
-    body: dict[str, Any] = {"data": rows}
-    if with_meta:
-        body["meta"] = {"pagination": pagination}
-    return _response(body=body)
+    return ScriptedResponse(json={"data": rows, "meta": {"pagination": pagination}})
 
 
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[requests.PreparedRequest]:
-    """Wire a mock session; delegate prepare_request to a real session so auth + params are applied.
-
-    The framework mutates a single request/params dict in place across pages, so we snapshot each
-    prepared request (its URL carries the page/per_page query and its headers carry the auth) as the
-    client prepares it, then return canned responses from ``send``.
-    """
-    session.headers = {}
-    real = requests.Session()
-    prepared: list[requests.PreparedRequest] = []
-
-    def _prepare(request: Any) -> requests.PreparedRequest:
-        real.headers.clear()
-        real.headers.update(session.headers)
-        p = real.prepare_request(request)
-        prepared.append(p)
-        return p
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return prepared
-
-
-def _make_manager(resume_state: InvoiceNinjaResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _source(manager: mock.MagicMock, *, base_url: str | None = None, endpoint: str = "clients") -> Any:
-    return invoiceninja_source(
-        base_url=base_url,
-        api_token="tok",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _page_qs(prepared: requests.PreparedRequest) -> list[str]:
-    assert prepared.url is not None
-    return parse_qs(urlparse(prepared.url).query)["page"]
+def _driver(base_url: str | None = None) -> SourceDriver:
+    return SourceDriver(InvoiceninjaSource(), InvoiceninjaSourceConfig(api_token="tok", base_url=base_url))
 
 
 class TestNormalizeBaseUrl:
@@ -123,174 +67,130 @@ class TestNormalizeBaseUrl:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, response=None, raises=None):
-        session = mock.MagicMock()
-        if raises is not None:
-            session.get.side_effect = raises
-        else:
-            session.get.return_value = response
-        return mock.patch.object(invoiceninja_module, "make_tracked_session", return_value=session)
-
-    def _resp(self, *, status_code=200, json_data=None, text=""):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        response.is_redirect = status_code in (301, 302, 303, 307, 308)
-        response.is_permanent_redirect = status_code in (301, 308)
-        response.text = text
-        response.json.return_value = json_data
-        return response
-
     def test_invalid_token_401(self):
-        with self._patch_session(self._resp(status_code=401)):
+        with scripted_network([ScriptedResponse(status=401)]):
             valid, msg = validate_credentials(None, "tok")
             assert valid is False
             assert msg == "Invalid Invoice Ninja API token"
 
     def test_invalid_token_403_message_always_fails(self):
         # A bad Invoice Ninja token returns 403 {"message": "Invalid token"} — reject it even at create.
-        response = self._resp(status_code=403, json_data={"message": "Invalid token"})
-        with self._patch_session(response):
+        with scripted_network([ScriptedResponse(status=403, json={"message": "Invalid token"})]):
             valid, msg = validate_credentials(None, "tok", schema_name=None)
             assert valid is False
             assert msg == "Invalid Invoice Ninja API token"
 
     def test_permission_403_at_source_create_is_accepted(self):
         # A 403 without the "Invalid token" message is a restricted (enterprise) token, not a bad one.
-        response = self._resp(status_code=403, json_data={"message": "This action is unauthorized."})
-        with self._patch_session(response):
+        with scripted_network([ScriptedResponse(status=403, json={"message": "This action is unauthorized."})]):
             assert validate_credentials(None, "tok", schema_name=None) == (True, None)
 
     def test_permission_403_for_scoped_probe_fails(self):
-        response = self._resp(status_code=403, json_data={"message": "This action is unauthorized."})
-        with self._patch_session(response):
+        with scripted_network([ScriptedResponse(status=403, json={"message": "This action is unauthorized."})]):
             valid, msg = validate_credentials(None, "tok", schema_name="invoices")
             assert valid is False
             assert msg is not None
 
     def test_request_exception_returns_failure(self):
-        with self._patch_session(raises=requests.exceptions.ConnectionError("boom")):
+        with scripted_network(always(requests.exceptions.ConnectionError("boom"))):
             valid, msg = validate_credentials(None, "tok")
             assert valid is False
             assert "boom" in (msg or "")
 
     def test_rejects_redirect_response(self):
-        with self._patch_session(self._resp(status_code=302)) as patched:
+        with scripted_network(
+            [ScriptedResponse(status=302, headers={"Location": "https://elsewhere.example.com"})]
+        ) as network:
             valid, msg = validate_credentials(None, "tok")
             assert valid is False
             assert msg == invoiceninja_module.HOST_NOT_ALLOWED_ERROR
-            assert patched.return_value.get.call_args.kwargs["allow_redirects"] is False
+            assert len(network.requests_log) == 1
 
     def test_blocks_unsafe_host(self):
-        with (
-            mock.patch.object(invoiceninja_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(self._resp(status_code=200)) as patched,
-        ):
-            valid, msg = validate_credentials("http://10.0.0.1", "tok", team_id=99)
-            assert valid is False
-            assert msg == "internal address"
-            patched.return_value.get.assert_not_called()
+        with mock.patch.object(invoiceninja_module, "_is_host_safe", return_value=(False, "internal address")):
+            with scripted_network([]) as network:
+                valid, msg = validate_credentials("http://10.0.0.1", "tok", team_id=99)
+                assert valid is False
+                assert msg == "internal address"
+                assert network.requests_log == []
 
     def test_probe_hits_configured_host_with_required_headers(self):
-        with self._patch_session(self._resp(status_code=200)) as patched:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials("https://invoices.example.com", "tok")
-            call = patched.return_value.get.call_args
-            assert call.args[0].startswith("https://invoices.example.com/api/v1/clients")
-            headers = call.kwargs["headers"]
-            assert headers["X-API-TOKEN"] == "tok"
-            assert headers["X-Requested-With"] == "XMLHttpRequest"
+            request = network.requests_log[0]
+            assert request.url.startswith("https://invoices.example.com/api/v1/clients")
+            assert request.headers["x-api-token"] == "tok"
+            assert request.headers["x-requested-with"] == "XMLHttpRequest"
 
     def test_redacts_token_in_telemetry(self):
         # The token rides in X-API-TOKEN, which the transport's name-based scrubber doesn't cover, so
         # it must be passed as a redact value to keep it out of captured HTTP samples.
-        with self._patch_session(self._resp(status_code=200)) as patched:
+        with scripted_network([ScriptedResponse(status=200)]) as network:
             validate_credentials(None, "tok")
-            assert patched.call_args.kwargs["redact_values"] == ("tok",)
+            assert network.session_options[0]["redact_values"] == ("tok",)
 
     def test_rejects_plaintext_http_before_sending_token(self):
         # A plaintext http:// URL would expose the X-API-TOKEN on the wire, so reject it without
         # ever issuing the token-bearing request.
-        with self._patch_session(self._resp(status_code=200)) as patched:
+        with scripted_network([]) as network:
             valid, msg = validate_credentials("http://invoices.example.com", "tok")
             assert valid is False
             assert msg == invoiceninja_module.HTTP_NOT_ALLOWED_ERROR
-            patched.return_value.get.assert_not_called()
+            assert network.requests_log == []
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_state(self, MockSession):
-        session = MockSession.return_value
-        prepared = _wire(session, [_page([{"id": "9"}], current_page=3, total_pages=3)])
-        manager = _make_manager(InvoiceNinjaResumeConfig(next_page=3))
-        rows = _rows(_source(manager))
+    def test_resumes_from_saved_state(self):
+        result = _driver().run(
+            "clients",
+            [_scripted_page([{"id": "9"}], current_page=3, total_pages=3)],
+            resume_state=InvoiceNinjaResumeConfig(next_page=3),
+        )
 
-        assert _page_qs(prepared[0]) == ["3"]
-        assert [r["id"] for r in rows] == ["9"]
+        assert result.params("page") == ["3"]
+        assert [row["id"] for row in result.rows] == ["9"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_links_next_when_page_counts_absent(self, MockSession):
+    def test_paginates_via_links_next_when_page_counts_absent(self):
         # Some deployments only expose `links.next` without current/total page counts.
-        session = MockSession.return_value
-        prepared = _wire(
-            session,
+        result = _driver().run(
+            "clients",
             [
-                _page([{"id": "1"}], links_next="https://next"),
-                _page([{"id": "2"}], links_next=None),
+                _scripted_page([{"id": "1"}], links_next="https://next"),
+                _scripted_page([{"id": "2"}], links_next=None),
             ],
         )
-        rows = _rows(_source(_make_manager()))
 
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 2
-        assert _page_qs(prepared[1]) == ["2"]
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert len(result.requests) == 2
+        assert result.params("page") == ["1", "2"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_empty_page_terminates(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_page([], current_page=1, total_pages=5)])
-        manager = _make_manager()
-        rows = _rows(_source(manager))
+    def test_empty_page_terminates(self):
+        result = _driver().run("clients", [_scripted_page([], current_page=1, total_pages=5)])
 
-        assert rows == []
-        assert session.send.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.rows == []
+        assert len(result.requests) == 1
+        assert result.saved_states == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_does_not_follow_redirects(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response(status_code=302, location="https://internal")])
+    def test_does_not_follow_redirects(self):
+        result = _driver().run("clients", [ScriptedResponse(status=302, headers={"Location": "https://internal"})])
         # With redirects disabled the framework rejects a 3xx before following it.
-        with pytest.raises(ValueError):
-            _rows(_source(_make_manager()))
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/api/v1/clients"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_passes_allow_redirects_false(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], current_page=1, total_pages=1)])
-        _rows(_source(_make_manager()))
-        assert session.send.call_args.kwargs["allow_redirects"] is False
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_redacts_token_in_telemetry(self, MockSession):
+    def test_redacts_token_in_telemetry(self):
         # The api_key auth carries the token, so the framework masks it in logs / raised errors by
         # passing it to the tracked session as a redact value.
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], current_page=1, total_pages=1)])
-        _rows(_source(_make_manager()))
-        assert MockSession.call_args.kwargs["redact_values"] == ("tok",)
+        result = _driver().run("clients", [_scripted_page([{"id": "1"}], current_page=1, total_pages=1)])
+        assert result.session_options[0]["redact_values"] == ("tok",)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_raises_when_host_not_allowed(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], current_page=1, total_pages=1)])
+    def test_raises_when_host_not_allowed(self):
         with mock.patch.object(invoiceninja_module, "_is_host_safe", return_value=(False, "internal address")):
-            with pytest.raises(InvoiceNinjaHostNotAllowedError):
-                _rows(_source(_make_manager()))
+            result = _driver().run("clients", [])
+        assert isinstance(result.raised, InvoiceNinjaHostNotAllowedError)
+        assert result.requests == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_raises_on_plaintext_http(self, MockSession):
+    def test_raises_on_plaintext_http(self):
         # A plaintext http:// URL must fail before the token-bearing request goes out.
-        session = MockSession.return_value
-        _wire(session, [_page([{"id": "1"}], current_page=1, total_pages=1)])
-        with pytest.raises(InvoiceNinjaHostNotAllowedError):
-            _rows(_source(_make_manager(), base_url="http://invoices.example.com"))
+        result = _driver(base_url="http://invoices.example.com").run("clients", [])
+        assert isinstance(result.raised, InvoiceNinjaHostNotAllowedError)
+        assert result.requests == []

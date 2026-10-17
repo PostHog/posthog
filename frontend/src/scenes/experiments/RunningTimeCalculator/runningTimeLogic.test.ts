@@ -2,9 +2,7 @@ import { api } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -57,26 +55,44 @@ const experiment = {
     version: 3,
 } as unknown as Experiment
 
-const metricResultsWithBaseline = [
-    {
-        metric_uuid: METRIC_UUID,
-        baseline: { key: 'control', number_of_samples: 600, sum: 120, sum_squares: 48 },
-        variant_results: [{ key: 'test', number_of_samples: 600, sum: 130, sum_squares: 52 }],
-    },
-] as any[]
+const metricResultWithBaseline = {
+    metric_uuid: METRIC_UUID,
+    baseline: { key: 'control', number_of_samples: 600, sum: 120, sum_squares: 48 },
+    variant_results: [{ key: 'test', number_of_samples: 600, sum: 130, sum_squares: 52 }],
+}
+
+// The latest completed run covers the one primary metric, so the metrics logic applies the baseline on mount.
+const latestRecalculation = {
+    id: 'recalc-1',
+    experiment_id: EXPERIMENT_ID,
+    status: 'completed',
+    trigger: 'manual',
+    total_metrics: 1,
+    completed_metrics: 1,
+    failed_metrics: 0,
+    metric_errors: {},
+    created_at: new Date().toISOString(),
+    started_at: new Date().toISOString(),
+    completed_at: new Date().toISOString(),
+    query_to: new Date().toISOString(),
+    result_source: 'recalculation',
+    results: [{ metric_uuid: METRIC_UUID, status: 'completed', result: metricResultWithBaseline, error_message: null }],
+}
 
 describe('runningTimeLogic', () => {
     let logic: ReturnType<typeof runningTimeLogic.build>
     let experimentLogicInstance: ReturnType<typeof experimentLogic.build>
+    let metricsLogicInstance: ReturnType<typeof experimentMetricsLogic.build>
     let getSpy: jest.SpyInstance | undefined
 
-    beforeEach(() => {
+    beforeEach(async () => {
         useMocks({
             get: {
                 '/api/projects/:team/experiments': { count: 0, next: null, previous: null, results: [] },
                 '/api/projects/:team/experiment_holdouts': { count: 0, next: null, previous: null, results: [] },
                 '/api/projects/:team/experiment_saved_metrics': { count: 0, next: null, previous: null, results: [] },
                 '/api/projects/:team/experiments/:id': experiment,
+                '/api/projects/:team/experiments/:id/metrics_recalculation/latest/': latestRecalculation,
             },
         })
         initKeaTests()
@@ -89,13 +105,16 @@ describe('runningTimeLogic', () => {
         experimentLogicInstance.mount()
         experimentLogicInstance.actions.setExperiment(experiment)
         experimentLogicInstance.actions.setUnmodifiedExperiment(experiment)
-        experimentLogicInstance.actions.setPrimaryMetricsResults(metricResultsWithBaseline)
+        metricsLogicInstance = experimentMetricsLogic({ experiment })
+        metricsLogicInstance.mount()
+        await expectLogic(metricsLogicInstance).toDispatchActions(['setCurrentRecalculation'])
     })
 
     afterEach(() => {
         getSpy?.mockRestore()
         getSpy = undefined
         logic?.unmount()
+        metricsLogicInstance?.unmount()
         experimentLogicInstance?.unmount()
     })
 
@@ -228,24 +247,23 @@ describe('runningTimeLogic', () => {
             expect(logic.values.isCalculating).toBe(false)
         })
 
-        it('follows the recalculation loading state when the recalculation flag is on', async () => {
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION], {
-                [FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]: true,
+        it('follows the recalculation loading state', async () => {
+            calculateRunningTimeMock.mockResolvedValue({
+                recommended_sample_size: 2000,
+                recommended_running_time_days: 20,
             })
-            const metricsLogicInstance = experimentMetricsLogic({ experiment })
-            metricsLogicInstance.mount()
 
             logic = runningTimeLogic({ experiment })
             logic.mount()
+            // The baseline fires the automatic estimate on mount; let it settle so only the recalculation state moves.
+            await expectLogic(logic).toDispatchActions(['loadAutomaticCalculationSuccess']).toFinishAllListeners()
+            expect(logic.values.isCalculating).toBe(false)
 
             metricsLogicInstance.actions.setRecalculationLoading(true)
             await expectLogic(logic).toMatchValues({ isCalculating: true })
 
             metricsLogicInstance.actions.setRecalculationLoading(false)
             await expectLogic(logic).toMatchValues({ isCalculating: false })
-
-            metricsLogicInstance.unmount()
         })
     })
 })

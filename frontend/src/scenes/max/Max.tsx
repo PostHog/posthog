@@ -34,6 +34,7 @@ import { SidePanelTab } from '~/types'
 import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
 import { DebugLogsMenu } from 'products/posthog_ai/frontend/api/primitives'
 import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
@@ -54,6 +55,12 @@ import { SandboxComposerSurfaces, Thread } from './Thread'
 const ReportAiPanel = lazyWithRetry(() =>
     import('products/signals/frontend/inbox/components/detail/ReportAiPanel').then((module) => ({
         default: module.ReportAiPanel,
+    }))
+)
+
+const ScoutAiPanel = lazyWithRetry(() =>
+    import('products/signals/frontend/inbox/components/config/scouts/ScoutAiPanel').then((module) => ({
+        default: module.ScoutAiPanel,
     }))
 )
 
@@ -170,9 +177,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { selectedTabOptions } = useValues(sidePanelStateLogic)
     const isNewView = effectivePhaiView === 'new'
     const isReportChat = !!sidePanel && selectedTabOptions === REPORT_AI_PANEL
-    const isTaskView = isNewView || isReportChat
+    const isScoutChat = !!sidePanel && selectedTabOptions === SCOUT_AI_PANEL
+    const isEntityChat = isReportChat || isScoutChat
+    const isTaskView = isNewView || isEntityChat
     const headerBackDisabled = isTaskView ? !panelCanGoBack : backButtonDisabled
-    const headerTitle = isReportChat ? 'PostHog AI' : chatTitle || 'PostHog AI'
+    const headerTitle = isEntityChat ? 'PostHog AI' : chatTitle || 'PostHog AI'
 
     const openAsMainFocusUrl = mainFocusUrl({
         isNewView: isTaskView,
@@ -188,6 +197,10 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 {isReportChat ? (
                     <Suspense fallback={<Spinner />}>
                         <ReportAiPanel panelId={MAX_SIDE_PANEL_ID} />
+                    </Suspense>
+                ) : isScoutChat ? (
+                    <Suspense fallback={<Spinner />}>
+                        <ScoutAiPanel panelId={MAX_SIDE_PANEL_ID} />
                     </Suspense>
                 ) : isNewView ? (
                     // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
@@ -257,7 +270,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <h3 className="flex-1 font-semibold mb-0 truncate text-sm ml-2">{headerTitle}</h3>
                     </Tooltip>
                 </div>
-                {!isReportChat && conversationId && !conversationHistoryVisible && !threadVisible && (
+                {!isEntityChat && conversationId && !conversationHistoryVisible && !threadVisible && (
                     <LemonButton
                         size="small"
                         icon={<IconPlus />}
@@ -267,7 +280,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         tooltipPlacement="bottom"
                     />
                 )}
-                {!isReportChat && conversationId && (
+                {!isEntityChat && conversationId && (
                     <ButtonPrimitive
                         onClick={() => {
                             copyToClipboard(
@@ -285,9 +298,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                 {/* The new view is the runner (always sandbox); legacy view only shows debug rows on a
                     sandbox conversation, so the menu stays hidden on LangGraph threads. */}
                 {(isTaskView || conversation?.agent_runtime === 'sandbox') && <DebugLogsMenu variant="primitive" />}
-                {/* Report mode renders the runner whichever view is selected, so in it the toggle would
+                {/* Report and scout modes render the runner whichever view is selected, so in it the toggle would
                     only flip the persisted default for the user's next PostHog AI session. */}
-                {!isReportChat && <PhaiViewToggle variant="primitive" />}
+                {!isEntityChat && <PhaiViewToggle variant="primitive" />}
                 <Link
                     buttonProps={{
                         iconOnly: true,

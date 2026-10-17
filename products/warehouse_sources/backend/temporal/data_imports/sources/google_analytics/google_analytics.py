@@ -12,10 +12,11 @@ from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.credentials import Credentials as OAuthCredentials
 
+from posthog.dataclasses import frozen
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_adapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -32,8 +33,9 @@ GA4_API_BASE = "https://analyticsdata.googleapis.com/v1beta"
 
 # GA4 standard properties retain aggregate report data well beyond event-level
 # retention, so a 2-year initial backfill is safe and matches what other GA4
-# connectors default to.
-HISTORY_DAYS = 730
+# connectors default to. Users with large properties can set a shorter window
+# when the backfill uses up the property's Data API token quota.
+DEFAULT_HISTORY_DAYS = 730
 
 # GA4 can re-state a day's aggregates for up to ~48h after the day ends
 # (processing latency), so incremental syncs re-fetch a small window before the
@@ -108,7 +110,7 @@ def _get_integration(integration_id: int, team_id: int) -> Integration:
 
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     integration = _get_integration(integration_id, team_id)
-    resolved = integration_secrets.get_secrets(["GOOGLE_ANALYTICS_APP_CLIENT_ID", "GOOGLE_ANALYTICS_APP_CLIENT_SECRET"])
+    resolved = credentials_service.get_secrets(["GOOGLE_ANALYTICS_APP_CLIENT_ID", "GOOGLE_ANALYTICS_APP_CLIENT_SECRET"])
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
@@ -269,9 +271,12 @@ def _run_report(
 
         if attempt == RUNREPORT_MAX_RETRIES:
             if is_quota:
+                logger.warning("ga4_runreport_quota_exhausted", property_id=pid)
                 raise GoogleAnalyticsQuotaExceededError(
-                    f"Data API quota for property '{pid}' still exhausted after "
-                    f"{RUNREPORT_MAX_RETRIES} retries (retryable)"
+                    f"Google Analytics Data API quota for property '{pid}' is used up. PostHog will retry "
+                    "when the quota refills. If this keeps happening, set a lower 'Days of history to sync "
+                    "initially' value on the source, or remove high-cardinality dimensions from your custom "
+                    "reports (retryable)"
                 )
             # A transient 5xx that never cleared — surface the HTTPError so Temporal retries the activity.
             response.raise_for_status()
@@ -322,26 +327,40 @@ def _today() -> dt.date:
     return dt.date.today()
 
 
-def _initial_start_date(today: dt.date) -> dt.date:
-    return today - dt.timedelta(days=HISTORY_DAYS)
+def _initial_start_date(today: dt.date, history_days: int | None = None) -> dt.date:
+    if history_days is None or history_days < 1:
+        history_days = DEFAULT_HISTORY_DAYS
+    return today - dt.timedelta(days=history_days)
 
 
-def _resolve_window(today: dt.date, db_incremental_field_last_value: Any) -> tuple[dt.date, dt.date]:
+@frozen
+class _SyncWindow:
+    start: dt.date
+    end: dt.date
+
+
+def _watermark_date(db_incremental_field_last_value: Any) -> dt.date | None:
+    if db_incremental_field_last_value is None:
+        return None
+    if isinstance(db_incremental_field_last_value, dt.datetime):
+        return db_incremental_field_last_value.date()
+    if isinstance(db_incremental_field_last_value, dt.date):
+        return db_incremental_field_last_value
+    return dt.date.fromisoformat(str(db_incremental_field_last_value)[:10])
+
+
+def _resolve_window(
+    today: dt.date, db_incremental_field_last_value: Any, history_days: int | None = None
+) -> _SyncWindow:
     # End at yesterday: today's aggregates are still accruing and would land as
     # permanently stale rows for schemas whose primary key is just `date`.
     end_date = today - dt.timedelta(days=1)
-    if db_incremental_field_last_value is None:
-        return _initial_start_date(today), end_date
+    last = _watermark_date(db_incremental_field_last_value)
+    if last is None:
+        return _SyncWindow(start=_initial_start_date(today, history_days), end=end_date)
 
-    if isinstance(db_incremental_field_last_value, dt.datetime):
-        last = db_incremental_field_last_value.date()
-    elif isinstance(db_incremental_field_last_value, dt.date):
-        last = db_incremental_field_last_value
-    else:
-        last = dt.date.fromisoformat(str(db_incremental_field_last_value)[:10])
-
-    start = max(last - dt.timedelta(days=LOOKBACK_DAYS), _initial_start_date(today))
-    return start, end_date
+    start = max(last - dt.timedelta(days=LOOKBACK_DAYS), _initial_start_date(today, history_days))
+    return _SyncWindow(start=start, end=end_date)
 
 
 def _iter_chunks(start: dt.date, end: dt.date) -> collections.abc.Iterator[tuple[dt.date, dt.date]]:
@@ -373,10 +392,13 @@ def google_analytics_source(
 
     def get_rows() -> collections.abc.Iterator[list[dict[str, Any]]]:
         today = _today()
-        start_date, end_date = _resolve_window(
+        window = _resolve_window(
             today,
             db_incremental_field_last_value if should_use_incremental_field else None,
+            config.history_days,
         )
+        start_date = window.start
+        end_date = window.end
 
         resume_chunk_start: str | None = None
         resume_offset = 0
@@ -391,6 +413,11 @@ def google_analytics_source(
                 start_date = max(start_date, dt.date.fromisoformat(resume_chunk_start))
 
         session = google_analytics_session(config.google_analytics_integration_id, team_id)
+        watermark = _watermark_date(db_incremental_field_last_value) if should_use_incremental_field else None
+        # A resumed attempt continues a run whose earlier attempts read every date before the saved chunk.
+        latest_date_read = (
+            dt.date.fromisoformat(resume_chunk_start) - dt.timedelta(days=1) if resume_chunk_start else None
+        )
 
         for chunk_start, chunk_end in _iter_chunks(start_date, end_date):
             chunk_start_iso = chunk_start.isoformat()
@@ -400,20 +427,39 @@ def google_analytics_source(
             while True:
                 # A safe point keeps the cursor saved after the last yield. The source holds no rows here.
                 resumable_source_manager.safe_point()
-                payload = _run_report(
-                    session=session,
-                    property_id=config.property_id,
-                    start_date=chunk_start_iso,
-                    end_date=chunk_end.isoformat(),
-                    dimensions=dimensions,
-                    metrics=metrics,
-                    offset=offset,
-                )
+                try:
+                    payload = _run_report(
+                        session=session,
+                        property_id=config.property_id,
+                        start_date=chunk_start_iso,
+                        end_date=chunk_end.isoformat(),
+                        dimensions=dimensions,
+                        metrics=metrics,
+                        offset=offset,
+                    )
+                except GoogleAnalyticsQuotaExceededError:
+                    # Rows arrive in date order, so an incremental run that ends here keeps them and the next run
+                    # re-reads the last date through the lookback window. A full refresh would replace the table,
+                    # and a run still inside the lookback window would leave the watermark where it was.
+                    advanced = latest_date_read is not None and (watermark is None or latest_date_read > watermark)
+                    if not (should_use_incremental_field and advanced):
+                        raise
+                    logger.warning(
+                        "Google Analytics Data API quota is used up. This sync keeps the rows it read, and the "
+                        "next sync continues from the last date it read.",
+                        property_id=config.property_id,
+                        chunk_start=chunk_start_iso,
+                        offset=offset,
+                    )
+                    return
                 rows = _rows_to_dicts(payload)
                 if not rows:
                     break
 
                 yield rows
+                last_row_date = rows[-1].get("date")
+                if isinstance(last_row_date, dt.date):
+                    latest_date_read = last_row_date
 
                 next_offset = offset + len(rows)
                 row_count = payload.get("rowCount", 0)

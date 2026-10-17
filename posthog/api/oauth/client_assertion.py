@@ -42,6 +42,15 @@ class ResolvedClientAssertion:
 
 CLIENT_ASSERTION_TYPE_JWT_BEARER = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
+PRIVATE_KEY_REQUIRED_MESSAGE = (
+    "Set token_endpoint_auth_method to private_key_jwt and publish a jwks_uri in your client metadata, "
+    "call client_registration, then sign a client_assertion."
+)
+UNREADABLE_CLIENT_ASSERTION_MESSAGE = (
+    f"Send client_assertion_type {CLIENT_ASSERTION_TYPE_JWT_BEARER} with the client_assertion, "
+    "and name the client in client_id or the assertion's sub claim."
+)
+
 
 # An assertion is a single-use credential presented immediately, so it needs no real
 # lifetime. Capping it bounds how long a captured assertion is replayable if the jti cache
@@ -73,18 +82,13 @@ class UnknownSigningKeyError(ClientAssertionError):
 
 
 def _request_field(request: Any, name: str) -> str:
-    """Read a field from the request body, falling back to the query string.
-
-    RFC 7523 section 2.2 sends these as form parameters, which a GET has nowhere to put. The
-    GitHub grant listing endpoint is a GET, so without the query-string fallback a
-    private_key_jwt client could not authenticate there at all, while a client_secret one
-    could (its credentials ride the Basic header). An assertion is single-use and capped at
-    MAX_ASSERTION_LIFETIME_SECONDS, so one appearing in an access log is already spent.
-    """
+    """Read a field from the request body, where RFC 7523 section 2.2 sends it as a form parameter."""
     from_body = request.data.get(name) if hasattr(request, "data") else None
-    if from_body:
-        return str(from_body)
-    return str(request.query_params.get(name) or "") if hasattr(request, "query_params") else ""
+    return str(from_body or "")
+
+
+def presents_client_assertion(request: Any) -> bool:
+    return bool(_request_field(request, "client_assertion"))
 
 
 def extract_client_assertion(request: Any) -> ResolvedClientAssertion | None:

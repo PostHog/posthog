@@ -3,9 +3,7 @@ import { useValues } from 'kea'
 import { IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { ExperimentMetric } from '~/queries/schema/schema-general'
 import { experimentLogic } from '~/scenes/experiments/experimentLogic'
@@ -34,39 +32,28 @@ export function Metrics({ isSecondary }: { isSecondary?: boolean }): JSX.Element
 }
 
 function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; isSecondary?: boolean }): JSX.Element {
-    const {
-        getInsightType,
-        orderedPrimaryMetricsWithResults,
-        orderedSecondaryMetricsWithResults,
-        hasMinimumExposureForResults,
-    } = useValues(experimentLogic)
+    const { hasMinimumExposureForResults } = useValues(experimentLogic)
     const {
         primaryMetricsResults,
         primaryMetricsResultsErrors,
         secondaryMetricsResults,
         secondaryMetricsResultsErrors,
     } = useValues(experimentMetricsLogic({ experiment }))
-    const { featureFlags } = useValues(featureFlagLogic)
-    const recalculationFlow = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]
 
     const type = isSecondary ? 'secondary' : 'primary'
 
-    const metricsWithResults = recalculationFlow
-        ? metricResults(experiment)(
-              isSecondary ? secondaryMetricsResults : primaryMetricsResults,
-              isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors,
-              type
-          )
-        : isSecondary
-          ? orderedSecondaryMetricsWithResults
-          : orderedPrimaryMetricsWithResults
+    const metricsWithResults = metricResults(experiment)(
+        isSecondary ? secondaryMetricsResults : primaryMetricsResults,
+        isSecondary ? secondaryMetricsResultsErrors : primaryMetricsResultsErrors,
+        type
+    )
 
     const metrics = metricsWithResults.map(({ metric }) => metric)
     const results = metricsWithResults.map(({ result }) => result)
     const errors = metricsWithResults.map(({ error }) => error)
-    const metricIndexes = metricsWithResults.map(({ metricIndex }) => metricIndex)
 
-    const showResultDetails = metrics.length === 1 && results[0] && hasMinimumExposureForResults && !isSecondary
+    // A single primary metric with a result shows its details inline under the table.
+    const detailResult = metrics.length === 1 && hasMinimumExposureForResults && !isSecondary ? results[0] : undefined
     const hasSomeResults =
         results?.some((result) => result?.variant_results && result.variant_results.length > 0) &&
         hasMinimumExposureForResults
@@ -102,34 +89,25 @@ function MetricsContent({ experiment, isSecondary }: { experiment: Experiment; i
                 </div>
             </div>
             {metrics.length > 0 ? (
-                showResultDetails ? (
+                detailResult ? (
                     <div className="rounded-md border bg-surface-primary overflow-hidden divide-y divide-border">
                         <MetricsTable
                             metrics={metrics}
                             results={results}
                             errors={errors}
-                            metricIndexes={metricIndexes}
                             isSecondary={!!isSecondary}
-                            getInsightType={getInsightType}
                             showDetailsModal={false}
                             embedded
                         />
                         <ResultDetails
                             metric={metrics[0] as ExperimentMetric}
-                            result={results[0]}
+                            result={detailResult}
                             experiment={experiment}
                             embedded
                         />
                     </div>
                 ) : (
-                    <MetricsTable
-                        metrics={metrics}
-                        results={results}
-                        errors={errors}
-                        metricIndexes={metricIndexes}
-                        isSecondary={!!isSecondary}
-                        getInsightType={getInsightType}
-                    />
+                    <MetricsTable metrics={metrics} results={results} errors={errors} isSecondary={!!isSecondary} />
                 )
             ) : (
                 <div className="border rounded bg-surface-primary pt-6 pb-8 text-secondary mt-2">

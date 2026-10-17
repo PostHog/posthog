@@ -64,7 +64,7 @@ COMPRESSION_OPTIONS = [*COMPRESSION_EXTENSIONS.keys(), None]
 
 TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
-        name="a-custom-model",
+        name="events",
         schema={
             "fields": [
                 {"expression": "uuid", "alias": "uuid"},
@@ -254,7 +254,7 @@ async def assert_clickhouse_records_in_s3(
         data_interval_end: End of the batch period for exported records.
         exclude_events: Event names to be excluded from the export.
         include_events: Event names to be included in the export.
-        batch_export_schema: Custom schema used in the batch export.
+        batch_export_model: Model used in the batch export.
         compression: Optional compression used in upload.
         file_format: Optional file format used in upload.
         backfill_details: Optional backfill details (this affects the query that is run to get the records).
@@ -283,7 +283,7 @@ async def assert_clickhouse_records_in_s3(
                 batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]
@@ -414,12 +414,11 @@ async def run_s3_batch_export_workflow(
     `destination_type` selects which input dataclass is constructed and passed to the workflow,
     so the test exercises the same per-destination inputs that production dispatches with.
     """
-    batch_export_schema: BatchExportSchema | None = None
     batch_export_model: BatchExportModel | None = None
     if isinstance(model, BatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_schema = model
+        batch_export_model = BatchExportModel(name="events", schema=model)
 
     exclude_events = s3_destination_config.get("exclude_events", None)
     file_format = s3_destination_config.get("file_format", "JSONLines")
@@ -446,7 +445,6 @@ async def run_s3_batch_export_workflow(
         data_interval_end=data_interval_end.isoformat(),
         interval=interval,
         batch_export_model=batch_export_model,
-        batch_export_schema=batch_export_schema,
         backfill_details=backfill_details,
         integration_id=integration_id,
         **s3_destination_config,
@@ -544,7 +542,6 @@ async def run_activity(activity_environment: ActivityEnvironment, insert_inputs:
                 run_id=None,
                 backfill_details=None,
                 batch_export_model=insert_inputs.batch_export_model,
-                batch_export_schema=insert_inputs.batch_export_schema,
                 destination_default_fields=s3_default_fields(),
             ),
         )

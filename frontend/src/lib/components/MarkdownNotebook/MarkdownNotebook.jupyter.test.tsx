@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from '@testing-library/react'
+import { act, fireEvent, render, waitFor, within } from '@testing-library/react'
 import { createElement, useCallback } from 'react'
 
 import { usePublishNotebookComponentRunHandler } from './componentRunHandlers'
@@ -27,18 +27,34 @@ function CodeEditorStandIn({ node }: NotebookComponentRenderProps): JSX.Element 
 
 const registry = createMarkdownNotebookRegistry([
     {
+        tagName: 'Comment',
+        label: 'Comment',
+        category: 'Text',
+        ViewComponent: () => createElement('div', null, 'A discussion'),
+    },
+    {
         tagName: 'Py',
         label: 'Python',
         category: 'Code',
         defaultProps: { code: '' },
+        insertCommand: {},
         ViewComponent: () => createElement('div', null, 'output'),
         EditComponent: CodeEditorStandIn,
         ToolbarComponent: RunPublisher,
     },
+    {
+        tagName: 'Sql',
+        label: 'SQL',
+        category: 'Code',
+        defaultProps: { code: '' },
+        insertCommand: {},
+        ViewComponent: () => createElement('div', null, 'output'),
+        EditComponent: CodeEditorStandIn,
+    },
 ])
 
 const jupyterMode: MarkdownNotebookJupyterModeConfig = {
-    cellTagNames: ['Py'],
+    cellTagNames: ['Py', 'Sql'],
     newCellTagName: 'Py',
     getCellSource: (node) => String(node.props.code ?? ''),
     withCellSource: (node, source) => ({ ...node, props: { ...node.props, code: source } }),
@@ -95,6 +111,45 @@ async function flushFrames(): Promise<void> {
 const TWO_CELLS = '# Title\n\nIntro\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />'
 
 describe('MarkdownNotebook in Jupyter mode', () => {
+    it.each(['Backspace', 'Delete'])('deletes only the focused discussion thread with %s', (key) => {
+        const notebook = renderJupyterNotebook(
+            '# Title\n\n<Comment ref="note" replies={[]} />\n\nA <ref id="note">useful</ref> paragraph.\n\nAnother paragraph.'
+        )
+        const thread = notebook.container.querySelector<HTMLElement>('.MarkdownNotebook__component-shell')!
+        act(() => thread.focus())
+        press(thread, key)
+        expect(notebook.latest()).toEqual('# Title\n\nA useful paragraph.\n\nAnother paragraph.')
+    })
+
+    it.each([
+        ['Add Python', 'Py'],
+        ['Add SQL', 'Sql'],
+    ])('%s appends the requested code cell and focuses its editor', async (label, tagName) => {
+        const notebook = renderJupyterNotebook(TWO_CELLS)
+        fireEvent.click(within(notebook.container).getByText(label))
+        await waitFor(() => expect(document.activeElement).toBe(notebook.editor(2)))
+        expect(notebook.latest()).toEqual(`${TWO_CELLS}\n\n<${tagName} code="" />`)
+    })
+
+    it('Add text starts a separate markdown cell ready for typing', async () => {
+        const notebook = renderJupyterNotebook('# Title\n\nExisting text')
+        fireEvent.click(within(notebook.container).getByText('Add text'))
+        const newParagraph = notebook.container.querySelectorAll<HTMLElement>('.MarkdownNotebook__text-block')[2]
+        await waitFor(() => expect(document.activeElement).toBe(newParagraph))
+        expect(newParagraph.textContent).toBe('')
+        newParagraph.textContent = 'More text'
+        fireEvent.input(newParagraph)
+        expect(notebook.latest()).toEqual('# Title\n\nExisting text\n\n\nMore text')
+    })
+
+    it('the footer slash button opens the insert menu at the end', async () => {
+        const notebook = renderJupyterNotebook(TWO_CELLS)
+        fireEvent.click(within(notebook.container).getByLabelText('Add a cell'))
+        const menu = await within(notebook.container).findByRole('listbox')
+        fireEvent.click(within(menu).getByText('Python'))
+        expect(notebook.latest()).toEqual(`${TWO_CELLS}\n\n\n<Py code="" />`)
+    })
+
     it.each([
         [
             'A inserts a cell above',
@@ -183,8 +238,9 @@ describe('MarkdownNotebook in Jupyter mode', () => {
         )
     })
 
-    it('leaves markdown edit mode with Escape and adds a code cell below with B', async () => {
-        const notebook = renderJupyterNotebook(TWO_CELLS)
+    it('keeps Shift+Enter as text input until Escape switches to cell commands', async () => {
+        const markdown = '# Title\n\nIntro'
+        const notebook = renderJupyterNotebook(markdown)
         const intro = [...notebook.container.querySelectorAll<HTMLElement>('[data-markdown-notebook-node-id]')].find(
             (element) => element.textContent === 'Intro'
         )!
@@ -196,15 +252,16 @@ describe('MarkdownNotebook in Jupyter mode', () => {
             window.getSelection()?.addRange(range)
         })
         const canvas = notebook.container.querySelector('.MarkdownNotebook__canvas') as HTMLElement
+        expect(fireEvent.keyDown(canvas, { key: 'Enter', shiftKey: true })).toBe(true)
+        expect(notebook.latest()).toEqual(markdown)
+
         press(canvas, 'Escape')
         await flushFrames()
         expect(document.activeElement).toBe(notebook.sink())
 
-        press(notebook.sink(), 'b')
+        press(notebook.sink(), 'Enter', { shiftKey: true })
         await flushFrames()
-        expect(notebook.latest()).toEqual(
-            '# Title\n\nIntro\n\n<Py code="" />\n\n<Py code="a = 1" />\n\n<Py code="b = 2" />'
-        )
+        expect(notebook.latest()).toEqual('# Title\n\nIntro\n\n<Py code="" />')
     })
 
     it('deletes every cell picked with Shift+Down', async () => {

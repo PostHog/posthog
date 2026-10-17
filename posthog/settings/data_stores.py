@@ -601,6 +601,17 @@ WORKFLOWS_STEP_RESUME_JWT_SECRETS = get_list(
     get_from_env("WORKFLOWS_STEP_RESUME_JWT_SECRET", "local-dev-workflows-step-resume-jwt" if DEBUG or TEST else "")
 )
 
+# Scoped JWT keys for the transactional email route (an API call sending one email from a message
+# template). The web tier mints, the plugin server verifies. Its own key per the one-key-per-surface
+# rule above. Comma-separated, newest first. Empty outside dev/test, so sends fail closed until
+# provisioned. The dev/test value must match the plugin server's default (nodejs/src/cdp/config.ts).
+WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRETS = get_list(
+    get_from_env(
+        "WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET",
+        "local-dev-workflows-transactional-email-jwt" if DEBUG or TEST else "",
+    )
+)
+
 # Signs the tokens a workflow's "Create AI task" action calls back with. The dev/test value
 # must match the plugin server's minting default so local workflows work with no setup.
 TASKS_CREATE_JWT_SECRETS = get_list(
@@ -612,6 +623,18 @@ TASKS_CREATE_JWT_SECRETS = get_list(
 # value must match the plugin server's minting default.
 WORKFLOW_SCOUT_RUN_JWT_SECRETS = get_list(
     get_from_env("WORKFLOW_SCOUT_RUN_JWT_SECRET", "local-dev-workflow-scout-run-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's "Classify with AI" action calls back with. The dev/test value
+# must match the plugin server's minting default.
+WORKFLOW_CLASSIFY_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_CLASSIFY_JWT_SECRET", "local-dev-workflow-classify-jwt" if DEBUG or TEST else "")
+)
+
+# Signs the tokens a workflow's Replay Vision step calls back with. Its own
+# key for the same reason as the scout one. The dev/test value must match the plugin server's minting default.
+WORKFLOW_VISION_REQUEST_JWT_SECRETS = get_list(
+    get_from_env("WORKFLOW_VISION_REQUEST_JWT_SECRET", "local-dev-workflow-vision-request-jwt" if DEBUG or TEST else "")
 )
 
 # Verifies the scoped JWTs the CDP worker's conversations ticket actions send to the internal
@@ -725,6 +748,11 @@ CACHES["ingress_dedup"] = {
     "LOCATION": REDIS_URL,
 }
 
+CACHES["task_artifact_preview"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -790,6 +818,7 @@ if TEST:
     CACHES["organization_access"] = CACHES["default"]
     CACHES["cohort_dependencies"] = CACHES["default"]
     CACHES["ingress_dedup"] = CACHES["default"]
+    CACHES["task_artifact_preview"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

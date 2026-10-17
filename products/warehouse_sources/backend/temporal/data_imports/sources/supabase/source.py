@@ -6,6 +6,7 @@ from posthog.security.postgres_hosts import (
     SUPABASE_DIRECT_HOST_RE as _SUPABASE_DIRECT_HOST_RE,
 )
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -23,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _HOST_UNREACHABLE_ERROR,
+    _INVALID_CREDENTIALS_VALIDATION_ERROR,
     PostgresSource,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
@@ -42,6 +44,13 @@ _SUPABASE_POOLER_USERNAME_AS_HOST_ERROR = (
     "The host looks like your Supabase pooler username, not a database host. Enter the Session "
     "pooler host (aws-0-<region>.pooler.supabase.com) as the host, and postgres.<project-ref> as "
     "the user."
+)
+
+# Supabase has a separate database password, set when the project is created, and people often
+# enter their Supabase account password instead.
+_SUPABASE_INVALID_CREDENTIALS_ERROR = (
+    "The database rejected the username or password. Use your Supabase database password, not your "
+    "account password, or reset it in your project's database settings."
 )
 
 
@@ -89,6 +98,136 @@ _VAULT_SCHEMA = "vault"
 
 @SourceRegistry.register
 class SupabaseSource(PostgresSource):
+    codebase_detection = detect(
+        env=(
+            "^SUPABASE_",
+            "^NEXT_PUBLIC_SUPABASE_",
+            "^VITE_SUPABASE_",
+            "^PUBLIC_SUPABASE_",
+            "^EXPO_PUBLIC_SUPABASE_",
+            "^REACT_APP_SUPABASE_",
+            "^NUXT_PUBLIC_SUPABASE_",
+            "^VUE_APP_SUPABASE_",
+        ),
+        npm=(
+            "@supabase/supabase-js",
+            "@supabase/ssr",
+            "@supabase/auth-helpers-nextjs",
+            "supabase",
+            "@supabase/auth-js",
+            "@supabase/gotrue-js",
+            "@supabase/postgrest-js",
+            "@supabase/realtime-js",
+            "@supabase/storage-js",
+            "@supabase/functions-js",
+            "@supabase/server",
+            "@supabase/auth-helpers-react",
+            "@supabase/auth-helpers-sveltekit",
+            "@supabase/auth-helpers-svelte",
+            "@supabase/auth-helpers-remix",
+            "@supabase/auth-helpers-shared",
+            "@supabase/supabase-auth-helpers",
+            "@supabase/auth-ui-react",
+            "@supabase/auth-ui-svelte",
+            "@supabase/auth-ui-solid",
+            "@supabase/auth-ui-shared",
+            "@supabase/sentry-js-integration",
+            "@supabase/mcp-server-supabase",
+            "@nuxtjs/supabase",
+            "@refinedev/supabase",
+            "@redwoodjs/auth-supabase-web",
+            "@redwoodjs/auth-supabase-api",
+        ),
+        pypi=(
+            "supabase",
+            "supabase-auth",
+            "gotrue",
+            "postgrest",
+            "postgrest-py",
+            "realtime",
+            "storage3",
+            "supabase-functions",
+            "supafunc",
+        ),
+        cargo=("supabase_rs", "supabase-auth", "postgrest"),
+        composer=(
+            "supabase/supabase-php",
+            "supabase/postgrest-php",
+            "supabase/gotrue-php",
+            "supabase/storage-php",
+            "supabase/functions-php",
+            "rafaelwendel/phpsupabase",
+        ),
+        go=(
+            "github.com/supabase-community/supabase-go",
+            "github.com/supabase/supabase-go/supabase",
+            "github.com/supabase/supabase-go/core",
+            "github.com/supabase/supabase-go/auth",
+            "github.com/supabase/supabase-go/postgrest",
+            "github.com/supabase-community/auth-go",
+            "github.com/supabase-community/gotrue-go",
+            "github.com/supabase-community/postgrest-go",
+            "github.com/supabase-community/storage-go",
+            "github.com/supabase-community/functions-go",
+            "github.com/supabase-community/realtime-go",
+            "github.com/nedpals/supabase-go",
+        ),
+        hex=(
+            "supabase_potion",
+            "supabase_auth",
+            "supabase_gotrue",
+            "supabase_postgrest",
+            "supabase_storage",
+            "supabase_functions",
+            "supabase_realtime",
+            "supabase",
+        ),
+        maven=(
+            "io.github.jan-tennert.supabase:supabase-kt",
+            "io.github.jan-tennert.supabase:bom",
+            "io.github.jan-tennert.supabase:auth-kt",
+            "io.github.jan-tennert.supabase:gotrue-kt",
+            "io.github.jan-tennert.supabase:postgrest-kt",
+            "io.github.jan-tennert.supabase:realtime-kt",
+            "io.github.jan-tennert.supabase:storage-kt",
+            "io.github.jan-tennert.supabase:functions-kt",
+            "io.github.jan-tennert.supabase:compose-auth",
+            "io.github.jan-tennert.supabase:compose-auth-ui",
+            "io.github.jan-tennert.supabase:apollo-graphql",
+            "io.github.jan-tennert.supabase:coil-integration",
+            "io.github.jan-tennert.supabase:coil3-integration",
+            "io.github.jan-tennert.supabase:imageloader-integration",
+            "io.github.jan-tennert.supabase:sketch-integration",
+            "io.github.jan-tennert.supabase:serializer-jackson",
+            "io.github.jan-tennert.supabase:serializer-moshi",
+            "io.github.jan-tennert.supabase:ksp-compiler",
+        ),
+        pub=(
+            "supabase_flutter",
+            "supabase",
+            "gotrue",
+            "supabase_auth",
+            "postgrest",
+            "realtime_client",
+            "storage_client",
+            "functions_client",
+            "supabase_functions",
+            "supabase_auth_ui",
+            "supabase_flutter_web_auth",
+            "supabase_typegen",
+        ),
+        rubygems=("supabase", "supabase-rb"),
+        swiftpm=(
+            "github.com/supabase/supabase-swift",
+            "github.com/supabase-community/supabase-swift",
+            "github.com/supabase-community/gotrue-swift",
+            "github.com/supabase-community/postgrest-swift",
+            "github.com/supabase-community/realtime-swift",
+            "github.com/supabase-community/storage-swift",
+            "github.com/supabase-community/functions-swift",
+        ),
+    )
+
     def __init__(self):
         super().__init__(source_name="Supabase")
 
@@ -210,4 +349,6 @@ class SupabaseSource(PostgresSource):
         success, error = super().validate_credentials(config, team_id, schema_name=schema_name, require_ssl=require_ssl)
         if not success and is_direct_host and error == _HOST_UNREACHABLE_ERROR:
             return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
+        if not success and error == _INVALID_CREDENTIALS_VALIDATION_ERROR:
+            return False, _SUPABASE_INVALID_CREDENTIALS_ERROR
         return success, error

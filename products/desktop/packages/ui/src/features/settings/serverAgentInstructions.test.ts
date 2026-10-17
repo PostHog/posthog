@@ -63,19 +63,10 @@ describe("serverAgentInstructions", () => {
   });
 
   it.each([
-    ["the flag is off", false, 7, { "7": "Use pnpm." }, "Use pnpm.", true],
-    ["nothing was uploaded", true, 7, {}, "Use pnpm.", true],
-    [
-      "the AGENTS.md snapshot is loading",
-      true,
-      7,
-      { "7": "Use pnpm." },
-      null,
-      true,
-    ],
+    ["nothing was uploaded", 7, {}, "Use pnpm.", true],
+    ["the AGENTS.md snapshot is loading", 7, { "7": "Use pnpm." }, null, true],
     [
       "a Desktop edit is not uploaded yet",
-      true,
       7,
       { "7": "Use pnpm." },
       "Use npm.",
@@ -83,7 +74,6 @@ describe("serverAgentInstructions", () => {
     ],
     [
       "the server holds the current text",
-      true,
       7,
       { "7": "Use pnpm." },
       "Use pnpm.",
@@ -91,10 +81,9 @@ describe("serverAgentInstructions", () => {
     ],
   ] as const)(
     "carries the local copy when %s: %s",
-    (_case, flagEnabled, projectId, onServer, local, expected) => {
+    (_case, projectId, onServer, local, expected) => {
       expect(
         cloudTaskCarriesLocalInstructions({
-          flagEnabled,
           projectId,
           onServer,
           local,

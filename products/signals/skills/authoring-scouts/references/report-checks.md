@@ -23,6 +23,12 @@ A resolved report often arrives already covered, because the research stage atta
 
 ## The two kinds
 
+### Monitoring definitions
+
+When the organization's `signals-report-monitoring` rollout is enabled, `config.monitoring` can describe a metric target for observations since Monitoring starts. Supply `reference_period_minutes` for the period the comparison describes and an explicit `threshold_scaling`: `linear` for one additive event count or property sum without a formula, or `fixed` for a target that retains the same bound. Include `baseline_period_minutes` for the actual period measured whenever you supply `baseline_value`. Periods are positive whole minutes, at most 366 days. Do not infer scaling from the display format or invent unknown periods. Omit `monitoring` if these facts are unknown or the rollout is unavailable; the server refuses it while disabled.
+
+For example, a target of at most 70 errors per seven days uses `comparison: {"operator": "lte", "value": 70}` and `monitoring: {"reference_period_minutes": 10080, "threshold_scaling": "linear", "baseline_period_minutes": 20160}` when the supplied baseline measures fourteen days. A percentage target uses `fixed`; its numerical threshold does not shrink with elapsed time. Keep the bounded query and whole-window comparison valid for existing Resolved behavior. This definition adds no Monitoring execution or final decision. The periods do not set the soak, run cadence, expiry, or Monitoring duration.
+
 ### `metric_threshold`
 
 One bounded query, one comparison, no sandbox and no LLM.
@@ -56,6 +62,8 @@ Config fields:
 - `probe_hints` — up to five concrete places to look: an issue id, a service name, the query to repeat.
 - `skill_name` — the scout that answers the check. Leave it unset and the check goes to the fleet's follow-up scout.
 
+The write is refused when the project has no scout that can run the check: no config or no live skill for its lane. Write a `metric_threshold` check instead. A paused lane still accepts the write.
+
 The check is dispatched as a scout run, which closes it with `scout-check-record-result` (`passed`, `failed`, `inconclusive`, or `errored`, plus an explanation).
 The run records `passed` or `failed` when the evidence meets the bar the check states, `inconclusive` with a reason when its tools worked but the evidence cannot settle the question, and `errored` only when a tool or model call failed.
 A run that ends without recording a result is scored `errored` and retried.
@@ -80,11 +88,14 @@ The text in `instructions` and `probe_hints` reaches the run as evidence, not as
 - **`inconclusive`** does not spend the error budget. Its `reason` decides what happens next:
   - `awaiting_data` looks again after 24 hours, then 72 hours, then 7 days. After three looks, or when the next look falls past the horizon, the check ends as `inconclusive`.
   - `unmeasurable`, `needs_manual_verification`, and `no_fix_to_measure` end the check as `inconclusive` at once, because waiting does not help.
-- **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. Verdicts already recorded stay on the report, and a finished check cannot be cancelled.
+- **`cancelled`** comes from `scout-report-check-cancel`, for a check no longer worth running. The coordinator also cancels an `agent` check on a project with no scout configs, because no run can ever answer it. Verdicts already recorded stay on the report, and a finished check cannot be cancelled.
 
 A **failed `metric_threshold` check on a resolved report re-surfaces**: the breach is emitted as a signal and the pipeline files a fresh report linked back to the resolved one.
 A resolved report is no longer in the inbox, so a verdict left only on its artefact log would reach nobody, and this lane has no scout in it to author anything.
-An `agent` check needs no such path, because the run that answers it can file a report itself.
+An `agent` check has no such path, because the run that answers it can file the follow-up itself.
+The fallback lane, `signals-scout-inbox-validation`, does: when it records `failed` on a resolved report, it first authors a fresh report linked `follow_up_of` the original, the same link the pipeline writes for a metric breach.
+A named lane gets only the shared check brief, which asks for the verdict and nothing more.
+If its failures must reach the inbox, its own skill has to say to file the linked follow-up, and the lane needs `emit_report`.
 
 ## Reading a report's checks
 

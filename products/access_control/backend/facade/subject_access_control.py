@@ -224,14 +224,13 @@ class SubjectAccessControl(UserAccessControl):
         role_ids = frozenset(str(role_id) for role_id in self._user_role_ids)
         self.__dict__["_cached_access_controls"] = [ac for ac in pool if self._applies_to_subject(ac, role_ids)]
 
-    def _is_creator(self, obj: Model) -> bool:
+    def _is_creator_id(self, created_by_id: Optional[int]) -> bool:
         """The subject created the object, not the requesting user. A role and the default subject
         are not people, so they never created anything."""
         if self._subject_member is None:
             return False
-        # Compare ids so callers do not need created_by (or the member's user) hydrated.
-        creator_id = getattr(obj, "created_by_id", None)
-        return creator_id is not None and creator_id == self._subject_member.user_id
+        # Compare ids so callers do not need the member's user hydrated.
+        return created_by_id is not None and created_by_id == self._subject_member.user_id
 
     def _is_subject_row(self, access_control: _AccessControl) -> bool:
         """Whether this row is the subject's own — the kind of rule "No override" would remove."""

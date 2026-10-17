@@ -1,15 +1,18 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.leexi import LeexiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source import LeexiSource
 
-PROBE_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.leexi.source.probe_endpoint"
-
 
 class TestLeexiSource:
-    def setup_method(self):
+    def setup_method(self) -> None:
         self.source = LeexiSource()
         self.team_id = 123
         self.config = LeexiSourceConfig(api_key_id="key-id", api_key_secret="key-secret")
@@ -27,20 +30,24 @@ class TestLeexiSource:
             (None, None, False),
         ],
     )
-    @mock.patch(PROBE_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_probe, status, schema_name, expected_valid):
-        mock_probe.return_value = status
-
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name)
+    def test_validate_credentials_status_mapping(
+        self, status: int | None, schema_name: str | None, expected_valid: bool
+    ) -> None:
+        script = always(ConnectionError("connection failed") if status is None else ScriptedResponse(status=status))
+        with scripted_network(script) as network:
+            is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name)
 
         assert is_valid is expected_valid
         assert (message is None) is expected_valid
+        expected_path = "/v1/calls" if schema_name == "calls" else "/v1/users"
+        assert {request.path for request in network.requests_log} == {expected_path}
 
-    @mock.patch(PROBE_PATCH)
-    def test_endpoint_permissions_marks_missing_scope_and_dedupes_probes(self, mock_probe):
-        mock_probe.side_effect = lambda _id, _secret, path: 403 if path == "/calls" else 200
+    def test_endpoint_permissions_marks_missing_scope_and_dedupes_probes(self) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            return ScriptedResponse(status=403 if request.path == "/v1/calls" else 200)
 
-        permissions = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
+        with scripted_network(respond) as network:
+            permissions = self.source.get_endpoint_permissions(self.config, self.team_id, list(ENDPOINTS))
 
         assert permissions["calls"] == "API key is missing the `read_calls` permission scope"
         assert permissions["call_notes"] == "API key is missing the `read_calls` permission scope"
@@ -48,4 +55,10 @@ class TestLeexiSource:
         assert permissions["teams"] is None
         assert permissions["meeting_events"] is None
         # calls and call_notes share the /calls probe: 4 unique paths, not 5 requests.
-        assert mock_probe.call_count == 4
+        assert len(network.requests_log) == 4
+        assert {request.path for request in network.requests_log} == {
+            "/v1/calls",
+            "/v1/meeting_events",
+            "/v1/users",
+            "/v1/teams",
+        }

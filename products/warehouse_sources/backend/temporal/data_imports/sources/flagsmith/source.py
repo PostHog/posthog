@@ -1,7 +1,9 @@
 from typing import Optional, cast
 
 from posthog.cloud_utils import is_cloud
+from posthog.schema_enums import ProductKey
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -51,6 +53,56 @@ _PARENT_PROBE_PATHS = {
 
 @SourceRegistry.register
 class FlagsmithSource(ResumableSource[FlagsmithSourceConfig, FlagsmithResumeConfig], ValidateDatabaseHostMixin):
+    codebase_detection = detect(
+        env=("^FLAGSMITH_", "^NEXT_PUBLIC_FLAGSMITH_ENVIRONMENT_KEY$"),
+        npm=(
+            "flagsmith-nodejs",
+            "flagsmith",
+            "@flagsmith/flagsmith",
+            "react-native-flagsmith",
+            "flagsmith-es",
+            "@flagsmith/nodejs",
+            "@flagsmith/react-native",
+            "@flagsmith/cli",
+            "flagsmith-cli",
+            "@openfeature/flagsmith-provider",
+            "@openfeature/flagsmith-client-provider",
+            "@flags-sdk/flagsmith",
+            "@flagsmith/backstage-plugin",
+            "n8n-nodes-flagsmith",
+            "bullet-train-client",
+            "bullet-train-nodejs",
+            "react-native-bullet-train",
+            "flagsmith-react",
+            "flagsmith-vue",
+        ),
+        pypi=("flagsmith", "flagsmith-flag-engine", "openfeature-provider-flagsmith", "bullet-train"),
+        cargo=("flagsmith", "flagsmith-flag-engine", "open-feature-flagsmith"),
+        cocoapods=("FlagsmithClient", "BulletTrainClient"),
+        composer=("flagsmith/flagsmith-php-client", "clearlyip/laravel-flagsmith"),
+        go=(
+            "github.com/Flagsmith/flagsmith-go-client",
+            "github.com/open-feature/go-sdk-contrib/providers/flagsmith",
+            "github.com/Flagsmith/flagsmith-go-api-client",
+        ),
+        hex=("flagsmith_engine", "flagsmith_elixir_sdk"),
+        maven=(
+            "com.flagsmith:flagsmith-java-client",
+            "com.flagsmith:flagsmith-kotlin-android-client",
+            "com.flagsmith:flagsmith-kotlin-client",
+            "com.flagsmith:flagsmith-openfeature-provider-kotlin",
+            "dev.openfeature.contrib.providers:flagsmith",
+            "com.solidstategroup:bullet-train-client",
+        ),
+        pub=("flagsmith", "flagsmith_flutter_core"),
+        rubygems=("flagsmith", "openfeature-flagsmith-provider"),
+        swiftpm=(
+            "github.com/flagsmith/flagsmith-ios-client",
+            "github.com/flagsmith/flagsmith-openfeature-swift-provider",
+        ),
+        alternative_to=(ProductKey.FEATURE_FLAGS,),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
     @property

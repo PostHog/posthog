@@ -262,6 +262,7 @@ class AssistantDataVisualizationDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_STACKED_BAR = "ActionsStackedBar"
     ACTIONS_AREA_GRAPH = "ActionsAreaGraph"
     TWO_DIMENSIONAL_HEATMAP = "TwoDimensionalHeatmap"
@@ -552,6 +553,7 @@ class AssistantTool(StrEnum):
     MARKETING_AUDIT_UTM = "marketing_audit_utm"
     MARKETING_SUGGEST_CONVERSION_GOALS = "marketing_suggest_conversion_goals"
     MARKETING_SUGGEST_UTM_MAPPINGS = "marketing_suggest_utm_mappings"
+    COMPARE_REPLAY_VISION_VARIANTS = "compare_replay_vision_variants"
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     SCAN_REPLAY_VISION_SESSIONS = "scan_replay_vision_sessions"
@@ -583,6 +585,7 @@ class AssistantTrendsDisplayType(StrEnum):
     ACTIONS_BAR_VALUE = "ActionsBarValue"
     ACTIONS_PIE = "ActionsPie"
     ACTIONS_DONUT = "ActionsDonut"
+    ACTIONS_PROPORTION_BAR = "ActionsProportionBar"
     ACTIONS_TABLE = "ActionsTable"
     WORLD_MAP = "WorldMap"
     CALENDAR_HEATMAP = "CalendarHeatmap"
@@ -673,6 +676,12 @@ class BIDateBucket(StrEnum):
     YEAR = "year"
 
 
+class DatePart(StrEnum):
+    MONTH = "month"
+    QUARTER = "quarter"
+    DAY_OF_WEEK = "day_of_week"
+
+
 class BIFilterOperator(StrEnum):
     EQUALS = "equals"
     NOT_EQUALS = "not_equals"
@@ -686,6 +695,11 @@ class BIFilterOperator(StrEnum):
     IS_SET = "is_set"
     IS_NOT_SET = "is_not_set"
     CUSTOM = "custom"
+
+
+class ReferenceLines(StrEnum):
+    PANE = "pane"
+    WORKSHEET = "worksheet"
 
 
 class BIQueryLimit(float, Enum):
@@ -719,6 +733,11 @@ class BITableCalculationType(StrEnum):
     PERCENT_CHANGE = "percent_change"
     MOVING_AVERAGE = "moving_average"
     RANK = "rank"
+
+
+class Shelf(StrEnum):
+    ROWS = "rows"
+    COLUMNS = "columns"
 
 
 class BaseMathType(StrEnum):
@@ -808,6 +827,11 @@ class ChartDisplayType(StrEnum):
     BOX_PLOT = "BoxPlot"
     SLOPE_GRAPH = "SlopeGraph"
     SCATTER_PLOT = "ScatterPlot"
+
+
+class ValueLabelPosition(StrEnum):
+    END = "end"
+    CENTER = "center"
 
 
 class Curve(StrEnum):
@@ -1305,6 +1329,7 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+    SEVERITY = "severity"
 
 
 class ErrorTrackingQueryIssueSeverity(StrEnum):
@@ -1406,6 +1431,24 @@ class ManualMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN_COUNT = "mean_count"
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
+
+
+class ExperimentExposureHealthFindingActionKind(StrEnum):
+    EDIT_EXPOSURE_CRITERIA = "edit_exposure_criteria"
+    ADJUST_DISTRIBUTION = "adjust_distribution"
+    USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
+
+
+class ExperimentExposureHealthFindingCode(StrEnum):
+    ZERO_EXPOSURES = "zero_exposures"
+    SRM = "srm"
+    BIAS_RISK_MULTIPLE_EXCLUDED = "bias_risk_multiple_excluded"
+
+
+class ExperimentExposureHealthFindingSeverity(StrEnum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
 
 
 class ExperimentMetricGoal(StrEnum):
@@ -1634,9 +1677,22 @@ class FunnelVizType(StrEnum):
     FLOW = "flow"
 
 
+class Calculation(StrEnum):
+    FIXED = "fixed"
+    MEAN = "mean"
+    MEDIAN = "median"
+    MIN = "min"
+    MAX = "max"
+
+
 class Position(StrEnum):
     START = "start"
     END = "end"
+
+
+class Scope(StrEnum):
+    ALL = "all"
+    SERIES = "series"
 
 
 class GoogleAdsDefaultSources(StrEnum):
@@ -1722,6 +1778,11 @@ class HogQLAlertEvaluation(StrEnum):
     LAST_ROW = "last_row"
     FIRST_ROW = "first_row"
     ANY_ROW = "any_row"
+
+
+class ExecutionTarget(StrEnum):
+    DEFAULT = "default"
+    MANAGED_TRINO = "managed_trino"
 
 
 class BounceRatePageViewMode(StrEnum):
@@ -2195,6 +2256,12 @@ class MetricsOtelType(StrEnum):
     HISTOGRAM = "histogram"
     EXPONENTIAL_HISTOGRAM = "exponential_histogram"
     SUMMARY = "summary"
+
+
+class MetricsQueryLanguage(StrEnum):
+    BUILDER = "builder"
+    PROMQL = "promql"
+    SQL = "sql"
 
 
 class MetricsRangeFunction(StrEnum):
@@ -2712,6 +2779,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    IS_CLEANED_PATH_NOT_EXACT = "is_cleaned_path_not_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
     SEMVER_EQ = "semver_eq"
     SEMVER_NEQ = "semver_neq"
@@ -2872,11 +2940,6 @@ class Theme(StrEnum):
     LIGHT = "light"
     DARK = "dark"
     SYSTEM = "system"
-
-
-class SidebarDensity(StrEnum):
-    COMFORTABLE = "comfortable"
-    COMPACT = "compact"
 
 
 class SlackIntegrationScope(StrEnum):

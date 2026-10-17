@@ -3,32 +3,16 @@ from typing import Any
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sparkpost import (
     SparkPostSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.settings import WEBHOOK_EVENT_TYPES
 from products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source import SparkPostSource
-
-
-def _make_inputs(**overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": "events",
-        "schema_id": "schema-1",
-        "source_id": "source-1",
-        "team_id": 123,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-1",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    defaults.update(overrides)
-    return SourceInputs(**defaults)
 
 
 class TestSparkPostSource:
@@ -47,37 +31,28 @@ class TestSparkPostSource:
         assert len(schemas) == 1
         assert schemas[0].name == "templates"
 
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source.sparkpost_source")
-    def test_source_for_pipeline_passes_incremental_value_when_enabled(self, mock_source: mock.MagicMock) -> None:
-        inputs = _make_inputs(
-            schema_name="events",
+    def test_source_for_pipeline_passes_incremental_value_when_enabled(self) -> None:
+        result = self._run(
             should_use_incremental_field=True,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
             incremental_field="timestamp",
         )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+        assert result.requests[0].param("from") == "2026-01-01T00:00"
 
-        _, kwargs = mock_source.call_args
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00Z"
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source.sparkpost_source")
-    def test_source_for_pipeline_omits_incremental_value_when_disabled(self, mock_source: mock.MagicMock) -> None:
+    def test_source_for_pipeline_omits_incremental_value_when_disabled(self) -> None:
         # When incremental is off the stored watermark must not leak through as a server-side filter.
-        inputs = _make_inputs(
-            schema_name="events",
+        result = self._run(
             should_use_incremental_field=False,
             db_incremental_field_last_value="2026-01-01T00:00:00Z",
         )
-        manager = mock.MagicMock(spec=ResumableSourceManager)
 
-        self.source.source_for_pipeline(self.config, manager, inputs)
+        assert result.requests[0].param("from") != "2026-01-01T00:00"
 
-        _, kwargs = mock_source.call_args
-        assert kwargs["should_use_incremental_field"] is False
-        assert kwargs["db_incremental_field_last_value"] is None
+    def _run(self, **inputs: Any) -> DriveResult:
+        return SourceDriver(self.source, self.config).run(
+            "events", [ScriptedResponse(json={"results": [], "links": []})], **inputs
+        )
 
 
 API_CLIENT = "products.warehouse_sources.backend.temporal.data_imports.sources.sparkpost.source.api_client"

@@ -7,6 +7,16 @@ from unittest import mock
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.jamfpro import (
+    JamfProAuthMethodConfig,
+    JamfProSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro import jamf_pro as jamf_pro_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.jamf_pro import (
     JamfProConfigurationError,
@@ -20,15 +30,31 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.j
     _build_params,
     _format_incremental_value,
     get_rows,
-    jamf_pro_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.settings import JAMF_PRO_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.jamf_pro.source import JamfProSource
 
 CLIENT_CREDENTIALS = JamfProCredentials(method="client_credentials", client_id="cid", client_secret="secret")
 BASIC_CREDENTIALS = JamfProCredentials(method="basic", username="admin", password="hunter2")
 
 TOKEN_JSON = {"access_token": "tok", "expires_in": 1199, "token_type": "Bearer"}
+
+
+def _driver(host: str = "example.jamfcloud.com") -> SourceDriver:
+    return SourceDriver(
+        JamfProSource(),
+        JamfProSourceConfig(
+            instance_url=host,
+            auth_method=JamfProAuthMethodConfig(
+                selection="client_credentials", client_id="cid", client_secret="secret"
+            ),
+        ),
+    )
+
+
+def _script(*responses: ScriptedResponse) -> list[ScriptedResponse]:
+    return [ScriptedResponse(json=TOKEN_JSON), *responses]
 
 
 def _response(*, status_code: int = 200, json_data: Any = None, text: str = "") -> mock.MagicMock:
@@ -156,30 +182,27 @@ class TestTokenManager:
 
 
 class TestValidateCredentials:
-    def _patch_session(self, session: mock.MagicMock):
-        return mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session)
-
     def test_successful_token_mint_is_enough_at_source_create(self):
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)])
-        with self._patch_session(session) as factory:
+        with scripted_network([ScriptedResponse(json=TOKEN_JSON)]) as network:
             assert validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS) == (True, None)
         # Privileges are per-resource in Jamf, so create-time must not probe endpoints.
-        session.get.assert_not_called()
+        assert [request.method for request in network.requests_log] == ["POST"]
         # The mint response body carries the bearer token; it must stay out of sample capture.
-        assert factory.call_args.kwargs == {"capture": False}
+        assert network.session_options == [{"capture": False}]
 
     def test_invalid_credentials(self):
-        session = _session(post_responses=[_response(status_code=401)])
-        with self._patch_session(session):
+        with scripted_network([ScriptedResponse(status=401)]) as network:
             valid, msg = validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS)
         assert valid is False
         assert msg == "Invalid Jamf Pro credentials"
+        assert network.requests_log[0].path == "/api/oauth/token"
 
     def test_incomplete_credentials_return_friendly_error(self):
-        with self._patch_session(_session()):
+        with scripted_network([]) as network:
             valid, msg = validate_credentials("example.jamfcloud.com", JamfProCredentials(method="client_credentials"))
         assert valid is False
         assert "incomplete" in (msg or "")
+        assert network.requests_log == []
 
     @pytest.mark.parametrize("bad_host", ["", "not a host!", "https://"])
     def test_invalid_host_short_circuits(self, bad_host):
@@ -188,22 +211,21 @@ class TestValidateCredentials:
         assert msg == "Invalid Jamf Pro URL"
 
     def test_blocks_unsafe_host(self):
-        session = _session()
         with (
             mock.patch.object(jamf_pro_module, "_is_host_safe", return_value=(False, "internal address")),
-            self._patch_session(session),
+            scripted_network([]) as network,
         ):
             valid, msg = validate_credentials("10.0.0.1", CLIENT_CREDENTIALS, team_id=99)
         assert valid is False
         assert msg == "internal address"
-        session.post.assert_not_called()
+        assert network.requests_log == []
 
     def test_scoped_probe_403_fails(self):
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[_response(status_code=403)])
-        with self._patch_session(session):
+        with scripted_network(_script(ScriptedResponse(status=403))) as network:
             valid, msg = validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS, schema_name="computers")
         assert valid is False
         assert "computers" in (msg or "")
+        assert network.requests_log[1].path == "/api/v1/computers-inventory"
 
     @pytest.mark.parametrize(
         "schema_name, expected_path, expected_query",
@@ -218,50 +240,40 @@ class TestValidateCredentials:
         ],
     )
     def test_scoped_probe_targets_an_addressable_url(self, schema_name, expected_path, expected_query):
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[_response(json_data=[])])
-        with self._patch_session(session):
+        with scripted_network(_script(ScriptedResponse(json=[]))) as network:
             assert validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS, schema_name=schema_name) == (
                 True,
                 None,
             )
-        url = session.get.call_args.args[0]
+        url = network.requests_log[1].url
         path, _, query = url.removeprefix("https://example.jamfcloud.com").partition("?")
         assert path == expected_path
         assert query == expected_query
 
     def test_request_exception_returns_failure(self):
-        session = mock.MagicMock()
-        session.post.side_effect = requests.exceptions.ConnectionError("boom")
-        with self._patch_session(session):
+        with scripted_network([requests.exceptions.ConnectionError("boom")]) as network:
             valid, msg = validate_credentials("example.jamfcloud.com", CLIENT_CREDENTIALS)
         assert valid is False
         assert "boom" in (msg or "")
+        assert network.requests_log[0].path == "/api/oauth/token"
 
 
 class TestGetRows:
-    def _run(
+    def _drive(
         self,
-        manager: mock.MagicMock,
-        get_responses: list[Any],
+        get_responses: list[ScriptedResponse],
         endpoint: str = "computers",
         should_use_incremental_field: bool = False,
         db_incremental_field_last_value: Any = None,
-    ) -> tuple[list[Any], mock.MagicMock]:
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=get_responses)
-        with mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session):
-            rows: list[Any] = []
-            for batch in get_rows(
-                host="example.jamfcloud.com",
-                credentials=CLIENT_CREDENTIALS,
-                endpoint=endpoint,
-                logger=mock.MagicMock(),
-                resumable_source_manager=manager,
-                team_id=1,
-                should_use_incremental_field=should_use_incremental_field,
-                db_incremental_field_last_value=db_incremental_field_last_value,
-            ):
-                rows.extend(batch)
-        return rows, session
+        resume_state: JamfProResumeConfig | None = None,
+    ) -> DriveResult:
+        return _driver().run(
+            endpoint,
+            _script(*get_responses),
+            resume_state=resume_state,
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=db_incremental_field_last_value,
+        )
 
     def _manager(self, resume: Optional[JamfProResumeConfig] = None) -> mock.MagicMock:
         manager = mock.MagicMock()
@@ -270,141 +282,117 @@ class TestGetRows:
         return manager
 
     def test_stops_on_empty_results_without_total_count(self):
-        manager = self._manager()
-        page1 = _response(json_data={"results": [{"id": "1"}]})
-        empty = _response(json_data={"results": []})
-        rows, session = self._run(manager, [page1, empty])
+        result = self._drive(
+            [
+                ScriptedResponse(json={"results": [{"id": "1"}]}),
+                ScriptedResponse(json={"results": []}),
+            ]
+        )
 
-        assert [r["id"] for r in rows] == ["1"]
-        assert session.get.call_count == 2
+        assert [row["id"] for row in result.rows] == ["1"]
+        assert result.params("page") == [None, "0", "1"]
+        assert result.raised is None
 
     def test_resumes_from_saved_page(self):
-        manager = self._manager(resume=JamfProResumeConfig(page=3))
-        page = _response(json_data={"totalCount": 301, "results": [{"id": "301"}]})
-        _rows, session = self._run(manager, [page])
+        result = self._drive(
+            [ScriptedResponse(json={"totalCount": 301, "results": [{"id": "301"}]})],
+            resume_state=JamfProResumeConfig(page=3),
+        )
 
-        assert "page=3" in session.get.call_args_list[0].args[0]
+        assert result.params("page") == [None, "3"]
+        assert result.raised is None
 
     def test_unpaginated_endpoint_yields_array_response(self):
-        manager = self._manager()
-        page = _response(json_data=[{"id": "1", "name": "HQ"}])
-        rows, session = self._run(manager, [page], endpoint="sites")
+        result = self._drive([ScriptedResponse(json=[{"id": "1", "name": "HQ"}])], endpoint="sites")
 
-        assert rows == [{"id": "1", "name": "HQ"}]
-        assert session.get.call_count == 1
-        manager.save_state.assert_not_called()
+        assert result.rows == [{"id": "1", "name": "HQ"}]
+        assert len(result.requests) == 2
+        assert result.saved_states == []
+        assert result.raised is None
 
     def test_fan_out_walks_each_parent_and_tags_child_rows(self):
-        manager = self._manager()
-        parents = _response(json_data=[{"id": "10"}, {"id": "2"}, {"id": "7"}])
-        parent_2_page_0 = _response(json_data={"totalCount": 201, "results": [{"deviceId": "a"}] * 200})
-        parent_2_page_1 = _response(json_data={"totalCount": 201, "results": [{"deviceId": "b"}]})
-        parent_7_missing = _response(status_code=404)
-        parent_10_page_0 = _response(json_data={"totalCount": 1, "results": [{"deviceId": "c"}]})
-        rows, session = self._run(
-            manager,
+        parents = ScriptedResponse(json=[{"id": "10"}, {"id": "2"}, {"id": "7"}])
+        parent_2_page_0 = ScriptedResponse(json={"totalCount": 201, "results": [{"deviceId": "a"}] * 200})
+        parent_2_page_1 = ScriptedResponse(json={"totalCount": 201, "results": [{"deviceId": "b"}]})
+        parent_7_missing = ScriptedResponse(status=404)
+        parent_10_page_0 = ScriptedResponse(json={"totalCount": 1, "results": [{"deviceId": "c"}]})
+        result = self._drive(
             [parents, parent_2_page_0, parent_2_page_1, parent_7_missing, parent_10_page_0],
             endpoint="patch_reports",
         )
 
-        urls = [call.args[0] for call in session.get.call_args_list]
+        urls = result.urls[1:]
         assert urls[0] == "https://example.jamfcloud.com/api/v3/patch-software-title-configurations"
         assert [url.split("?")[0].rsplit("/", 2)[1] for url in urls[1:]] == ["2", "2", "7", "10"]
         assert "page=1" in urls[2]
-        assert len(rows) == 202
-        assert {row["softwareTitleConfigurationId"] for row in rows} == {"2", "10"}
-        assert rows[-1] == {"deviceId": "c", "softwareTitleConfigurationId": "10"}
-        assert manager.save_state.call_args_list == [
-            mock.call(JamfProResumeConfig(page=1, parent_id="2")),
-            mock.call(JamfProResumeConfig(page=0, parent_id="7")),
-            mock.call(JamfProResumeConfig(page=0, parent_id="10")),
+        assert len(result.rows) == 202
+        assert {row["softwareTitleConfigurationId"] for row in result.rows} == {"2", "10"}
+        assert result.rows[-1] == {"deviceId": "c", "softwareTitleConfigurationId": "10"}
+        assert result.saved_states == [
+            JamfProResumeConfig(page=1, parent_id="2"),
+            JamfProResumeConfig(page=0, parent_id="7"),
+            JamfProResumeConfig(page=0, parent_id="10"),
         ]
+        assert result.raised is None
 
     def test_fan_out_has_one_request_budget_across_all_parents(self):
-        manager = self._manager()
-        parents = _response(json_data=[{"id": str(parent_id)} for parent_id in range(4)])
-        child_page = _response(json_data={"totalCount": 1, "results": [{"deviceId": "a"}]})
-        session = _session(
-            post_responses=[_response(json_data=TOKEN_JSON)],
-            get_responses=[parents, child_page, child_page, child_page],
-        )
-        with (
-            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
-            mock.patch.object(jamf_pro_module, "MAX_PAGES", 3),
-        ):
-            with pytest.raises(JamfProPaginationLimitError):
-                list(
-                    get_rows(
-                        host="example.jamfcloud.com",
-                        credentials=CLIENT_CREDENTIALS,
-                        endpoint="patch_reports",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=manager,
-                        team_id=1,
-                    )
-                )
+        parents = ScriptedResponse(json=[{"id": str(parent_id)} for parent_id in range(4)])
+        child_page = ScriptedResponse(json={"totalCount": 1, "results": [{"deviceId": "a"}]})
+        with mock.patch.object(jamf_pro_module, "MAX_PAGES", 3):
+            result = self._drive([parents, child_page, child_page, child_page], endpoint="patch_reports")
 
         # The parent-list request is outside the child-page budget; only three children are fetched.
-        assert session.get.call_count == 4
+        assert len(result.requests) == 5
+        assert isinstance(result.raised, JamfProPaginationLimitError)
 
     def test_fan_out_resumes_from_saved_parent_and_page(self):
-        manager = self._manager(resume=JamfProResumeConfig(page=3, parent_id="7"))
-        parents = _response(json_data=[{"id": "2"}, {"id": "7"}, {"id": "10"}])
-        parent_7 = _response(json_data={"totalCount": 601, "results": [{"deviceId": "a"}]})
-        parent_10 = _response(json_data={"totalCount": 1, "results": [{"deviceId": "b"}]})
-        _rows, session = self._run(manager, [parents, parent_7, parent_10], endpoint="patch_reports")
+        parents = ScriptedResponse(json=[{"id": "2"}, {"id": "7"}, {"id": "10"}])
+        parent_7 = ScriptedResponse(json={"totalCount": 601, "results": [{"deviceId": "a"}]})
+        parent_10 = ScriptedResponse(json={"totalCount": 1, "results": [{"deviceId": "b"}]})
+        result = self._drive(
+            [parents, parent_7, parent_10],
+            endpoint="patch_reports",
+            resume_state=JamfProResumeConfig(page=3, parent_id="7"),
+        )
 
-        urls = [call.args[0] for call in session.get.call_args_list]
+        urls = result.urls[1:]
         assert "/7/patch-report?" in urls[1]
         assert "page=3" in urls[1]
         assert "/10/patch-report?" in urls[2]
         assert "page=0" in urls[2]
+        assert result.raised is None
 
     def test_fan_out_single_object_child_becomes_one_row(self):
-        manager = self._manager()
-        parents = _response(json_data=[{"id": "1"}])
-        summary = _response(json_data={"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1})
-        rows, _session_ = self._run(manager, [parents, summary], endpoint="patch_summaries")
+        parents = ScriptedResponse(json=[{"id": "1"}])
+        summary = ScriptedResponse(json={"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1})
+        result = self._drive([parents, summary], endpoint="patch_summaries")
 
-        assert rows == [{"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1, "softwareTitleConfigurationId": "1"}]
+        assert result.rows == [
+            {"softwareTitleId": "s1", "upToDate": 4, "outOfDate": 1, "softwareTitleConfigurationId": "1"}
+        ]
+        assert result.raised is None
 
     def test_fan_out_pages_through_a_paginated_parent(self):
-        manager = self._manager()
-        parents_page_0 = _response(json_data={"totalCount": 201, "results": [{"id": str(i)} for i in range(200)]})
-        parents_page_1 = _response(json_data={"totalCount": 201, "results": [{"id": "200"}]})
-        child = _response(json_data={"totalCount": 1, "results": [{"deviceId": "d1", "statusEnum": "COMPLETE"}]})
-        rows, session = self._run(
-            manager, [parents_page_0, parents_page_1] + [child] * 201, endpoint="patch_policy_logs"
-        )
+        parents_page_0 = ScriptedResponse(json={"totalCount": 201, "results": [{"id": str(i)} for i in range(200)]})
+        parents_page_1 = ScriptedResponse(json={"totalCount": 201, "results": [{"id": "200"}]})
+        child = ScriptedResponse(json={"totalCount": 1, "results": [{"deviceId": "d1", "statusEnum": "COMPLETE"}]})
+        result = self._drive([parents_page_0, parents_page_1] + [child] * 201, endpoint="patch_policy_logs")
 
-        urls = [call.args[0] for call in session.get.call_args_list]
+        urls = result.urls[1:]
         assert urls[0].startswith("https://example.jamfcloud.com/api/v2/patch-policies?")
         assert "page=1" in urls[1]
         assert "/patch-policies/200/logs?" in urls[-1]
-        assert len(rows) == 201
-        assert rows[-1] == {"deviceId": "d1", "statusEnum": "COMPLETE", "patchPolicyId": "200"}
+        assert len(result.rows) == 201
+        assert result.rows[-1] == {"deviceId": "d1", "statusEnum": "COMPLETE", "patchPolicyId": "200"}
+        assert result.raised is None
 
     def test_fan_out_refuses_an_unbounded_parent_list(self):
-        manager = self._manager()
-        endless_parents = _response(json_data={"totalCount": 10**9, "results": [{"id": "1"}, {"id": "2"}]})
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[endless_parents] * 3)
-        with (
-            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
-            mock.patch.object(jamf_pro_module, "MAX_PARENT_IDS", 3),
-        ):
-            with pytest.raises(JamfProPaginationLimitError):
-                list(
-                    get_rows(
-                        host="example.jamfcloud.com",
-                        credentials=CLIENT_CREDENTIALS,
-                        endpoint="patch_policy_logs",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=manager,
-                        team_id=1,
-                    )
-                )
+        endless_parents = ScriptedResponse(json={"totalCount": 10**9, "results": [{"id": "1"}, {"id": "2"}]})
+        with mock.patch.object(jamf_pro_module, "MAX_PARENT_IDS", 3):
+            result = self._drive([endless_parents] * 3, endpoint="patch_policy_logs")
 
-        assert all("/logs" not in call.args[0] for call in session.get.call_args_list)
+        assert isinstance(result.raised, JamfProPaginationLimitError)
+        assert all("/logs" not in path for path in result.paths)
 
     @pytest.mark.parametrize(
         "endpoint, expected_parent_ids",
@@ -416,87 +404,67 @@ class TestGetRows:
     def test_mobile_group_membership_fans_out_by_group_type_and_keeps_only_device_ids(
         self, endpoint, expected_parent_ids
     ):
-        manager = self._manager()
-        groups = _response(json_data=[{"id": 1, "isSmartGroup": True}, {"id": 2, "isSmartGroup": False}])
-        members = _response(
-            json_data={
+        groups = ScriptedResponse(json=[{"id": 1, "isSmartGroup": True}, {"id": 2, "isSmartGroup": False}])
+        members = ScriptedResponse(
+            json={
                 "totalCount": 1,
                 "results": [{"mobileDeviceId": "5", "displayName": "iPad", "airPlayPassword": "pw"}],
             }
         )
-        rows, session = self._run(manager, [groups, members], endpoint=endpoint)
+        result = self._drive([groups, members], endpoint=endpoint)
 
-        urls = [call.args[0] for call in session.get.call_args_list]
+        urls = result.urls[1:]
         assert [url.split("?")[0].rsplit("/", 1)[1] for url in urls[1:]] == expected_parent_ids
-        assert rows == [{"mobileDeviceId": "5", "mobileDeviceGroupId": expected_parent_ids[0]}]
+        assert result.rows == [{"mobileDeviceId": "5", "mobileDeviceGroupId": expected_parent_ids[0]}]
+        assert result.raised is None
 
     def test_unpaginated_incremental_endpoint_sends_filter(self):
-        manager = self._manager()
-        page = _response(json_data={"totalCount": 1, "results": [{"osUpdatesStatusId": "1"}]})
-        rows, session = self._run(
-            manager,
+        page = ScriptedResponse(json={"totalCount": 1, "results": [{"osUpdatesStatusId": "1"}]})
+        result = self._drive(
             [page],
             endpoint="managed_software_update_statuses",
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2024, 1, 1, tzinfo=UTC),
         )
 
-        assert rows == [{"osUpdatesStatusId": "1"}]
-        assert session.get.call_args.args[0] == (
+        assert result.rows == [{"osUpdatesStatusId": "1"}]
+        assert result.urls[1] == (
             "https://example.jamfcloud.com/api/v1/managed-software-updates/update-statuses"
             "?filter=updated%3E%3D%222024-01-01T00%3A00%3A00.000Z%22"
         )
+        assert result.raised is None
 
     def test_blocks_unsafe_host_before_any_request(self):
-        manager = self._manager()
         with mock.patch.object(jamf_pro_module, "_is_host_safe", return_value=(False, "internal address")):
-            with pytest.raises(JamfProHostNotAllowedError):
-                list(
-                    get_rows(
-                        host="10.0.0.1",
-                        credentials=CLIENT_CREDENTIALS,
-                        endpoint="computers",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=manager,
-                        team_id=1,
-                    )
-                )
+            result = _driver("10.0.0.1").run("computers", [])
+
+        assert isinstance(result.raised, JamfProHostNotAllowedError)
+        assert result.requests == []
 
     def test_rejects_redirect_response(self):
-        manager = self._manager()
-        with pytest.raises(JamfProHostNotAllowedError):
-            self._run(manager, [_response(status_code=302)])
+        result = self._drive([ScriptedResponse(status=302, headers={"Location": "https://other.example/path"})])
+
+        assert isinstance(result.raised, JamfProHostNotAllowedError)
+        assert result.paths == ["/api/oauth/token", "/api/v1/computers-inventory"]
 
     def test_requests_do_not_follow_redirects(self):
-        manager = self._manager()
-        page = _response(json_data={"totalCount": 1, "results": [{"id": "1", "general": {}}]})
-        _rows, session = self._run(manager, [page])
+        redirect = ScriptedResponse(status=302, headers={"Location": "https://other.example/path"})
+        token_redirect = _driver().run("computers", [redirect])
+        page_redirect = self._drive([redirect])
 
-        assert session.get.call_args.kwargs["allow_redirects"] is False
-        assert session.post.call_args.kwargs["allow_redirects"] is False
+        assert isinstance(token_redirect.raised, JamfProHostNotAllowedError)
+        assert token_redirect.paths == ["/api/oauth/token"]
+        assert isinstance(page_redirect.raised, JamfProHostNotAllowedError)
+        assert page_redirect.paths == ["/api/oauth/token", "/api/v1/computers-inventory"]
 
     def test_oversized_page_body_is_rejected(self):
         # The instance URL is customer-controlled; a hostile server returning a body larger than the
         # cap must fail the sync rather than buffer it whole into a shared worker's memory.
-        manager = self._manager()
-        big_page = _response(json_data={"results": [{"id": "1"}]})
-        big_page.iter_content.side_effect = lambda *a, **k: iter([b"x" * 2048])
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)], get_responses=[big_page])
-        with (
-            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
-            mock.patch.object(jamf_pro_module, "MAX_RESPONSE_BYTES", 1024),
-        ):
-            with pytest.raises(JamfProResponseTooLargeError):
-                list(
-                    get_rows(
-                        host="example.jamfcloud.com",
-                        credentials=CLIENT_CREDENTIALS,
-                        endpoint="computers",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=manager,
-                        team_id=1,
-                    )
-                )
+        with mock.patch.object(jamf_pro_module, "MAX_RESPONSE_BYTES", 1024):
+            result = self._drive([ScriptedResponse(body=b"x" * 2048)])
+
+        assert isinstance(result.raised, JamfProResponseTooLargeError)
+        assert result.paths == ["/api/oauth/token", "/api/v1/computers-inventory"]
 
     def test_slow_page_body_is_rejected(self):
         # The token mints within budget; the page body then dribbles past the wall-clock budget and
@@ -532,38 +500,24 @@ class TestGetRows:
     def test_pagination_stops_when_server_never_terminates(self):
         # A server returning a non-empty page forever with no totalCount would otherwise loop until
         # the activity's week-long timeout; the hard page cap breaks that.
-        manager = self._manager()
-        session = _session(post_responses=[_response(json_data=TOKEN_JSON)])
-        session.get.return_value = _response(json_data={"results": [{"id": "1"}]})
-        with (
-            mock.patch.object(jamf_pro_module, "make_tracked_session", return_value=session),
-            mock.patch.object(jamf_pro_module, "MAX_PAGES", 3),
-        ):
-            with pytest.raises(JamfProPaginationLimitError):
-                list(
-                    get_rows(
-                        host="example.jamfcloud.com",
-                        credentials=CLIENT_CREDENTIALS,
-                        endpoint="computers",
-                        logger=mock.MagicMock(),
-                        resumable_source_manager=manager,
-                        team_id=1,
-                    )
-                )
+        endless_page = ScriptedResponse(json={"results": [{"id": "1"}]})
+        with mock.patch.object(jamf_pro_module, "MAX_PAGES", 3):
+            result = self._drive([endless_page] * 3)
+
         # Pages 0, 1, 2 fetched; the loop raises before fetching page 3.
-        assert session.get.call_count == 3
+        assert result.params("page") == [None, "0", "1", "2"]
+        assert isinstance(result.raised, JamfProPaginationLimitError)
 
 
 class TestJamfProSourceResponse:
     @pytest.mark.parametrize("endpoint", list(JAMF_PRO_ENDPOINTS.keys()))
     def test_response_shape(self, endpoint):
-        response = jamf_pro_source(
-            host="example.jamfcloud.com",
-            credentials=CLIENT_CREDENTIALS,
-            endpoint=endpoint,
-            logger=mock.MagicMock(),
-            resumable_source_manager=mock.MagicMock(),
-            team_id=1,
-        )
-        assert response.name == endpoint
-        assert response.sort_mode == "asc"
+        config = JAMF_PRO_ENDPOINTS[endpoint]
+        fetched_config = JAMF_PRO_ENDPOINTS[config.parent] if config.parent else config
+        payload = {"results": []} if fetched_config.paginated else []
+        result = _driver().run(endpoint, _script(ScriptedResponse(json=payload)))
+
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.sort_mode == "asc"

@@ -3,16 +3,23 @@ from typing import Any
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tawkto import TawkToSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.settings import (
     ENDPOINTS,
     TAWK_TO_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.source import TawkToSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.tawk_to.tawk_to import (
     PAGE_SIZE,
     TawkToApiError,
     TawkToResumeConfig,
     get_rows,
-    tawk_to_source,
     validate_credentials,
 )
 
@@ -26,12 +33,20 @@ def _make_manager(resume_state: TawkToResumeConfig | None = None) -> mock.MagicM
     return manager
 
 
-def _response(body: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
+def _mock_response(body: dict[str, Any], status_code: int = 200) -> mock.MagicMock:
     response = mock.MagicMock()
     response.status_code = status_code
     response.ok = status_code < 400
     response.json.return_value = body
     return response
+
+
+def _driver(property_id: str | None = None) -> SourceDriver:
+    return SourceDriver(TawkToSource(), TawkToSourceConfig(api_key="key", property_id=property_id))
+
+
+def _response(body: dict[str, Any], status_code: int = 200) -> ScriptedResponse:
+    return ScriptedResponse(status=status_code, json=body)
 
 
 def _page(items: list[dict[str, Any]], total: int) -> dict[str, Any]:
@@ -48,17 +63,13 @@ class TestValidateCredentials:
             (500, {}, False),
         ],
     )
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_status_and_body_mapping(self, mock_session, status_code, body, expected):
-        mock_session.return_value.post.return_value = _response(body, status_code)
+    def test_status_and_body_mapping(self, status_code, body, expected):
+        with scripted_network(always(_response(body, status_code))):
+            assert validate_credentials("key") is expected
 
-        assert validate_credentials("key") is expected
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_swallows_exceptions(self, mock_session):
-        mock_session.return_value.post.side_effect = Exception("boom")
-
-        assert validate_credentials("key") is False
+    def test_swallows_exceptions(self):
+        with scripted_network(always(Exception("boom"))):
+            assert validate_credentials("key") is False
 
 
 class TestGetRows:
@@ -66,8 +77,8 @@ class TestGetRows:
     def test_repeated_page_stops_instead_of_looping(self, mock_session):
         page = [{"id": str(n)} for n in range(PAGE_SIZE)]
         mock_session.return_value.post.side_effect = [
-            _response(_page(page, total=10_000)),
-            _response(_page(page, total=10_000)),
+            _mock_response(_page(page, total=10_000)),
+            _mock_response(_page(page, total=10_000)),
         ]
 
         logger = mock.MagicMock()
@@ -77,82 +88,74 @@ class TestGetRows:
         assert sum(len(batch) for batch in batches) == PAGE_SIZE
         logger.warning.assert_called_once()
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_fans_out_over_all_properties_when_none_configured(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _response({"ok": True, "data": [{"propertyId": "prop-1"}, {"propertyId": "prop-2"}]}),
-            _response(_page([{"id": "a"}], total=1)),
-            _response(_page([{"id": "b"}], total=1)),
-        ]
+    def test_fans_out_over_all_properties_when_none_configured(self):
+        result = _driver().run(
+            "chats",
+            [
+                _response({"ok": True, "data": [{"propertyId": "prop-1"}, {"propertyId": "prop-2"}]}),
+                _response(_page([{"id": "a"}], total=1)),
+                _response(_page([{"id": "b"}], total=1)),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key", None, "chats", mock.MagicMock(), manager))
-
-        bodies = [call.kwargs["json"] for call in mock_session.return_value.post.call_args_list]
+        bodies = [request.json() for request in result.requests]
         assert bodies[0] == {}
         assert bodies[1]["propertyId"] == "prop-1"
         assert bodies[2]["propertyId"] == "prop-2"
-        assert [item["id"] for batch in batches for item in batch] == ["a", "b"]
+        assert [item["id"] for item in result.rows] == ["a", "b"]
         # The bookmark advances to the next property so a crash in between resumes there.
-        saved = manager.save_state.call_args.args[0]
+        saved = result.saved_states[-1]
         assert saved.property_id == "prop-2"
         assert saved.offset == 0
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_resumes_from_saved_property_and_offset(self, mock_session):
-        mock_session.return_value.post.side_effect = [
-            _response({"ok": True, "data": [{"propertyId": "prop-1"}, {"propertyId": "prop-2"}]}),
-            _response(_page([{"id": "b"}], total=100)),
-        ]
+    def test_resumes_from_saved_property_and_offset(self):
+        result = _driver().run(
+            "chats",
+            [
+                _response({"ok": True, "data": [{"propertyId": "prop-1"}, {"propertyId": "prop-2"}]}),
+                _response(_page([{"id": "b"}], total=100)),
+            ],
+            resume_state=TawkToResumeConfig(offset=50, property_id="prop-2"),
+        )
 
-        manager = _make_manager(TawkToResumeConfig(offset=50, property_id="prop-2"))
-        list(get_rows("key", None, "chats", mock.MagicMock(), manager))
-
-        bodies = [call.kwargs["json"] for call in mock_session.return_value.post.call_args_list]
+        bodies = [request.json() for request in result.requests]
         # prop-1 is skipped entirely; prop-2 starts at the saved offset.
         assert len(bodies) == 2
         assert bodies[1] == {"propertyId": "prop-2", "size": PAGE_SIZE, "offset": 50}
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_properties_endpoint_is_a_single_unscoped_call(self, mock_session):
-        mock_session.return_value.post.return_value = _response(
-            {"ok": True, "data": [{"propertyId": "prop-1", "name": "Site"}]}
+    def test_properties_endpoint_is_a_single_unscoped_call(self):
+        result = _driver().run(
+            "properties", [_response({"ok": True, "data": [{"propertyId": "prop-1", "name": "Site"}]})]
         )
 
-        manager = _make_manager()
-        batches = list(get_rows("key", None, "properties", mock.MagicMock(), manager))
+        assert len(result.requests) == 1
+        assert result.requests[0].json() == {}
+        assert result.items == [[{"propertyId": "prop-1", "name": "Site"}]]
+        assert result.saved_states == []
 
-        assert mock_session.return_value.post.call_count == 1
-        assert mock_session.return_value.post.call_args.kwargs["json"] == {}
-        assert batches == [[{"propertyId": "prop-1", "name": "Site"}]]
-        manager.save_state.assert_not_called()
+    def test_unpaginated_scoped_endpoint_sends_only_property_id(self):
+        result = _driver("prop-1").run("members", [_response({"ok": True, "data": [{"role": "admin"}]})])
 
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_unpaginated_scoped_endpoint_sends_only_property_id(self, mock_session):
-        mock_session.return_value.post.return_value = _response({"ok": True, "data": [{"role": "admin"}]})
+        assert len(result.requests) == 1
+        assert result.requests[0].json() == {"propertyId": "prop-1"}
+        assert result.items == [[{"role": "admin", "propertyId": "prop-1"}]]
 
-        batches = list(get_rows("key", "prop-1", "members", mock.MagicMock(), _make_manager()))
-
-        assert mock_session.return_value.post.call_count == 1
-        assert mock_session.return_value.post.call_args.kwargs["json"] == {"propertyId": "prop-1"}
-        assert batches == [[{"role": "admin", "propertyId": "prop-1"}]]
-
-    @mock.patch(f"{MODULE}.make_tracked_session")
-    def test_ok_false_body_raises(self, mock_session):
-        mock_session.return_value.post.return_value = _response(
-            {"ok": False, "error": "validation_error", "message": "body"}
+    def test_ok_false_body_raises(self):
+        result = _driver("prop-1").run(
+            "chats", [_response({"ok": False, "error": "validation_error", "message": "body"})]
         )
 
-        with pytest.raises(TawkToApiError, match="validation_error"):
-            list(get_rows("key", "prop-1", "chats", mock.MagicMock(), _make_manager()))
+        assert isinstance(result.raised, TawkToApiError)
+        assert "validation_error" in str(result.raised)
 
 
 class TestTawkToSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint):
         config = TAWK_TO_ENDPOINTS[endpoint]
-        response = tawk_to_source("key", None, endpoint, mock.MagicMock(), _make_manager())
+        response = _driver().run(endpoint, always(_response({"ok": True, "data": []}))).response
 
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == "desc"

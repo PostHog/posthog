@@ -103,6 +103,24 @@ describe('runCancellationLogic', () => {
         expect(logic.values.cancellationState).toBeNull()
     })
 
+    it('stops a run whose logged run start carries no run id', async () => {
+        attach()
+        logic.actions.requestCancellation()
+        await expectLogic(logic, () => {
+            stream.actions.ingestAcpFrame({
+                type: 'notification',
+                timestamp: '2026-01-01T00:00:00Z',
+                notification: { method: '_posthog/run_started', params: {} },
+                source_run_id: 'run-1',
+            })
+            stream.actions.ingestAcpFrame(prompt('run-1', 'agent_message_chunk'))
+        }).toFinishAllListeners()
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', 'task-1', 'run-1', {
+            jsonrpc: '2.0',
+            method: 'cancel',
+        })
+    })
+
     it('ignores readiness from an earlier resumed run', async () => {
         attach()
         logic.actions.requestCancellation()

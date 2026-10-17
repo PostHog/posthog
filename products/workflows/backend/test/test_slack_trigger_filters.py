@@ -7,7 +7,7 @@ from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 
-from posthog.cdp.filters import hog_function_filters_to_expr
+from products.cdp.backend.filters import hog_function_filters_to_expr
 
 from common.hogvm.python.execute import execute_bytecode
 
