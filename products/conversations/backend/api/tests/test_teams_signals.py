@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Callable
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
@@ -11,7 +12,7 @@ from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel
 
 
-def immediate_on_commit(func):
+def immediate_on_commit(func: Callable[[], object], using: str | None = None) -> None:
     func()
 
 

@@ -587,7 +587,7 @@ class TestResaveCohortsCommandTwoTeams(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-@patch("django.db.transaction.on_commit", lambda fn: fn())
+@patch("django.db.transaction.on_commit", lambda fn, using=None: fn())
 @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
 @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
 class TestResaveCohortsCommandFlagsCacheRebuilds(BaseTest):

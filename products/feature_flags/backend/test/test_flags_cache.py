@@ -983,7 +983,7 @@ class TestServiceFlagsSignals(BaseTest):
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("django.db.transaction.on_commit", lambda fn, using=None: fn())
     def test_signal_fired_on_team_create(self, mock_task):
         """Test that signal fires when a team is created."""
         # Create a new team
@@ -1171,7 +1171,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    @patch("django.db.transaction.on_commit", lambda fn, using=None: fn())
     def test_team_create_routes_to_kafka_when_flag_on(self, mock_task, mock_gate, mock_produce):
         new_team = Team.objects.create(organization=self.organization, name="Kafka Routing Team")
         mock_task.delay.assert_not_called()
@@ -4712,7 +4712,7 @@ class TestCohortChangedFlagsCacheSignal(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
-@patch("django.db.transaction.on_commit", lambda fn: fn())
+@patch("django.db.transaction.on_commit", lambda fn, using=None: fn())
 @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
 @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
 class TestCoalescedFlagsCacheRebuilds(BaseTest):

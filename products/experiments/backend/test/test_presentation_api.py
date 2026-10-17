@@ -4842,7 +4842,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             ("copy_to_project", "copy_to_project", True),
         ]
     )
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("django.db.transaction.on_commit", side_effect=lambda func, using=None: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_clone_experiment_reports_creation_mode(
         self,
