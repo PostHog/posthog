@@ -118,6 +118,7 @@ describe('metricVariables', () => {
         ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
         ['a regex that repeats too much', 'promql', '(a{1000}){1000}', 'regex'],
         ['a regex with the RE2 any-byte class', 'promql', '\\C+', undefined],
+        ['a regex with the any-byte class inside a class', 'promql', '[\\C]', 'regex'],
         ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],
         ['a regex with small counted repeats', 'promql', '\\d{1,3}(\\.\\d{1,3}){3}', undefined],
     ])('checks the regex of %s', (_name, source, regex, field, query = 'label_values(job)') => {
@@ -128,5 +129,10 @@ describe('metricVariables', () => {
     it.each(['__proto__', '__interval'])('rejects the reserved name %s', (name) => {
         const errors = variableErrors([{ name, source: 'promql', query: 'label_values(job)' }])
         expect(ownValue(errors, name)?.field).toEqual('name')
+    })
+
+    it('keeps an option that looks like the All value when the variable has no All', () => {
+        const variable: MetricsDashboardVariable = { name: 'v', source: 'custom', customValues: ['$__all'] }
+        expect(selectionFromValues(variable, ['$__all'], ['$__all'])).toEqual({ values: ['$__all'] })
     })
 })

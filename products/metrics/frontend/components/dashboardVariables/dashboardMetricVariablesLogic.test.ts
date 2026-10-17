@@ -169,6 +169,27 @@ describe('dashboardMetricVariablesLogic', () => {
         expect(mockOptions).toHaveBeenCalledTimes(4)
     })
 
+    it('keeps loading options when the dashboard restores other selections', async () => {
+        const zone = deferred()
+        mockOptions.mockImplementation(async (_team, body) => (body.query === 'SELECT zone' ? zone.promise : { results: [] }))
+        const withZone: MetricsDashboardVariable[] = [
+            { name: 'env', source: 'textbox', current: { values: ['prod'] } },
+            { name: 'zone', source: 'sql', query: 'SELECT zone' },
+        ]
+        const props = { dashboardId: 1, variables: withZone, onSelectionsChange: jest.fn() }
+        const logic = dashboardMetricVariablesLogic(props)
+        logic.mount()
+        await flush()
+
+        dashboardMetricVariablesLogic({ ...props, variables: [{ ...withZone[0], current: { values: ['dev'] } }, withZone[1]] })
+        await flush()
+        zone.resolve(['eu'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.options.zone).toEqual(['eu'])
+        expect(logic.values.loadingNames).toEqual([])
+    })
+
     it('runs at most four option requests at once', async () => {
         const many: MetricsDashboardVariable[] = Array.from({ length: 6 }, (_, index) => ({
             name: `v${index}`,
