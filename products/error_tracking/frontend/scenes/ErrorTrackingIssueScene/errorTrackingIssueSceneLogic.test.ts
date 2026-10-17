@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
@@ -6,12 +7,15 @@ import type { ErrorEventType } from 'lib/components/Errors/types'
 import { useMocks } from '~/mocks/jest'
 import type { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
+const OTHER_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5c'
+const MOUNT_LOADERS = ['loadIssue', 'loadSummary', 'loadIssueFingerprints', 'loadSpikeEvents', 'loadLinkedReports']
 const ISSUE: ErrorTrackingRelationalIssue = {
     id: VALID_ISSUE_ID,
     name: 'TypeError',
@@ -63,7 +67,7 @@ describe('errorTrackingIssueSceneLogic', () => {
             const scopedLogic = errorTrackingIssueSceneLogic({ id })
             await expectLogic(scopedLogic, () => {
                 scopedLogic.mount()
-            }).toNotHaveDispatchedActions(['loadIssue'])
+            }).toNotHaveDispatchedActions(MOUNT_LOADERS)
             expect(scopedLogic.values.issueIdValid).toBe(false)
             scopedLogic.unmount()
         }
@@ -73,7 +77,7 @@ describe('errorTrackingIssueSceneLogic', () => {
         const scopedLogic = errorTrackingIssueSceneLogic({ id: VALID_ISSUE_ID })
         await expectLogic(scopedLogic, () => {
             scopedLogic.mount()
-        }).toDispatchActions(['loadIssue'])
+        }).toDispatchActionsInAnyOrder(MOUNT_LOADERS)
         expect(scopedLogic.values.issueIdValid).toBe(true)
         scopedLogic.unmount()
     })
@@ -104,6 +108,76 @@ describe('errorTrackingIssueSceneLogic', () => {
 
         expect(logic.values.eventsQueryKey).not.toBe(initialKey)
     })
+
+    it.each([
+        { filter: 'date range', apply: () => logic.actions.setDateRange({ date_from: '-14d' }), spikes: true },
+        {
+            filter: 'filter group',
+            apply: () => logic.actions.setFilterGroup({ type: FilterLogicalOperator.Or, values: [] }),
+            spikes: false,
+        },
+        { filter: 'test accounts', apply: () => logic.actions.setFilterTestAccounts(true), spikes: false },
+        { filter: 'search query', apply: () => logic.actions.setSearchQuery('needle'), spikes: false },
+    ])('reloads the summary when the $filter changes', async ({ apply, spikes }) => {
+        await expectLogic(logic).toFinishAllListeners().clearHistory()
+
+        const expectation = expectLogic(logic, apply).toDispatchActions(['loadSummary'])
+        if (spikes) {
+            await expectation.toDispatchActions(['loadSpikeEvents'])
+        } else {
+            await expectation.toFinishAllListeners().toNotHaveDispatchedActions(['loadSpikeEvents'])
+        }
+    })
+
+    it.each([
+        {
+            source: 'the summary last_seen',
+            queryResults: [
+                {
+                    id: OTHER_ISSUE_ID,
+                    first_seen: '2026-01-01T00:00:00Z',
+                    last_seen: '2026-01-02T03:04:05Z',
+                    aggregations: { occurrences: 1, sessions: 1, users: 1, volume_buckets: [] },
+                    last_event: {
+                        uuid: 'last-event',
+                        distinct_id: 'person-1',
+                        timestamp: '2026-01-02T03:04:05Z',
+                        properties: '{}',
+                    },
+                },
+            ],
+            expectedTimestamp: '2026-01-02T03:04:05Z',
+            expectedSelectedUuid: 'last-event',
+        },
+        {
+            source: 'the issue first_seen when the summary is empty',
+            queryResults: [],
+            expectedTimestamp: ISSUE.first_seen,
+            expectedSelectedUuid: undefined,
+        },
+    ])(
+        'positions the initial event from $source',
+        async ({ queryResults, expectedTimestamp, expectedSelectedUuid }) => {
+            useMocks({ post: { '/api/environments/:team_id/query/:query_kind/': { results: queryResults } } })
+            const scopedLogic = errorTrackingIssueSceneLogic({ id: OTHER_ISSUE_ID })
+
+            await expectLogic(scopedLogic, () => {
+                scopedLogic.mount()
+            })
+                .toDispatchActions([
+                    'loadIssueSuccess',
+                    'loadSummarySuccess',
+                    'loadInitialEvent',
+                    'loadInitialEventSuccess',
+                ])
+                .toMatchValues({ initialEventTimestamp: expectedTimestamp })
+            expect(scopedLogic.values.selectedEvent?.uuid).toEqual(expectedSelectedUuid)
+            if (expectedSelectedUuid) {
+                expect(router.values.searchParams.timestamp).toEqual(expectedTimestamp)
+            }
+            scopedLogic.unmount()
+        }
+    )
 
     it('handles an empty initial event query result', async () => {
         await expectLogic(logic, () => {
@@ -147,7 +221,7 @@ describe('errorTrackingIssueSceneLogic', () => {
         expect(loadIssue).toHaveBeenCalledTimes(1)
     })
 
-    it('reloads only the issue that was split and does not reload merged issues', async () => {
+    it('reloads the split issue data and does not reload merged issues', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const loadIssue = jest.spyOn(logic.actions, 'loadIssue')
 
@@ -158,7 +232,7 @@ describe('errorTrackingIssueSceneLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.splitIssueSuccess(VALID_ISSUE_ID, [])
-        }).toDispatchActions(['loadIssue'])
+        }).toDispatchActions(['loadIssue', 'loadSummary', 'loadIssueFingerprints', 'loadSpikeEvents'])
         expect(loadIssue).toHaveBeenCalledTimes(1)
     })
 
