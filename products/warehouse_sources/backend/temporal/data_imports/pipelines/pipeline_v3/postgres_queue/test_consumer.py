@@ -1364,7 +1364,14 @@ class TestQueueOperationTimeouts:
         mock_capture.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_startup_connect_retries_a_dns_blip_instead_of_crashing(self):
+    @pytest.mark.parametrize(
+        "dns_error_message",
+        [
+            "[Errno -3] Temporary failure in name resolution",
+            "[Errno -2] Name or service not known",
+        ],
+    )
+    async def test_startup_connect_retries_a_dns_blip_instead_of_crashing(self, dns_error_message: str):
         # Reproduces the reported issue: the queue DB being unreachable for a DNS blip when
         # this process starts used to raise straight out of run() uncaught -- crashing the
         # whole consumer -- even though every other connect path here (the poll loop, the
@@ -1383,7 +1390,7 @@ class TestQueueOperationTimeouts:
             nonlocal connect_attempts
             connect_attempts += 1
             if connect_attempts == 1:
-                raise psycopg.OperationalError("[Errno -3] Temporary failure in name resolution")
+                raise psycopg.OperationalError(dns_error_message)
             return _make_healthy_conn()
 
         async def fetch(*args: Any, **kwargs: Any) -> list[PendingBatch]:
@@ -1415,6 +1422,21 @@ class TestQueueOperationTimeouts:
             await asyncio.wait_for(run_task, timeout=5.0)
 
         assert connect_attempts >= 2
+
+    @pytest.mark.asyncio
+    async def test_startup_connect_stops_retrying_an_unknown_hostname_after_the_wait_limit(self):
+        config = ConsumerConfig(database_url="postgres://unused:unused@localhost/unused")
+        consumer = BatchConsumer(config=config, process_batch=AsyncMock())
+        error = psycopg.OperationalError("[Errno -2] Name or service not known")
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=error) as mock_connect,
+            patch(f"{batch_consumer_module.__name__}.STARTUP_DNS_NAME_NOT_KNOWN_MAX_WAIT_SECONDS", 0),
+            pytest.raises(psycopg.OperationalError, match="Name or service not known"),
+        ):
+            await consumer._connect_with_startup_retry(statement_timeout_seconds=None, event="startup_connect")
+
+        mock_connect.assert_awaited_once()
 
     @pytest.mark.asyncio
     async def test_poll_timeout_wrapped_as_operational_error_is_not_reported(self):

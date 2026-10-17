@@ -89,6 +89,21 @@ def _is_dns_resolution_transient_error(error: BaseException) -> bool:
     return _DNS_RESOLUTION_TRANSIENT_MARKER in str(error).lower()
 
 
+# EAI_NONAME ("Name or service not known") means the resolver answered that the queue DB's
+# hostname does not exist. A new pod can see this for a short time while cluster DNS has not
+# caught up with its network, so the startup connect retries it. A really bad hostname gives
+# the same error forever, so the retry stops after STARTUP_DNS_NAME_NOT_KNOWN_MAX_WAIT_SECONDS
+# and the error escapes. Outside startup this error is not transient.
+_DNS_NAME_NOT_KNOWN_MARKER = "name or service not known"
+STARTUP_DNS_NAME_NOT_KNOWN_MAX_WAIT_SECONDS = 120.0
+
+
+def _is_dns_name_not_known_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _DNS_NAME_NOT_KNOWN_MARKER in str(error).lower()
+
+
 # Connect-time "server not ready" refusals: PostgreSQL rejects a new connection with SQLSTATE
 # 57P03 while it is still coming up (starting up, replaying WAL after a crash — "the database
 # system is in recovery mode" — or not yet at a consistent recovery point) or shutting down.
@@ -598,14 +613,21 @@ class BatchConsumer:
         here crashes the whole consumer before `_poll_conn`/`_recovery_conn` even exist, for
         the same DNS, server-not-ready, connect-timeout, and admin-shutdown shapes the running
         consumer already treats as self-healing everywhere else.
+
+        It also retries an unknown hostname, but only for a bounded time, so a real
+        misconfiguration still crashes the consumer and reaches error tracking.
         """
         attempt = 0
+        deadline = time.monotonic() + STARTUP_DNS_NAME_NOT_KNOWN_MAX_WAIT_SECONDS
         while True:
             attempt += 1
             try:
                 return await self._connect(statement_timeout_seconds=statement_timeout_seconds)
             except Exception as error:
-                if not _is_transient_queue_db_error(error):
+                if not (
+                    _is_transient_queue_db_error(error)
+                    or (_is_dns_name_not_known_error(error) and time.monotonic() < deadline)
+                ):
                     raise
                 logger.warning(self._event(event), attempt=attempt, error=str(error))
                 await self._wait_or_shutdown(_queue_retry_delay(min(attempt, QUEUE_RETRY_MAX_ATTEMPTS)))
