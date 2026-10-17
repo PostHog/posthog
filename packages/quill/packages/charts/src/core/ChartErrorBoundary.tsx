@@ -4,6 +4,7 @@ interface ChartErrorBoundaryProps {
     children: React.ReactNode
     fallback?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
+    resetKey?: unknown
 }
 
 interface ChartErrorBoundaryState {
@@ -31,6 +32,12 @@ export class ChartErrorBoundary extends React.Component<ChartErrorBoundaryProps,
     override componentDidCatch(error: Error, info: React.ErrorInfo): void {
         console.error('[hog-charts] render error:', error, info.componentStack)
         this.props.onError?.(error, info)
+    }
+
+    override componentDidUpdate(prevProps: ChartErrorBoundaryProps): void {
+        if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+            this.setState({ hasError: false })
+        }
     }
 
     override render(): React.ReactNode {

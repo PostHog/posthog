@@ -9,10 +9,10 @@ trustPolicy: no-downgrade
 catalog:
     '@hono/node-server': ^1.13.7
     '@hono/trpc-server': ^0.3.4
-    '@earendil-works/pi-agent-core': 0.84.1
-    '@earendil-works/pi-ai': 0.84.1
-    '@earendil-works/pi-coding-agent': 0.84.1
-    '@earendil-works/pi-tui': 0.84.1
+    '@earendil-works/pi-agent-core': 1.2.0
+    '@earendil-works/pi-ai': 1.2.0
+    '@earendil-works/pi-coding-agent': 1.2.0
+    '@earendil-works/pi-tui': 1.2.0
     '@parcel/watcher': ^2.5.6
     '@phosphor-icons/react': ^2.1.10
     '@posthog/brand': 0.11.0
@@ -47,6 +47,9 @@ ignoredBuiltDependencies:
 minimumReleaseAge: 10080
 
 minimumReleaseAgeExclude:
+    - >-
+        @openai/codex@0.159.2 || 0.159.2-darwin-arm64 || 0.159.2-darwin-x64 ||
+        0.159.2-linux-arm64 || 0.159.2-linux-x64 || 0.159.2-win32-arm64 || 0.159.2-win32-x64
     - '@agentclientprotocol/sdk'
     - '@anthropic-ai/claude-agent-sdk'
     - '@anthropic-ai/claude-agent-sdk-darwin-arm64'

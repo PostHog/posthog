@@ -109,6 +109,15 @@ class ClickHouseUser(StrEnum):
     # Session replay surfacing scoring sweep
     SURFACING_SCORING = "surfacing_scoring"
     DELETION_EXECUTOR = "deletion_executor"
+    # The alerts platform's parallel evaluation has one user per source. A source's checks then
+    # never take from the concurrency budget of the user that its production alerting queries as.
+    ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
+    # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
+    ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # The platform's own bookkeeping, shared by every source: its check history and the default
+    # user of its evaluation worker. A source's checks keep their own user, so a new source never
+    # takes from another source's budget.
+    ALERTS_PLATFORM = "alerts_platform"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"
@@ -121,6 +130,9 @@ class ClickHouseUser(StrEnum):
     # Low-privilege reader baked into dictionary SOURCE blocks, decoupling
     # dictionary credentials from the default user.
     DICT_READER = "dict_reader"
+    # Static reader that Dagster embeds in dictionary SOURCE blocks. ClickHouse stores the
+    # SOURCE password, so this user cannot use the rotating token.
+    DAGSTER_DICT_READER = "dagster_dict_reader"
 
 
 EXPIRED_TOKEN_PASSWORD_FALLBACK_COUNTER = Counter(
@@ -221,27 +233,33 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
     return user_dict
 
 
+def _registered_users() -> Mapping[ClickHouseUser, ClickHouseCredentials]:
+    global __user_dict
+    if not __user_dict:
+        __user_dict = init_clickhouse_users()
+    return __user_dict
+
+
 def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
     """
     Retrieve ClickHouse credentials for the specified user.
 
     This function retrieves the credentials associated with a given ClickHouse
-    user. Most missing dedicated users fall back to the default user credentials.
+    user. Most missing dedicated users fall back to the ClickHouseUser.DEFAULT
+    credentials, which belong to the pod's CLICKHOUSE_USER.
     Business Knowledge fails closed so a deployment cannot silently bypass its
     isolated query limit.
 
-    The user and password must be properly passed as ENVs:
+    The user and a password or token file must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
-        CLICKHOUSE_<USER_NAME>_PASSWORD
+        CLICKHOUSE_<USER_NAME>_PASSWORD or CLICKHOUSE_<USER_NAME>_PASSWORD_FILE
 
     Args:
         user (ClickHouseUser): The user whose ClickHouse credentials need
                                to be retrieved.
     """
-    global __user_dict
-    if not __user_dict:
-        __user_dict = init_clickhouse_users()
-    if creds := __user_dict.get(user):
+    users = _registered_users()
+    if creds := users.get(user):
         return creds
     if user == ClickHouseUser.BUSINESS_KNOWLEDGE:
         raise RuntimeError(
@@ -255,7 +273,7 @@ def get_clickhouse_creds(user: ClickHouseUser) -> ClickHouseCredentials:
             "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD or "
             "CLICKHOUSE_DELETION_EXECUTOR_PASSWORD_FILE"
         )
-    return __user_dict[ClickHouseUser.DEFAULT]
+    return users[ClickHouseUser.DEFAULT]
 
 
 @frozen
@@ -374,6 +392,25 @@ def get_http_client(**overrides):
     yield ProxyClient(get_client(**kwargs))
 
 
+# Named users that exist on the logs cluster. Every other named user exists on the main cluster
+# only, and sync_execute assigns some of them (APP, API) from tags without checking the workload.
+LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset({ClickHouseUser.ALERTS_PLATFORM_LOGS})
+
+
+def connection_creds(workload: Workload, ch_user: ClickHouseUser) -> ClickHouseCredentials | None:
+    """The credentials a connection authenticates with, or None when it uses the logs cluster's own user.
+
+    A logs connection uses a named user only when the user exists on the logs cluster and is
+    registered. get_clickhouse_creds falls back to the default user, whose credentials belong to
+    the main cluster.
+    """
+    if workload != Workload.LOGS:
+        return get_clickhouse_creds(ch_user)
+    if ch_user not in LOGS_CLUSTER_USERS:
+        return None
+    return _registered_users().get(ch_user)
+
+
 def get_kwargs_for_client(
     workload: Workload = Workload.DEFAULT,
     team_id=None,
@@ -381,17 +418,34 @@ def get_kwargs_for_client(
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
 ):
     if workload == Workload.LOGS:
-        return {
+        logs_kwargs = {
             "host": settings.CLICKHOUSE_LOGS_CLUSTER_HOST,
             "port": settings.CLICKHOUSE_LOGS_CLUSTER_PORT,
             "database": settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE,
+            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
+        }
+        if named := connection_creds(workload, ch_user):
+            return {**logs_kwargs, "user": named.user, "password": named.password}
+        return {
+            **logs_kwargs,
             "user": settings.CLICKHOUSE_LOGS_CLUSTER_USER,
             "password": settings.CLICKHOUSE_LOGS_CLUSTER_PASSWORD,
-            "secure": settings.CLICKHOUSE_LOGS_CLUSTER_SECURE,
         }
 
     creds = get_clickhouse_creds(ch_user)
     base_kwargs = {"user": creds.user, "password": creds.password}
+
+    if workload == Workload.NEW_EVENTS_CLUSTER:
+        from posthog.models.event.new_events_schema import get_new_events_cluster_host  # noqa: PLC0415
+
+        host = get_new_events_cluster_host()
+        if not host:
+            raise ValueError("Native events ClickHouse host is not configured")
+        return {
+            **get_kwargs_for_client(Workload.DEFAULT, team_id, readonly, ch_user),
+            "host": host,
+            "verify": settings.CLICKHOUSE_VERIFY,
+        }
 
     if team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
         user_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
@@ -415,11 +469,11 @@ def get_kwargs_for_client(
     return base_kwargs
 
 
-def is_file_backed_user(creds: ClickHouseCredentials, workload: Workload, user: str | None) -> bool:
+def is_file_backed_user(creds: ClickHouseCredentials, user: str | None) -> bool:
     # True when the resolved connection authenticates as a user whose credential comes from a
-    # rotating token file. The LOGS and readonly paths resolve to their own static credentials, so
-    # they are excluded and keep the static password.
-    return bool(creds.password_file) and workload != Workload.LOGS and user == creds.user
+    # rotating token file. The readonly path resolves to its own static credentials, so it keeps
+    # the static password. connection_creds returns None for the logs cluster's own user.
+    return bool(creds.password_file) and user == creds.user
 
 
 def get_http_kwargs(
@@ -435,8 +489,8 @@ def get_http_kwargs(
     on every checkout, which means a read here would only duplicate it on the hot query path.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
-    creds = get_clickhouse_creds(ch_user)
-    if is_file_backed_user(creds, workload, kwargs.get("user")):
+    creds = connection_creds(workload, ch_user)
+    if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs["password"] = creds.read_password()
     return kwargs
 
@@ -473,10 +527,10 @@ def get_pool(
     Note that the same pool should be returned every call.
     """
     kwargs = get_kwargs_for_client(workload=workload, team_id=team_id, readonly=readonly, ch_user=ch_user)
-    creds = get_clickhouse_creds(ch_user)
+    creds = connection_creds(workload, ch_user)
     # A file-backed user reads its credential fresh on every checkout, so the pool is keyed on
     # identity rather than the rotating credential and stamps the credential in RefreshingChPool.pull.
-    if is_file_backed_user(creds, workload, kwargs.get("user")):
+    if creds is not None and is_file_backed_user(creds, kwargs.get("user")):
         kwargs.pop("password", None)
         return make_ch_pool(credential_provider=creds.read_password, **kwargs)
     return make_ch_pool(**kwargs)
@@ -486,6 +540,7 @@ def default_client(
     host=settings.CLICKHOUSE_HOST,
     password=None,
     *,
+    user: str | None = None,
     database: str = "system",
     send_receive_timeout: int | None = None,
 ):
@@ -493,9 +548,18 @@ def default_client(
     Return a bare bones client for use in places where we are only interested in general ClickHouse state
     DO NOT USE THIS FOR QUERYING DATA
 
-    password overrides the static CLICKHOUSE_PASSWORD, for example with a resolved file-backed token.
+    When the caller passes neither user nor password, the client authenticates as CLICKHOUSE_USER with the
+    token from CLICKHOUSE_PASSWORD_FILE, and falls back to the static CLICKHOUSE_PASSWORD the way the pool does.
+    The token is read once, so close the client after one short task: a retained client that reconnects
+    after the token expires is rejected.
+    user and password override these, for example with a dedicated user's resolved file-backed token.
     send_receive_timeout bounds each socket read and write; None keeps the driver default.
     """
+    if user is None and password is None:
+        user = settings.CLICKHOUSE_USER
+        password = ClickHouseCredentials(
+            user=user, password=settings.CLICKHOUSE_PASSWORD, password_file=settings.CLICKHOUSE_PASSWORD_FILE
+        ).read_password()
     return ClickHouseClient(
         host=host,
         **({"send_receive_timeout": send_receive_timeout} if send_receive_timeout is not None else {}),
@@ -507,7 +571,7 @@ def default_client(
         # access to various other tables e.g. to handle async migrations.
         database=database,
         secure=settings.CLICKHOUSE_SECURE,
-        user=settings.CLICKHOUSE_USER,
+        user=settings.CLICKHOUSE_USER if user is None else user,
         password=settings.CLICKHOUSE_PASSWORD if password is None else password,
         ca_certs=settings.CLICKHOUSE_CA,
         verify=settings.CLICKHOUSE_VERIFY,

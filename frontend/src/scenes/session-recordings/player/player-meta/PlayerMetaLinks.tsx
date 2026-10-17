@@ -26,14 +26,13 @@ import {
     SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { PlayerShareMenu } from 'scenes/session-recordings/player/share/PlayerShareMenu'
 import { personsModalLogic } from 'scenes/trends/persons-modal/personsModalLogic'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { PlayerMetaBreakpoints } from './PlayerMeta'
 
-function PinToPlaylistButton(): JSX.Element {
+export function PinToPlaylistButton(): JSX.Element {
     const { logicProps } = useValues(sessionRecordingPlayerLogic)
 
     const tooltip = logicProps.pinned ? 'Remove from collection' : 'Add to collection'
@@ -46,7 +45,7 @@ function PinToPlaylistButton(): JSX.Element {
                 logicProps.setPinned?.(true)
             }}
             tooltip={tooltip}
-            data-attr={logicProps.pinned ? 'unpin-from-this-list' : 'pin-to-this-list'}
+            data-attr="pin-to-this-list"
             icon={<IconPlusSmall />}
         />
     ) : (
@@ -66,43 +65,27 @@ function PinToPlaylistButton(): JSX.Element {
     )
 }
 
-export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.Element {
-    const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
-    const mode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-
+export function InsertInNotebookPlaylistButton({ size }: { size: PlayerMetaBreakpoints }): JSX.Element | null {
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const nodeLogic = useNotebookNode()
 
+    if (size !== 'normal' || nodeLogic?.props.nodeType !== NotebookNodeType.RecordingPlaylist) {
+        return null
+    }
+
     return (
-        <div className="flex">
-            {![SessionRecordingPlayerMode.Sharing].includes(mode) ? (
-                <>
-                    {sessionRecordingId && (
-                        <div className="flex items-center gap-0.5">
-                            <MenuActions size={size} />
-                        </div>
-                    )}
-
-                    <PlayerShareMenu />
-
-                    {size === 'normal' && nodeLogic?.props.nodeType === NotebookNodeType.RecordingPlaylist ? (
-                        <LemonButton
-                            size="xsmall"
-                            icon={<IconNotebook />}
-                            onClick={() => {
-                                nodeLogic.actions.insertAfter({
-                                    type: NotebookNodeType.Recording,
-                                    attrs: { id: sessionRecordingId },
-                                })
-                            }}
-                            tooltip="Comment in a notebook"
-                            data-attr="player-meta-add-replay-to-notebook"
-                        />
-                    ) : null}
-
-                    <PinToPlaylistButton />
-                </>
-            ) : null}
-        </div>
+        <LemonButton
+            size="xsmall"
+            icon={<IconNotebook />}
+            onClick={() => {
+                nodeLogic.actions.insertAfter({
+                    type: NotebookNodeType.Recording,
+                    attrs: { id: sessionRecordingId },
+                })
+            }}
+            tooltip="Comment in a notebook"
+            data-attr="player-meta-add-replay-to-notebook"
+        />
     )
 }
 
@@ -132,7 +115,13 @@ const AddToNotebookButton = ({ fullWidth = false }: Pick<LemonButtonProps, 'full
     )
 }
 
-const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => {
+export const MenuActions = ({
+    size,
+    extraItems = [],
+}: {
+    size: PlayerMetaBreakpoints
+    extraItems?: LemonMenuItems
+}): JSX.Element => {
     const { logicProps, isMuted, hasReachedExportFullVideoLimit, sessionPlayerData } =
         useValues(sessionRecordingPlayerLogic)
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile, setMuted } =
@@ -175,6 +164,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
             {
                 label: () => <AddToNotebookButton fullWidth={true} />,
             },
+            ...extraItems,
             {
                 label: 'Skip inactivity',
                 'data-attr': 'skip-inactivity-menu-item',
@@ -240,6 +230,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         return itemsArray
         // oxlint-disable-next-line exhaustive-deps
     }, [
+        extraItems,
         logicProps.playerKey,
         onDelete,
         exportRecordingToFile,

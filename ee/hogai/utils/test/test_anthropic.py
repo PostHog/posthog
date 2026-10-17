@@ -1,4 +1,4 @@
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from langchain_core.messages import AIMessage, HumanMessage
 from parameterized import parameterized
@@ -21,7 +21,7 @@ from ee.hogai.utils.anthropic import (
 )
 
 
-class TestAnthropicUtils(BaseTest):
+class TestAnthropicUtils(SimpleTestCase):
     @parameterized.expand(
         [
             (None, []),

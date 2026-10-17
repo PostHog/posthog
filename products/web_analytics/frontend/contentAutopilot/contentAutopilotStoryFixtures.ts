@@ -71,7 +71,7 @@ export const EXAMPLE_PROPOSAL: ContentAutopilotProposalApi = {
         ],
     },
     content_package: {
-        file_path: 'contents/docs/web-analytics.mdx',
+        file_path: 'docs/web-analytics.md',
         title: 'Web analytics',
         description: 'Understand web traffic, behavior, and conversion with privacy-friendly analytics.',
         slug: 'web-analytics',
@@ -79,8 +79,9 @@ export const EXAMPLE_PROPOSAL: ContentAutopilotProposalApi = {
         internal_links: [],
         source_notes: [],
     },
-    original_markdown: '# Web analytics',
-    proposed_markdown: '# Web analytics',
+    original_markdown: '# Web analytics\n\nWeb analytics shows traffic.',
+    proposed_markdown:
+        '# Web analytics\n\nWeb analytics shows traffic, sources, and conversions without cookies.\n\n## Frequently asked questions',
     brief: {
         intent: 'Decide whether a privacy-friendly web analytics tool covers their needs.',
         audience: 'Marketers and founders comparing analytics tools',

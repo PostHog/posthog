@@ -91,6 +91,37 @@ describe("finish tool", () => {
       expected: true,
     },
     {
+      name: "caller-managed ReviewHog run",
+      ctx: { cwd: "/repo", requestFinish },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "review_hog",
+      },
+      expected: false,
+    },
+    {
+      name: "ReviewHog run with run ids only (out-of-process adapter)",
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "review_hog",
+      },
+      expected: false,
+    },
+    {
+      name: "ReviewHog run with an end-run opt-in and run ids",
+      ctx: { cwd: "/repo", taskId: "task-1", taskRunId: "run-1" },
+      meta: {
+        environment: "cloud",
+        background: true,
+        taskOriginProduct: "review_hog",
+        endRunWhenDone: true,
+      },
+      expected: false,
+    },
+    {
       name: "caller-managed scout suggestions run",
       ctx: { cwd: "/repo", requestFinish },
       meta: {
@@ -158,7 +189,11 @@ describe("finish tool", () => {
     expect(updateTaskRun).toHaveBeenCalledWith(
       "task-1",
       "run-1",
-      { status: "failed", error_message: "blocked" },
+      {
+        status: "failed",
+        error_message: "blocked",
+        error_type: "agent_declined",
+      },
       expect.any(AbortSignal),
     );
     expect(result.isError).toBeUndefined();

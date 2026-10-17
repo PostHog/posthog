@@ -100,8 +100,14 @@ export function InboxSearchFilterBar({
     onRefresh,
     refreshing,
 }: InboxSearchFilterBarProps): JSX.Element {
-    const { searchQuery, sortField, sortDirection, sourceProductFilter, scoutFilter, priorityFilter } =
-        useValues(inboxFiltersLogic)
+    const {
+        searchQuery,
+        activeSortField: sortField,
+        activeSortDirection: sortDirection,
+        sourceProductFilter,
+        scoutFilter,
+        priorityFilter,
+    } = useValues(inboxFiltersLogic)
     const { setSearchQuery, setSort, toggleSourceProduct, toggleScout, clearScoutFilter, togglePriority } =
         useActions(inboxFiltersLogic)
     const { scoutConfigs } = useValues(scoutFleetLogic)

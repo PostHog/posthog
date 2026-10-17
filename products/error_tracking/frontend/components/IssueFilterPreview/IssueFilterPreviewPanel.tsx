@@ -3,7 +3,6 @@ import type { PropsWithChildren, UIEvent } from 'react'
 
 import { IconClock, IconListTree, IconRocket } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconFingerprint } from 'lib/lemon-ui/icons'
 import {
     Tabs,
@@ -36,14 +35,6 @@ export function IssueFilterPreviewPanel({
     const { activePreview } = useValues(issueFilterPreviewLogic)
     const { issueId } = useValues(errorTrackingIssueSceneLogic)
     const { setActivePreview } = useActions(issueFilterPreviewLogic)
-    const hasReleases = useFeatureFlag('ERROR_TRACKING_ISSUE_RELEASES')
-    const previewEnabled: Record<IssueFilterPreview, boolean> = {
-        time: true,
-        properties: true,
-        fingerprints: true,
-        releases: hasReleases,
-    }
-    const selectedPreview = previewEnabled[activePreview] ? activePreview : 'time'
 
     const handleScroll = (event: UIEvent<HTMLDivElement>): void => {
         const { clientHeight, scrollHeight, scrollTop } = event.currentTarget
@@ -59,9 +50,9 @@ export function IssueFilterPreviewPanel({
                     <TooltipProvider>
                         <Tabs
                             orientation="vertical"
-                            value={selectedPreview}
+                            value={activePreview}
                             onValueChange={(preview) => {
-                                if (isIssueFilterPreview(preview) && previewEnabled[preview]) {
+                                if (isIssueFilterPreview(preview)) {
                                     setActivePreview(preview)
                                 }
                             }}
@@ -110,20 +101,18 @@ export function IssueFilterPreviewPanel({
                                     </TooltipTrigger>
                                     <TooltipContent side="right">Fingerprints</TooltipContent>
                                 </Tooltip>
-                                {hasReleases && (
-                                    <Tooltip>
-                                        <TooltipTrigger render={<span className="inline-flex" />}>
-                                            <TabsTrigger
-                                                value="releases"
-                                                aria-label="Releases"
-                                                className="!size-8 !flex-none !justify-center !p-0"
-                                            >
-                                                <IconRocket />
-                                            </TabsTrigger>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="right">Releases</TooltipContent>
-                                    </Tooltip>
-                                )}
+                                <Tooltip>
+                                    <TooltipTrigger render={<span className="inline-flex" />}>
+                                        <TabsTrigger
+                                            value="releases"
+                                            aria-label="Releases"
+                                            className="!size-8 !flex-none !justify-center !p-0"
+                                        >
+                                            <IconRocket />
+                                        </TabsTrigger>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="right">Releases</TooltipContent>
+                                </Tooltip>
                             </TabsList>
                             <TabsContent value="time" className="min-w-0 !flex-none flex-1">
                                 <TimeFilterPreview />
@@ -134,11 +123,9 @@ export function IssueFilterPreviewPanel({
                             <TabsContent value="fingerprints" className="min-w-0 !flex-none flex-1">
                                 <FingerprintPreview issueId={issueId} />
                             </TabsContent>
-                            {hasReleases && (
-                                <TabsContent value="releases" className="min-w-0 !flex-none flex-1">
-                                    <IssueReleasesPreview issueId={issueId} />
-                                </TabsContent>
-                            )}
+                            <TabsContent value="releases" className="min-w-0 !flex-none flex-1">
+                                <IssueReleasesPreview issueId={issueId} />
+                            </TabsContent>
                         </Tabs>
                     </TooltipProvider>
                 </div>

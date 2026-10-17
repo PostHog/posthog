@@ -615,6 +615,74 @@ async def test_produce_to_kafka_from_s3_s3_read_failure(mock_capture_exception, 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.capture_exception")
+async def test_produce_to_kafka_from_s3_retries_a_transient_s3_read_failure(
+    mock_capture_exception, mock_get_s3_client, team
+):
+    # A HeadObject 503 that pyarrow surfaces as "AWS Error UNKNOWN" is a known-transient S3 blip
+    # (see is_transient_object_store_error), not a bug in our code: the open must be retried before
+    # the per-file swallow-and-delete path (which would otherwise drop the file's rows for good) is
+    # reached.
+    source = await sync_to_async(ExternalDataSource.objects.create)(
+        team=team, source_type=ExternalDataSourceType.POSTGRES
+    )
+    table = await sync_to_async(DataWarehouseTable.objects.create)(
+        team=team, name="postgres_table_1", external_data_source=source
+    )
+    schema = await sync_to_async(ExternalDataSchema.objects.create)(
+        team=team, name="table_1", source=source, table=table
+    )
+
+    mock_s3_client = mock.AsyncMock()
+    mock_s3_client._ls.return_value = [{"Key": "path/chunk_0.parquet", "type": "file"}]
+    mock_get_s3_client.return_value.__aenter__ = mock.AsyncMock(return_value=mock_s3_client)
+    mock_get_s3_client.return_value.__aexit__ = mock.AsyncMock(return_value=False)
+
+    mock_kafka_producer = MagicMock()
+    mock_kafka_producer.produce = mock.AsyncMock()
+    mock_kafka_producer.flush = mock.AsyncMock()
+    mock_kafka_producer.close = mock.AsyncMock()
+
+    test_data = pa.table({"id": [1], "name": ["Alice"]})
+    parquet_buffer = BytesIO()
+    pq.write_table(test_data, parquet_buffer, compression="zstd")
+    parquet_buffer.seek(0)
+
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=parquet_buffer)
+    mock_file.__exit__ = MagicMock(return_value=False)
+
+    transient_error = OSError(
+        "When reading information for key 'chunk_0.parquet' in bucket 'example-bucket': "
+        "AWS Error UNKNOWN (HTTP status 503) during HeadObject operation: No response body."
+    )
+    mock_fs = MagicMock()
+    mock_fs.open_input_file.side_effect = [transient_error, mock_file]
+    mock_fs.delete_file = MagicMock()
+
+    producer = CDPProducer.for_source(
+        team_id=team.id, schema_id=str(schema.id), job_id="test_job", logger=mock.AsyncMock()
+    )
+
+    with (
+        patch.object(producer, "_get_fs", return_value=mock_fs),
+        _patch_async_producer_scope(mock_kafka_producer),
+        patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.staging_object_store.asyncio.sleep",
+            new=mock.AsyncMock(),
+        ),
+    ):
+        await producer.produce_to_kafka_from_s3()
+
+    assert mock_fs.open_input_file.call_count == 2
+    mock_kafka_producer.produce.assert_called_once()
+    mock_fs.delete_file.assert_called_once()
+    mock_capture_exception.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+@patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.core.cdp_producer.aget_s3_client")
 async def test_produce_to_kafka_from_s3_with_large_batch(mock_get_s3_client, team):
     source = await sync_to_async(ExternalDataSource.objects.create)(
         team=team, source_type=ExternalDataSourceType.POSTGRES

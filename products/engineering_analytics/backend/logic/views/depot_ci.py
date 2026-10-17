@@ -25,9 +25,13 @@ import re
 
 from posthog.dataclasses import frozen
 
-from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
-from products.engineering_analytics.backend.logic.views import workflow_runs
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    DECISIVE_FAILURE_CONCLUSIONS_SQL,
+    SUCCESSFUL_RUN_CONDITION,
+)
+from products.engineering_analytics.backend.logic.views import workflow_jobs, workflow_runs
 from products.engineering_analytics.backend.logic.views.source_schema import (
+    OPTIONAL_WORKFLOW_RUNS_COLUMNS,
     WORKFLOW_JOBS_COLUMNS,
     WORKFLOW_RUNS_COLUMNS,
 )
@@ -115,14 +119,19 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
     pr_number = "ifNull(toInt(extract(a.ref, '^refs/pull/([0-9]+)/')), 0)"
     if pull_requests_table:
         head_branch = "nullIf(pr.head_branch, '')"
+        actor = "nullIf(pr.author, '')"
         branch_join = f"""
             LEFT JOIN (
-                SELECT number, any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch
+                SELECT
+                    number,
+                    any(JSONExtractString(ifNull(head, '{{}}'), 'ref')) AS head_branch,
+                    any(user) AS author
                 FROM {pull_requests_table}
                 GROUP BY number
             ) AS pr ON {pr_number} = pr.number"""
     else:
         head_branch = "NULL"
+        actor = "NULL"
         branch_join = ""
     # A push run's id carries a prefix outside the alphabet, and such a run holds no workflows.
     return f"""(
@@ -132,6 +141,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             {pr_number} AS pr_number,
             coalesce(nullIf(extract(ifNull(a.ref, ''), '^refs/heads/(.+)$'), ''), {head_branch}) AS head_branch,
             a.repo AS repo,
+            {actor} AS actor,
             coalesce(nullIf(a.head_sha, ''), a.sha) AS head_sha,
             a.run_id AS native_run_id,
             a.workflow_id AS native_workflow_run_id,
@@ -177,7 +187,9 @@ def _runs(attempts: str) -> str:
             ) AS pull_requests,
             concat('{{"id":{_REPOSITORY_ID},"full_name":"', any(repo), '"}}') AS repository,
             NULL AS head_commit,
-            NULL AS actor,
+            any(actor) AS actor,
+            {OPTIONAL_WORKFLOW_RUNS_COLUMNS["workflow_id"]} AS workflow_id,
+            {OPTIONAL_WORKFLOW_RUNS_COLUMNS["event"]} AS event,
             'depot_ci' AS ci_engine,
             any(native_run_id) AS native_run_id,
             any(native_workflow_run_id) AS native_workflow_run_id
@@ -256,23 +268,31 @@ def _executed_attempts(depot: DepotJobAttempts, handoffs: str, pull_requests_tab
 
 
 def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
-    # No hand-off job predates Depot's first hand-off, so the day before it floors the scan of the jobs table.
+    # No hand-off job predates Depot's first hand-off, so the day before it floors the hand-off and relay jobs.
+    floor = f"(SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})"
+    handed_off = f"name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success' AND created_at >= {floor}"
+    # A run can recover weeks after its failed attempt, so the failure check has no date floor. Every attempt
+    # keeps the id of its run, so an id bound cannot cut an attempt. Run ids grow with time, so the first run
+    # that handed off is a bound a scan can skip files on.
+    first_run = f"(SELECT min(run_id) FROM {jobs_table} WHERE {handed_off})"
+    relays = f"""
+        SELECT run_id
+        FROM {jobs_table}
+        WHERE run_id >= {first_run}
+        GROUP BY run_id
+        HAVING countIf({handed_off}) > 0
+            AND argMaxIf(
+                ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}' AND created_at >= {floor}
+            ) = 'success'
+            AND countIf(conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})) = 0
+    """
+    # Depot's PR is the run's association (see ASSOCIATION_PR_NUMBER). The raw columns come first, so
+    # the JSON parse runs only on successful relays.
     return f"""
-        SELECT j.run_id FROM (
-            SELECT run_id
-            FROM {jobs_table}
-            WHERE created_at >= (SELECT toString(subtractDays(toDate(min(created_at)), 1)) FROM {handoffs})
-            GROUP BY run_id
-            HAVING countIf(name = '{_GITHUB_HANDOFF_JOB}' AND conclusion = 'success') > 0
-                AND argMaxIf(ifNull(conclusion, ''), tuple(run_attempt, id), name = '{_GITHUB_RELAY_JOB}') = 'success'
-        ) AS j
-        INNER JOIN ({workflow_runs.build_query(f"({_github_runs(runs_table)})")}) AS r ON j.run_id = r.id
-        WHERE r.status = 'completed' AND r.conclusion = 'success'
-            -- A run can recover weeks after its failed attempt, so the failure check has no date floor.
-            AND j.run_id NOT IN (
-                SELECT run_id FROM {jobs_table} WHERE conclusion IN ({DECISIVE_FAILURE_CONCLUSIONS_SQL})
-            )
-            AND (r.head_sha, r.pr_number) IN (
+        SELECT id
+        FROM {runs_table}
+        WHERE id >= {first_run} AND {SUCCESSFUL_RUN_CONDITION} AND id IN ({relays})
+            AND (head_sha, {workflow_runs.ASSOCIATION_PR_NUMBER}) IN (
                 SELECT head_sha, pr_number FROM {handoffs}
                 WHERE took_handoff AND pr_number > 0 AND workflow_status = 'finished'
             )
@@ -281,8 +301,14 @@ def _github_shells(jobs_table: str, runs_table: str, handoffs: str) -> str:
 
 # UNION ALL matches columns by position, so the GitHub selects name them in the contract order the
 # Depot side follows.
-def _github_runs(table: str, where: str = "1") -> str:
-    return f"""SELECT {", ".join(WORKFLOW_RUNS_COLUMNS)}, 'github_actions' AS ci_engine,
+def _github_runs(table: str, where: str = "1", optional_columns: frozenset[str] = frozenset()) -> str:
+    columns = [
+        column
+        if column not in OPTIONAL_WORKFLOW_RUNS_COLUMNS or column in optional_columns
+        else f"{OPTIONAL_WORKFLOW_RUNS_COLUMNS[column]} AS {column}"
+        for column in WORKFLOW_RUNS_COLUMNS
+    ]
+    return f"""SELECT {", ".join(columns)}, 'github_actions' AS ci_engine,
         toString(id) AS native_run_id, toString(id) AS native_workflow_run_id
         FROM {table} WHERE {where}"""
 
@@ -295,30 +321,43 @@ def _github_jobs(table: str, where: str = "1") -> str:
 
 
 def with_depot_runs(
-    runs_table: str, depot: DepotJobAttempts | None, pull_requests_table: str | None, jobs_table: str | None
+    runs_table: str,
+    depot: DepotJobAttempts | None,
+    pull_requests_table: str | None,
+    jobs_table: str | None,
+    *,
+    optional_columns: frozenset[str] = frozenset(),
 ) -> str:
     """The GitHub runs table, or a subquery that also holds the Depot CI runs when they are synced.
 
     Successful hand-off shells are left out. Without ``jobs_table`` the GitHub shells stay.
+    ``optional_columns`` names the ``OPTIONAL_WORKFLOW_RUNS_COLUMNS`` that ``runs_table`` has. The
+    others read as NULL.
     """
     if depot is None:
-        return f"({_github_runs(runs_table)})"
+        return f"({_github_runs(runs_table, optional_columns=optional_columns)})"
     handoffs = _handoff_workflows(depot)
     where = f"id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})" if jobs_table else "1"
     depot_runs = _runs(_executed_attempts(depot, handoffs, pull_requests_table))
-    return f"({_github_runs(runs_table, where)} UNION ALL {depot_runs})"
+    return f"({_github_runs(runs_table, where, optional_columns)} UNION ALL {depot_runs})"
 
 
-def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> str:
+def with_depot_jobs(jobs_table: str, depot: DepotJobAttempts | None, runs_table: str) -> workflow_jobs.JobsTable:
     """The GitHub jobs table, or a subquery that also holds the Depot CI job attempts when they are synced.
 
-    Hand-off shells are left out, as in ``with_depot_runs``. Depot job rows carry no branch: the jobs builder
-    scans its source twice, so a PR snapshot lookup here would cost two PR scans per jobs read. A reader that
-    joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back to the run's.
+    Hand-off shells are left out of the rows, as in ``with_depot_runs``. They stay in the source of the
+    duplicate scan, so a jobs read builds the shell filter once. Depot job rows carry no branch: the jobs
+    builder scans its source twice, so a PR snapshot lookup here would cost two PR scans per jobs read. A
+    reader that joins a job to its run reads the branch through ``workflow_jobs.branch``, which falls back
+    to the run's.
     """
     if depot is None:
-        return f"({_github_jobs(jobs_table)})"
+        return workflow_jobs.JobsTable.of(f"({_github_jobs(jobs_table)})")
     handoffs = _handoff_workflows(depot)
     where = f"run_id NOT IN ({_github_shells(jobs_table, runs_table, handoffs)})"
     depot_jobs = _jobs(_executed_attempts(depot, handoffs, pull_requests_table=None))
-    return f"({_github_jobs(jobs_table, where)} UNION ALL {depot_jobs})"
+    every_depot_job = _jobs(_attempts(depot, pull_requests_table=None))
+    return workflow_jobs.JobsTable(
+        rows=f"({_github_jobs(jobs_table, where)} UNION ALL {depot_jobs})",
+        duplicates=f"({_github_jobs(jobs_table)} UNION ALL {every_depot_job})",
+    )

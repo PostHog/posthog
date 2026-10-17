@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 
 import { IconCopy, IconPinFilled, IconPullRequest } from '@posthog/icons'
 import {
@@ -78,28 +78,20 @@ interface TodaySessionHoverCardProps {
     preview: TodaySessionPreview
     /** Closes the card once an action is chosen. */
     onAction: () => void
-    /** Keeps the card open while its "File to…" menu is. */
-    onSubmenuOpenChange: (open: boolean) => void
 }
 
 /**
  * A session row's hover card: what the row's marks mean in words, where the work sits, what the agent said last,
  * and the row's actions, like PostHog Desktop.
  */
-export function TodaySessionHoverCard({
-    preview,
-    onAction,
-    onSubmenuOpenChange,
-}: TodaySessionHoverCardProps): JSX.Element {
+export function TodaySessionHoverCard({ preview, onAction }: TodaySessionHoverCardProps): JSX.Element {
     const { dot, pullRequest, author } = preview
     const { requestArchive } = useActions(todaySessionMenuLogic)
     useTodayArchiveShortcut(true, () => {
         requestArchive(preview.menu.sessionId, preview.menu.menuId, preview.menu.activeRunId)
         onAction()
     })
-    const parts = useMemo(() => cardMenuParts(onAction, onSubmenuOpenChange), [onAction, onSubmenuOpenChange])
-    // Base UI reports no close when the submenu unmounts with the card, which would keep the card open for good.
-    useEffect(() => () => onSubmenuOpenChange(false), [onSubmenuOpenChange])
+    const parts = useMemo(() => cardMenuParts(onAction), [onAction])
     const pullRequestState = pullRequestStateMeta(preview.pullRequestState)
     const updated = activityDetail(preview.timestamp)
     return (
@@ -130,7 +122,18 @@ export function TodaySessionHoverCard({
                                 <span title={updated.title}>{updated.text}</span>
                             </TodayHoverCardFact>
                         )}
-                        {preview.source && <TodayHoverCardFact label="Source">{preview.source}</TodayHoverCardFact>}
+                        {preview.source && (
+                            <TodayHoverCardFact label="Source">
+                                <span className="flex min-w-0 items-center gap-1.5">
+                                    {preview.sourceIcon && (
+                                        <span className="flex size-3 shrink-0 text-muted-foreground [&>svg]:size-full">
+                                            {preview.sourceIcon}
+                                        </span>
+                                    )}
+                                    <span className="truncate">{preview.source}</span>
+                                </span>
+                            </TodayHoverCardFact>
+                        )}
                     </div>
                 </ItemContent>
                 {author && (

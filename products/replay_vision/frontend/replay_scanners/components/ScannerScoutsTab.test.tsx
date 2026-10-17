@@ -1,4 +1,4 @@
-import { render, waitFor } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { useMocks } from '~/mocks/jest'
@@ -63,6 +63,7 @@ describe('ScannerScoutsTab', () => {
     })
 
     afterEach(() => {
+        cleanup()
         delete (window as { POSTHOG_APP_CONTEXT?: AppContext }).POSTHOG_APP_CONTEXT
     })
 

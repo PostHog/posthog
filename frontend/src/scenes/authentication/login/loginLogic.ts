@@ -14,7 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
-import { getRelativeNextPath } from 'lib/utils/url'
+import { getRelativeNextPath, isEmail } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import {
     clearPendingVerificationEmail,
@@ -209,6 +209,7 @@ export interface loginLogicValues {
     loginTouched: boolean
     loginTouches: Record<string, boolean>
     loginValidationErrors: DeepPartialMap<LoginForm, ValidationErrorType>
+    passkeyPromptedForEmail: string | null
     precheckResponse: PrecheckResponseType
     precheckResponseLoading: boolean
     resendResponse: {
@@ -234,6 +235,9 @@ export interface loginLogicActions {
     }
     exitCodeVerification: () => {
         value: true
+    }
+    markPasskeyPrompted: (email: string) => {
+        email: string
     }
     precheck: ({ email }: { autoAttempt?: boolean; email: string }) => {
         email: string
@@ -390,6 +394,8 @@ export interface loginLogicMeta {
 
 export type loginLogicType = MakeLogicType<loginLogicValues, loginLogicActions, Record<string, any>, loginLogicMeta>
 
+const PRECHECK_IDLE_DELAY_MS = 3000
+
 export const loginLogic = kea<loginLogicType>([
     path(['scenes', 'authentication', 'login', 'loginLogic']),
     connect(() => ({
@@ -409,6 +415,7 @@ export const loginLogic = kea<loginLogicType>([
         setCodeVerificationRequired: (email: string) => ({ email }),
         exitCodeVerification: true,
         startAutoRedirectToProvider: (provider: SSOProvider, email: string) => ({ provider, email }),
+        markPasskeyPrompted: (email: string) => ({ email }),
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -450,6 +457,12 @@ export const loginLogic = kea<loginLogicType>([
             null as string | null,
             {
                 startAutoRedirectToProvider: (_, { email }) => email,
+            },
+        ],
+        passkeyPromptedForEmail: [
+            null as string | null,
+            {
+                markPasskeyPrompted: (_, { email }) => email,
             },
         ],
     }),
@@ -676,6 +689,18 @@ export const loginLogic = kea<loginLogicType>([
         exitCodeVerification: () => {
             actions.resetCodeVerification()
         },
+        // Precheck once typing pauses, so SSO options show without a blur. No `autoAttempt`: a pause
+        // is not an explicit gesture, so it must not bounce the user out to an identity provider.
+        setLoginValue: async ({ name }, breakpoint) => {
+            if (name !== 'email') {
+                return
+            }
+            await breakpoint(PRECHECK_IDLE_DELAY_MS)
+            const { email } = values.login
+            if (isEmail(email, { requireTLD: true })) {
+                actions.precheck({ email })
+            }
+        },
         // Manual errors persist until the next submit, so clear the invalid-code error as soon as
         // the user edits the code, like the signup verify screen does
         setCodeVerificationValue: () => {
@@ -693,10 +718,17 @@ export const loginLogic = kea<loginLogicType>([
                 !precheckResponse.sso_enforcement &&
                 !isWebKitBrowser()
             ) {
+                const promptEmail = precheckResponse.email ?? ''
+                if (values.passkeyPromptedForEmail === promptEmail) {
+                    return
+                }
                 breakpoint()
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
+                // Mark only after the last breakpoint. A newer run that starts during the import cancels
+                // this one, so the email must still be unmarked when the newer run checks it.
+                actions.markPasskeyPrompted(promptEmail)
                 passkeyLogic.actions.beginPasskeyLogin(precheckResponse.webauthn_credentials)
                 return
             }

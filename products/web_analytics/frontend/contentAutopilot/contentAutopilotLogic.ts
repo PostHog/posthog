@@ -18,12 +18,22 @@ import type {
 import { webAnalyticsContentAutopilotOpportunitiesDraftBodyOpportunityIdsMax } from 'products/web_analytics/frontend/generated/api.zod'
 
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
+
+export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'brief' | 'sources'
 export type ContentAutopilotWorkspaceTab = 'opportunities' | 'drafts'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
 export type ContentAutopilotProfileResource = 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>
 export type ContentAutopilotWorkspaceSettled = Record<ContentAutopilotWorkspaceResource, boolean>
 export type ContentAutopilotProfileDataSettled = Record<ContentAutopilotProfileResource, boolean>
+
+const REVIEW_ORDER: Record<ContentAutopilotProposalListApi['lifecycle_status'], number> = {
+    ready_for_review: 0,
+    failed: 1,
+    generating: 2,
+    exported: 3,
+    rejected: 4,
+}
 
 export interface ContentAutopilotProposalActionReasons {
     reject?: string
@@ -138,17 +148,17 @@ export interface contentAutopilotLogicValues {
     dismissedOpportunity: ContentAutopilotOpportunityApi | null
     dismissedOpportunityCount: number
     dismissedOpportunityLoading: boolean
+    dismissingOpportunityId: string | null
     draftDisabledReason: string | undefined
     exportedProposal: ContentAutopilotExportResponseApi | null
     exportedProposalLoading: boolean
-    newContentProposals: ContentAutopilotProposalListApi[]
+    failedDraftCount: number
     onboardingOpen: boolean
     onboardingStep: ContentAutopilotOnboardingStep
     opportunities: ContentAutopilotOpportunityApi[] | null
     opportunitiesError: string | null
     opportunitiesLoading: boolean
     opportunitySearch: string
-    pageImprovementProposals: ContentAutopilotProposalListApi[]
     profile: ContentAutopilotSiteProfileApi | null
     profileDataLoaded: boolean
     profileDataSettled: ContentAutopilotProfileDataSettled
@@ -159,9 +169,12 @@ export interface contentAutopilotLogicValues {
     proposalHasUnsavedChanges: boolean
     proposalMutation: ContentAutopilotProposalApi | null
     proposalMutationLoading: boolean
+    proposalTab: ContentAutopilotProposalTab
     proposals: ContentAutopilotProposalListApi[]
     proposalsLoading: boolean
     proposedMarkdown: string
+    readyDraftCount: number
+    reviewQueue: ContentAutopilotProposalListApi[]
     runMutation: ContentAutopilotRunApi | null
     runMutationLoading: boolean
     runs: ContentAutopilotRunApi[]
@@ -207,6 +220,9 @@ export interface contentAutopilotLogicActions {
     ) => {
         runMutation: ContentAutopilotRunApi
         payload?: string
+    }
+    clearOpportunitySelection: () => {
+        value: true
     }
     deleteProfile: (profileId: string) => string
     deleteProfileFailure: (
@@ -396,12 +412,12 @@ export interface contentAutopilotLogicActions {
         errorObject?: any
     }
     refreshOpportunitiesSuccess: (
-        opportunities: ContentAutopilotOpportunityApi[],
+        opportunities: ContentAutopilotOpportunityApi[] | null,
         payload?: {
             value: true
         }
     ) => {
-        opportunities: ContentAutopilotOpportunityApi[]
+        opportunities: ContentAutopilotOpportunityApi[] | null
         payload?: {
             value: true
         }
@@ -484,6 +500,9 @@ export interface contentAutopilotLogicActions {
     setProfileDraft: (profileDraft: Partial<ContentAutopilotProfileDraft>) => {
         profileDraft: Partial<ContentAutopilotProfileDraft>
     }
+    setProposalTab: (proposalTab: ContentAutopilotProposalTab) => {
+        proposalTab: ContentAutopilotProposalTab
+    }
     setProposedMarkdown: (proposedMarkdown: string) => {
         proposedMarkdown: string
     }
@@ -531,10 +550,12 @@ export interface contentAutopilotLogicMeta {
             selectedProposal: ContentAutopilotProposalApi | null,
             proposedMarkdown: string
         ) => boolean
-        newContentProposals: (siteProposals: ContentAutopilotProposalListApi[]) => ContentAutopilotProposalListApi[]
-        pageImprovementProposals: (
+        reviewQueue: (siteProposals: ContentAutopilotProposalListApi[]) => ContentAutopilotProposalListApi[]
+        readyDraftCount: (siteProposals: ContentAutopilotProposalListApi[]) => number
+        failedDraftCount: (
+            siteRuns: ContentAutopilotRunApi[],
             siteProposals: ContentAutopilotProposalListApi[]
-        ) => ContentAutopilotProposalListApi[]
+        ) => number
         workspaceInitialized: (workspaceSettled: ContentAutopilotWorkspaceSettled) => boolean
         profileDataLoaded: (profileDataSettled: ContentAutopilotProfileDataSettled) => boolean
         proposalActionReasons: (
@@ -582,9 +603,11 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         setProfileDraft: (profileDraft: Partial<ContentAutopilotProfileDraft>) => ({ profileDraft }),
         selectProposal: (proposalId: string | null) => ({ proposalId }),
         setProposedMarkdown: (proposedMarkdown: string) => ({ proposedMarkdown }),
+        setProposalTab: (proposalTab: ContentAutopilotProposalTab) => ({ proposalTab }),
         loadOpportunities: true,
         refreshOpportunities: true,
         toggleOpportunitySelection: (opportunityId: string) => ({ opportunityId }),
+        clearOpportunitySelection: true,
         setShowDismissedOpportunities: (showDismissedOpportunities: boolean) => ({ showDismissedOpportunities }),
         setOpportunitySearch: (opportunitySearch: string) => ({ opportunitySearch }),
         setWorkspaceTab: (workspaceTab: ContentAutopilotWorkspaceTab) => ({ workspaceTab }),
@@ -633,12 +656,18 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 setProposedMarkdown: (_, { proposedMarkdown }) => proposedMarkdown,
             },
         ],
+        proposalTab: [
+            'preview' as ContentAutopilotProposalTab,
+            {
+                selectProposal: () => 'preview',
+                setProposalTab: (_, { proposalTab }) => proposalTab,
+            },
+        ],
         workspaceTab: [
             'opportunities' as ContentAutopilotWorkspaceTab,
             {
                 setWorkspaceTab: (_, { workspaceTab }) => workspaceTab,
                 selectProfile: () => 'opportunities',
-                draftOpportunitiesSuccess: () => 'drafts',
             },
         ],
         opportunitySearch: [
@@ -656,11 +685,20 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         ? state.filter((id) => id !== opportunityId)
                         : [...state, opportunityId],
                 selectProfile: () => [],
-                draftOpportunitiesSuccess: () => [],
+                clearOpportunitySelection: () => [],
                 loadOpportunitiesSuccess: (state, { opportunities }) => draftableSelection(state, opportunities),
-                refreshOpportunitiesSuccess: (state, { opportunities }) => draftableSelection(state, opportunities),
+                refreshOpportunitiesSuccess: (state, { opportunities }) =>
+                    opportunities ? draftableSelection(state, opportunities) : state,
                 dismissOpportunitySuccess: (state, { dismissedOpportunity }) =>
                     state.filter((id) => id !== dismissedOpportunity.id),
+            },
+        ],
+        dismissingOpportunityId: [
+            null as string | null,
+            {
+                dismissOpportunity: (_, opportunityId) => opportunityId,
+                dismissOpportunitySuccess: () => null,
+                dismissOpportunityFailure: () => null,
             },
         ],
         showDismissedOpportunities: [
@@ -802,7 +840,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     breakpoint()
                     const opportunities = await fetchOpportunities(teamId, profile.id)
                     breakpoint()
-                    return opportunities
+                    return values.profile?.id === profile.id ? opportunities : values.opportunities
                 },
             },
         ],
@@ -947,7 +985,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             {
                 exportProposal: async (proposalId: string) => {
                     if (values.selectedProposalId === proposalId && values.proposalHasUnsavedChanges) {
-                        throw new Error('Save or discard your changes before exporting this proposal')
+                        throw new Error('Save or discard your changes before downloading this draft')
                     }
                     const exported = await webAnalyticsApi.webAnalyticsContentAutopilotProposalsExport(
                         String(values.currentTeamIdStrict),
@@ -1005,15 +1043,22 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             (selectedProposal: ContentAutopilotProposalApi | null, proposedMarkdown: string): boolean =>
                 selectedProposal !== null && proposedMarkdown !== selectedProposal.proposed_markdown,
         ],
-        newContentProposals: [
+        reviewQueue: [
             (selectors) => [selectors.siteProposals],
             (proposals: ContentAutopilotProposalListApi[]): ContentAutopilotProposalListApi[] =>
-                proposals.filter(({ proposal_type }) => proposal_type === 'new_content'),
+                [...proposals].sort((a, b) => REVIEW_ORDER[a.lifecycle_status] - REVIEW_ORDER[b.lifecycle_status]),
         ],
-        pageImprovementProposals: [
+        readyDraftCount: [
             (selectors) => [selectors.siteProposals],
-            (proposals: ContentAutopilotProposalListApi[]): ContentAutopilotProposalListApi[] =>
-                proposals.filter(({ proposal_type }) => proposal_type === 'page_improvement'),
+            (proposals: ContentAutopilotProposalListApi[]): number =>
+                proposals.filter(({ lifecycle_status }) => lifecycle_status === 'ready_for_review').length,
+        ],
+        failedDraftCount: [
+            (selectors) => [selectors.siteRuns, selectors.siteProposals],
+            (runs: ContentAutopilotRunApi[], proposals: ContentAutopilotProposalListApi[]): number =>
+                proposals.filter(
+                    ({ lifecycle_status, run_id }) => lifecycle_status === 'failed' && run_id === runs[0]?.id
+                ).length,
         ],
         workspaceInitialized: [
             (selectors) => [selectors.workspaceSettled],
@@ -1044,31 +1089,31 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                     return {}
                 }
                 const readyForReview = selectedProposal.lifecycle_status === 'ready_for_review'
-                const exportInFlight = exportedProposalLoading ? 'Wait for the export to finish' : undefined
+                const exportInFlight = exportedProposalLoading ? 'Wait for the download to finish' : undefined
                 const unsavedChanges = proposalHasUnsavedChanges ? 'Save or discard your changes first' : undefined
                 return {
                     reject:
-                        (!readyForReview ? 'Only a proposal ready for review can be rejected' : undefined) ??
+                        (!readyForReview ? 'Only a draft ready for review can be rejected' : undefined) ??
                         exportInFlight ??
                         unsavedChanges,
                     regenerate:
                         (!readyForReview && selectedProposal.lifecycle_status !== 'failed'
-                            ? 'Only proposals ready for review or failed can be regenerated'
+                            ? 'Only drafts ready for review or failed can be regenerated'
                             : undefined) ??
                         exportInFlight ??
                         unsavedChanges,
                     save:
-                        (!readyForReview ? 'Only a proposal ready for review can be edited' : undefined) ??
+                        (!readyForReview ? 'Only a draft ready for review can be edited' : undefined) ??
                         (proposalDetailLoading ? 'Wait for the proposal to load' : undefined) ??
                         exportInFlight ??
                         (!proposalHasUnsavedChanges ? 'No unsaved changes' : undefined),
                     exportMarkdown:
                         (!selectedProposal.validation_report.passed
-                            ? 'Fix the blocked checks before exporting'
+                            ? 'Fix the checks marked Must fix first'
                             : undefined) ??
-                        (!readyForReview ? 'Only a proposal ready for review can be exported' : undefined) ??
-                        (proposalHasUnsavedChanges ? 'Save or discard your changes before exporting' : undefined) ??
-                        (proposalMutationLoading ? 'Wait for proposal changes to finish' : undefined),
+                        (!readyForReview ? 'Only a draft ready for review can be downloaded' : undefined) ??
+                        (proposalHasUnsavedChanges ? 'Save or discard your changes before downloading' : undefined) ??
+                        (proposalMutationLoading ? 'Wait for your changes to save' : undefined),
                 }
             },
         ],
@@ -1204,8 +1249,13 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         deleteProfileFailure: ({ errorObject }) => {
             lemonToast.error(getErrorMessage(errorObject))
         },
-        draftOpportunitiesSuccess: () => {
+        draftOpportunitiesSuccess: ({ runMutation }) => {
             lemonToast.success('Drafting started. Each draft takes a few minutes.')
+            if (runMutation.profile_id !== values.profile?.id) {
+                return
+            }
+            actions.clearOpportunitySelection()
+            actions.setWorkspaceTab('drafts')
             actions.loadRuns()
             actions.loadOpportunities()
         },
@@ -1254,7 +1304,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             lemonToast.error(getErrorMessage(errorObject))
         },
         exportProposalSuccess: () => {
-            lemonToast.success('Markdown exported')
+            lemonToast.success('Draft downloaded')
             actions.loadProposals()
         },
         exportProposalFailure: ({ errorObject }) => {

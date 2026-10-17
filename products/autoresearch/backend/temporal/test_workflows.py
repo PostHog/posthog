@@ -1,24 +1,43 @@
-from datetime import UTC, datetime
+import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
+import pytest
 import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import ActivityEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import User
 
-from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchTrainingRun
+from products.autoresearch.backend.inference.person_property import CleanupOutcome
+from products.autoresearch.backend.models import (
+    AutoresearchModel,
+    AutoresearchPipeline,
+    AutoresearchRun,
+    AutoresearchTrainingRun,
+)
+from products.autoresearch.backend.query import BATCH_QUERY
 from products.autoresearch.backend.temporal.workflows import (
+    _VALIDATION_ATTEMPT_TIMEOUT,
+    RESCUE_ITERATION_BUDGET,
+    AutoresearchPropertyCleanupWorkflow,
+    FailCleanupRunInput,
     InferenceWorkflowResult,
     KickoffTrainingInput,
     KickoffTrainingResult,
     LoadActivePipelinesInput,
+    PropertyCleanupWorkflowInput,
+    PropertyCleanupWorkflowResult,
     RunInferenceInput,
     RunInferenceResult,
     RunValidationInput,
@@ -26,6 +45,7 @@ from products.autoresearch.backend.temporal.workflows import (
     ValidationWorkflowResult,
     activity_kickoff_training,
     activity_load_active_pipelines,
+    activity_remove_person_property,
     activity_run_inference,
     activity_run_validation,
     evaluate_pipeline_outcome,
@@ -41,8 +61,8 @@ def _validation(status: str = "completed", error: Optional[str] = None) -> Valid
     return ValidationWorkflowResult(dates_validated=1, total_rows=10, status=status, error=error)
 
 
-def _kickoff(reason: str = "started", error: Optional[str] = None) -> KickoffTrainingResult:
-    return KickoffTrainingResult(kicked_off=reason == "started", reason=reason, error=error)
+def _kickoff(reason: str = "explore", error: Optional[str] = None) -> KickoffTrainingResult:
+    return KickoffTrainingResult(kicked_off=reason == "explore", reason=reason, error=error)
 
 
 class TestEvaluatePipelineOutcome(SimpleTestCase):
@@ -56,7 +76,7 @@ class TestEvaluatePipelineOutcome(SimpleTestCase):
             ("kickoff_raises", _inference(), _validation(), RuntimeError("boom"), False, 1),
             ("kickoff_errors", _inference(), _validation(), _kickoff(reason="error", error="boom"), False, 1),
             ("kickoff_no_creator", _inference(), _validation(), _kickoff(reason="no_creator", error="boom"), False, 1),
-            ("kickoff_skip_is_not_failure", _inference(), _validation(), _kickoff(reason="budget_exhausted"), True, 0),
+            ("kickoff_skip_is_not_failure", _inference(), _validation(), _kickoff(reason="not_due"), True, 0),
             ("not_due_runs_validation_only", None, _validation(), None, True, 0),
             (
                 "multiple_failures_all_counted",
@@ -105,7 +125,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             "name": "test pipeline",
             "target_event": "$pageview",
             "status": AutoresearchPipeline.Status.RUNNING,
-            "iteration_budget_remaining": 20,
             **overrides,
         }
         return AutoresearchPipeline.objects.create(**params)
@@ -216,8 +235,138 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         mock_inference.assert_not_called()
         mock_validation.assert_not_called()
 
+    @parameterized.expand([("inference",), ("validation",)])
+    @patch("products.autoresearch.backend.temporal.workflows.run_online_validation_for_pipeline", return_value=[])
     @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")
-    def test_inference_refuses_a_deleted_action_target(self, mock_inference: MagicMock) -> None:
+    def test_activities_run_their_queries_as_batch_work(
+        self, step: str, mock_inference: MagicMock, mock_validation: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        env = ActivityEnvironment()
+        if step == "inference":
+            AutoresearchModel.objects.create(
+                pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="abc"
+            )
+            mock_inference.return_value = MagicMock(pk="run-1", rows_scored=0, status="completed", error="")
+            env.run(
+                activity_run_inference,
+                RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
+            )
+            assert mock_inference.call_args.kwargs["query_context"] == BATCH_QUERY
+            assert mock_inference.call_args.kwargs["scheduled"] is True
+        else:
+            env.run(activity_run_validation, RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+            assert mock_validation.call_args.kwargs["query_context"] == BATCH_QUERY
+            claim_deadline = mock_validation.call_args.kwargs["claim_deadline"]
+            assert django_timezone.now() < claim_deadline < django_timezone.now() + _VALIDATION_ATTEMPT_TIMEOUT
+
+    @parameterized.expand(
+        [
+            ("first_pass_leaves_the_run_open", False, None, AutoresearchRun.Status.RUNNING, 5),
+            ("retry_adds_to_the_failed_attempt", False, 2, AutoresearchRun.Status.RUNNING, 7),
+            ("reconcile_pass_adds_to_the_first", True, 3, AutoresearchRun.Status.COMPLETED, 8),
+        ]
+    )
+    @patch("products.autoresearch.backend.temporal.workflows.remove_output_person_property")
+    def test_property_cleanup_run_stays_open_until_the_reconcile_pass(
+        self,
+        _name: str,
+        final_pass: bool,
+        cleared_before: int | None,
+        expected_status: str,
+        expected_cleared: int,
+        mock_remove: MagicMock,
+    ) -> None:
+        pipeline = self._create_pipeline(output_person_property="predicted_p_pageview")
+        run = AutoresearchRun.objects.create(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP,
+            status=AutoresearchRun.Status.PENDING,
+            rows_scored=cleared_before,
+        )
+        mock_remove.return_value = CleanupOutcome(persons_cleared=5)
+        result = ActivityEnvironment().run(
+            activity_remove_person_property,
+            PropertyCleanupWorkflowInput(
+                pipeline_id=str(pipeline.id),
+                team_id=self.team.id,
+                output_property="predicted_p_pageview",
+                run_id=str(run.pk),
+                final_pass=final_pass,
+            ),
+        )
+        run.refresh_from_db()
+        assert (run.status, run.rows_scored, result.persons_cleared) == (
+            expected_status,
+            expected_cleared,
+            expected_cleared,
+        )
+        assert (run.completed_at is not None) == final_pass
+
+    @parameterized.expand(
+        [
+            ("open_scheduled_row_is_reused", {}, True),
+            ("other_date_is_not_reused", {"prediction_date": "2026-09-10"}, False),
+            ("manual_row_is_not_reused", {"scheduled": False}, False),
+            ("finished_row_is_not_reused", {"status": AutoresearchRun.Status.FAILED}, False),
+            ("row_past_the_workflow_timeout_is_not_reused", {"age": timedelta(hours=6)}, False),
+        ]
+    )
+    @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")
+    def test_scheduled_retry_reuses_the_row_of_the_lost_attempt(
+        self, _name: str, row: dict[str, Any], reused: bool, mock_inference: MagicMock
+    ) -> None:
+        pipeline = self._create_pipeline()
+        AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="abc"
+        )
+        earlier = AutoresearchRun.objects.create(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            scheduled=row.get("scheduled", True),
+            status=row.get("status", AutoresearchRun.Status.RUNNING),
+            started_at=django_timezone.now() - row.get("age", timedelta(minutes=10)),
+            metrics={"prediction_date": row.get("prediction_date", "2026-09-11"), "horizon_days": 30},
+        )
+        mock_inference.return_value = MagicMock(pk="run-1", rows_scored=0, status="completed", error="")
+
+        ActivityEnvironment().run(
+            activity_run_inference,
+            RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
+        )
+
+        assert mock_inference.call_args.kwargs["run"] == (earlier if reused else None)
+
+    def test_load_active_pipelines_fails_inference_runs_left_running(self) -> None:
+        pipeline = self._create_pipeline()
+
+        def _running(age: timedelta) -> AutoresearchRun:
+            return AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                scheduled=True,
+                status=AutoresearchRun.Status.RUNNING,
+                started_at=django_timezone.now() - age,
+                metrics={"prediction_date": "2026-09-10", "horizon_days": 30},
+            )
+
+        lost = _running(timedelta(hours=6))
+        live = _running(timedelta(hours=1))
+
+        activity_load_active_pipelines(LoadActivePipelinesInput())
+
+        lost.refresh_from_db()
+        live.refresh_from_db()
+        assert lost.status == AutoresearchRun.Status.FAILED
+        assert lost.completed_at is not None
+        assert lost.metrics["failure_kind"] == "other"
+        assert live.status == AutoresearchRun.Status.RUNNING
+
+    @parameterized.expand([("scheduled", False), ("manual", True)])
+    @patch("products.autoresearch.backend.temporal.workflows.run_inference_for_pipeline")
+    def test_inference_refuses_a_deleted_action_target(
+        self, _name: str, manual: bool, mock_inference: MagicMock
+    ) -> None:
         pipeline = self._create_pipeline(target_definition={"type": "action", "action_id": 999999})
         AutoresearchModel.objects.create(
             pipeline=pipeline,
@@ -226,13 +375,32 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             recipe_hash="abc123",
             holdout_score=0.75,
         )
+        run = (
+            AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                status=AutoresearchRun.Status.RUNNING,
+            )
+            if manual
+            else None
+        )
 
         with self.assertRaises(ApplicationError):
             ActivityEnvironment().run(
                 activity_run_inference,
-                RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
+                RunInferenceInput(
+                    pipeline_id=str(pipeline.id),
+                    team_id=self.team.id,
+                    prediction_date="2026-09-11",
+                    run_id=str(run.id) if run else None,
+                    user_id=self.user.id if run else None,
+                ),
             )
         mock_inference.assert_not_called()
+        if run is not None:
+            run.refresh_from_db()
+            assert run.status == AutoresearchRun.Status.FAILED
+            assert "cannot be resolved" in run.error
 
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
     def test_kickoff_passes_pipeline_creator_to_training(self, mock_run_training: MagicMock) -> None:
@@ -241,14 +409,11 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
 
         assert result.kicked_off
-        assert result.reason == "started"
         mock_run_training.assert_called_once()
         assert mock_run_training.call_args.kwargs["user_id"] == self.user.id
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 10
 
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_kickoff_without_creator_fails_loudly_and_spends_no_budget(self, mock_run_training: MagicMock) -> None:
+    def test_kickoff_without_creator_fails_loudly(self, mock_run_training: MagicMock) -> None:
         pipeline = self._create_pipeline(created_by=None)
 
         result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
@@ -257,8 +422,6 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert result.reason == "no_creator"
         assert result.error
         mock_run_training.assert_not_called()
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 20
 
     @parameterized.expand(
         [
@@ -270,7 +433,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         ]
     )
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_kickoff_skips_without_spending_budget(
+    def test_kickoff_skips(
         self,
         _name: str,
         run_status: Optional[str],
@@ -292,12 +455,106 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
         assert result.reason == expected_reason
         mock_run_training.assert_not_called()
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 20
+
+    @parameterized.expand(
+        [
+            ("new_pipeline_explores", 7, [], False, "explore"),
+            (
+                "promoting_runs_keep_exploring",
+                7,
+                [("explore", "completed", True, 9), ("explore", "completed", True, 10)],
+                False,
+                "explore",
+            ),
+            (
+                "rescue_runs_do_not_end_the_burst",
+                7,
+                [*[("explore", "failed", None, d) for d in (5, 6, 7, 8)], ("rescue", "completed", False, 10)],
+                False,
+                "explore",
+            ),
+            ("explore_takes_precedence_over_rescue", 7, [], True, "explore"),
+            ("non_promoting_run_ends_the_burst", 7, [("explore", "completed", False, 10)], False, "not_due"),
+            (
+                "five_runs_end_the_burst_then_interval_passes",
+                7,
+                [(None, "failed", None, d) for d in (0, 1, 2, 3, 4)],
+                False,
+                "scheduled",
+            ),
+            ("maintain_within_interval", 14, [(None, "failed", None, d) for d in (1, 2, 3, 4, 5)], False, "not_due"),
+            (
+                "manual_run_resets_the_clock",
+                7,
+                [("scheduled", "completed", False, -30), ("manual", "completed", True, 5)],
+                False,
+                "not_due",
+            ),
+            ("only_when_asked", None, [], False, "manual_only"),
+            ("only_when_asked_still_rescues", None, [], True, "rescue_unscorable"),
+            (
+                "not_due_rescues_an_unscorable_champion",
+                7,
+                [("explore", "completed", False, 8)],
+                True,
+                "rescue_unscorable",
+            ),
+            ("rescue_ran_yesterday", None, [("rescue", "failed", None, 10)], True, "rescue_throttled"),
+        ]
+    )
+    @patch("products.autoresearch.backend.temporal.workflows.run_training")
+    def test_kickoff_follows_the_research_schedule(
+        self,
+        _name: str,
+        research_interval_days: Optional[int],
+        prior_runs: list[tuple[Optional[str], str, Optional[bool], int]],
+        unscorable: bool,
+        expected_reason: str,
+        mock_run_training: MagicMock,
+    ) -> None:
+        with time_machine.travel(datetime(2026, 8, 1, tzinfo=UTC), tick=False):
+            pipeline = self._create_pipeline(research_interval_days=research_interval_days, iterations_per_run=8)
+        champion = AutoresearchModel.objects.create(
+            pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION, model_recipe={"stub": True}, recipe_hash="abc"
+        )
+        for prediction_date in ("2026-09-09", "2026-09-10"):
+            AutoresearchRun.objects.create(
+                pipeline=pipeline,
+                model=champion,
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                scheduled=True,
+                status=AutoresearchRun.Status.FAILED if unscorable else AutoresearchRun.Status.COMPLETED,
+                metrics={"prediction_date": prediction_date, "failure_kind": "limit_exceeded"} if unscorable else {},
+            )
+        # The day of each prior run is a day of September 2026; a value below 1 counts back into August.
+        for kickoff_reason, run_status, promoted, day in prior_runs:
+            with time_machine.travel(datetime(2026, 9, 1, 2, tzinfo=UTC) + timedelta(days=day - 1), tick=False):
+                AutoresearchTrainingRun.objects.create(
+                    pipeline=pipeline,
+                    status=run_status,
+                    kickoff_reason=kickoff_reason,
+                    iteration_budget=3,
+                    summary={} if promoted is None else {"champion_promoted": promoted},
+                )
+
+        with time_machine.travel(datetime(2026, 9, 11, 2, tzinfo=UTC), tick=False):
+            result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
+
+        assert result.reason == expected_reason
+        if expected_reason in ("explore", "scheduled", "rescue_unscorable"):
+            assert result.kicked_off
+            kwargs = mock_run_training.call_args.kwargs
+            rescue = expected_reason == "rescue_unscorable"
+            assert kwargs["iteration_budget"] == (RESCUE_ITERATION_BUDGET if rescue else 8)
+            assert kwargs["rescue"] is rescue
+            assert kwargs["kickoff_reason"] == ("rescue" if rescue else expected_reason)
+        else:
+            assert not result.kicked_off
+            mock_run_training.assert_not_called()
 
     @parameterized.expand([("transient_failure_raises", RuntimeError("boom")), ("refused_launch", ValueError("left"))])
     @patch("products.autoresearch.backend.temporal.workflows.run_training")
-    def test_failed_launch_spends_no_budget(self, _name: str, error: Exception, mock_run_training: MagicMock) -> None:
+    def test_failed_launch(self, _name: str, error: Exception, mock_run_training: MagicMock) -> None:
         pipeline = self._create_pipeline()
         mock_run_training.side_effect = error
 
@@ -308,5 +565,52 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             result = activity_kickoff_training(KickoffTrainingInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
             assert result.reason == "not_launchable"
 
-        pipeline.refresh_from_db()
-        assert pipeline.iteration_budget_remaining == 20
+
+@pytest.mark.parametrize(
+    "first_pass,expected_passes,expected_failed_run",
+    [
+        ("finishes", [False, True], None),
+        ("stops", [False], None),
+        ("fails", [False], "run-1"),
+    ],
+)
+async def test_property_cleanup_workflow_reconciles_and_fails_the_run(
+    first_pass: str, expected_passes: list[bool], expected_failed_run: str | None
+) -> None:
+    passes: list[bool] = []
+    failed_runs: list[str] = []
+
+    @activity.defn(name="autoresearch-property-cleanup.remove_person_property")
+    async def remove(inp: PropertyCleanupWorkflowInput) -> PropertyCleanupWorkflowResult:
+        passes.append(inp.final_pass)
+        if first_pass == "fails":
+            raise ApplicationError("capture is down", non_retryable=True)
+        stopped = "reenabled" if first_pass == "stops" else None
+        return PropertyCleanupWorkflowResult(persons_cleared=1, status="completed", stopped=stopped)
+
+    @activity.defn(name="autoresearch-property-cleanup.fail_run")
+    async def fail_run(inp: FailCleanupRunInput) -> None:
+        failed_runs.append(inp.run_id)
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="cleanup-test",
+            workflows=[AutoresearchPropertyCleanupWorkflow],
+            activities=[remove, fail_run],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                AutoresearchPropertyCleanupWorkflow.run,
+                PropertyCleanupWorkflowInput(pipeline_id="p", team_id=1, output_property="score", run_id="run-1"),
+                id=str(uuid.uuid4()),
+                task_queue="cleanup-test",
+            )
+            if first_pass == "fails":
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            else:
+                await handle.result()
+
+    assert passes == expected_passes
+    assert failed_runs == ([expected_failed_run] if expected_failed_run else [])

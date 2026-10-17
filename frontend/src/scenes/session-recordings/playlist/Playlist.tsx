@@ -11,6 +11,7 @@ import {
     LemonBanner,
     LemonButton,
     LemonCollapse,
+    LemonDivider,
     LemonSkeleton,
     Link,
     Spinner,
@@ -83,6 +84,15 @@ export function Playlist({
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed } = useValues(playerSettingsLogic)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
+    const collapseButton = (
+        <LemonButton
+            icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
+            onClick={() => setPlaylistCollapsed(true)}
+            tooltip="Collapse playlist"
+            size="xsmall"
+            data-attr="collapse-playlist"
+        />
+    )
 
     const playlistListRef = useRef<HTMLDivElement>(null)
     const { ref: playlistRef, size } = useResizeBreakpoints({
@@ -320,24 +330,15 @@ export function Playlist({
                             <DraggableToNotebook href={urls.replay(ReplayTabs.Home, filters)}>
                                 <div className="shrink-0 bg-bg-3000 flex justify-between items-center gap-0.5 whitespace-nowrap border-b">
                                     {title && <TitleWithCount title={title} count={itemsCount} />}
-                                    <div className="flex items-center gap-0.5">
-                                        <LemonButton
-                                            icon={
-                                                <IconSidebarClose
-                                                    className={clsx(!isPlaylistCollapsed && 'rotate-180')}
-                                                />
-                                            }
-                                            onClick={() => setPlaylistCollapsed(true)}
-                                            tooltip="Collapse playlist"
-                                            size="xsmall"
-                                            data-attr="collapse-playlist"
-                                        />
+                                    <div className="flex items-center gap-0.5 flex-1 min-w-0">
                                         <SessionRecordingsPlaylistTopSettings
                                             filters={filters}
                                             setFilters={setFilters}
                                             type={type}
                                             shortId={type === 'collection' ? logicKey : undefined}
                                         />
+                                        <LemonDivider vertical className="my-1 mx-0.5" />
+                                        {collapseButton}
                                     </div>
                                 </div>
                             </DraggableToNotebook>

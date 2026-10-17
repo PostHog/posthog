@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use cohort_core::filters::TeamFilters;
-use cohort_core::hogvm::analysis::{EventRowFilter, PropertyAlternatives};
+use cohort_core::hogvm::analysis::{EventEqualities, PropertyAlternatives};
 
 use super::condition::EventNameSet;
 use super::ids::ConditionHash;
@@ -28,7 +28,7 @@ impl ScanRowFilter {
         event_names: &EventNameSet,
         filters: &TeamFilters,
         active: &ActiveConditions,
-        row_filters: &HashMap<ConditionHash, EventRowFilter>,
+        equalities: &HashMap<ConditionHash, EventEqualities>,
     ) -> Self {
         let mut by_event = BTreeMap::new();
         for event in event_names.iter() {
@@ -41,7 +41,10 @@ impl ScanRowFilter {
                 let Some(hash) = active.get(candidate) else {
                     continue;
                 };
-                match row_filters.get(&hash) {
+                match equalities
+                    .get(&hash)
+                    .and_then(|equalities| equalities.row_filter.as_ref())
+                {
                     Some(row_filter) if row_filter.event == *event => {
                         if !conditions.contains(&row_filter.conjuncts) {
                             conditions.push(row_filter.conjuncts.clone());

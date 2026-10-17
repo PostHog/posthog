@@ -10,6 +10,7 @@ import { legacyTabListLogicProps, reportListLogic } from '../logics/reportListLo
 import { INBOX_LEGACY_TAB_SECTION, InboxFlatListTabKey, InboxReportSectionKey, SignalReport } from '../types'
 import { DismissalFeedback } from '../utils/dismissalReasons'
 import { CardSkeleton } from './cards/CardSkeleton'
+import { InboxMcpBanner } from './InboxMcpBanner'
 import { InboxBulkSelectionBar } from './shell/InboxBulkSelectionBar'
 import { InboxSearchFilterBar } from './shell/InboxSearchFilterBar'
 
@@ -86,6 +87,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         pageLoadFailed,
         loadedQueryKey,
         loadedContext,
+        loadedRanker,
     } = useValues(reportListLogic)
     const { ensureLoaded, loadMore, dismissReport, restoreReport, refresh } = useActions(reportListLogic)
     const { hasActiveFilters, sourceProductFilter, priorityFilter, scope } = useValues(inboxFiltersLogic)
@@ -159,8 +161,10 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         if (!listVisible || !isLoaded || totalCount === null || loadedQueryKey === null || loadedContext === null) {
             return
         }
-        if (loadedQueryKey !== impressionQueryKeyRef.current) {
-            impressionQueryKeyRef.current = loadedQueryKey
+        // The ranker is in the key because `sort=recommended` keeps the same query when the server switches rankers.
+        const impressionKey = `${loadedQueryKey}|${loadedRanker}`
+        if (impressionKey !== impressionQueryKeyRef.current) {
+            impressionQueryKeyRef.current = impressionKey
             impressedIdsRef.current = new Set<string>()
         }
         const fresh = reports
@@ -178,8 +182,12 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
             totalCount,
             hasActiveFilters: loadedContext.hasActiveFilters,
             scope: loadedContext.scope,
+            sortField: loadedContext.sortField,
+            sortDirection: loadedContext.sortDirection,
+            createdWindow: loadedContext.createdWindow,
+            rankerId: loadedRanker,
         })
-    }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext])
+    }, [listVisible, isLoaded, totalCount, reports, tabKey, loadedQueryKey, loadedContext, loadedRanker])
 
     // Read fresh state at intersection time via refs so the observer isn't rebuilt twice per page
     // fetch (`hasMore`/`reportsResponseLoading` both flip during a load).
@@ -228,6 +236,7 @@ function InboxReportListInner({ tabKey, Card, emptyState }: InboxReportListProps
         <div className="@container mx-auto max-w-4xl flex flex-col gap-4 px-6 py-4">
             <InboxSearchFilterBar onRefresh={() => refresh()} refreshing={reportsResponseLoading} />
             <InboxBulkSelectionBar reports={reports} />
+            <InboxMcpBanner />
 
             {showSkeleton ? (
                 <CardSkeleton count={Math.min(count ?? 4, 6)} variant="cards" dashed={tabKey !== 'pulls'} />

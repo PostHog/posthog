@@ -140,19 +140,11 @@ class BatchExportSchema(typing.TypedDict):
     values: dict[str, typing.Any]
 
 
-@dataclass
-class BatchExportEventPropertyFilter:
-    key: str
-    operator: str
-    type: str
-    value: list[str]
-
-
 @dataclass(frozen=False)
 class BatchExportModel:
     name: str
     schema: BatchExportSchema | None
-    filters: list[dict[str, str | list[str] | None]] | None = None
+    filters: list[dict[str, str | bool | float | list[str | bool | float] | None]] | None = None
     hogql_query: str | None = None
     # The user who last modified the batch export. This is used for validating custom HogQL queries. This is stored alongside the query, not looked up at runtime, so that an edit during a run cannot pair the old query with a new user.
     user_id: int | None = None
@@ -208,7 +200,6 @@ class BaseBatchExportInputs:
     is_earliest_backfill: bool = False
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
-    batch_export_schema: BatchExportSchema | None = None
     integration_id: int | None = None
 
     def __post_init__(self):
@@ -1168,6 +1159,7 @@ def _get_schedule_spec(batch_export: BatchExport) -> ScheduleSpec:
         return ScheduleSpec(
             start_at=batch_export.start_at,
             end_at=batch_export.end_at,
+            # nosemgrep: schedule-must-avoid-minute-zero -- each run exports the interval that just closed, and batch_export.jitter already spreads the start
             intervals=[ScheduleIntervalSpec(every=batch_export.interval_time_delta)],
             jitter=batch_export.jitter,
             time_zone_name=timezone,
@@ -1209,12 +1201,6 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                         else None,
                         hogql_modifiers=batch_export.hogql_modifiers,
                     ),
-                    # TODO: This field is deprecated, but we still set it for backwards compatibility.
-                    # New exports created will always have `batch_export_schema` set to `None`, but existing
-                    # batch exports may still be using it.
-                    # This assignment should be removed after updating all existing exports to use
-                    # `batch_export_model` instead.
-                    batch_export_schema=None,
                     integration_id=batch_export.destination.integration_id,
                     **destination_config,
                 )
@@ -1431,8 +1417,6 @@ class BatchExportInsertInputs:
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
     # TODO: Remove after updating existing batch exports to use backfill_details
     is_backfill: bool = False
     # TODO - pass these in to all inherited classes
@@ -1475,7 +1459,6 @@ class BatchExportInsertInputs:
             "run_id": self.run_id,
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
-            "batch_export_schema": self.batch_export_schema,
             "batch_export_id": self.batch_export_id,
             "stage_folder": self.stage_folder,
         }

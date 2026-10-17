@@ -15,13 +15,13 @@ is the only claim made about all of time, and it leans on `Team.ingested_event`.
 
 import hashlib
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from functools import lru_cache, partial
 from typing import Optional
 
-from django.db.models import BigIntegerField, Case, CharField, Max, Value, When
+from django.db.models import BigIntegerField, Case, CharField, Max, Model, QuerySet, Value, When
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -44,7 +44,7 @@ QUIET_AFTER_DAYS = 7
 CACHE_TTL_SECONDS = 10 * 60
 # Bump when ProjectFreshness or SourceFreshness change shape: cached values are pickled, so old
 # entries would otherwise unpickle missing a field.
-_CACHE_SCHEMA_VERSION = 1
+_CACHE_SCHEMA_VERSION = 2
 
 # Backstops for a pathological org, not a latency budget. Postgres has no server-side
 # statement_timeout here, and the ClickHouse cluster's failure mode is concurrent IO-heavy
@@ -81,6 +81,20 @@ class ProbeWindow:
 SourceProbe = Callable[[list[int], ProbeWindow], dict[int, datetime]]
 
 
+def latest_per_team(
+    queryset: QuerySet[Model], field: str, team_ids: list[int], window: ProbeWindow
+) -> dict[int, datetime]:
+    """The newest `field` value per team within the window."""
+    rows = (
+        queryset.filter(team_id__in=team_ids, **{f"{field}__gte": window.cutoff, f"{field}__lte": window.horizon})
+        .values("team_id")
+        .annotate(latest=Max(field))
+    )
+    # The timeout is transaction-local, so the queryset must run inside this block.
+    with execute_with_timeout(POSTGRES_TIMEOUT_MS):
+        return {row["team_id"]: row["latest"] for row in rows}
+
+
 @dataclass(frozen=True, kw_only=True)
 class DataSourceSpec:
     """How one product tells whether a project received its kind of data recently.
@@ -110,6 +124,8 @@ class ProjectFreshness:
     freshness: Freshness
     last_data_at: Optional[datetime]
     sources: list[SourceFreshness] = field(default_factory=list)
+    # A probe failed, so a product missing from `sources` may have data the registry could not see.
+    degraded: bool = False
 
 
 # Probes never emit a null timestamp or a team they weren't given, so `_compute` trusts both.
@@ -181,7 +197,7 @@ def reportable(results: list[ProjectFreshness], *, degraded: bool) -> list[Proje
     """
     if not degraded:
         return results
-    return [result for result in results if result.freshness == Freshness.LIVE]
+    return [replace(result, degraded=True) for result in results if result.freshness == Freshness.LIVE]
 
 
 def _probes(

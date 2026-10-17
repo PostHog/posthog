@@ -102,6 +102,16 @@ def _incremental_sort_field(
     return None
 
 
+def _uses_server_filter(config: GorgiasEndpointConfig, sort_field: str | None) -> bool:
+    return sort_field is not None and sort_field in config.filterable_datetime_fields
+
+
+def _field_value_as_text(value: Any) -> Any:
+    # Values are text, number, or boolean depending on the field, so keep the column one type
+    # rather than mixing them across rows.
+    return value if value is None or isinstance(value, str) else json.dumps(value)
+
+
 def _flatten_ticket_child(tickets: list[Any], child: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for ticket in tickets:
@@ -117,19 +127,30 @@ def _flatten_ticket_child(tickets: list[Any], child: str) -> list[dict[str, Any]
             for field_id, field_value in (ticket.get("custom_fields") or {}).items():
                 if not isinstance(field_value, dict):
                     continue
-                value = field_value.get("value")
                 rows.append(
                     {
                         **field_value,
                         **parent,
                         "field_id": int(field_id) if str(field_id).isdigit() else field_id,
-                        # Values are text, number, or boolean depending on the field, so keep the
-                        # column one type rather than mixing them across rows.
-                        "value": value if value is None or isinstance(value, str) else json.dumps(value),
+                        "value": _field_value_as_text(field_value.get("value")),
                     }
                 )
         else:
             raise ValueError(f"Unknown Gorgias ticket child collection: {child}")
+    return rows
+
+
+def _flatten_customer_field_values(customer: dict[str, Any], items: list[Any]) -> list[dict[str, Any]]:
+    parent = {"customer_id": customer.get("id"), "customer_created_datetime": customer.get("created_datetime")}
+    rows: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        field = item.get("field")
+        field_id = field.get("id") if isinstance(field, dict) else None
+        if field_id is None:
+            continue
+        rows.append({**item, **parent, "field_id": field_id, "value": _field_value_as_text(item.get("value"))})
     return rows
 
 
@@ -181,15 +202,28 @@ def get_rows(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> Iterator[Any]:
     config = GORGIAS_ENDPOINTS[endpoint]
-    url = f"{get_base_url(domain)}{config.path}"
+    base_url = get_base_url(domain)
+    url = f"{base_url}{config.path}"
     session = make_tracked_session(headers=get_headers(email, api_key), redact_values=(api_key,))
 
-    # Gorgias has no server-side time filter. For incremental we sort the chosen field
+    # Most endpoints have no server-side time filter. For incremental we sort the chosen field
     # newest-first and stop paginating once a whole page predates the watermark, so a
-    # steady-state sync only pulls the changed prefix instead of every page.
+    # steady-state sync only pulls the changed prefix instead of every page. Endpoints that do
+    # filter server-side sort ascending and request only rows from the watermark onwards.
     sort_field = _incremental_sort_field(config, should_use_incremental_field, incremental_field)
-    order_by = f"{sort_field}:desc" if sort_field else config.order_by
+    server_filtered = _uses_server_filter(config, sort_field)
     watermark = _coerce_to_utc(db_incremental_field_last_value) if sort_field else None
+    filter_params: dict[str, str] = {}
+    stop_watermark: datetime | None = None
+    if server_filtered:
+        order_by: str | None = f"{sort_field}:asc"
+        if watermark is not None:
+            filter_params[f"{sort_field}[gte]"] = watermark.isoformat()
+    elif sort_field:
+        order_by = f"{sort_field}:desc"
+        stop_watermark = watermark
+    else:
+        order_by = config.order_by
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor = resume_config.cursor if resume_config else None
@@ -205,29 +239,58 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=30),
         reraise=True,
     )
+    def fetch(request_url: str, params: dict[str, Any]) -> requests.Response:
+        # The tracked adapter already retries 429/5xx while honoring the Retry-After
+        # header; this guard re-raises anything that slips through so tenacity can back off.
+        response = session.get(request_url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+        if response.status_code == 429 or response.status_code >= 500:
+            raise GorgiasRetryableError(
+                f"Gorgias API error (retryable): status={response.status_code}, endpoint={endpoint}"
+            )
+        return response
+
+    def raise_for_error(response: requests.Response) -> None:
+        if not response.ok:
+            logger.error(f"Gorgias API error: status={response.status_code}, body={response.text}, endpoint={endpoint}")
+            response.raise_for_status()
+
     def fetch_page(request_cursor: str | None, variant_params: dict[str, str]) -> Any:
         # `cursor` is documented as "position in the list of resources" — the list is
         # defined by `order_by`/`limit`, so we re-send them on every page to keep the
         # sort stable. The docs list `cursor` and `order_by` as coexisting params (no
         # mutual exclusion); dropping order_by on follow-up pages could reset to the
         # endpoint default and corrupt the newest-first order incremental relies on.
-        params: dict[str, Any] = {"limit": PAGE_SIZE, **variant_params}
+        params: dict[str, Any] = {"limit": PAGE_SIZE, **variant_params, **filter_params}
         if order_by:
             params["order_by"] = order_by
         if request_cursor:
             params["cursor"] = request_cursor
 
-        # The tracked adapter already retries 429/5xx while honoring the Retry-After
-        # header; this guard re-raises anything that slips through so tenacity can back off.
-        response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
-        if response.status_code == 429 or response.status_code >= 500:
-            raise GorgiasRetryableError(
-                f"Gorgias API error (retryable): status={response.status_code}, endpoint={endpoint}"
-            )
-        if not response.ok:
-            logger.error(f"Gorgias API error: status={response.status_code}, body={response.text}, endpoint={endpoint}")
-            response.raise_for_status()
+        response = fetch(url, params)
+        raise_for_error(response)
         return response.json()
+
+    def fetch_child_rows(child_path: str, parents: list[Any]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for parent in parents:
+            if not isinstance(parent, dict) or not isinstance(parent.get("id"), int):
+                continue
+            response = fetch(f"{base_url}{child_path.format(id=parent['id'])}", {})
+            # The parent can be deleted between listing it and fetching its children.
+            if response.status_code == 404:
+                continue
+            raise_for_error(response)
+            data = response.json()
+            items = data.get("data", []) if isinstance(data, dict) else data
+            rows.extend(_flatten_customer_field_values(parent, items or []))
+        return rows
+
+    def page_rows(items: list[Any]) -> list[Any]:
+        if config.child_path:
+            return fetch_child_rows(config.child_path, items)
+        if config.ticket_child:
+            return _flatten_ticket_child(items, config.ticket_child)
+        return items
 
     for variant_index in range(start_variant, len(config.param_variants)):
         variant_params = config.param_variants[variant_index]
@@ -240,9 +303,11 @@ def get_rows(
             # Rows arrive newest-first under incremental sort; once an entire page predates the
             # watermark, everything further back is already synced, so stop.
             reached_watermark = False
-            if watermark is not None and sort_field is not None and items:
+            if stop_watermark is not None and sort_field is not None and items:
                 page_newest = _page_newest(items, sort_field)
-                reached_watermark = page_newest is not None and page_newest < watermark
+                reached_watermark = page_newest is not None and page_newest < stop_watermark
+
+            rows = page_rows(items) if items else []
 
             # Stage the position after this page before yielding it. A resumed full refresh
             # appends, so a cursor that lags one page behind would write that page twice. The
@@ -252,8 +317,12 @@ def get_rows(
             else:
                 resumable_source_manager.save_state(GorgiasResumeConfig(cursor=None, variant=variant_index + 1))
 
-            if items:
-                yield _flatten_ticket_child(items, config.ticket_child) if config.ticket_child else items
+            if rows:
+                yield rows
+            else:
+                # A fan-out page whose parents have no children yields nothing, and many in a row
+                # would otherwise hold off a worker shutdown.
+                resumable_source_manager.safe_point()
 
             if not next_cursor or reached_watermark:
                 break
@@ -274,7 +343,8 @@ def gorgias_source(
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
     config = GORGIAS_ENDPOINTS[endpoint]
-    incremental = _incremental_sort_field(config, should_use_incremental_field, incremental_field) is not None
+    sort_field = _incremental_sort_field(config, should_use_incremental_field, incremental_field)
+    newest_first = sort_field is not None and not _uses_server_filter(config, sort_field)
 
     return SourceResponse(
         name=endpoint,
@@ -295,7 +365,7 @@ def gorgias_source(
         partition_mode="datetime",
         partition_format="month",
         partition_keys=[config.partition_key],
-        # Incremental sort returns newest-first; full refresh stays ascending on the
-        # stable creation field. sort_mode must match the order rows actually arrive in.
-        sort_mode="desc" if incremental else "asc",
+        # Incremental without a server-side filter returns newest-first; everything else is
+        # ascending. sort_mode must match the order rows actually arrive in.
+        sort_mode="desc" if newest_first else "asc",
     )

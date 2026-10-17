@@ -6,8 +6,7 @@ import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { RepoEntityHeader } from '../components/EntityHeader'
-import { SourceScopeChip, WorkflowScopeControls } from '../components/ScopeBar'
+import { WorkflowScopeControls } from '../components/ScopeBar'
 import { ScopePanel } from '../components/ScopePanel'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
@@ -25,7 +24,6 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         hasActiveWorkflowFilters,
         workflowCostAvailable,
         sourceId,
-        activeSource,
         notConnected,
         workflowHealthLoadError,
     } = useValues(engineeringAnalyticsLogic)
@@ -41,8 +39,6 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <RepoEntityHeader repoFullName={activeSource?.repo || ''} right={<SourceScopeChip pickerOnly />} />
-
             <ScopePanel busy={workflowHealthLoading && workflowHealth.length > 0} controls={<WorkflowScopeControls />}>
                 <WorkflowsHealthHeader
                     summary={fleetSummary}

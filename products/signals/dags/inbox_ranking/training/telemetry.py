@@ -12,15 +12,13 @@ import datetime
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-import dagster
-
 from posthog import settings
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
-from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.dags.inbox_ranking.common import RunContext, snapshot_bounds
 from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
 from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
@@ -33,7 +31,7 @@ LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
 EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
 PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
-UNSEEN_REPORT_SCORED_EVENT = "inbox_ranking_unseen_report_scored"
+MODEL_PROMOTED_EVENT = "inbox_ranking_model_promoted"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
 UNSEEN_HEAD_EVALUATED_EVENT = "inbox_ranking_unseen_head_evaluated"
 UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
@@ -72,6 +70,7 @@ class HeadExampleCounts:
     # so a chart shows when the budget starts to cut history.
     example_window_start: datetime.date | None
     example_cap_bound: bool
+    pairs_skipped_missing_label_columns: int
 
 
 def candidate_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
@@ -136,6 +135,7 @@ def examples_events(
                 if counts.example_window_start
                 else None,
                 "example_cap_bound": counts.example_cap_bound,
+                "pairs_skipped_missing_label_columns": counts.pairs_skipped_missing_label_columns,
             },
         )
         for head, counts in per_head.items()
@@ -148,15 +148,15 @@ def promotion_event(
     run_id: str,
     model_name: str,
     decision: PromotionDecision,
-    promoted: bool,
-    champion_version: str,
     incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
     champion_eces: Mapping[str, float],
 ) -> TrainingEvent:
-    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout; after a promotion
-    `champion_version` is the candidate, so the incumbent is carried separately. Every version here
-    belongs to `model_name`: promotion compares a candidate to the champion of its own family."""
+    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout.
+    The incumbent is the served model when it has `model_name`, else `none`.
+
+    Training never moves the served pointer, so `promoted` is always false. A person promotes
+    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
@@ -164,13 +164,22 @@ def promotion_event(
             "model_version": partition_key,
             "run_id": run_id,
             "would_promote": decision.promote,
-            "promoted": promoted,
+            "gates_passed": decision.gates_passed,
+            "promoted": False,
             "reason": decision.reason,
-            "champion_version": champion_version,
+            "skipped_heads": list(decision.skipped_heads),
+            "champion_version": incumbent_champion_version,
             "incumbent_champion_version": incumbent_champion_version,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
             **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
+    )
+
+
+def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
+    return TrainingEvent(
+        event=MODEL_PROMOTED_EVENT,
+        properties={"model_key": model_key, "previous_key": previous_key, "reason": reason, "run_id": run_id},
     )
 
 
@@ -209,12 +218,6 @@ def serving_manifest_event(
     if mirror_published is not None:
         properties["mirror_published"] = mirror_published
     return TrainingEvent(event=SERVING_MANIFEST_PUBLISHED_EVENT, properties=properties)
-
-
-def unseen_score_events(*, run_id: str, rows: Sequence[Mapping[str, Any]]) -> list[TrainingEvent]:
-    """One event per (report, model) for the day's unseen pool. Every property is flat and
-    numeric where it is a number, so a trends insight can aggregate a head's scores directly."""
-    return [TrainingEvent(event=UNSEEN_REPORT_SCORED_EVENT, properties={**row, "run_id": run_id}) for row in rows]
 
 
 def unseen_head_graded_events(*, run_id: str, grades: Sequence[HeadGrade]) -> list[TrainingEvent]:
@@ -308,16 +311,21 @@ def capture_allowed() -> bool:
 
 
 def capture_training_events(
-    context: dagster.AssetExecutionContext, partition_key: str, events: list[TrainingEvent]
+    context: RunContext,
+    partition_key: str,
+    events: list[TrainingEvent],
+    *,
+    timestamp: datetime.datetime | None = None,
 ) -> None:
     """Best-effort: a failed capture is logged, never raised, so telemetry cannot fail a training
     run. Local runs are marked twice, by `environment` and by their own distinct id, so a chart
-    that forgets to filter still shows them as a separate series."""
+    that forgets to filter still shows them as a separate series. `timestamp` defaults to the
+    partition's midday; an event about a person's action passes the moment it happened."""
     if not capture_allowed():
         return
     environment = settings.CLOUD_DEPLOYMENT or LOCAL_ENVIRONMENT
     distinct_id = DISTINCT_ID if environment != LOCAL_ENVIRONMENT else LOCAL_DISTINCT_ID
-    timestamp = event_timestamp(partition_key)
+    timestamp = timestamp or event_timestamp(partition_key)
     base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
     # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds
     # one: the step process exits right after the asset, before a shared client's background

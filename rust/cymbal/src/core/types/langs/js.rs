@@ -9,6 +9,7 @@ use crate::{
     error::{FrameError, JsResolveErr, ResolveError, UnhandledError},
     frames::{record_frame_resolution_failure, Frame},
     langs::CommonFrameMetadata,
+    metric_consts::SOURCEMAP_IGNORED_FRAME,
     sanitize_string,
     symbolication::symbol_store::{
         chunk_id::OrChunkId, sourcemap::OwnedSourceMapCache, SymbolCatalog,
@@ -86,8 +87,8 @@ impl RawJSFrame {
         let smc = sourcemap.get_smc();
 
         // Note: javascript stack frame lines are 1-indexed, so we have to subtract 1
-        let Some(location) = smc.lookup(SourcePosition::new(location.line - 1, location.column))
-        else {
+        let generated_position = SourcePosition::new(location.line - 1, location.column);
+        let Some(location) = smc.lookup(generated_position) else {
             return Err(JsResolveErr::TokenNotFound(
                 self.fn_name.clone(),
                 location.line,
@@ -96,7 +97,12 @@ impl RawJSFrame {
             .into());
         };
 
-        Ok(Frame::from((self, location, context_lines)))
+        let mut frame = Frame::from((self, location, context_lines));
+        if sourcemap.is_source_ignored(generated_position) {
+            frame.in_app = false;
+            metrics::counter!(SOURCEMAP_IGNORED_FRAME, "runtime" => "browser").increment(1);
+        }
+        Ok(frame)
     }
 
     // JS frames can only handle JS resolution errors - errors at the network level
@@ -357,7 +363,46 @@ fn is_dependency_source(source: &str) -> bool {
 
 #[cfg(test)]
 mod test {
-    use super::is_dependency_source;
+    use crate::{
+        langs::CommonFrameMetadata,
+        symbolication::symbol_store::sourcemap::test_support::source_map_catalog,
+    };
+
+    use super::{is_dependency_source, FrameLocation, RawJSFrame};
+
+    fn resolvable_frame(column: u32) -> RawJSFrame {
+        RawJSFrame {
+            location: Some(FrameLocation { line: 1, column }),
+            source_url: Some("https://example.com/bundle.js".to_string()),
+            fn_name: "minified".to_string(),
+            chunk_id: None,
+            meta: CommonFrameMetadata {
+                in_app: true,
+                synthetic: false,
+            },
+        }
+    }
+
+    #[tokio::test]
+    async fn source_map_ignore_list_demotes_only_ignored_sources() {
+        let catalog = source_map_catalog();
+
+        let vendor = resolvable_frame(0)
+            .resolve_frame(1, &catalog, 0)
+            .await
+            .unwrap();
+        assert!(vendor.resolved);
+        assert_eq!(vendor.source.as_deref(), Some("vendor.js"));
+        assert!(!vendor.in_app);
+
+        let app = resolvable_frame(10)
+            .resolve_frame(1, &catalog, 0)
+            .await
+            .unwrap();
+        assert!(app.resolved);
+        assert_eq!(app.source.as_deref(), Some("app.js"));
+        assert!(app.in_app);
+    }
 
     #[test]
     fn detects_dependency_sources() {

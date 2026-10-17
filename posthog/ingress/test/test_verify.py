@@ -188,12 +188,12 @@ class TestHmacSha256(SimpleTestCase):
     def test_signature_pattern_rejects_before_the_digest_runs(self) -> None:
         scheme = HmacSha256(
             secret_getter=lambda: SECRET,
-            signature_header="X-Vapi-Signature",
+            signature_header="X-Signature",
             signature_pattern=re.compile(r"^[0-9a-f]{64}$"),
         )
         with patch("hmac.digest") as digest:
             self.assertEqual(
-                scheme.verify(body=BODY, headers={"X-Vapi-Signature": "NOT-A-HEX-DIGEST"}).outcome,
+                scheme.verify(body=BODY, headers={"X-Signature": "NOT-A-HEX-DIGEST"}).outcome,
                 VerificationOutcome.INVALID,
             )
         digest.assert_not_called()

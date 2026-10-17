@@ -5,15 +5,29 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from typing import Any
+from uuid import UUID
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.health.inputs_payload import health_inputs_payload
+from products.experiments.backend.health.loader import load_experiment_health_context, load_experiment_health_inputs
+from products.experiments.backend.health.registry import (
+    EXPERIMENT_HEALTH_CHECKS,
+    evaluate as evaluate_health,
+)
+from products.experiments.backend.hogql_queries.exposure_query_logic import (
+    DEFAULT_EXPOSURE_EVENT,
+    get_exposure_event_and_property,
+    resolve_default_exposure_event,
+)
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
-from .contracts import CreateExperimentInput, Experiment
+from .contracts import CreateExperimentInput, Experiment, ExperimentHealthFinding, ExperimentHealthReaderAccess
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -87,6 +101,51 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
 
     # Convert model to DTO
     return _experiment_model_to_dto(experiment_model)
+
+
+def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> int:
+    """Count the organization's running experiments that count exposures on $feature_flag_called.
+
+    Those exposures come from the events table, so they stop when ingestion stops writing
+    $feature_flag_called to events.
+    """
+    experiments = (
+        ExperimentModel.objects.filter(
+            team__organization_id=organization_id, start_date__isnull=False, end_date__isnull=True, archived=False
+        )
+        .exclude(deleted=True)
+        .select_related("team", "feature_flag")
+    )
+    count = 0
+    for experiment in experiments:
+        exposure_event, _ = get_exposure_event_and_property(
+            experiment.feature_flag.key,
+            experiment.exposure_criteria,
+            default_exposure_event=resolve_default_exposure_event(experiment.team, experiment.start_date),
+        )
+        count += exposure_event == DEFAULT_EXPOSURE_EVENT
+    return count
+
+
+def get_experiment_health_findings(
+    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess
+) -> list[ExperimentHealthFinding]:
+    """The findings of the health checks that read the experiment, its flag, its linked metrics, and the
+    changes of the flag's split since launch and the flag's recent calls, as far as `reader_access` allows."""
+    context = load_experiment_health_context(team_id=team_id, experiment_id=experiment_id, reader_access=reader_access)
+    return evaluate_health(context, EXPERIMENT_HEALTH_CHECKS)
+
+
+def get_experiment_health_inputs(
+    *, team_id: int, experiment_id: int, reader_access: ExperimentHealthReaderAccess, user: User | None
+) -> dict[str, Any]:
+    """Everything the health checks read for the reader, as plain data in the shape of the staff `health_inputs`
+    response: the checks' context, the exposure query's answer that the exposure checks read, and the project's
+    experiment defaults and SDK profile."""
+    inputs = load_experiment_health_inputs(
+        team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
+    )
+    return health_inputs_payload(inputs)
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:

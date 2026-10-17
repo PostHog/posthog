@@ -8,7 +8,11 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import WORKFLOW_NAME
-from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import CleanupSweepInputs, CleanupSweepResult
+from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import (
+    CleanupSweepInputs,
+    CleanupSweepResult,
+    GeminiStorageUsage,
+)
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.workflow import ReplayVisionGeminiCleanupSweepWorkflow
 
 
@@ -25,6 +29,7 @@ async def test_workflow_returns_activity_result_as_dict():
             skipped_invalid_value=2,
             delete_failed=1,
             hit_max_files_cap=True,
+            storage=GeminiStorageUsage(files=7, total_bytes=2048, oldest_age_seconds=60.0, truncated=False),
         )
 
     task_queue = str(uuid.uuid4())
@@ -52,4 +57,5 @@ async def test_workflow_returns_activity_result_as_dict():
         "skipped_invalid_value": 2,
         "delete_failed": 1,
         "hit_max_files_cap": True,
+        "storage": {"files": 7, "total_bytes": 2048, "oldest_age_seconds": 60.0, "truncated": False},
     }

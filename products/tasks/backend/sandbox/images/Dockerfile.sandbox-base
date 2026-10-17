@@ -161,8 +161,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.247
-ARG AGENT_TARBALL_SHA256="ca4576b2001fbe1a511b310d6cb37b8682547221119d16530873888c0ab160a5"
+ARG AGENT_VERSION=2.4.277
+ARG AGENT_TARBALL_SHA256="f84f08b5090009612a4b0cb17c50717f90480a76321df069f00c8ffcd63d2f3d"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \
@@ -222,5 +222,8 @@ RUN python3 --version && \
       echo "installed @posthog/agent $installed, expected ${AGENT_VERSION}" >&2; exit 1; \
     fi && \
     /scripts/node_modules/.bin/agent-server --help >/dev/null
+
+COPY products/tasks/backend/sandbox/images/task_filesystem.py /opt/posthog/task-filesystem.py
+RUN /usr/bin/python3 -I /opt/posthog/task-filesystem.py seed-home
 
 CMD ["/bin/bash"]

@@ -23,6 +23,7 @@
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
+        "@testing-library/dom": "*",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",

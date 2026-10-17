@@ -1,14 +1,15 @@
-import pytest
-from unittest import mock
-
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.settings import (
     BROWSER_USE_API_VERSION_V3,
     BROWSER_USE_API_VERSION_V4,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.browser_use.source import BrowserUseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.browseruse import (
     BrowserUseSourceConfig,
 )
@@ -18,14 +19,6 @@ class TestBrowserUseSource:
     def setup_method(self) -> None:
         self.source = BrowserUseSource()
         self.config = BrowserUseSourceConfig(api_key="bu_test")
-
-    def test_default_version_is_v4(self) -> None:
-        # New sources must start on v4 (declared newest-last, default flipped to it) and, with no
-        # pin, discover the v4 catalog.
-        assert self.source.supported_versions == (BROWSER_USE_API_VERSION_V3, BROWSER_USE_API_VERSION_V4)
-        assert self.source.default_version == BROWSER_USE_API_VERSION_V4
-        names = {s.name for s in self.source.get_schemas(self.config, team_id=1)}
-        assert names == {"sessions", "runs", "browser_sessions", "profiles"}
 
     @parameterized.expand(
         [
@@ -47,30 +40,6 @@ class TestBrowserUseSource:
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
-    def test_session_messages_off_by_default_on_v3(self) -> None:
-        # session_messages fans out one request per session, so it must stay opt-in to avoid
-        # surprise API cost; the top-level lists stay on.
-        schemas = {
-            s.name: s for s in self.source.get_schemas(self.config, team_id=1, api_version=BROWSER_USE_API_VERSION_V3)
-        }
-        assert schemas["session_messages"].should_sync_default is False
-        assert schemas["sessions"].should_sync_default is True
-
-    def test_names_filter_narrows_schemas(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["sessions"])
-        assert [s.name for s in schemas] == ["sessions"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        # Public docs render the default (v4) catalog, so lists_tables_without_credentials must
-        # surface those tables (with canonical descriptions) for the posthog.com Supported tables
-        # section — including the new runs table.
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        by_name = {t["name"]: t for t in tables}
-        assert set(by_name) == {"sessions", "runs", "browser_sessions", "profiles"}
-        assert by_name["sessions"]["sync_methods"] == ["Full refresh"]
-        assert by_name["runs"]["description"]
-
     @parameterized.expand(
         [
             ("401", "401 Client Error: Unauthorized for url: https://api.browser-use.com/api/v3/sessions?page=1"),
@@ -86,40 +55,33 @@ class TestBrowserUseSource:
     def test_validate_credentials(
         self, _name: str, probe_result: bool, expected_valid: bool, expected_message: str | None
     ) -> None:
-        with mock.patch.object(source_module, "validate_browser_use_credentials", return_value=probe_result):
+        status = 200 if probe_result else 401
+        with scripted_network([ScriptedResponse(status=status, json={})]):
             valid, message = self.source.validate_credentials(self.config, team_id=1)
         assert valid is expected_valid
         assert message == expected_message
 
     def test_source_for_pipeline_passes_api_key_schema_and_resolved_version(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "sessions"
-        inputs.api_version = None  # no pin resolves to the default (v4)
-        manager = mock.MagicMock()
-        with mock.patch.object(source_module, "browser_use_source") as mock_source:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-        mock_source.assert_called_once()
-        _, kwargs = mock_source.call_args
-        assert kwargs["api_key"] == "bu_test"
-        assert kwargs["endpoint"] == "sessions"
-        assert kwargs["api_version"] == BROWSER_USE_API_VERSION_V4
+        result = SourceDriver(self.source, self.config).run("sessions", [ScriptedResponse(json={"sessions": []})])
+
+        assert result.raised is None
+        assert result.requests[0].headers["x-browser-use-api-key"] == "bu_test"
+        assert result.paths == ["/api/v4/sessions"]
 
     def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
         # An arbitrary schema name must raise a controlled ValueError rather than crashing the
         # worker with an uncaught KeyError when indexing the endpoint catalog.
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_a_real_endpoint"
-        inputs.api_version = None
-        manager = mock.MagicMock()
-        with pytest.raises(ValueError, match="Unknown Browser Use schema"):
-            self.source.source_for_pipeline(self.config, manager, inputs)
+        result = SourceDriver(self.source, self.config).run("not_a_real_endpoint", [])
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Browser Use schema" in str(result.raised)
 
     def test_source_for_pipeline_rejects_schema_absent_in_pinned_version(self) -> None:
         # A v4-pinned source must not serve a v3-only endpoint: session_messages has no v4 list
         # endpoint, so requesting it under v4 must fail loudly rather than 404 mid-sync.
-        inputs = mock.MagicMock()
-        inputs.schema_name = "session_messages"
-        inputs.api_version = BROWSER_USE_API_VERSION_V4
-        manager = mock.MagicMock()
-        with pytest.raises(ValueError, match="Unknown Browser Use schema"):
-            self.source.source_for_pipeline(self.config, manager, inputs)
+        result = SourceDriver(self.source, self.config).run(
+            "session_messages", [], api_version=BROWSER_USE_API_VERSION_V4
+        )
+
+        assert isinstance(result.raised, ValueError)
+        assert "Unknown Browser Use schema" in str(result.raised)

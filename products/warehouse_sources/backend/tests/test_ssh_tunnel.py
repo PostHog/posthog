@@ -1,9 +1,12 @@
 import pytest
+from unittest.mock import MagicMock, patch
 
 from cryptography.hazmat.primitives import serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519
+from cryptography.hazmat.primitives.asymmetric import ed25519, rsa
 from paramiko import RSAKey
+from sshtunnel import BaseSSHTunnelForwarderError
 
+from products.warehouse_sources.backend.models import ssh_tunnel as ssh_tunnel_module
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel, SSHTunnelConfig
 
 
@@ -105,6 +108,40 @@ def test_is_auth_valid_key_pair(private_key, passphrase, expected):
     res, error = ssh_tunnel.is_auth_valid()
 
     assert res is expected
+
+
+def _openssh_private_key(key: ed25519.Ed25519PrivateKey | rsa.RSAPrivateKey, passphrase: str | None) -> str:
+    return key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.OpenSSH,
+        encryption_algorithm=serialization.BestAvailableEncryption(passphrase.encode())
+        if passphrase
+        else serialization.NoEncryption(),
+    ).decode()
+
+
+@pytest.mark.parametrize(
+    "key_type,passphrase,paste",
+    [
+        (key_type, passphrase, paste)
+        for key_type in ("ed25519", "rsa")
+        for passphrase in (None, "correct-passphrase")
+        for paste in ("as_generated", "leading_whitespace", "indented", "line_breaks_joined")
+    ],
+)
+def test_is_auth_valid_accepts_openssh_key_as_pasted(key_type, passphrase, paste):
+    key = ed25519.Ed25519PrivateKey.generate() if key_type == "ed25519" else rsa.generate_private_key(65537, 2048)
+    pem = _openssh_private_key(key, passphrase)
+    pasted = {
+        "as_generated": pem,
+        "leading_whitespace": "  " + pem,
+        "indented": "\n".join("    " + line for line in pem.splitlines()),
+        "line_breaks_joined": pem.replace("\n", " "),
+    }[paste]
+
+    res, error = _keypair_tunnel(private_key=pasted, passphrase=passphrase).is_auth_valid()
+
+    assert (res, error) == (True, "")
 
 
 def test_is_auth_valid_unparseable_key_suggests_format():
@@ -215,6 +252,33 @@ def test_get_tunnel_pins_host_key(key_type, hostname):
     assert (parsed.get_name(), parsed.get_base64()) == (key_name, key_base64)
     forwarder = tunnel.get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
     assert forwarder.ssh_host_key == parsed
+
+
+def test_gateway_connect_that_hangs_raises_the_gateway_error():
+    forwarder = _password_tunnel(host_key=None).get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+
+    with patch.object(ssh_tunnel_module.socket, "create_connection", side_effect=TimeoutError("timed out")) as dial:
+        with pytest.raises(BaseSSHTunnelForwarderError, match="Could not establish session to SSH gateway"):
+            forwarder.start()
+
+    dial.assert_called_once_with(("93.184.216.34", 5432), timeout=ssh_tunnel_module.SSH_TUNNEL_CONNECT_TIMEOUT_SECONDS)
+
+
+def test_gateway_transport_limits_every_step_of_the_handshake():
+    forwarder = _password_tunnel(host_key=None).get_tunnel("host.com", 3306, ssh_host="93.184.216.34")
+
+    with (
+        patch.object(ssh_tunnel_module.socket, "create_connection", return_value=MagicMock()),
+        patch.object(ssh_tunnel_module, "Transport") as transport_class,
+    ):
+        transport = forwarder._get_transport()
+
+    assert transport is transport_class.return_value
+    assert (transport.banner_timeout, transport.handshake_timeout, transport.auth_timeout) == (
+        ssh_tunnel_module.SSH_TUNNEL_BANNER_TIMEOUT_SECONDS,
+        ssh_tunnel_module.SSH_TUNNEL_HANDSHAKE_TIMEOUT_SECONDS,
+        ssh_tunnel_module.SSH_TUNNEL_AUTH_TIMEOUT_SECONDS,
+    )
 
 
 def test_get_tunnel_invalid_auth():

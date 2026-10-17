@@ -27,19 +27,19 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 
 ## `emit_report` — author a full report
 
-| Field                       | Type                    | Notes                                                                                                                                                           |
-| --------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line (see below).                                                                                                  |
-| `summary`                   | string                  | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).                                                                     |
-| `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report.                                                                                 |
-| `actionability_explanation` | string                  | One sentence justifying the actionability call.                                                                                                                 |
-| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.                                                                        |
-| `already_addressed`         | bool, default `false`   | Set when the move is already handled and you're filing for the record.                                                                                          |
-| `suggested_reviewers`       | list of objects         | Who owns the metric/dashboard — routes the report. Each entry is `{github_login}` and/or `{user_uuid}` (not a bare string). High-leverage — set it (see below). |
-| `priority`                  | `P0`–`P4`               | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
-| `priority_explanation`      | string                  | Required when `priority` is set.                                                                                                                                |
-| `repository`                | string                  | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
-| `charts`                    | list, optional          | Queries the inbox draws on the report itself — see _Charts on the report_ below.                                                                                |
+| Field                       | Type                              | Notes                                                                                                                                                           |
+| --------------------------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`                     | string, required, ≤300, non-empty | The inbox headline. One specific, quantified line (see below).                                                                                                  |
+| `summary`                   | string, required                  | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).                                                                     |
+| `evidence`                  | list, required, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report.                                                                                 |
+| `actionability_explanation` | string, required                  | One sentence justifying the actionability call.                                                                                                                 |
+| `actionability`             | enum, required                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.                                                                        |
+| `already_addressed`         | bool, default `false`             | Set when the move is already handled and you're filing for the record.                                                                                          |
+| `suggested_reviewers`       | list of objects                   | Who owns the metric/dashboard — routes the report. Each entry is `{github_login}` and/or `{user_uuid}` (not a bare string). High-leverage — set it (see below). |
+| `priority`                  | `P0`–`P4`                         | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
+| `priority_explanation`      | string                            | Required when `priority` is set.                                                                                                                                |
+| `repository`                | string                            | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
+| `charts`                    | list, optional                    | Queries the inbox draws on the report itself — see _Charts on the report_ below.                                                                                |
 
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
 so you can edit / dedup against it), `report_status`, `emitted` (true only when it surfaced as

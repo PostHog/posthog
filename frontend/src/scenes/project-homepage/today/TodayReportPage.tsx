@@ -1,115 +1,131 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 
-import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Button, Heading, Skeleton, Text } from '@posthog/quill'
 
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { ReportChart } from 'products/signals/frontend/inbox/components/detail/ReportChart'
-import { ReportChartsContext } from 'products/signals/frontend/inbox/components/detail/reportChartsContext'
-import { ReportSummaryBody } from 'products/signals/frontend/inbox/components/detail/ReportSummaryBody'
-
-import { TodayIcon } from './TodayIcon'
-import { TodayReportEvidence } from './TodayReportEvidence'
+import { projectHomepageLogic } from '../projectHomepageLogic'
+import { TodayReportBody } from './TodayReportBody'
+import { TodayReportHeader } from './TodayReportHeader'
+import { TodayReportLiveBody } from './TodayReportLiveBody'
 import { todayReportLogic } from './todayReportLogic'
-import { TodayReportPrompts } from './TodayReportPrompts'
+import { TodayReportNav } from './TodayReportNav'
 import { TodaySampleBanner } from './TodaySampleBanner'
-import { isSampleReportId } from './todaySampleReports'
-import { reportIcon, reportMeta, reportSource, reportTitle } from './todaySignalReports'
+import { reportTitle } from './todaySignalReports'
 
-export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
+function ReportFailed({ reportId }: { reportId: string }): JSX.Element {
     const logic = todayReportLogic({ reportId })
-    const { currentReport, reportFailed, fullReportLoading, chartPlacements, chartsById, trailingCharts, reportUrl } =
-        useValues(logic)
-    const { loadFullReport } = useActions(logic)
-    const sampleDisabledReason = isSampleReportId(reportId) ? 'This is a sample report.' : undefined
+    const { fullReportLoading, pageLoading } = useValues(logic)
+    const { loadFullReport, loadPage } = useActions(logic)
+    return (
+        <div className="flex flex-col gap-3">
+            <Heading size="lg" render={<h1 />}>
+                Couldn’t open this report.
+            </Heading>
+            <Text variant="muted" render={<p />}>
+                It may have been deleted, or the request failed. Try again, or go back to Home.
+            </Text>
+            <div className="mt-3 flex flex-wrap gap-2">
+                <Button
+                    variant="primary"
+                    onClick={() => {
+                        loadFullReport()
+                        loadPage()
+                    }}
+                    loading={fullReportLoading || pageLoading}
+                    data-attr="today-report-retry"
+                >
+                    Try again
+                </Button>
+                <Button
+                    variant="outline"
+                    nativeButton={false}
+                    render={<LinkPrimitive to={urls.projectHomepage()} />}
+                    data-attr="today-report-missing-home"
+                >
+                    Back to Home
+                </Button>
+            </div>
+        </div>
+    )
+}
 
-    if (!currentReport) {
-        return reportFailed ? (
-            <div className="TodayReport Today__page">
-                <TodaySampleBanner />
-                <h1 className="TodayReport__heading">Couldn’t open this report.</h1>
-                <div className="TodayReport__body">
-                    <p>It may have been deleted, or the request failed. Try again, or go back to today’s briefing.</p>
+function ReportSkeleton({ header }: { header: JSX.Element | null }): JSX.Element {
+    return (
+        <div className="flex flex-col gap-10" aria-busy>
+            {header ?? (
+                <div className="flex flex-col gap-3">
+                    <div className="flex h-7 items-center justify-between">
+                        <Skeleton className="h-3 w-48" />
+                        <Skeleton className="h-3 w-40" />
+                    </div>
+                    <Skeleton className="h-6 w-4/5" />
+                    <div className="flex flex-col gap-2 pt-1">
+                        <Skeleton className="h-3.5 w-full" />
+                        <Skeleton className="h-3.5 w-2/3" />
+                    </div>
+                    <Skeleton className="mt-3 h-3.5 w-3/5" />
                 </div>
-                <div className="flex flex-wrap gap-2 mt-6">
-                    <LemonButton
-                        type="primary"
-                        onClick={() => loadFullReport()}
-                        loading={fullReportLoading}
-                        data-attr="today-report-retry"
-                    >
-                        Try again
-                    </LemonButton>
-                    <LemonButton type="secondary" to={urls.projectHomepage()} data-attr="today-report-missing-home">
-                        Back to Home
-                    </LemonButton>
+            )}
+            <div className="flex flex-col gap-2">
+                <Skeleton className="h-4 w-20" />
+                <Skeleton className="h-3.5 w-full" />
+                <Skeleton className="h-3.5 w-1/2" />
+                <div className="mt-2 flex items-center gap-4">
+                    <Skeleton className="h-8 w-32" />
+                    <Skeleton className="h-3.5 w-16" />
+                    <Skeleton className="h-3.5 w-24" />
                 </div>
             </div>
-        ) : (
-            <div className="TodayReport Today__page flex flex-col gap-4">
-                <LemonSkeleton className="h-4 w-48" />
-                <LemonSkeleton className="h-10 w-3/4" />
-                <LemonSkeleton className="h-24" />
+            <div className="flex flex-col gap-5">
+                <Skeleton className="h-4 w-20" />
+                {['w-11/12', 'w-3/4', 'w-5/6'].map((width) => (
+                    <div key={width} className="flex items-start justify-between gap-6">
+                        <div className="flex flex-1 flex-col gap-2">
+                            <Skeleton className="h-3.5 w-full" />
+                            <Skeleton className={`h-3.5 ${width}`} />
+                        </div>
+                        <Skeleton className="h-3 w-12" />
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+}
+
+export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
+    const { currentReport, page, reportFailed, isSample } = useValues(todayReportLogic({ reportId }))
+    const { setTodayReportTitle } = useActions(projectHomepageLogic)
+    const title = currentReport ? reportTitle(currentReport) : null
+    const rootRef = useRef<HTMLDivElement>(null)
+
+    useLayoutEffect(() => {
+        rootRef.current?.closest('main')?.scrollTo({ top: 0 })
+    }, [reportId])
+
+    useEffect(() => {
+        setTodayReportTitle(title)
+        return () => setTodayReportTitle(null)
+    }, [title, setTodayReportTitle])
+
+    if ((!currentReport || !page) && !reportFailed) {
+        return (
+            <div ref={rootRef} className="TodayReport Today__page" data-quill>
+                <TodayReportNav />
+                <ReportSkeleton header={currentReport ? <TodayReportHeader report={currentReport} /> : null} />
             </div>
         )
     }
 
     return (
-        <div
-            className="TodayReport Today__page"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{ '--report-color': reportSource(currentReport).color } as React.CSSProperties}
-        >
+        <div ref={rootRef} className="TodayReport Today__page" data-quill>
+            <TodayReportNav />
             <TodaySampleBanner />
-            <article>
-                <div className="TodayReport__kicker">
-                    <span className="TodayTile">
-                        <TodayIcon icon={reportIcon(currentReport)} />
-                    </span>
-                    <span>{reportMeta(currentReport)}</span>
-                    {currentReport.priority && <LemonTag type="muted">{currentReport.priority}</LemonTag>}
-                </div>
-                <h1 className="TodayReport__heading">{reportTitle(currentReport)}</h1>
-                <div className="flex flex-wrap gap-2 mt-4">
-                    {currentReport.implementation_pr_url && (
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={currentReport.implementation_pr_url}
-                            targetBlank
-                            sideIcon={<IconExternal />}
-                            disabledReason={sampleDisabledReason}
-                            data-attr="today-report-pull-request"
-                        >
-                            Review the pull request
-                        </LemonButton>
-                    )}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        to={urls.inboxReport('reports', currentReport.id)}
-                        disabledReason={sampleDisabledReason}
-                        data-attr="today-report-open-inbox"
-                    >
-                        Open in Inbox
-                    </LemonButton>
-                </div>
-                <ReportChartsContext.Provider value={chartsById}>
-                    <div className="TodayReport__body">
-                        {currentReport.summary ? (
-                            <ReportSummaryBody summary={currentReport.summary} chartPlacements={chartPlacements} />
-                        ) : (
-                            <p>No summary yet. An agent is still investigating.</p>
-                        )}
-                        {trailingCharts.map((chart) => (
-                            <ReportChart key={chart.chart_id} chartId={chart.chart_id} />
-                        ))}
-                    </div>
-                </ReportChartsContext.Provider>
-            </article>
-            <TodayReportEvidence reportId={currentReport.id} />
-            <TodayReportPrompts report={currentReport} reportUrl={reportUrl} />
+            {reportFailed && <ReportFailed reportId={reportId} />}
+            {currentReport && isSample && <TodayReportBody report={currentReport} live={null} />}
+            {currentReport && !isSample && <TodayReportLiveBody report={currentReport} />}
         </div>
     )
 }

@@ -76,7 +76,7 @@ for (const groupType of taxonomicGroupTypes) {
 ## Don't delete the property-promotion test
 
 `email` and `url` searches must promote `$email` and `$current_url` to
-position 0 (see Product reality in `SKILL.md`):
+position 0 (see [product-reality](product-reality.md)):
 
 ```tsx
 await userEvent.type(searchField, 'url')

@@ -105,6 +105,35 @@ export interface HogFunctionFiltersApi {
 }
 
 /**
+ * * `trigger` - trigger
+ * * `function` - function
+ * * `function_email` - function_email
+ * * `function_sms` - function_sms
+ * * `function_push` - function_push
+ * * `delay` - delay
+ * * `wait_until_condition` - wait_until_condition
+ * * `wait_until_time_window` - wait_until_time_window
+ * * `conditional_branch` - conditional_branch
+ * * `random_cohort_branch` - random_cohort_branch
+ * * `exit` - exit
+ */
+export type HogFlowActionTypeEnumApi = (typeof HogFlowActionTypeEnumApi)[keyof typeof HogFlowActionTypeEnumApi]
+
+export const HogFlowActionTypeEnumApi = {
+    Trigger: 'trigger',
+    Function: 'function',
+    FunctionEmail: 'function_email',
+    FunctionSms: 'function_sms',
+    FunctionPush: 'function_push',
+    Delay: 'delay',
+    WaitUntilCondition: 'wait_until_condition',
+    WaitUntilTimeWindow: 'wait_until_time_window',
+    ConditionalBranch: 'conditional_branch',
+    RandomCohortBranch: 'random_cohort_branch',
+    Exit: 'exit',
+} as const
+
+/**
  * Custom action serializer for templates that skips input validation
  * (since templates should have default/empty values).
  */
@@ -121,8 +150,20 @@ export interface HogFlowTemplateActionApi {
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null
-    /** @maxLength 100 */
-    type: string
+    /** One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+     *
+     * * `trigger` - trigger
+     * * `function` - function
+     * * `function_email` - function_email
+     * * `function_sms` - function_sms
+     * * `function_push` - function_push
+     * * `delay` - delay
+     * * `wait_until_condition` - wait_until_condition
+     * * `wait_until_time_window` - wait_until_time_window
+     * * `conditional_branch` - conditional_branch
+     * * `random_cohort_branch` - random_cohort_branch
+     * * `exit` - exit */
+    type: HogFlowActionTypeEnumApi
     config: unknown
     output_variable?: unknown
 }
@@ -288,12 +329,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `transactional_emails` - Transactional emails
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 /**
@@ -396,6 +439,16 @@ export interface HogFlowMinimalApi {
     readonly user_access_level: string | null
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
+    /**
+     * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+     * @nullable
+     */
+    readonly pending_suggestions: number | null
+    /**
+     * Whether someone turned suggestions on for this workflow. Read on the list only.
+     * @nullable
+     */
+    readonly suggestions_enabled: boolean | null
 }
 
 export interface PaginatedHogFlowMinimalListApi {
@@ -491,35 +544,6 @@ export interface HogFlowEdgeApi {
     /** Source action id. */
     from: string
 }
-
-/**
- * * `trigger` - trigger
- * * `function` - function
- * * `function_email` - function_email
- * * `function_sms` - function_sms
- * * `function_push` - function_push
- * * `delay` - delay
- * * `wait_until_condition` - wait_until_condition
- * * `wait_until_time_window` - wait_until_time_window
- * * `conditional_branch` - conditional_branch
- * * `random_cohort_branch` - random_cohort_branch
- * * `exit` - exit
- */
-export type HogFlowActionTypeEnumApi = (typeof HogFlowActionTypeEnumApi)[keyof typeof HogFlowActionTypeEnumApi]
-
-export const HogFlowActionTypeEnumApi = {
-    Trigger: 'trigger',
-    Function: 'function',
-    FunctionEmail: 'function_email',
-    FunctionSms: 'function_sms',
-    FunctionPush: 'function_push',
-    Delay: 'delay',
-    WaitUntilCondition: 'wait_until_condition',
-    WaitUntilTimeWindow: 'wait_until_time_window',
-    ConditionalBranch: 'conditional_branch',
-    RandomCohortBranch: 'random_cohort_branch',
-    Exit: 'exit',
-} as const
 
 /**
  * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
@@ -654,7 +678,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -755,7 +780,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -856,7 +882,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1129,6 +1156,30 @@ export interface PatchedHogFlowGraphUpdateApi {
     operations?: HogFlowGraphOperationApi[]
 }
 
+/**
+ * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+ * @nullable
+ */
+export type HogFlowInFlightApiByAction = { [key: string]: number } | null
+
+export interface HogFlowInFlightApi {
+    /**
+     * About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.
+     * @nullable
+     */
+    count: number | null
+    /**
+     * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+     * @nullable
+     */
+    by_action: HogFlowInFlightApiByAction
+    /**
+     * In-flight runs whose current step could not be read. Null when the count is unavailable.
+     * @nullable
+     */
+    position_unknown: number | null
+}
+
 export interface HogInvocationResultApi {
     invocation_id: string
     status: string
@@ -1239,9 +1290,32 @@ export interface AppMetricsTotalsResponseApi {
     totals: AppMetricsTotalsResponseApiTotals
 }
 
+/**
+ * * `running` - Running
+ * * `paused_by_user` - Paused By User
+ * * `paused_by_system` - Paused By System
+ * * `not_running` - Not Running
+ */
+export type SuggestionsScoutStatusEnumApi =
+    (typeof SuggestionsScoutStatusEnumApi)[keyof typeof SuggestionsScoutStatusEnumApi]
+
+export const SuggestionsScoutStatusEnumApi = {
+    Running: 'running',
+    PausedByUser: 'paused_by_user',
+    PausedBySystem: 'paused_by_system',
+    NotRunning: 'not_running',
+} as const
+
 export interface HogFlowOptimizationApi {
-    /** Whether PostHog may read this workflow's metrics and suggest changes to it. */
+    /** Whether PostHog may suggest changes to this workflow. */
     enabled: boolean
+    /** Whether the project's suggestions scout runs. A paused scout files no suggestions, even for workflows that have suggestions on.
+     *
+     * * `running` - Running
+     * * `paused_by_user` - Paused By User
+     * * `paused_by_system` - Paused By System
+     * * `not_running` - Not Running */
+    readonly scout_status: SuggestionsScoutStatusEnumApi
 }
 
 /**
@@ -1266,7 +1340,7 @@ export const WorkflowProposalStatusEnumApi = {
 export type WorkflowProposalApiContent = { [key: string]: unknown }
 
 /**
- * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
+ * The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all.
  */
 export type WorkflowProposalApiEvidence = { [key: string]: unknown }
 
@@ -1278,7 +1352,7 @@ export interface WorkflowProposalApi {
     readonly rationale: string
     /** Only the content fields the proposal changes. Valid keys: actions, edges, trigger_masking, conversion, exit_condition, email_sending_rate_limit, variables. Each value has the same shape as on the workflow itself. */
     readonly content: WorkflowProposalApiContent
-    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
+    /** The numbers behind the proposal, read back by name. Five keys are required: `metric`, the metric name; `current_value`, its value as a number (a rate as a fraction, 0.0865, never a string); `unit`, either `rate` or `count`, since 1.0 is either every message or one of them; `n`, the denominator that value was computed over; and `guardrails`, a list of {metric, value, n, unit} counter-metrics read over the same window, empty only if none apply. PostHog then reads the step's own metrics at `base_version` when the suggestion is filed and stores them under `measured`; the page shows that reading and flags a disagreement with yours. Also conventional: target_value, window, query, app_source_id. A rate with no denominator lets a reviewer mistake noise for a result, a target with no counter-metrics hides a change that lifts one number by harming another, and a number under a key of your own reads to a person as no evidence at all. */
     readonly evidence: WorkflowProposalApiEvidence
     /**
      * The workflow step this is about. Set for a change to one step: the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Null only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
@@ -1287,7 +1361,7 @@ export interface WorkflowProposalApi {
     readonly step_id: string | null
     /** Live workflow version this was authored against. Approving compares the steps and fields this changes against that version to tell whether somebody else already changed them. */
     readonly base_version: number
-    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges per step. */
+    /** Whether approving this would undo an edit made since it was proposed. False while the workflow only changed elsewhere, because approving merges only what the proposal changes. */
     readonly is_stale: boolean
     readonly status: WorkflowProposalStatusEnumApi
     /**
@@ -1304,6 +1378,8 @@ export interface WorkflowProposalApi {
      * @nullable
      */
     readonly applied_version: number | null
+    /** Why the person who rejected this suggestion rejected it, or empty when they gave no reason. */
+    readonly rejection_reason: string
 }
 
 export interface PaginatedWorkflowProposalListApi {
@@ -1337,8 +1413,11 @@ export interface WorkflowProposalCreateApi {
     content: WorkflowProposalCreateApiContent
     /** The metric numbers behind the proposal, so a human can judge it without re-deriving them. */
     evidence?: WorkflowProposalCreateApiEvidence
-    /** Workflow version this was authored against. Required when the proposal changes actions, edges or variables: it is the snapshot approve compares against to tell whether someone edited the same steps since, and a defaulted version would read as current however long the producer took. Defaults to the current live version otherwise. */
-    base_version?: number
+    /**
+     * Workflow version this was authored against, as read from the workflow. It is the snapshot approve compares against to tell whether someone edited the same steps or fields since, and a defaulted version would read as current however long the producer took.
+     * @minimum 1
+     */
+    base_version: number
     /**
      * The step this is about. Send it for a change to one step: both the evidence and the outcome then read that step's metrics, so a change to one email in a sequence is not measured against the rest. Leave it out only for a change that spans the workflow, such as its exit condition or a step being taken out, which is measured on the workflow's own numbers.
      * @maxLength 200
@@ -1363,6 +1442,28 @@ export interface WorkflowProposalApproveRequestApi {
     expected_draft_updated_at?: string | null
 }
 
+export interface WorkflowVersionChangeApi {
+    /**
+     * Step the field belongs to, or null for a workflow field.
+     * @nullable
+     */
+    step_name: string | null
+    /** What changed, as a person reads it, e.g. 'email > subject'. */
+    field: string
+    /**
+     * Value in the version before this one.
+     * @nullable
+     */
+    before: string | null
+    /**
+     * Value this version published.
+     * @nullable
+     */
+    after: string | null
+    /** Whether the suggestion is what changed this field. */
+    from_suggestion: boolean
+}
+
 export interface WorkflowProposalMetricApi {
     /** What was measured, e.g. 'email open rate'. */
     metric: string
@@ -1380,8 +1481,29 @@ export interface WorkflowProposalMetricApi {
 export interface WorkflowProposalVersionOutcomeApi {
     /** Workflow version these numbers belong to. */
     version: number
+    /** Whether the suggestion went live as this version. */
+    applied?: boolean
+    /** Whether the suggestion was written against this version. */
+    proposed_against?: boolean
+    /** Whether this version still holds what the suggestion changed. */
+    carries_change?: boolean
+    /** Whether this version also changed something the suggestion did not, which the numbers cannot separate. */
+    other_changes?: boolean
+    /** What this version changed against the version before it. */
+    changes?: WorkflowVersionChangeApi[]
+    /**
+     * When this version went live.
+     * @nullable
+     */
+    published_at?: string | null
+    /** Who published this version. */
+    published_by?: UserBasicApi | null
+    /** Every version summed into these numbers. The after side runs on while later versions keep the change. */
+    versions?: number[]
     /** The metric the suggestion aimed at. */
     target: WorkflowProposalMetricApi
+    /** The rate read beside the target, so a lift in one is visible against the other. */
+    secondary?: WorkflowProposalMetricApi
     /** Click-through rate over the same window and denominator, since opens alone can move without clicks. */
     click_through: WorkflowProposalMetricApi
     /** Counter-metrics over the same window, so a harmful win is visible. */
@@ -1389,14 +1511,27 @@ export interface WorkflowProposalVersionOutcomeApi {
 }
 
 export interface WorkflowProposalOutcomeApi {
-    /** Relative window both sides were measured over. */
-    window: string
+    /** Every published version around the change, each read over its own time live, so a later edit shows up as its own point rather than ending the comparison. */
+    versions: WorkflowProposalVersionOutcomeApi[]
     /** The version the change was proposed against. */
     before: WorkflowProposalVersionOutcomeApi | null
-    /** The version it went live as. Null until the proposal is applied. */
+    /** The versions that carried the change. Null until the proposal is applied. */
     after: WorkflowProposalVersionOutcomeApi | null
+    /**
+     * The version that changed what the suggestion changed, which is where the after side stops. Null while the change is still live.
+     * @nullable
+     */
+    change_ended_at_version: number | null
     /** Counter-metrics that cannot be read yet, named so their absence is not read as zero. */
     unavailable_guardrails: string[]
+}
+
+export interface WorkflowProposalRejectRequestApi {
+    /**
+     * Why this suggestion is wrong for this workflow, in a sentence. Optional. The producer reads it before suggesting again, so a reason stops the same idea coming back in other words.
+     * @maxLength 2000
+     */
+    reason?: string
 }
 
 export interface HogFlowPublishRequestApi {
@@ -1584,6 +1719,7 @@ export interface WorkflowEmailPauseStatusApi {
 export interface HogFlowRevisionBasicApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
 }
@@ -1600,6 +1736,7 @@ export interface PaginatedHogFlowRevisionBasicListApi {
 export interface HogFlowRevisionApi {
     /** Workflow version this snapshot was published as. */
     readonly version: number
+    /** When this version was published. */
     readonly created_at: string
     readonly created_by: UserBasicApi | null
     /** Full snapshot of the workflow's content fields (actions, edges, trigger, etc.) at this version. */
@@ -1962,6 +2099,296 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+export interface DataSuggestionBuildRequestApi {
+    /** The id of a suggestion from the list endpoint. */
+    suggestion_id: string
+    /** Start a new build when the last one failed. Leave it false when asking for a running build's status. */
+    retry?: boolean
+    /** Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving. */
+    save_draft?: boolean
+}
+
+/**
+ * * `ready` - Ready
+ * * `building` - Building
+ * * `failed` - Failed
+ */
+export type DataSuggestionBuildStatusEnumApi =
+    (typeof DataSuggestionBuildStatusEnumApi)[keyof typeof DataSuggestionBuildStatusEnumApi]
+
+export const DataSuggestionBuildStatusEnumApi = {
+    Ready: 'ready',
+    Building: 'building',
+    Failed: 'failed',
+} as const
+
+export interface DataSuggestionMissingInputApi {
+    /** The id of the workflow step (action) the setting belongs to. */
+    step_id: string
+    /** The step's name, as the editor shows it. */
+    step_name: string
+    /** The setting to fill, like 'Webhook URL', 'Email sender' or 'Condition: Is on a paid plan'. */
+    field: string
+}
+
+export interface DataSuggestionBuildResponseApi {
+    /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result stays until a call sends retry.
+     *
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `failed` - Failed */
+    status: DataSuggestionBuildStatusEnumApi
+    /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Saved only with save_draft. Null otherwise. */
+    workflow: unknown
+    /** Whether an email step reuses a saved email template. */
+    uses_saved_template: boolean
+    /**
+     * With status ready and save_draft: the id of the saved draft workflow. Null otherwise.
+     * @nullable
+     */
+    workflow_id: string | null
+    /** With status ready: the settings the draft leaves blank, which must be filled before it is enabled. */
+    missing_inputs: DataSuggestionMissingInputApi[]
+}
+
+/**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `ai_not_approved` - Ai Not Approved
+ * * `unavailable` - Unavailable
+ */
+export type DataSuggestionsStatusEnumApi =
+    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+
+export const DataSuggestionsStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    AiNotApproved: 'ai_not_approved',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `signup` - Signup
+ * * `onboarding` - Onboarding
+ * * `trial` - Trial
+ * * `purchase` - Purchase
+ * * `churn_risk` - Churn Risk
+ * * `failure` - Failure
+ * * `support` - Support
+ * * `other` - Other
+ */
+export type DataSuggestionStageEnumApi = (typeof DataSuggestionStageEnumApi)[keyof typeof DataSuggestionStageEnumApi]
+
+export const DataSuggestionStageEnumApi = {
+    Signup: 'signup',
+    Onboarding: 'onboarding',
+    Trial: 'trial',
+    Purchase: 'purchase',
+    ChurnRisk: 'churn_risk',
+    Failure: 'failure',
+    Support: 'support',
+    Other: 'other',
+} as const
+
+/**
+ * * `email` - Email
+ * * `sms` - Sms
+ * * `push` - Push
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `delay` - Delay
+ * * `wait_until` - Wait Until
+ * * `branch` - Branch
+ * * `split` - Split
+ * * `action` - Action
+ */
+export type DataSuggestionStepKindEnumApi =
+    (typeof DataSuggestionStepKindEnumApi)[keyof typeof DataSuggestionStepKindEnumApi]
+
+export const DataSuggestionStepKindEnumApi = {
+    Email: 'email',
+    Sms: 'sms',
+    Push: 'push',
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Delay: 'delay',
+    WaitUntil: 'wait_until',
+    Branch: 'branch',
+    Split: 'split',
+    Action: 'action',
+} as const
+
+export interface DataSuggestionApi {
+    /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+    id: string
+    /** Suggested workflow name, written by AI from the project's events. */
+    name: string
+    /** One sentence on what the workflow does. */
+    description: string
+    /** One sentence on why the workflow fits this project. */
+    reason: string
+    /** The project event that starts the workflow. */
+    trigger_event: string
+    /** How often the trigger event fired in the last 7 days. */
+    weekly_count: number
+    /** The customer lifecycle stage the trigger event marks. Suggestions are ranked by stage first, so welcome and onboarding flows come before busier events.
+     *
+     * * `signup` - Signup
+     * * `onboarding` - Onboarding
+     * * `trial` - Trial
+     * * `purchase` - Purchase
+     * * `churn_risk` - Churn Risk
+     * * `failure` - Failure
+     * * `support` - Support
+     * * `other` - Other */
+    stage: DataSuggestionStageEnumApi
+    /** The main planned step kinds after the trigger, in order. */
+    step_outline: DataSuggestionStepKindEnumApi[]
+}
+
+export interface DataSuggestionsResponseApi {
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable */
+    status: DataSuggestionsStatusEnumApi
+    /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
+    suggestions: DataSuggestionApi[]
+    /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
+    readonly email_sender_ready: boolean
+}
+
+export interface DataSuggestionGenerateRequestApi {
+    /** Make new suggestions even when the cached ones are still valid. */
+    refresh?: boolean
+}
+
+/**
+ * * `error_tracking` - Error tracking issue
+ * * `early_access` - Early access feature
+ * * `survey` - Survey
+ * * `feature_flag` - Feature flag
+ * * `cohort` - Cohort
+ */
+export type EmailDraftSourceEnumApi = (typeof EmailDraftSourceEnumApi)[keyof typeof EmailDraftSourceEnumApi]
+
+export const EmailDraftSourceEnumApi = {
+    ErrorTracking: 'error_tracking',
+    EarlyAccess: 'early_access',
+    Survey: 'survey',
+    FeatureFlag: 'feature_flag',
+    Cohort: 'cohort',
+} as const
+
+export interface EmailDraftRequestApi {
+    /** The kind of entity the email is about.
+     *
+     * * `error_tracking` - Error tracking issue
+     * * `early_access` - Early access feature
+     * * `survey` - Survey
+     * * `feature_flag` - Feature flag
+     * * `cohort` - Cohort */
+    source: EmailDraftSourceEnumApi
+    /**
+     * ID of that entity: an issue, early access feature or survey UUID, or a feature flag or cohort ID.
+     * @maxLength 200
+     */
+    source_id: string
+}
+
+/**
+ * * `ai` - AI
+ * * `template` - Template
+ */
+export type EmailDraftOriginEnumApi = (typeof EmailDraftOriginEnumApi)[keyof typeof EmailDraftOriginEnumApi]
+
+export const EmailDraftOriginEnumApi = {
+    Ai: 'ai',
+    Template: 'template',
+} as const
+
+/**
+ * * `flag_off` - AI drafts are not enabled for this project
+ * * `ai_not_approved` - The organization has not approved AI data processing
+ * * `gateway_unconfigured` - The AI gateway is not configured
+ * * `rate_limited` - The project used its hourly AI drafts
+ * * `timeout` - The model took too long
+ * * `model_error` - The model call failed
+ * * `invalid_output` - The model returned an unusable draft
+ */
+export type EmailDraftFallbackReasonEnumApi =
+    (typeof EmailDraftFallbackReasonEnumApi)[keyof typeof EmailDraftFallbackReasonEnumApi]
+
+export const EmailDraftFallbackReasonEnumApi = {
+    FlagOff: 'flag_off',
+    AiNotApproved: 'ai_not_approved',
+    GatewayUnconfigured: 'gateway_unconfigured',
+    RateLimited: 'rate_limited',
+    Timeout: 'timeout',
+    ModelError: 'model_error',
+    InvalidOutput: 'invalid_output',
+} as const
+
+export interface EmailDraftApi {
+    /** Email subject line. Empty when there is nothing to draft from. */
+    subject: string
+    /** Preview text shown after the subject in most inboxes. */
+    preheader: string
+    /** Email body as HTML paragraphs. */
+    html: string
+    /** Plain-text version of the body. */
+    text: string
+    /** Whether a model wrote the draft or it came from the fixed template for this source.
+     *
+     * * `ai` - AI
+     * * `template` - Template */
+    generated_by: EmailDraftOriginEnumApi
+    /** Why the template was used instead of a model draft. Null for a model draft.
+     *
+     * * `flag_off` - AI drafts are not enabled for this project
+     * * `ai_not_approved` - The organization has not approved AI data processing
+     * * `gateway_unconfigured` - The AI gateway is not configured
+     * * `rate_limited` - The project used its hourly AI drafts
+     * * `timeout` - The model took too long
+     * * `model_error` - The model call failed
+     * * `invalid_output` - The model returned an unusable draft */
+    template_reason: EmailDraftFallbackReasonEnumApi | null
+}
+
+export type PeopleImportCreateApiRowsItem = { [key: string]: string }
+
+export interface PeopleImportCreateApi {
+    /**
+     * Name of the static cohort that holds the imported people.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
+     * @maxItems 50000
+     */
+    rows: PeopleImportCreateApiRowsItem[]
+}
+
+export interface PeopleImportApi {
+    /** The static cohort that fills with the imported people. */
+    cohort_id: number
+    /** People created or updated. */
+    row_count: number
+    /** Rows that create a person who isn't in PostHog yet. */
+    new_people: number
+    /** Person properties the rows set. */
+    columns: string[]
+    /** Rows dropped for a missing or invalid email. */
+    dropped_invalid_email: number
+    /** Rows dropped because an earlier row had the email or distinct ID. */
+    dropped_duplicate_email: number
+    /** Rows dropped for holding more than 4KB of data. */
+    dropped_too_large: number
+}
+
 export type HogFlowTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -2062,6 +2489,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]
@@ -2352,6 +2780,72 @@ export const HogFlowsMetricsTotalsRetrieveInterval = {
     Week: 'week',
 } as const
 
+export type HogFlowsMetricsVersionRetrieveParams = {
+    /**
+     * Start of the time range. Accepts relative formats like '-7d', '-24h' or ISO 8601 timestamps. Defaults to '-7d'.
+     * @minLength 1
+     */
+    after?: string
+    /**
+     * End of the time range. Same format as 'after'. Defaults to now.
+     * @minLength 1
+     */
+    before?: string
+    /**
+     * Group the series by metric 'name' or 'kind'. Defaults to 'kind'.
+     *
+     * * `name` - name
+     * * `kind` - kind
+     * @minLength 1
+     */
+    breakdown_by?: HogFlowsMetricsVersionRetrieveBreakdownBy
+    /**
+     * Filter metrics to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Time bucket size for the series. One of: hour, day, week. Defaults to 'day'.
+     *
+     * * `hour` - hour
+     * * `day` - day
+     * * `week` - week
+     * @minLength 1
+     */
+    interval?: HogFlowsMetricsVersionRetrieveInterval
+    /**
+     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * @minLength 1
+     */
+    kind?: string
+    /**
+     * Comma-separated metric names to filter by.
+     * @minLength 1
+     */
+    name?: string
+    /**
+     * Read one workflow version's series: every run of that version, keyed on the workflow. The unversioned read keys batch and broadcast runs on the run instead, so it is not the sum of the versions; compare versions with each other, not with it.
+     */
+    version: number
+}
+
+export type HogFlowsMetricsVersionRetrieveBreakdownBy =
+    (typeof HogFlowsMetricsVersionRetrieveBreakdownBy)[keyof typeof HogFlowsMetricsVersionRetrieveBreakdownBy]
+
+export const HogFlowsMetricsVersionRetrieveBreakdownBy = {
+    Name: 'name',
+    Kind: 'kind',
+} as const
+
+export type HogFlowsMetricsVersionRetrieveInterval =
+    (typeof HogFlowsMetricsVersionRetrieveInterval)[keyof typeof HogFlowsMetricsVersionRetrieveInterval]
+
+export const HogFlowsMetricsVersionRetrieveInterval = {
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+} as const
+
 export type HogFlowsProposalsListParams = {
     /**
      * Number of results to return per page.
@@ -2375,13 +2869,6 @@ export const HogFlowsProposalsListStatus = {
     Rejected: 'rejected',
     Suggested: 'suggested',
 } as const
-
-export type HogFlowsProposalsOutcomeRetrieveParams = {
-    /**
-     * Relative window, e.g. -7d. Defaults to -7d.
-     */
-    window?: string
-}
 
 export type HogFlowsRevisionsListParams = {
     /**

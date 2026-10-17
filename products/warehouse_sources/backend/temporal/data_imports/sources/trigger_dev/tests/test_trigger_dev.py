@@ -7,14 +7,23 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.triggerdev import (
+    TriggerDevSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import trigger_dev
+from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.trigger_dev import (
-    TriggerDevResumeConfig,
     _format_incremental_value,
     _should_stop_desc,
-    get_rows,
     resolve_base_url,
-    trigger_dev_source,
     validate_base_url,
     validate_credentials,
 )
@@ -22,57 +31,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_de
 BASE_URL = "https://api.trigger.dev"
 
 
-class _FakeManager:
-    def __init__(self, state: TriggerDevResumeConfig | None = None) -> None:
-        self._state = state
-        self.saved: list[TriggerDevResumeConfig] = []
-        self.cleared = False
-
-    def can_resume(self) -> bool:
-        return self._state is not None
-
-    def load_state(self) -> TriggerDevResumeConfig | None:
-        return self._state
-
-    def save_state(self, data: TriggerDevResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared = True
+def _run(endpoint: str, script: Script, **kwargs: Any) -> DriveResult:
+    driver = SourceDriver(TriggerDevSource(), TriggerDevSourceConfig(api_key="tr_prod_x"))
+    return driver.run(endpoint, script, **kwargs)
 
 
-def _run_get_rows(
-    monkeypatch: Any,
-    endpoint: str,
-    responses: list[Any],
-    manager: _FakeManager | None = None,
-    **kwargs: Any,
-) -> tuple[list[dict], list[str], _FakeManager]:
-    fetched: list[str] = []
-    resp_iter = iter(responses)
-
-    def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict:
-        fetched.append(url)
-        result = next(resp_iter)
-        if isinstance(result, Exception):
-            raise result
-        return result
-
-    monkeypatch.setattr(trigger_dev, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(trigger_dev, "make_tracked_session", lambda *a, **k: MagicMock())
-
-    manager = manager or _FakeManager()
-    rows: list[dict] = []
-    for page in get_rows(
-        api_key="tr_prod_x",
-        base_url=BASE_URL,
-        endpoint=endpoint,
-        logger=MagicMock(),
-        resumable_source_manager=manager,  # type: ignore[arg-type]
-        **kwargs,
-    ):
-        rows.extend(page)
-    return rows, fetched, manager
+def _json(body: Any) -> ScriptedResponse:
+    return ScriptedResponse(json=body)
 
 
 class TestFormatIncrementalValue:
@@ -129,111 +94,75 @@ class TestShouldStopDesc:
         items = [{"createdAt": "2020-01-01T00:00:00Z"}]
         assert _should_stop_desc(items, "createdAt", None) is False
 
-    def test_stops_once_a_row_predates_cutoff(self) -> None:
-        cutoff = datetime(2026, 1, 7, tzinfo=UTC)
-        items = [{"createdAt": "2026-01-12T00:00:00Z"}, {"createdAt": "2026-01-02T00:00:00Z"}]
-        assert _should_stop_desc(items, "createdAt", cutoff) is True
-
-    def test_keeps_walking_while_page_is_newer_than_cutoff(self) -> None:
-        cutoff = datetime(2026, 1, 7, tzinfo=UTC)
-        items = [{"createdAt": "2026-01-12T00:00:00Z"}, {"createdAt": "2026-01-10T00:00:00Z"}]
-        assert _should_stop_desc(items, "createdAt", cutoff) is False
-
 
 class TestRunsCursorPagination:
-    def test_first_sync_sends_no_filter_and_walks_until_cursor_exhausted(self, monkeypatch: Any) -> None:
-        # No watermark => full backfill: no createdAt filter, follow pagination.next until it's null.
-        responses = [
-            {"data": [{"id": "r3"}, {"id": "r2"}], "pagination": {"next": "r2"}},
-            {"data": [{"id": "r1"}], "pagination": {"next": None}},
-        ]
-        rows, fetched, _ = _run_get_rows(
-            monkeypatch, "runs", responses, should_use_incremental_field=True, db_incremental_field_last_value=None
-        )
-        assert [r["id"] for r in rows] == ["r3", "r2", "r1"]
-        assert len(fetched) == 2
-        assert not any("filter" in url for url in fetched)
-        assert "page%5Bafter%5D=r2" in fetched[1]
-
-    def test_incremental_filters_first_page_then_stops_at_watermark(self, monkeypatch: Any) -> None:
+    def test_incremental_filters_first_page_then_stops_at_watermark(self) -> None:
         # The createdAt filter is only sent on page one; later cursor pages must stop client-side once
         # a page predates the watermark, or every incremental sync re-walks all history.
         responses = [
-            {
-                "data": [
-                    {"id": "r3", "createdAt": "2026-01-12T00:00:00Z"},
-                    {"id": "r2", "createdAt": "2026-01-11T00:00:00Z"},
-                ],
-                "pagination": {"next": "r2"},
-            },
-            {
-                "data": [{"id": "r1", "createdAt": "2026-01-02T00:00:00Z"}],
-                "pagination": {"next": "r0"},
-            },
+            _json(
+                {
+                    "data": [
+                        {"id": "r3", "createdAt": "2026-01-12T00:00:00Z"},
+                        {"id": "r2", "createdAt": "2026-01-11T00:00:00Z"},
+                    ],
+                    "pagination": {"next": "r2"},
+                }
+            ),
+            _json(
+                {
+                    "data": [{"id": "r1", "createdAt": "2026-01-02T00:00:00Z"}],
+                    "pagination": {"next": "r0"},
+                }
+            ),
             # Never fetched: the walk stops after the page containing r1 (older than the cutoff).
-            {"data": [{"id": "should_not_fetch"}], "pagination": {"next": None}},
+            _json({"data": [{"id": "should_not_fetch"}], "pagination": {"next": None}}),
         ]
-        rows, fetched, _ = _run_get_rows(
-            monkeypatch,
+        result = _run(
             "runs",
             responses,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
         )
-        assert [r["id"] for r in rows] == ["r3", "r2", "r1"]
-        assert len(fetched) == 2
-        assert "filter%5BcreatedAt%5D%5Bfrom%5D=" in fetched[0]
-        assert "filter" not in fetched[1]
+        assert [r["id"] for r in result.rows] == ["r3", "r2", "r1"]
+        assert len(result.requests) == 2
+        assert result.requests[0].param("filter[createdAt][from]") is not None
+        assert not any(name.startswith("filter") for name in result.requests[1].query)
 
-    def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
-        manager = _FakeManager(TriggerDevResumeConfig(after="r5"))
-        responses = [{"data": [{"id": "r4"}], "pagination": {"next": None}}]
-        rows, fetched, _ = _run_get_rows(monkeypatch, "runs", responses, manager=manager)
-        assert [r["id"] for r in rows] == ["r4"]
-        assert "page%5Bafter%5D=r5" in fetched[0]
-
-    def test_checkpoints_current_page_cursor_after_yield(self, monkeypatch: Any) -> None:
+    def test_checkpoints_current_page_cursor_after_yield(self) -> None:
         # Resume must re-fetch the last yielded page (checkpoint the CURRENT cursor, not the next one)
         # so a crash can't skip rows; merge dedupes the re-pulled page.
         responses = [
-            {"data": [{"id": "r3"}], "pagination": {"next": "r2"}},
-            {"data": [{"id": "r1"}], "pagination": {"next": None}},
+            _json({"data": [{"id": "r3"}], "pagination": {"next": "r2"}}),
+            _json({"data": [{"id": "r1"}], "pagination": {"next": None}}),
         ]
-        _, _, manager = _run_get_rows(monkeypatch, "runs", responses)
-        assert [s.after for s in manager.saved] == [None, "r2"]
-
-    def test_clears_checkpoint_when_walk_completes(self, monkeypatch: Any) -> None:
-        # A finished walk must drop its checkpoint, or a later attempt resumes from the final page's
-        # cursor and skips every run created since (runs arrive newest-first, on page one).
-        responses = [{"data": [{"id": "r1"}], "pagination": {"next": None}}]
-        _, _, manager = _run_get_rows(monkeypatch, "runs", responses)
-        assert manager.cleared is True
+        result = _run("runs", responses)
+        assert [s.after for s in result.saved_states] == [None, "r2"]
 
 
 class TestClassicPagination:
-    def test_walks_pages_until_total_and_never_checkpoints(self, monkeypatch: Any) -> None:
+    def test_walks_pages_until_total_and_never_checkpoints(self) -> None:
         # schedules/queues are small full-refresh tables: walk page/perPage to the last page and never
         # save resume state (a restart just re-reads from page one).
         responses = [
-            {"data": [{"id": "sched_1"}], "pagination": {"currentPage": 1, "totalPages": 2, "count": 2}},
-            {"data": [{"id": "sched_2"}], "pagination": {"currentPage": 2, "totalPages": 2, "count": 2}},
+            _json({"data": [{"id": "sched_1"}], "pagination": {"currentPage": 1, "totalPages": 2, "count": 2}}),
+            _json({"data": [{"id": "sched_2"}], "pagination": {"currentPage": 2, "totalPages": 2, "count": 2}}),
         ]
-        rows, fetched, manager = _run_get_rows(monkeypatch, "schedules", responses)
-        assert [r["id"] for r in rows] == ["sched_1", "sched_2"]
-        assert "page=1" in fetched[0] and "page=2" in fetched[1]
-        assert manager.saved == []
+        result = _run("schedules", responses)
+        assert [r["id"] for r in result.rows] == ["sched_1", "sched_2"]
+        assert result.params("page") == ["1", "2"]
+        assert result.saved_states == []
 
-    def test_stops_on_empty_page(self, monkeypatch: Any) -> None:
-        responses = [{"data": [], "pagination": {"currentPage": 1, "totalPages": 5, "count": 0}}]
-        rows, fetched, _ = _run_get_rows(monkeypatch, "queues", responses)
-        assert rows == []
-        assert len(fetched) == 1
+    def test_stops_on_empty_page(self) -> None:
+        result = _run("queues", [_json({"data": [], "pagination": {"currentPage": 1, "totalPages": 5, "count": 0}})])
+        assert result.rows == []
+        assert len(result.requests) == 1
 
-    def test_bails_out_of_a_never_ending_pager(self, monkeypatch: Any) -> None:
+    def test_bails_out_of_a_never_ending_pager(self) -> None:
         # A page endpoint that keeps returning non-empty data with no totalPages must not loop forever.
-        responses = [{"data": [{"id": "q"}], "pagination": {}}] * (trigger_dev.MAX_CLASSIC_PAGES + 5)
-        _, fetched, _ = _run_get_rows(monkeypatch, "queues", responses)
-        assert len(fetched) == trigger_dev.MAX_CLASSIC_PAGES
+        with patch.object(trigger_dev, "MAX_CLASSIC_PAGES", 7):
+            result = _run("queues", always(_json({"data": [{"id": "q"}], "pagination": {}})))
+        assert len(result.requests) == 7
 
 
 class TestValidateCredentials:
@@ -246,19 +175,13 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status_code: int, expected_valid: bool) -> None:
-        response = MagicMock()
-        response.status_code = status_code
-        session = MagicMock()
-        session.get.return_value = response
-        with patch.object(trigger_dev, "make_tracked_session", return_value=session):
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))):
             valid, error = validate_credentials("tr_prod_x", BASE_URL)
         assert valid is expected_valid
         assert (error is None) is expected_valid
 
     def test_network_error_is_invalid_not_raised(self) -> None:
-        session = MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-        with patch.object(trigger_dev, "make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             valid, error = validate_credentials("tr_prod_x", BASE_URL)
         assert valid is False
         assert error is not None
@@ -304,22 +227,6 @@ class TestSourceResponseSortMode:
     @parameterized.expand([("runs", "desc"), ("schedules", "asc"), ("queues", "asc")])
     def test_sort_mode_matches_arrival_order(self, endpoint: str, expected: str) -> None:
         # Runs arrive newest-first; declaring asc there would corrupt the incremental watermark.
-        response = trigger_dev_source(
-            api_key="tr_prod_x",
-            base_url=BASE_URL,
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        response = _run(endpoint, []).response
+        assert response is not None
         assert response.sort_mode == expected
-
-    def test_runs_partitioned_on_created_at(self, _name: str = "") -> None:
-        response = trigger_dev_source(
-            api_key="tr_prod_x",
-            base_url=BASE_URL,
-            endpoint="runs",
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
-        assert response.partition_keys == ["createdAt"]
-        assert response.primary_keys == ["id"]

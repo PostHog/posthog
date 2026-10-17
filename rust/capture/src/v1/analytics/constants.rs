@@ -74,7 +74,7 @@ pub(super) const DETAIL_NON_HISTORICAL_DROP: &str = "non_historical_import_drop"
 /// on the AI lane. Same tag as the `misrouted_event` ingestion warning it emits.
 pub(super) const DETAIL_MISROUTED_EVENT: &str = "misrouted_event";
 
-/// Detail tag for events dropped due to uncoercible options fields.
+/// Detail tag for events dropped because an expected option's value is unreadable.
 pub(super) const DETAIL_INVALID_OPTIONS: &str = "invalid_options";
 
 /// Detail tag for AI-lane events dropped because the project is over its
@@ -101,7 +101,7 @@ pub(super) const CAPTURE_V1_DISTINCT_ID_MAX_SIZE: usize = 200;
 
 /// Known-bad distinct_id values that indicate a bug or misconfiguration in the
 /// sending SDK. Ported from the Node.js ingestion pipeline
-/// (nodejs/src/worker/ingestion/persons/person-merge-service.ts) with
+/// (nodejs/src/common/persons/person-utils.ts) with
 /// additions from the new #ingestion-reports feed.
 ///
 /// All comparisons are case-insensitive after trimming whitespace, which is a
@@ -150,6 +150,6 @@ pub(super) const CAPTURE_V1_EVENTS_RESTRICTED: &str = "capture_v1_events_restric
 /// Counter for per-request batch outcome mix (labels: outcome, path).
 pub(super) const CAPTURE_V1_BATCH_OUTCOMES: &str = "capture_v1_batch_outcomes";
 
-/// Histogram for end-to-end processing time (parsing through sink publish).
+/// Histogram for end-to-end processing time (parsing through publish).
 pub(super) const CAPTURE_V1_PROCESSING_DURATION_SECONDS: &str =
     "capture_v1_processing_duration_seconds";

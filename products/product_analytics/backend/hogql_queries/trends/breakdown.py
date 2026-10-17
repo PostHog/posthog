@@ -18,7 +18,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import BREAKDOWN_VALUE_MAX_LENGTH, LimitContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import apply_path_cleaning
+from posthog.hogql.property import apply_path_cleaning, element_property_key_to_breakdown_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
@@ -313,6 +313,8 @@ class Breakdown:
             tag_contains_user_hogql()
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             left = strip_user_aliases(parse_expr(breakdown_value))
+        elif breakdown_type == "element":
+            left = element_property_key_to_breakdown_expr(breakdown_value)
         else:
             left = ast.Field(
                 chain=get_properties_chain(
@@ -427,6 +429,16 @@ class Breakdown:
         if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             inner = strip_user_aliases(parse_expr(cast(str, value)))
             return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(inner))
+
+        if breakdown_type == "element":
+            return ast.Alias(
+                alias=alias,
+                expr=self._get_breakdown_values_transform(
+                    element_property_key_to_breakdown_expr(str(value)),
+                    normalize_url=normalize_url,
+                    path_cleaning=path_cleaning,
+                ),
+            )
 
         properties_chain = get_properties_chain(
             breakdown_type=breakdown_type,

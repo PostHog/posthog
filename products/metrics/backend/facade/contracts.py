@@ -21,8 +21,23 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
-from .enums import AttributeScope, FilterOp, MetricAggregation, MetricType
+from .enums import (
+    AttributeScope,
+    DashboardImportPhase,
+    DashboardImportSource,
+    DashboardImportState,
+    DashboardTemplateSource,
+    DashboardTemplateStatus,
+    FilterOp,
+    MetricAggregation,
+    MetricRangeFunction,
+    MetricType,
+    PanelImportOutcome,
+    PanelProgressState,
+    PanelQueryLanguage,
+)
 
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
@@ -37,11 +52,11 @@ METRICS_FEATURE_FLAG = "metrics"
 # Staff-only while it is a proof of concept.
 METRICS_ERROR_OVERLAYS_FEATURE_FLAG = "metrics-error-overlays"
 
-# Fundamentals recomputes a chart point from its raw samples so the viewer's own
-# reductions can be checked. That makes it a tool for the people who build the
-# viewer, not a feature for the teams on the alpha, so it needs a gate of its own
-# on top of METRICS_FEATURE_FLAG.
-METRICS_FUNDAMENTALS_FEATURE_FLAG = "metrics-fundamentals"
+# Gates the Grafana and screenshot dashboard import, on top of METRICS_FEATURE_FLAG.
+METRICS_DASHBOARD_IMPORT_FEATURE_FLAG = "metrics-dashboard-import"
+
+# Gates the suggested dashboards menu, and the background analysis and AI generation for a team.
+METRICS_SUGGESTED_DASHBOARDS_FEATURE_FLAG = "metrics-suggested-dashboards"
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,8 +92,14 @@ class MetricQueryClause:
     quantile: float | None = None
     # Constrains rows to one metric type; None keeps all types (legacy).
     metric_type: MetricType | None = None
+    # Applied to each series before `aggregation` combines them.
+    range_function: MetricRangeFunction | None = None
 
     def __post_init__(self) -> None:
+        if self.aggregation.is_raw and self.group_by:
+            raise ValueError("group_by needs an aggregation; without one every series stays separate")
+        if self.range_function is not None and self.aggregation.is_counter_function:
+            raise ValueError("range_function cannot combine with the legacy rate or increase aggregation")
         if self.aggregation.needs_quantile:
             if self.quantile is None:
                 raise ValueError(f"{self.aggregation} requires a quantile")
@@ -138,8 +159,9 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
-    # UCUM unit of the metric as ingested (e.g. "By", "ms"). Empty when the SDK
-    # did not set one. Set by `run_metric_query`, not by callers.
+    # UCUM unit of the values in `points` (e.g. "By", "ms", "ms/s"). It differs
+    # from the ingested unit when the clause transforms the values: COUNT has no
+    # unit and RATE is per second. Set by `run_metric_query`, not by callers.
     unit: str | None = None
 
 
@@ -372,59 +394,141 @@ class MetricsOverview:
     services: tuple[MetricsServiceOverview, ...]
 
 
-@dataclass(frozen=True, slots=True)
-class MetricSampleView:
-    """One raw reading, as it sits in storage before any reduction."""
-
-    time: str
-    value: float
+class DashboardImportError(ValueError):
+    """A dashboard import cannot start or continue. The message is safe to show to the user."""
 
 
-@dataclass(frozen=True, slots=True)
-class MetricSeriesBreakdown:
-    """One physical series inside a bucket, and the value it contributed.
+class DashboardImportInProgress(DashboardImportError):
+    """The user already has a dashboard import that has not finished."""
 
-    `samples` is trimmed for display; `sample_count` always reports how many
-    the series really sent, so a trimmed list can't be mistaken for a quiet one.
-    """
 
-    service_name: str
-    labels: dict[str, str]
-    resource_labels: dict[str, str]
-    samples: tuple[MetricSampleView, ...]
-    sample_count: int
-    samples_truncated: bool
-    # None when the aggregation has no per-series step, as percentiles do not:
-    # they read the pooled readings, so no single number is this series'
-    # contribution.
-    value: float | None
+class DashboardImportNotAllowed(DashboardImportError):
+    """The organization does not allow the import: AI data processing is off, or the AI credits ran out."""
 
 
 @dataclass(frozen=True, slots=True)
-class MetricBucketDecomposition:
-    """One chart point taken apart into the series and samples behind it.
+class DashboardImportRequest:
+    source: DashboardImportSource
+    name: str | None = None
+    grafana_json: str | None = None
+    image: bytes | None = None
 
-    `reference_value` is recomputed from the raw samples independently of the
-    query builders; `actual_value` is what the product would plot. `agrees`
-    compares them, and is the part worth reading first — a mismatch means one
-    of the two reductions is wrong, and the breakdown shows where they parted.
-    """
 
-    metric_name: str
-    metric_type: str
-    temporality: str
-    aggregation: str
-    bucket_start: str
-    interval: str
-    temporal_reducer: str
-    spatial_reducer: str
-    series: tuple[MetricSeriesBreakdown, ...]
-    series_count: int
-    sample_count: int
-    series_truncated: bool
-    rows_truncated: bool
-    reference_value: float | None
-    actual_value: float | None
-    # None when the raw read was truncated: the reference then covers only part
-    # of the bucket, so comparing it to the chart proves nothing either way.
-    agrees: bool | None
+@dataclass(frozen=True, slots=True)
+class DashboardImportPanel:
+    key: str
+    title: str
+    outcome: PanelImportOutcome
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportPanelProgress:
+    key: str
+    title: str
+    state: PanelProgressState
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportSummary:
+    total: int
+    imported: int
+    approximated: int
+    failed: int
+    skipped: int
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardImportStatus:
+    """Where an import is. `id` is None for an import that needed no agent and finished in the request."""
+
+    id: str | None
+    source: DashboardImportSource
+    status: DashboardImportState
+    dashboard_name: str
+    phase: DashboardImportPhase | None = None
+    panel_progress: tuple[DashboardImportPanelProgress, ...] = ()
+    # The import compares at most `layout_rounds` pictures of the dashboard with the screenshot. None when it does not.
+    layout_rounds: int | None = None
+    layout_round: int | None = None
+    dashboard_id: int | None = None
+    error: str | None = None
+    summary: DashboardImportSummary | None = None
+    panels: tuple[DashboardImportPanel, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckRequest:
+    """One panel query for the import agent to check. `builder` holds the builder query as JSON."""
+
+    key: str
+    language: PanelQueryLanguage
+    title: str = ""
+    promql: str | None = None
+    builder: dict[str, Any] | None = None
+    histogram_metric: str | None = None
+    hogql: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PanelQueryCheckResult:
+    key: str
+    valid: bool
+    error: str | None = None
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class SuggestedDashboard:
+    """A dashboard from the bank that suits the metrics of a team."""
+
+    id: str
+    template_id: str
+    name: str
+    description: str
+    reason: str
+    panel_count: int
+    matched_metric_count: int
+    coverage: float
+    dashboard_id: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateRound:
+    """One check round of a generation: a picture of the preview dashboard, and what the model said about it."""
+
+    round: int
+    has_picture: bool
+    looks_good: bool | None = None
+    problems: tuple[str, ...] = ()
+    revised: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DashboardTemplateSummary:
+    id: str
+    key: str
+    name: str
+    description: str
+    source: DashboardTemplateSource
+    status: DashboardTemplateStatus
+    metric_names: tuple[str, ...]
+    panel_titles: tuple[str, ...]
+    created_at: dt.datetime
+    suggestion_count: int = 0
+    source_team_id: int | None = None
+    preview_team_id: int | None = None
+    preview_dashboard_id: int | None = None
+    rounds: tuple[DashboardTemplateRound, ...] = ()
+    dropped_panels: tuple[str, ...] = ()
+    error: str | None = None
+    reviewed_by: str | None = None
+    reviewed_at: dt.datetime | None = None
+
+
+class SuggestedDashboardError(Exception):
+    """An action on a suggestion or a template failed. The message is safe to show."""
+
+
+class SuggestedDashboardNotFound(SuggestedDashboardError):
+    pass

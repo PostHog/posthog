@@ -60,7 +60,8 @@ export const BillingProductAddonActions = ({
     purchaseDisabledReason,
     onPurchaseClick,
 }: BillingProductAddonActionsProps): JSX.Element => {
-    const { billing, billingError, currentPlatformAddon, switchPlanLoading } = useValues(billingLogic)
+    const { billing, billingError, currentPlatformAddon, switchPlanLoading, selfServeBillingDisabledReason } =
+        useValues(billingLogic)
     const { preflight } = useValues(preflightLogic)
     const {
         currentAndUpgradePlans,
@@ -173,6 +174,7 @@ export const BillingProductAddonActions = ({
                         size={buttonSize || 'small'}
                         disableClientSideRouting
                         disabledReason={
+                            selfServeBillingDisabledReason ||
                             (billingError && billingError.message) ||
                             (billing?.subscription_level === 'free' && 'Upgrade to add add-ons') ||
                             purchaseDisabledReason
@@ -250,7 +252,9 @@ export const BillingProductAddonActions = ({
                 overlay={
                     <LemonButton
                         fullWidth
-                        disabledReason={switchPlanLoading ? 'Switching plans...' : undefined}
+                        disabledReason={
+                            selfServeBillingDisabledReason || (switchPlanLoading ? 'Switching plans...' : undefined)
+                        }
                         onClick={() => {
                             reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'downgrade')
                             showConfirmDowngradeModal()
@@ -287,7 +291,9 @@ export const BillingProductAddonActions = ({
 
                 <LemonButton
                     type="primary"
-                    disabledReason={switchPlanLoading ? 'Switching plans...' : undefined}
+                    disabledReason={
+                        selfServeBillingDisabledReason || (switchPlanLoading ? 'Switching plans...' : undefined)
+                    }
                     onClick={() => {
                         reportBillingAddonPlanSwitchStarted(currentPlatformAddon.type, addon.type, 'upgrade')
                         showConfirmUpgradeModal()
@@ -325,7 +331,7 @@ export const BillingProductAddonActions = ({
                         type="secondary"
                         size="xsmall"
                         loading={trialLoading || billingProductLoading === addon.type}
-                        disabledReason={purchaseDisabledReason}
+                        disabledReason={selfServeBillingDisabledReason || purchaseDisabledReason}
                         tooltip="Local dev only — starts the self-serve trial. Never shown in production."
                         onClick={() => {
                             onPurchaseClick?.()

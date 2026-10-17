@@ -15,10 +15,10 @@ from typing import Literal, get_args
 # `GRANTABLE_API_SCOPE_OBJECTS` below, through the `resource` choice fields of the access
 # control serializers.
 #
-# The MCP `OAUTH_SCOPES_SUPPORTED` list at
-# `services/mcp/src/lib/oauth-scopes.generated.ts` is generated from
-# `get_scope_descriptions()` below via `posthog/scopes_projection.py`. Run
-# `hogli build:projections` to regenerate after editing this file.
+# The `OAUTH_SCOPES_SUPPORTED` and `OAUTH_SCOPES_HIDDEN` lists at
+# `services/mcp/src/lib/oauth-scopes.generated.ts` and `frontend/src/lib/oauthScopes.generated.ts`
+# are generated from this file via `posthog/scopes_projection.py`. Run
+# `hogli build:projections` to regenerate after editing it.
 APIScopeObject = Literal[
     "action",
     "access_control",
@@ -39,6 +39,7 @@ APIScopeObject = Literal[
     "comment",
     "conversation",
     "context_layer_internal",
+    "cross_project_dashboard",
     "customer_analytics",
     "customer_task",
     "customer_journey",
@@ -81,8 +82,8 @@ APIScopeObject = Literal[
     "interactive_run",
     "internal_run",
     "legal_document",
-    "link",
-    "live_debugger",
+    "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
+    "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "llm_analytics",
     "ai_observability_clusters",
     "llm_gateway",
@@ -91,8 +92,7 @@ APIScopeObject = Literal[
     "llm_provider_key",
     "llm_skill",
     "logs",
-    "loop",
-    "loop_context_internal",
+    "loop",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
@@ -117,6 +117,7 @@ APIScopeObject = Literal[
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
+    "scout_experiment_internal",
     "signal_scout",
     "signal_scout_internal",
     "signal_scout_report",
@@ -137,7 +138,7 @@ APIScopeObject = Literal[
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.
+    "user_interview",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
@@ -192,12 +193,11 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # it on the internal products that share the PostHog Desktop OAuth app so a user's
         # own credential can't reach them — see services/llm-gateway products/config.py.
         "internal_run",
-        # Grants context maintenance tools only to Loop runs configured with update_context.
-        "loop_context_internal",
         # Marks a sandbox OAuth token as belonging to a trusted built-in agent.
         # MCP Store uses it to deny the human/member control plane and force the
         # agent through its own explicit gateway grants.
         "mcp_builtin_agent",
+        "scout_experiment_internal",
         # Sandbox-only writes for the headless Signals agent (memory create/delete,
         # finding emit). Read access for the same surface lives on the public
         # `signal_scout` object so user-grantable PAKs can still inspect runs/memory.
@@ -242,8 +242,7 @@ GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
     obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
 )
 
-# llm_gateway:read is omitted on purpose: it's alpha/privileged and granted only behind the
-# ai-gateway flag in ProjectSecretAPIKeySerializer, not unconditionally like the entries here.
+# llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
 PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIScopeActions]] = [
     ("endpoint", "read"),
     # SDK local evaluation and remote config. The Rust feature-flags service already
@@ -259,14 +258,22 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Conversations external ticket API reads, mirroring the account scope above so
     # service integrations don't need the team-wide secret_api_token (#63111).
     ("support_ticket", "read"),
-    # First write-capable PSAK scope: lets a service credential fire a loop via
-    # `loops/:id/trigger/`. PSAKs are project-wide, so a leaked key can fire any loop
-    # in the project (accepted and documented in products/tasks/docs/LOOPS.md).
+    # Endpoints are gone; kept so existing keys that hold it stay saveable.
     ("loop", "write"),
     # Read-only export of experiment definitions (list/retrieve), so services syncing
     # experiments into a warehouse don't need a credential tied to one person's account.
     ("experiment", "read"),
     ("offline_evaluation_ingestion", "write"),
+    # A project's own usage and share of spend, for a service that watches one project's billing.
+    # Only someone with full billing access may grant it (see the key serializer).
+    ("billing", "read"),
+    # Lets a service start Replay Vision scans and read their results back through `vision/requests/`.
+    # Both are needed together; every other replay_scanner and session_recording route stays PSAK-denied.
+    ("replay_scanner", "write"),
+    ("session_recording", "read"),
+    # Lets a service send transactional email through `messaging_templates/:id/send/`. Every other
+    # hog_flow route stays PSAK-denied, because no other hog_flow viewset lists PSAK actions.
+    ("hog_flow", "write"),
 ]
 
 # Server-side scope assignment string-set constants (see RFC: server-side scope

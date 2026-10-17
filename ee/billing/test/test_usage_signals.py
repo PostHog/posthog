@@ -1,7 +1,7 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from posthog.models import Organization
 from posthog.models.group.util import create_group
@@ -13,7 +13,7 @@ from ee.billing.salesforce_enrichment.usage_signals import (
 )
 
 
-class TestUsageSignalsDataClass(TestCase):
+class TestUsageSignalsDataClass(SimpleTestCase):
     def test_default_values(self):
         signals = UsageSignals()
 
@@ -48,7 +48,7 @@ class TestUsageSignalsDataClass(TestCase):
         assert signals.events_30d_momentum == -5.0
 
 
-class TestFetchUsageSignalsFromGroups(TestCase):
+class TestFetchUsageSignalsFromGroups(SimpleTestCase):
     @patch("ee.billing.salesforce_enrichment.usage_signals.query_with_columns")
     def test_returns_parsed_signals(self, mock_query):
         mock_query.return_value = [

@@ -9,9 +9,10 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
-import { FeatureFlagBasicType } from '~/types'
+import { AccessControlResourceType, FeatureFlagBasicType } from '~/types'
 
 interface FlagSelectorProps {
     value: number | undefined
@@ -108,6 +109,11 @@ export function FlagSelector({
         selectingKeyOnly: true,
     }
 
+    // The flag list returns 403 without view access, so opening the picker can only show an error.
+    const noFlagAccessReason = productHasEffectiveNoneAccess(AccessControlResourceType.FeatureFlag)
+        ? "You don't have access to feature flags in this project"
+        : undefined
+
     const buttonLabel = flagSelectorButtonLabel({
         flagKey: featureFlag.key,
         value,
@@ -126,7 +132,7 @@ export function FlagSelector({
             <LemonButton
                 type="secondary"
                 onClick={() => setVisible(!visible)}
-                disabledReason={readOnly && (disabledReason || "I'm read-only")}
+                disabledReason={(readOnly && (disabledReason || "I'm read-only")) || noFlagAccessReason}
             >
                 {buttonLabel}
             </LemonButton>

@@ -1,11 +1,14 @@
+from collections.abc import Iterable
+
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.constants import FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.ai_events import AI_PROPERTY_TO_COLUMN, AiEventsTable
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
-from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsPersonSubTable, FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable, RawPersonsTable
 
@@ -20,7 +23,7 @@ logger = structlog.get_logger(__name__)
 RESTRICTABLE_JSON_BLOB_COLUMNS: frozenset[str] = frozenset(
     {
         "properties",  # events.properties, persons.properties, groups.group_properties reads via the HogQL name
-        "person_properties",  # EventsPersonSubTable (PoE mode)
+        "person_properties",  # EventsPersonSubTable (PoE mode) and FlagEvaluationsPersonSubTable
         # Not in the catalog. The property resolver reads it as the masked document for a restricted moved property.
         TEMPORARY_PROPERTIES_COLUMN,
         "group_properties",  # groups / raw_groups
@@ -70,6 +73,13 @@ def mirrored_property_for_column(table_type: ast.Type, column_name: str, context
     return None
 
 
+def restricted_feature_flag_names(keys: Iterable[str]) -> list[str]:
+    """The `$feature_flags` map keys of the restricted `$feature/<key>` properties in `keys`, sorted for stable SQL."""
+    return sorted(
+        key.removeprefix(FEATURE_FLAG_PROPERTY_PREFIX) for key in keys if key.startswith(FEATURE_FLAG_PROPERTY_PREFIX)
+    )
+
+
 def restricted_property_keys_for_table_type(
     table_type: ast.Type, context: HogQLContext, *, group_type_index: int | None = None
 ) -> set[str]:
@@ -99,9 +109,8 @@ def restricted_property_keys_for_table_type(
         return set()
 
     # EventsPersonSubTable and EventsGroupSubTable are virtual tables over `events`, not EventsTable subclasses, but
-    # they carry person/group properties — match them before the EventsTable branch either way. flag_evaluations has
-    # no counterpart for either: it stores the event blob alone, plus a person id and group keys.
-    if isinstance(table, EventsPersonSubTable):
+    # they carry person/group properties — match them before the EventsTable branch either way.
+    if isinstance(table, EventsPersonSubTable | FlagEvaluationsPersonSubTable):
         prop_def_type = PropertyDefinition.Type.PERSON
     elif isinstance(table, EventsGroupSubTable):
         prop_def_type = PropertyDefinition.Type.GROUP

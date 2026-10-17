@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     OffsetPaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.settings import (
@@ -27,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.se
 )
 
 BASE_URL = "https://ghoapi.azureedge.net/api"
+# (connect, read) seconds, so a connection the API accepts but never answers can't hold the worker.
+REQUEST_TIMEOUT = (10, 120)
 
 # Codes may be pasted one per line, comma separated, or semicolon separated.
 _CODE_SEPARATORS = re.compile(r"[,;\s]+")
@@ -92,6 +95,7 @@ def _rest_config(resource: EndpointResource) -> RESTAPIConfig:
         "client": {
             "base_url": BASE_URL,
             "paginator": _paginator(),
+            "request_timeout": REQUEST_TIMEOUT,
         },
         "resource_defaults": {"write_disposition": "replace"},
         "resources": [resource],
@@ -124,19 +128,10 @@ def _catalog_pages(
 def _fetch_all_dimension_codes() -> list[str]:
     """One-off, unpaginated-by-default catalog: fetched fresh at the start of every
     dimension_values sync rather than hardcoded, since WHO adds dimensions over time."""
-    session = make_tracked_session()
+    client = RESTClient(base_url=BASE_URL, paginator=_paginator(), request_timeout=REQUEST_TIMEOUT)
     codes: list[str] = []
-    skip = 0
-    while True:
-        response = session.get(
-            f"{BASE_URL}{CATALOG_ENDPOINTS[DIMENSIONS_ENDPOINT].path}", params={"$top": PAGE_SIZE, "$skip": skip}
-        )
-        response.raise_for_status()
-        rows = response.json().get("value", [])
+    for rows in client.paginate(CATALOG_ENDPOINTS[DIMENSIONS_ENDPOINT].path, data_selector="value"):
         codes.extend(row["Code"] for row in rows if row.get("Code"))
-        if len(rows) < PAGE_SIZE:
-            break
-        skip += PAGE_SIZE
     return codes
 
 

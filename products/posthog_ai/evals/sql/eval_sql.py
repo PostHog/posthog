@@ -1,18 +1,8 @@
 """SQL eval cases for the sandboxed coding agent.
 
-Intent mirrors ``ee/hogai/eval/ci/eval_sql.py`` — the CI version drives the
-LangGraph chat agent in ``AgentMode.SQL`` (which forces the SQL path), this
-version exercises the same questions end-to-end through the sandboxed agent
-+ PostHog MCP tools and judges the HogQL the agent ran via the
-``execute-sql`` MCP tool.
-
-Prompts are rephrased from the CI dataset to explicitly request HogQL.
-The CI flow forces SQL via ``AgentMode.SQL``; the sandboxed agent has no
-equivalent mode and is free to answer with typed query tools
-(``query-trends`` / ``query-funnel`` / ``query-retention``). Without the
-``Write a HogQL query that…`` framing, several cases would route to a
-typed query tool — perfectly valid for the user, but not what this eval
-is testing. The framing is the forcing function in lieu of an agent mode.
+The suite scores HogQL from the ``execute-sql`` MCP tool.
+Prompts explicitly request HogQL because the agent can also answer with typed query tools.
+Those tools give valid answers, but they do not test SQL generation.
 
 To run:
     flox activate -- bash -c "set -a; source .env; set +a; python -m products.posthog_ai.eval_harness.harness eval_sql"
@@ -20,9 +10,12 @@ To run:
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from products.posthog_ai.eval_harness.base import SandboxedPublicEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
+from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 from products.posthog_ai.eval_harness.scorers import AnswerToolCallNot, NoToolCall
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from products.posthog_ai.evals.retrieval.scorers import SkillLoaded
@@ -382,6 +375,28 @@ WHERE properties.interests IS NOT NULL
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-sql-cli",
+        offline_suite=OfflineEvalSuite(
+            key="sql/eval_sql::eval_sql",
+            project_id=2,
+            scorer_kinds={
+                "exit_code_zero": "boolean",
+                "no_persistent_insight_save": "boolean",
+                "execute_sql_called": "boolean",
+                "answer_tool_not_typed_query": "boolean",
+                "querying_posthog_data_skill_loaded": "boolean",
+                "sql_schema_alignment": "numeric",
+                "sql_result_message_alignment": "numeric",
+            },
+            scorer_versions={
+                "exit_code_zero": UUID("01a11724-d52d-704a-af08-2ceaf5c65a6d"),
+                "no_persistent_insight_save": UUID("01a11725-17f6-7673-93e9-4d525fa121ab"),
+                "execute_sql_called": UUID("01a11725-20aa-78c3-af96-1aae34bca429"),
+                "answer_tool_not_typed_query": UUID("01a11725-3002-7a3f-b9b5-3426bdec5f00"),
+                "querying_posthog_data_skill_loaded": UUID("01a11725-54c1-71e0-b606-132d5f4cb339"),
+                "sql_schema_alignment": UUID("01a11725-5da7-7dae-ab09-1c0beaa77224"),
+                "sql_result_message_alignment": UUID("01a11725-6940-7f49-b979-11b3d6521393"),
+            },
+        ),
         cases=cases,
         scorers=[
             NoToolCall(forbidden=INSIGHT_WRITE_TOOLS, name="no_persistent_insight_save"),

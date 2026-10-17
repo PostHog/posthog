@@ -1,8 +1,10 @@
 from ee.hogai.sandbox.types import (
+    BACKGROUND_TURN_COMPLETE_METHOD,
     IDLE_RESUME_STOP_REASON,
     PI_RUNTIME_ERROR_MESSAGE,
     STOP_REASON_END_TURN,
     TURN_COMPLETE_METHOD,
+    is_background_turn_complete,
     is_idle_resume_turn_complete,
     is_turn_complete,
     pi_turn_error,
@@ -11,10 +13,12 @@ from ee.hogai.sandbox.types import (
 )
 
 __all__ = [
+    "BACKGROUND_TURN_COMPLETE_METHOD",
     "IDLE_RESUME_STOP_REASON",
     "PI_RUNTIME_ERROR_MESSAGE",
     "STOP_REASON_END_TURN",
     "TURN_COMPLETE_METHOD",
+    "is_background_turn_complete",
     "is_idle_resume_turn_complete",
     "is_turn_complete",
     "pi_turn_error",

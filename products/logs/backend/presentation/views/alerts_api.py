@@ -1,11 +1,13 @@
 import os
 import datetime as dt
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Final, Literal, TypedDict, cast
+from uuid import UUID
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
+from django.db.models import F, Manager, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -21,23 +23,21 @@ from posthog.schema import LogsAlertFilters
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions import as_drf_validation_error
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import relative_date_parse
 
-from products.alerts.backend.facade.contracts import (
-    AlertDestinationData,
-    AlertDestinationValidationError,
-    DestinationType,
-)
 from products.alerts.backend.facade.destinations import (
     build_alert_destination_config,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
+    destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
     redact_destination_data,
@@ -45,12 +45,24 @@ from products.alerts.backend.facade.destinations import (
     soft_delete_all_alert_destinations,
     validate_destination_data,
 )
-from products.alerts.backend.facade.scheduling import validate_and_normalize_schedule_restriction
-from products.alerts.backend.presentation.views.schedule_restriction import AlertScheduleRestriction
+from products.alerts_platform.backend.facade.api import history_by_legacy_id, reset_broken, runtime_by_legacy_id
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationValidationError,
+    DestinationType,
+    PagerDutyRegion,
+    PagerDutySeverity,
+    PlatformAlertHistory,
+    PlatformAlertRuntime,
+)
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.facade.scheduling import validate_and_normalize_schedule_restriction
+from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EVENT_KINDS,
+    LOGS_ALERT_EVENT_IDS,
     LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
     LOGS_DESTINATION_TYPES,
 )
@@ -59,6 +71,7 @@ from products.logs.backend.alert_state_machine import (
     AlertSnapshot,
     AlertState,
     CheckResult,
+    IncidentCloseReason,
     InvalidTransition,
     NotificationAction,
     apply_disable,
@@ -70,12 +83,17 @@ from products.logs.backend.alert_state_machine import (
     apply_user_reset,
     evaluate_alert_check,
 )
-from products.logs.backend.facade.api import next_allowed_check_at
+from products.logs.backend.facade.api import (
+    close_incident_before_delete,
+    close_incident_on_commit,
+    follow_logs_alert,
+    logs_state_of_platform,
+    next_allowed_check_at,
+)
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
 ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
-LOGS_ALERT_EVENT_IDS: Final = tuple(spec.event_id for spec in EVENT_KIND_CONFIG.values())
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
 # argocd for internal dogfood projects whose observability needs exceed the
 # customer-facing cap; the cap's correctness assumptions (bounded N+1 in list,
@@ -160,11 +178,6 @@ class LogsAlertFiltersField(serializers.JSONField):
         return value
 
 
-@extend_schema_field(AlertScheduleRestriction)  # type: ignore[arg-type]
-class ScheduleRestrictionField(serializers.JSONField):
-    pass
-
-
 class LogsAlertDestinationResponseSerializer(serializers.Serializer):
     hog_function_ids = serializers.ListField(child=serializers.UUIDField())
 
@@ -184,6 +197,85 @@ class LogsAlertDestinationConfigSerializer(LogsAlertDestinationResponseSerialize
         required=False,
         help_text="Webhook endpoint reduced to scheme and host. The path, query and userinfo carry the secret.",
     )
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        help_text="PagerDuty integration key reduced to its last four characters.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutySeverity],
+        required=False,
+        help_text="Severity of the PagerDuty incident.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutyRegion],
+        required=False,
+        help_text="PagerDuty service region the events go to.",
+    )
+
+
+_PLATFORM_RUNTIME_CONTEXT_KEY: Final = "platform_runtime"
+_PLATFORM_HISTORY_CONTEXT_KEY: Final = "platform_history"
+
+
+def _platform_runtime_of(alerts: list[LogsAlertConfiguration]) -> dict[UUID, PlatformAlertRuntime]:
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    return runtime_by_legacy_id(team_id=owned[0].team_id, legacy_configuration_ids=[alert.id for alert in owned])
+
+
+def _platform_history_of(
+    alerts: list[LogsAlertConfiguration], window: tuple[datetime, datetime]
+) -> dict[UUID, PlatformAlertHistory] | None:
+    """None when ClickHouse fails. The logs row then stands in, because a stale timeline is a
+    better answer than a failed list."""
+    owned = [alert for alert in alerts if alert.platform_owned]
+    if not owned:
+        return {}
+    try:
+        return history_by_legacy_id(
+            team_id=owned[0].team_id,
+            legacy_configuration_ids=[alert.id for alert in owned],
+            since=window[0],
+            until=window[1],
+        )
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
+class LogsAlertConfigurationListSerializer(serializers.ListSerializer):
+    def to_representation(self, data: Any) -> list[dict[str, Any]]:
+        alerts = list(data.all() if isinstance(data, Manager) else data)
+        # One platform read of each kind for the page, which the child serializer finds in the
+        # shared context.
+        self.context[_PLATFORM_RUNTIME_CONTEXT_KEY] = _platform_runtime_of(alerts)
+        self.context[_PLATFORM_HISTORY_CONTEXT_KEY] = _platform_history_of(
+            alerts, self.context.get("state_timeline_window") or _state_timeline_window_bounds()
+        )
+        return super().to_representation(alerts)
+
+
+# Kinds of the boundaries a moved alert's timeline adds to the logs event kinds.
+_PLATFORM_CHANGE: Final = "platform_change"
+_SNOOZE_EXPIRY: Final = "snooze_expiry"
+_SNOOZE_KINDS: Final = (LogsAlertEvent.Kind.SNOOZE, LogsAlertEvent.Kind.UNSNOOZE)
+_PLATFORM_TIMELINE_LOGS_KINDS: Final = (
+    LogsAlertEvent.Kind.ENABLE,
+    LogsAlertEvent.Kind.DISABLE,
+    LogsAlertEvent.Kind.RESET,
+    *_SNOOZE_KINDS,
+)
+
+
+@frozen
+class _TimelineEvent:
+    """A boundary of a moved alert's timeline, in the shape the timeline walk reads."""
+
+    kind: str
+    created_at: datetime
+    state_before: str
+    state_after: str
 
 
 class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
@@ -250,7 +342,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     cooldown_minutes = serializers.IntegerField(
         default=0,
         min_value=0,
-        help_text="Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.",
+        help_text=(
+            "Minimum minutes between notifications. The alert notifies once when it starts firing and once "
+            "when it resolves. It does not notify again on each check while it stays firing. A fire or resolve "
+            "notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. "
+            "0 means no minimum."
+        ),
     )
     schedule_restriction = ScheduleRestrictionField(
         required=False,
@@ -285,7 +382,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
         help_text=(
             "Error message from the most recent errored check, or null if the alert's "
             "most recent check was successful. Sourced from LogsAlertEvent without "
-            "denormalization so retention-aware cleanup rules stay the only source of truth."
+            "denormalization so retention-aware cleanup rules stay the only source of truth. "
+            "For an alert the alerts platform evaluates, sourced from the platform's check history."
         ),
     )
     created_at = serializers.DateTimeField(
@@ -303,7 +401,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             f"Continuous state intervals over the last {STATE_TIMELINE_LOOKBACK_HOURS}h, ordered oldest-first. "
             "Each interval covers a span during which (state, enabled) was constant. Derived from "
             "LogsAlertEvent rows walked in chronological order; consecutive identical intervals are "
-            "collapsed. Drives the 'Last 24h' status bar on the alert list."
+            "collapsed. For an alert the alerts platform evaluates, state changes come from the "
+            "platform's check history instead. Drives the 'Last 24h' status bar on the alert list."
         ),
     )
     destination_types = serializers.SerializerMethodField(
@@ -317,8 +416,9 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
     @extend_schema_field(LogsAlertStateIntervalSerializer(many=True))
     def get_state_timeline(self, obj: LogsAlertConfiguration) -> list[StateInterval]:
         window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
-        window_start, window_end = window
+        return self._state_intervals(obj, self._timeline_events(obj, window[0]), obj.state, window)
 
+    def _timeline_events(self, obj: LogsAlertConfiguration, window_start: datetime) -> list[LogsAlertEvent]:
         # Events are prefetched as `_state_timeline_events` on the list endpoint; fall
         # back to a direct query for callers that build this serializer outside the viewset
         # (admin, tests).
@@ -329,11 +429,92 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 .order_by("created_at")
                 .only("kind", "created_at", "state_before", "state_after")
             )
+        return events
+
+    def _platform_state_timeline(
+        self,
+        obj: LogsAlertConfiguration,
+        history: PlatformAlertHistory | None,
+        platform_state: PlatformAlertState,
+        window: tuple[datetime, datetime],
+    ) -> list[StateInterval]:
+        """The timeline of an alert the platform owns.
+
+        The platform's history holds the state changes. The logs API still writes the toggles, the
+        snoozes and the resets, so they come from LogsAlertEvent. A reset writes no platform history,
+        so its logs row is the only record that the platform state went back to not firing. Logs
+        check rows are left out, because the logs stack only shadows an alert the platform owns.
+
+        Each logs event keeps its own time, and the state shown at any moment is snoozed while a
+        snooze holds, else the platform's state. A snooze that expired leaves no event, so only
+        the current snooze's `snooze_until` can end one inside the window.
+        """
+        window_start, window_end = window
+        logs_events = [
+            event for event in self._timeline_events(obj, window_start) if event.kind in _PLATFORM_TIMELINE_LOGS_KINDS
+        ]
+        snooze_events = [event for event in logs_events if event.kind in _SNOOZE_KINDS]
+
+        # Each boundary is (time, kind, the platform state it moves to or None).
+        boundaries: list[tuple[datetime, str, PlatformAlertState | None]] = [
+            (change.occurred_at, _PLATFORM_CHANGE, change.state)
+            for change in (history.state_changes if history is not None else ())
+        ]
+        boundaries.extend((event.created_at, event.kind, None) for event in logs_events)
+        snooze_until = obj.snooze_until
+        if (
+            snooze_until is not None
+            and window_start < snooze_until < window_end
+            and not any(event.created_at >= snooze_until for event in snooze_events)
+        ):
+            boundaries.append((snooze_until, _SNOOZE_EXPIRY, None))
+        boundaries.sort(key=lambda boundary: boundary[0])
+
+        if history is not None and history.state_changes:
+            platform_state = history.state_changes[0].previous_state
+        if snooze_events:
+            snoozed = snooze_events[0].kind == LogsAlertEvent.Kind.UNSNOOZE
+        else:
+            snoozed = (
+                obj.state == LogsAlertConfiguration.State.SNOOZED
+                and snooze_until is not None
+                and snooze_until > window_start
+            )
+
+        def shown() -> str:
+            if snoozed:
+                return LogsAlertConfiguration.State.SNOOZED
+            return logs_state_of_platform(
+                platform_state, logs_state=obj.state, snooze_until=None, at=window_start
+            ).value
+
+        events: list[_TimelineEvent] = []
+        for at, kind, moved_to in boundaries:
+            before = shown()
+            if moved_to is not None:
+                platform_state = moved_to
+            elif kind == LogsAlertEvent.Kind.RESET:
+                platform_state = PlatformAlertState.NOT_FIRING
+            elif kind == LogsAlertEvent.Kind.SNOOZE:
+                snoozed = True
+            elif kind in (LogsAlertEvent.Kind.UNSNOOZE, _SNOOZE_EXPIRY):
+                snoozed = False
+            events.append(_TimelineEvent(kind=kind, created_at=at, state_before=before, state_after=shown()))
+        return self._state_intervals(obj, events, shown(), window)
+
+    def _state_intervals(
+        self,
+        obj: LogsAlertConfiguration,
+        events: Sequence[LogsAlertEvent | _TimelineEvent],
+        fallback_state: str,
+        window: tuple[datetime, datetime],
+    ) -> list[StateInterval]:
+        window_start, window_end = window
 
         # Seed state at window_start: the first in-window event tells us what state was
         # active just before it fired. Fallback to the alert's current state when there are
         # no events at all in the window.
-        seed_state = events[0].state_before if events else obj.state
+        seed_state = events[0].state_before if events else fallback_state
 
         # Seed enabled at window_start: prefer the latest ENABLE/DISABLE at-or-before
         # window_start (annotated on the queryset), then infer from the first in-window
@@ -435,8 +616,41 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             .first()
         )
 
+    def to_representation(self, instance: LogsAlertConfiguration) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        if not instance.platform_owned:
+            return data
+        # The platform evaluates an alert it owns, so the logs row stops moving once the shadow ends.
+        runtimes = self.context.get(_PLATFORM_RUNTIME_CONTEXT_KEY)
+        if runtimes is None:
+            runtimes = _platform_runtime_of([instance])
+        runtime = runtimes.get(instance.id)
+        if runtime is None:
+            return data
+        data["state"] = logs_state_of_platform(
+            runtime.state, logs_state=instance.state, snooze_until=instance.snooze_until, at=timezone.now()
+        ).value
+        data["consecutive_failures"] = runtime.consecutive_failures
+        data["next_check_at"] = self.fields["next_check_at"].to_representation(runtime.next_check_at)
+        data["last_notified_at"] = self.fields["last_notified_at"].to_representation(runtime.last_notified_at)
+
+        histories = self.context.get(_PLATFORM_HISTORY_CONTEXT_KEY, _NOT_ANNOTATED)
+        window = self.context.get("state_timeline_window") or _state_timeline_window_bounds()
+        if histories is _NOT_ANNOTATED:
+            histories = _platform_history_of([instance], window)
+        if histories is None:
+            return data
+        history = cast(dict[UUID, PlatformAlertHistory], histories).get(instance.id)
+        data["state_timeline"] = self._platform_state_timeline(instance, history, runtime.state, window)
+        # With no platform check in the window, the logs row is the newest check anyone made.
+        if history is not None:
+            data["last_checked_at"] = self.fields["last_checked_at"].to_representation(history.last_checked_at)
+            data["last_error_message"] = history.last_error_message
+        return data
+
     class Meta:
         model = LogsAlertConfiguration
+        list_serializer_class = LogsAlertConfigurationListSerializer
         fields = [
             "id",
             "name",
@@ -551,6 +765,8 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             # state at all. All transitions return an Outcome; apply_outcome is the single
             # place that actually writes to `state`/`consecutive_failures`.
             snapshot = instance.to_snapshot()
+            state_before = instance.state
+            close_reason: IncidentCloseReason | None = None
             if enabled_change is True:
                 if instance.first_enabled_at is None:
                     instance.first_enabled_at = timezone.now()
@@ -559,13 +775,25 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 apply_outcome(instance, apply_enable(snapshot), kind=LogsAlertEvent.Kind.ENABLE)
             elif enabled_change is False:
                 apply_outcome(instance, apply_disable(snapshot), kind=LogsAlertEvent.Kind.DISABLE)
+                close_reason = IncidentCloseReason.DISABLED
             elif snooze_data is not _SENTINEL:
                 if snooze_data is None:
                     apply_outcome(instance, apply_unsnooze(snapshot), kind=LogsAlertEvent.Kind.UNSNOOZE)
                 else:
                     apply_outcome(instance, apply_snooze(snapshot), kind=LogsAlertEvent.Kind.SNOOZE)
+                    close_reason = IncidentCloseReason.SNOOZED
             elif threshold_changed:
                 apply_outcome(instance, apply_threshold_change(snapshot), kind=LogsAlertEvent.Kind.THRESHOLD_CHANGE)
+                close_reason = IncidentCloseReason.CONFIG_CHANGED
+            # The edge check inside decides whether a close goes out, so a new branch above that forgets
+            # its reason still closes the incident.
+            close_incident_on_commit(
+                team_id=instance.team_id,
+                alert_id=str(instance.id),
+                state_before=state_before,
+                state_after=instance.state,
+                reason=close_reason or IncidentCloseReason.CONFIG_CHANGED,
+            )
 
             # snooze_until is a timestamp column, not a state — carry it alongside the state
             # transition so the serializer's single save persists both.
@@ -588,7 +816,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                 else:
                     instance.clear_next_check()
 
-            return super().update(instance, validated_data)
+            updated = super().update(instance, validated_data)
+            if enabled_change is True:
+                transaction.on_commit(
+                    lambda: follow_logs_alert(team_id=updated.team_id, alert_id=updated.id), robust=True
+                )
+            return updated
 
     def create(self, validated_data: dict) -> LogsAlertConfiguration:
         validated_data["team_id"] = self.context["team_id"]
@@ -615,7 +848,12 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
                     team_timezone=team.timezone,
                     schedule_restriction=schedule_restriction,
                 )
-            return super().create(validated_data)
+            created = super().create(validated_data)
+            if created.enabled:
+                transaction.on_commit(
+                    lambda: follow_logs_alert(team_id=created.team_id, alert_id=created.id), robust=True
+                )
+            return created
 
 
 def _validate_filters(filters: dict) -> None:
@@ -729,7 +967,7 @@ class LogsAlertSimulateRequestSerializer(serializers.Serializer):
     cooldown_minutes = serializers.IntegerField(
         default=0,
         min_value=0,
-        help_text="Minutes to wait after firing before sending another notification.",
+        help_text="Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.",
     )
     date_from = serializers.CharField(
         help_text="Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d').",
@@ -787,6 +1025,23 @@ class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     webhook_url = serializers.URLField(
         required=False,
         help_text="HTTPS endpoint to post to. Required for webhook and teams.",
+    )
+    pagerduty_routing_key = serializers.CharField(
+        required=False,
+        trim_whitespace=True,
+        help_text="Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.",
+    )
+    pagerduty_severity = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutySeverity],
+        required=False,
+        default=PagerDutySeverity.CRITICAL.value,
+        help_text="Severity PagerDuty records on the incident. Used when type=pagerduty.",
+    )
+    pagerduty_region = serializers.ChoiceField(
+        choices=[choice.value for choice in PagerDutyRegion],
+        required=False,
+        default=PagerDutyRegion.US.value,
+        help_text="PagerDuty service region of the account. Used when type=pagerduty.",
     )
 
     def validate(self, attrs: dict) -> dict:
@@ -1000,13 +1255,21 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=LogsAlertCreateDestinationSerializer,
         responses={201: LogsAlertDestinationResponseSerializer},
-        description="Create a notification destination for this alert. One HogFunction is created per alert event kind (firing, resolved, ...) atomically.",
+        description=(
+            "Create a notification destination for this alert. One HogFunction is created per alert event kind "
+            "(firing, resolved, ...) atomically. A PagerDuty destination gets the incident opened and incident closed "
+            "kinds instead. They follow every start and end of a firing, cooldown included, so each incident it "
+            "opens is resolved."
+        ),
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["logs:write"])
     def create_destination(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
+        event_kinds = [
+            kind for kind in EVENT_KINDS if destination_handles_event_kind(data["type"], EVENT_KIND_CONFIG[kind])
+        ]
 
         with transaction.atomic():
             alert = self._get_locked_alert()
@@ -1018,7 +1281,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     data=data,
                     slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
                 )
-                for kind in EVENT_KINDS
+                for kind in event_kinds
             ]
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
@@ -1034,7 +1297,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         report_user_action(
             request.user,
             "logs alert destination created",
-            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": list(EVENT_KINDS)},
+            {"alert_id": str(alert.id), "type": data["type"], "event_kinds": event_kinds},
             request=request,
         )
         response = LogsAlertDestinationResponseSerializer({"hog_function_ids": list(hog_function_ids)})
@@ -1123,16 +1386,40 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["logs:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
-        previous_failures = alert.consecutive_failures
-        try:
-            outcome = apply_user_reset(alert.to_snapshot())
-        except InvalidTransition:
-            raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
-            update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
-            update_fields.extend(alert.clear_next_check())
-            alert.save(update_fields=update_fields)
+            # The logs row first, then the platform copy: the cutover and rollback take the two
+            # locks in that order, and the opposite order deadlocks against them.
+            alert = self._get_locked_alert()
+            previous_failures = alert.consecutive_failures
+            if alert.platform_owned:
+                # The platform skips a broken alert, so the reset has to reach its copy. Its state
+                # decides, because the logs row stops moving once the shadow ends.
+                platform_failures = reset_broken(
+                    team_id=alert.team_id, legacy_configuration_id=alert.id, at=timezone.now()
+                )
+                if platform_failures is None:
+                    raise ValidationError({"state": "Only broken alerts can be reset."})
+                previous_failures = platform_failures
+            try:
+                outcome = apply_user_reset(alert.to_snapshot())
+            except InvalidTransition:
+                if not alert.platform_owned:
+                    raise ValidationError({"state": "Only broken alerts can be reset."})
+                outcome = None
+            if outcome is not None:
+                update_fields = apply_outcome(alert, outcome, kind=LogsAlertEvent.Kind.RESET)
+                update_fields.extend(alert.clear_next_check())
+                alert.save(update_fields=update_fields)
+            else:
+                # The logs row did not move, so nothing else records the reset that the alert's
+                # timeline needs. The platform's history writes no row for it either.
+                LogsAlertEvent.objects.create(
+                    alert=alert,
+                    kind=LogsAlertEvent.Kind.RESET,
+                    threshold_breached=False,
+                    state_before=LogsAlertConfiguration.State.BROKEN,
+                    state_after=LogsAlertConfiguration.State.NOT_FIRING,
+                )
             # The model's auto-signal skips these fields (signal_exclusions silences
             # engine-driven churn) so we log the user-initiated reset explicitly.
             log_activity(
@@ -1336,6 +1623,7 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("updated", serializer.save())
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
+        close_incident_before_delete(team_id=instance.team_id, alert_id=str(instance.id), state=instance.state)
         with transaction.atomic():
             locked_instance = (
                 LogsAlertConfiguration.objects.select_for_update()

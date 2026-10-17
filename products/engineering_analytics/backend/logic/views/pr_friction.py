@@ -79,6 +79,9 @@ FIELDS: dict[str, FieldOrTable] = {
     "pushes_after_approval": IntegerDatabaseField(name="pushes_after_approval", nullable=True),
     # NULL when the pull request never entered the merge queue.
     "queue_seconds": FloatDatabaseField(name="queue_seconds", nullable=True),
+    # Gate attempts with any failed workflow run. The GitHub source does not say which checks the queue
+    # requires, so a failed optional check also counts: an upper bound on queue removals. The name stays
+    # because saved queries over the view select it.
     "kickout_count": IntegerDatabaseField(name="kickout_count", nullable=True),
     # A read filters on its own authorized source: the view unions every source, and a member can be denied some.
     "source_id": StringDatabaseField(name="source_id"),
@@ -109,7 +112,7 @@ def build_query(
     source_id: str,
     pull_requests_table: str,
     workflow_runs_table: str,
-    workflow_jobs_table: str,
+    workflow_jobs_table: workflow_jobs.JobsTable,
     issue_events_table: str | None,
     reviews_table: str | None,
 ) -> str:
@@ -210,7 +213,7 @@ master AS (
         SELECT ifNull(j.workflow_name, '') AS workflow_name,
             {_strip_shard("j.name")} AS job,
             parseDateTimeBestEffort(j.completed_at) AS completed_at
-        FROM {workflow_jobs_table} AS j
+        FROM {workflow_jobs_table.rows} AS j
         INNER JOIN ({runs}) AS mr ON j.run_id = mr.id AND j.ci_engine = mr.ci_engine
         WHERE j.created_at >= {_raw_floor(run_days)}
             AND {workflow_jobs.branch("j", "mr")} IN (SELECT default_branch FROM pr WHERE default_branch != '')

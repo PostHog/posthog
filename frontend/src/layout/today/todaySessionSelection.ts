@@ -9,17 +9,31 @@ export interface TodaySessionSelection {
 
 export type TodaySelectionClick = 'toggle' | 'range' | 'open'
 
-export type TodayBulkVerb = 'pin' | 'unpin' | 'file' | 'archive' | 'restore'
+export type TodayBulkVerb = 'pin' | 'unpin' | 'archive' | 'restore'
 
 const PAST_TENSE: Record<TodayBulkVerb, string> = {
     pin: 'pinned',
     unpin: 'unpinned',
-    file: 'filed',
     archive: 'archived',
     restore: 'restored',
 }
 
 export const EMPTY_SELECTION: TodaySessionSelection = { ids: [], anchorId: null }
+
+export function isEditableTarget(target: EventTarget | null): boolean {
+    return (
+        target instanceof HTMLElement &&
+        (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+    )
+}
+
+/** Base UI prevents the default of the Escape that closes a menu, so that press only closes the menu. */
+export function isMenuEscape(event: KeyboardEvent): boolean {
+    return (
+        event.defaultPrevented ||
+        (event.target instanceof Element && event.target.closest('[role="menu"][data-open]') !== null)
+    )
+}
 
 export function selectionClick(event: Pick<MouseEvent, 'shiftKey' | 'metaKey' | 'ctrlKey'>): TodaySelectionClick {
     return event.shiftKey ? 'range' : event.metaKey || event.ctrlKey ? 'toggle' : 'open'

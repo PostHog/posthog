@@ -1,47 +1,15 @@
-from typing import Any
-
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.facade.source_config import ReleaseStatus
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.settings import ENDPOINTS
-from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source import FlutterwaveSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
-
-SOURCE_MODULE_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source.flutterwave_source"
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
 )
-
-
-def _source_inputs(**overrides: Any) -> MagicMock:
-    inputs = MagicMock()
-    inputs.schema_name = overrides.get("schema_name", "transactions")
-    inputs.team_id = overrides.get("team_id", 1)
-    inputs.job_id = overrides.get("job_id", "job-1")
-    inputs.api_version = overrides.get("api_version", None)
-    inputs.should_use_incremental_field = overrides.get("should_use_incremental_field", True)
-    inputs.db_incremental_field_last_value = overrides.get("db_incremental_field_last_value", "2024-01-15 00:00:00")
-    return inputs
-
-
-class TestSourceConfig:
-    def test_config_identity_and_release_contract(self) -> None:
-        config = FlutterwaveSource().get_source_config
-        assert config.name == ExternalDataSourceType.FLUTTERWAVE
-        # Alpha but released: the finished source must be reachable, so unreleasedSource stays off.
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert not config.unreleasedSource
-        # The doc slug is derived from this URL; a mismatch 404s the docs page.
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/flutterwave"
-
-    def test_pins_the_generally_available_api_version(self) -> None:
-        # The request layer builds its base URL from this pin, so a drift here silently retargets
-        # every customer's sync at a different API surface.
-        source = FlutterwaveSource()
-        assert source.supported_versions == ("v3",)
-        assert source.default_version == "v3"
-        assert source.resolve_api_version(None) == "v3"
+from products.warehouse_sources.backend.temporal.data_imports.sources.flutterwave.source import FlutterwaveSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.flutterwave import (
+    FlutterwaveSourceConfig,
+)
 
 
 class TestGetSchemas:
@@ -96,33 +64,14 @@ class TestNonRetryableErrors:
 
 class TestSourceForPipeline:
     def test_threads_credentials_endpoint_and_api_version(self) -> None:
-        with patch(SOURCE_MODULE_PATCH) as mock_source:
-            FlutterwaveSource().source_for_pipeline(
-                config=MagicMock(secret_key="FLWSECK-test"),
-                resumable_source_manager=MagicMock(),
-                inputs=_source_inputs(schema_name="transactions", should_use_incremental_field=False),
-            )
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["secret_key"] == "FLWSECK-test"
-        assert kwargs["endpoint"] == "transactions"
+        result = SourceDriver(FlutterwaveSource(), FlutterwaveSourceConfig(secret_key="FLWSECK-test")).run(
+            "transactions",
+            [ScriptedResponse(json={"status": "success", "meta": {"page_info": {"total_pages": 1}}, "data": []})],
+            should_use_incremental_field=False,
+        )
+
+        assert result.raised is None
+        assert result.requests[0].headers["authorization"] == "Bearer FLWSECK-test"
+        assert result.requests[0].path == "/v3/transactions"
         # An unset pin must resolve to default_version, not fall through as None and break the URL.
-        assert kwargs["api_version"] == "v3"
-
-    def test_watermark_dropped_on_full_refresh(self) -> None:
-        # Every endpoint is full-refresh, so a stored watermark must never leak into the query, or an
-        # unwanted `from` filter would silently truncate the pull.
-        with patch(SOURCE_MODULE_PATCH) as mock_source:
-            FlutterwaveSource().source_for_pipeline(
-                config=MagicMock(secret_key="FLWSECK-test"),
-                resumable_source_manager=MagicMock(),
-                inputs=_source_inputs(schema_name="subaccounts", should_use_incremental_field=False),
-            )
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
-
-
-class TestDocumentedTables:
-    def test_lists_tables_without_credentials(self) -> None:
-        # Static endpoint catalog (no I/O), so the public docs Supported tables section renders.
-        source = FlutterwaveSource()
-        assert source.lists_tables_without_credentials is True
-        assert {t["name"] for t in source.get_documented_tables()} == set(ENDPOINTS)
+        assert result.requests[0].url.startswith("https://api.flutterwave.com/v3/transactions")

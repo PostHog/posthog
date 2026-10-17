@@ -33,6 +33,9 @@ pub struct Config {
     // own, larger body cap. Decoded size is bounded separately by the endpoint.
     #[envconfig(from = "FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES", default = "8388608")] // 8 MiB
     pub firehose_max_request_body_size_bytes: usize,
+
+    #[envconfig(from = "MAX_BACKFILL_DAYS", default = "0")]
+    pub max_backfill_days: u32,
 }
 
 impl Config {

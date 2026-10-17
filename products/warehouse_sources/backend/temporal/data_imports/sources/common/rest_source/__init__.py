@@ -23,8 +23,8 @@ from .config_setup import (
     setup_incremental_object,
 )
 from .jsonpath_utils import TJsonPath
-from .paginators import BasePaginator
-from .resource import Resource
+from .paginators import BasePaginator, set_json_param
+from .resource import PageCheckpoints, Resource
 from .rest_client import DEFAULT_RETRY_ATTEMPTS, DEFAULT_RETRY_BACKOFF_MAX_SECONDS, RESTClient, RESTClientRetryableError
 from .typing import ClientConfig, Endpoint, EndpointResource, HTTPMethodBasic, ResolvedParam, RESTAPIConfig
 from .utils import exclude_keys  # noqa: F401
@@ -70,6 +70,11 @@ def rest_api_resource(
     ``resume_hook`` and ``initial_paginator_state`` enable integration with
     ``ResumableSourceManager``. They are only supported for non-dependent
     resources (no ``data_from`` parent/child fanout).
+
+    ``resume_hook`` receives the state that fetches the page after the current one. When
+    ``SourceResponse.items`` returns the resource itself, the hook runs before the page reaches the
+    pipeline, so the pipeline commits a page and its state together. When a source wraps the
+    resource, the hook runs when the wrapper asks for the next page.
     """
     resources = rest_api_resources(
         config,
@@ -186,8 +191,9 @@ def _make_paginate_dependent_resource(
         page_rows = 0
 
         if incremental_object:
-            params = _set_incremental_params(
+            params, _ = _set_incremental_params(
                 params,
+                None,
                 incremental_object,
                 incremental_param,
                 incremental_cursor_transform,
@@ -208,8 +214,19 @@ def _make_paginate_dependent_resource(
                 current_child_state if (resume_hook is not None and current_path == formatted_path) else None
             )
 
-            def child_resume_hook(paginator_state: Optional[dict[str, Any]], _path: str = formatted_path) -> None:
+            def child_page_state_hook(
+                paginator_state: Optional[dict[str, Any]], has_next_page: bool, _path: str = formatted_path
+            ) -> None:
                 nonlocal current_path, current_child_state
+                if not has_next_page:
+                    # The state of a parent's last page is staged before that page is handed on. An
+                    # in-progress checkpoint would make a resumed run read the whole parent again,
+                    # so the parent is recorded as complete here.
+                    completed.add(_path)
+                    current_path = None
+                    current_child_state = None
+                    checkpoint(None, None)
+                    return
                 current_path = _path
                 current_child_state = paginator_state
                 checkpoint(_path, paginator_state)
@@ -222,7 +239,7 @@ def _make_paginate_dependent_resource(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
-                    resume_hook=child_resume_hook if resume_hook is not None else None,
+                    page_state_hook=child_page_state_hook if resume_hook is not None else None,
                     initial_paginator_state=child_initial,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,
@@ -247,7 +264,8 @@ def _make_paginate_dependent_resource(
                     checkpoint(None, None)
                 continue
 
-            if resume_hook is not None:
+            # A parent whose child endpoint answered nothing never reached the hook.
+            if resume_hook is not None and formatted_path not in completed:
                 completed.add(formatted_path)
                 current_path = None
                 current_child_state = None
@@ -265,6 +283,15 @@ def _make_paginate_dependent_resource(
         )
 
     return paginate_dependent_resource
+
+
+def _retry_limit_overrides(client_config: ClientConfig) -> dict[str, float]:
+    # Passed only when a source sets them, so a client built with neither keeps the settings.
+    return {
+        key: client_config[key]  # type: ignore[literal-required]
+        for key in ("retry_budget_seconds", "retry_after_max_seconds")
+        if key in client_config
+    }
 
 
 def create_resources(
@@ -313,6 +340,11 @@ def create_resources(
             incremental_param,
             incremental_cursor_transform,
         ) = setup_incremental_object(request_params, endpoint_config.get("incremental"))
+        # A dependent resource sends no request body, so a JSON-body cursor would be silently dropped.
+        if resolved_params and incremental_param is not None and incremental_param.location == "json":
+            raise ValueError(
+                f"Resource {resource_name} depends on another resource, so its incremental cursor can't go in the JSON body"
+            )
 
         client = RESTClient(
             base_url=client_config.get("base_url"),
@@ -326,9 +358,20 @@ def create_resources(
             allow_redirects=client_config.get("allow_redirects", True),
             request_timeout=client_config.get("request_timeout"),
             capture=client_config.get("capture", True),
+            **_retry_limit_overrides(client_config),
         )
 
         hooks = create_response_hooks(endpoint_config.get("response_actions"), resource_name=resource_name)
+
+        # The resource applies resume states itself, so that a page and its state reach the pipeline
+        # together (see `Resource._iter_generator`).
+        if resolved_params is not None:
+            own_resume_hook = dependent_resume_hook
+        elif has_dependent_resource:
+            own_resume_hook = None
+        else:
+            own_resume_hook = resume_hook
+        page_checkpoints = PageCheckpoints(own_resume_hook) if own_resume_hook is not None else None
 
         resource_kwargs = exclude_keys(
             endpoint_resource, {"endpoint", "include_from_parent", "data_map", "data_iterator"}
@@ -376,9 +419,7 @@ def create_resources(
                 incremental_object: Optional[Incremental] = incremental_object,
                 incremental_param: Optional[IncrementalParam] = incremental_param,
                 incremental_cursor_transform: Optional[Callable[..., Any]] = incremental_cursor_transform,
-                resume_hook: Optional[Callable[[Optional[dict[str, Any]]], None]] = (
-                    None if has_dependent_resource else resume_hook
-                ),
+                page_checkpoints: Optional[PageCheckpoints] = page_checkpoints,
                 initial_paginator_state: Optional[dict[str, Any]] = (
                     None if has_dependent_resource else initial_paginator_state
                 ),
@@ -389,8 +430,9 @@ def create_resources(
                 ),
             ) -> Iterator[list[Any]]:
                 if incremental_object:
-                    params = _set_incremental_params(
+                    params, json = _set_incremental_params(
                         params,
+                        json,
                         incremental_object,
                         incremental_param,
                         incremental_cursor_transform,
@@ -405,7 +447,7 @@ def create_resources(
                     paginator=paginator,
                     data_selector=data_selector,
                     hooks=hooks,
-                    resume_hook=resume_hook,
+                    page_state_hook=page_checkpoints.defer_page_state if page_checkpoints is not None else None,
                     initial_paginator_state=initial_paginator_state,
                     data_selector_required=data_selector_required,
                     data_selector_empty_ok=data_selector_empty_ok,
@@ -427,6 +469,7 @@ def create_resources(
                     "hooks": hooks,
                     "columns_config": columns_config,
                 },
+                page_checkpoints=page_checkpoints,
             )
 
         else:
@@ -449,7 +492,7 @@ def create_resources(
                 incremental_param=incremental_param,
                 incremental_cursor_transform=incremental_cursor_transform,
                 db_incremental_field_last_value=db_incremental_field_last_value,
-                resume_hook=dependent_resume_hook,
+                resume_hook=page_checkpoints.defer if page_checkpoints is not None else None,
                 initial_state=dependent_initial_state,
                 data_selector_required=bool(endpoint_config.get("data_selector_required")),
                 data_selector_empty_ok=bool(endpoint_config.get("data_selector_empty_ok")),
@@ -473,6 +516,7 @@ def create_resources(
                     "columns_config": columns_config,
                 },
                 data_from=predecessor,
+                page_checkpoints=page_checkpoints,
             )
 
         # Declarative per-item transform (e.g. flatten JSON:API attributes), applied after
@@ -486,11 +530,12 @@ def create_resources(
 
 def _set_incremental_params(
     params: dict[str, Any],
+    json: Optional[dict[str, Any]],
     incremental_object: Incremental,
     incremental_param: Optional[IncrementalParam],
     transform: Optional[Callable[..., Any]],
     db_incremental_field_last_value: Optional[Any] = None,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], Optional[dict[str, Any]]]:
     def identity_func(x: Any) -> Any:
         return x
 
@@ -498,7 +543,7 @@ def _set_incremental_params(
         transform = identity_func
 
     if incremental_param is None:
-        return params
+        return params, json
 
     last_value = (
         db_incremental_field_last_value
@@ -506,7 +551,15 @@ def _set_incremental_params(
         else incremental_object.last_value
     )
 
-    params[incremental_param.start] = transform(last_value)
+    values = {incremental_param.start: transform(last_value)}
     if incremental_param.end:
-        params[incremental_param.end] = transform(incremental_object.end_value)
-    return params
+        values[incremental_param.end] = transform(incremental_object.end_value)
+
+    if incremental_param.location == "json":
+        if json is None:
+            json = {}
+        for name, value in values.items():
+            set_json_param(json, name, value)
+    else:
+        params.update(values)
+    return params, json

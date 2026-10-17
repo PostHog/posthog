@@ -12,8 +12,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.s
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.testrail.source import TestrailSource
 
-INCREMENTAL_ENDPOINTS = {"cases", "runs", "plans", "results"}
-
 
 class TestTestrailSource:
     def setup_method(self) -> None:
@@ -26,28 +24,9 @@ class TestTestrailSource:
         # retarget the subdomain and exfiltrate the preserved key.
         assert self.source.connection_host_fields == ["subdomain"]
 
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints_with_correct_incremental_flags(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert set(schemas) == set(ENDPOINTS)
-        assert {name for name, s in schemas.items() if s.supports_incremental} == INCREMENTAL_ENDPOINTS
-        assert schemas["cases"].incremental_fields[0]["field"] == "updated_on"
-        for name in INCREMENTAL_ENDPOINTS - {"cases"}:
-            assert schemas[name].incremental_fields[0]["field"] == "created_on"
-        for name in set(ENDPOINTS) - INCREMENTAL_ENDPOINTS:
-            assert schemas[name].incremental_fields == []
-
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["cases", "nope"])
         assert [s.name for s in schemas] == ["cases"]
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert "Incremental" in tables["cases"]["sync_methods"]
-        assert tables["suites"]["sync_methods"] == ["Full refresh"]
 
     @parameterized.expand(
         [

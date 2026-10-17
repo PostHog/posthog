@@ -5,13 +5,16 @@ import {
     TLSConfig,
     WorkflowExecutionAlreadyStartedError,
     WorkflowHandle,
+    WorkflowStartOptions,
 } from '@temporalio/client'
 import * as crypto from 'crypto'
 import fs from 'fs/promises'
+import { LRUCache } from 'lru-cache'
 import { Counter } from 'prom-client'
 
 import { EncryptionCodec } from '~/common/temporal/codec'
 import { isDevEnv } from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
 import { RawKafkaEvent } from '../../types'
@@ -31,6 +34,75 @@ export type TemporalServiceConfig = Pick<
 >
 
 const EVALUATION_TASK_QUEUE = isDevEnv() ? 'development-task-queue' : 'llm-analytics-evals-task-queue'
+
+export const EVENT_REFERENCE_THRESHOLD_BYTES = 1024 * 1024
+
+export const EVENT_REFERENCE_START_DELAY = '30 seconds'
+
+export interface EventReference {
+    uuid: string
+    team_id: number
+    timestamp: string
+    trace_id: string | null
+    awaiting_ingestion: true
+}
+
+export type WorkflowEventPayload = 'inline' | 'reference'
+
+export interface WorkflowEventStart {
+    eventData: RawKafkaEvent | EventReference
+    payload: WorkflowEventPayload
+    startOptions: Pick<WorkflowStartOptions, 'startDelay'>
+}
+
+export function asciiEscapedJsonSize(value: unknown): number {
+    const json = JSON.stringify(value)
+    let size = json.length
+    for (let i = 0; i < json.length; i++) {
+        if (json.charCodeAt(i) > 0x7f) {
+            size += 5
+        }
+    }
+    return size
+}
+
+function readTraceId(event: RawKafkaEvent): string | null {
+    let traceId: unknown
+    try {
+        traceId = parseJSON(event.properties ?? '{}')?.$ai_trace_id
+    } catch {
+        return null
+    }
+    if (typeof traceId === 'number' && Number.isFinite(traceId)) {
+        return String(traceId)
+    }
+    return typeof traceId === 'string' && traceId !== '' ? traceId : null
+}
+
+function toEventReference(event: RawKafkaEvent): EventReference {
+    const reference: EventReference = {
+        uuid: event.uuid,
+        team_id: event.team_id,
+        timestamp: event.timestamp,
+        trace_id: readTraceId(event),
+        awaiting_ingestion: true,
+    }
+    if (asciiEscapedJsonSize(reference) > EVENT_REFERENCE_THRESHOLD_BYTES) {
+        return { ...reference, trace_id: null }
+    }
+    return reference
+}
+
+export function toWorkflowEventStart(event: RawKafkaEvent): WorkflowEventStart {
+    if (asciiEscapedJsonSize(event) <= EVENT_REFERENCE_THRESHOLD_BYTES) {
+        return { eventData: event, payload: 'inline', startOptions: {} }
+    }
+    return {
+        eventData: toEventReference(event),
+        payload: 'reference',
+        startOptions: { startDelay: EVENT_REFERENCE_START_DELAY },
+    }
+}
 
 const EVALUATION_WORKFLOW_PREFIXES = {
     hog: 'llma-hog-eval',
@@ -97,8 +169,13 @@ export function resolveSettleConfig(
 const temporalWorkflowsStarted = new Counter({
     name: 'evaluation_run_workflows_started',
     help: 'Number of evaluation run workflows started',
-    labelNames: ['status'],
+    labelNames: ['status', 'payload'],
 })
+
+// A skip only delays the retry of a failed run: a running workflow ignores the start, and a
+// completed one rejects it. Keep the window short so that delay stays short.
+const AGGREGATE_START_DEDUP_TTL_MS = 60_000
+const AGGREGATE_START_DEDUP_MAX_ENTRIES = 50_000
 
 export interface AggregateEvaluationStart {
     evaluationId: string
@@ -125,6 +202,10 @@ export function workflowSafeId(id: string): string {
 export class TemporalService {
     private client?: Client
     private connecting?: Promise<Client>
+    private recentAggregateStarts = new LRUCache<string, Promise<WorkflowHandle | null>>({
+        max: AGGREGATE_START_DEDUP_MAX_ENTRIES,
+        ttl: AGGREGATE_START_DEDUP_TTL_MS,
+    })
 
     constructor(private config: TemporalServiceConfig) {}
 
@@ -233,12 +314,14 @@ export class TemporalService {
         }
         const prefix = getEvaluationWorkflowPrefix(evaluationRuntime)
         const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
+        const { eventData, payload, startOptions } = toWorkflowEventStart(event)
 
         const handle = await client.workflow.start('run-evaluation', {
+            ...startOptions,
             args: [
                 {
                     evaluation_id: evaluationId,
-                    event_data: event,
+                    event_data: eventData,
                 },
             ],
             taskQueue: EVALUATION_TASK_QUEUE,
@@ -248,7 +331,7 @@ export class TemporalService {
             workflowTaskTimeout: '2 minutes',
         })
 
-        temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+        temporalWorkflowsStarted.labels({ status: 'success', payload }).inc()
 
         logger.debug('Started evaluation run workflow', {
             workflowId,
@@ -273,15 +356,40 @@ export class TemporalService {
      * evaluation for as long as the closed workflow stays inside Temporal's retention window,
      * which also caps the damage from runaway shared ids ("0", "fixed_id", ...). Returns null when
      * the unit was already evaluated.
+     *
+     * Each of those no-op starts still costs Temporal a failed create and a conflict lookup, and
+     * concurrent starts on one id queue behind each other. So repeat starts for an id inside a short
+     * window reuse the first start and do not call Temporal.
      */
     async startAggregateEvaluationWorkflow(options: AggregateEvaluationStart): Promise<WorkflowHandle | null> {
-        const { evaluationId, event, target, traceId, sessionId, aiSessionId, settle } = options
-        const client = await this.ensureConnected()
-
+        const { evaluationId, target, traceId, aiSessionId } = options
         const workflowId =
             target === 'session'
                 ? `llma-session-eval-${evaluationId}-${workflowSafeId(aiSessionId ?? '')}`
                 : `llma-trace-eval-${evaluationId}-${workflowSafeId(traceId)}`
+
+        const recentStart = this.recentAggregateStarts.get(workflowId)
+        if (recentStart) {
+            temporalWorkflowsStarted.labels({ status: 'deduplicated' }).inc()
+            return await recentStart
+        }
+
+        const start = this.requestAggregateEvaluationWorkflow(workflowId, options)
+        this.recentAggregateStarts.set(workflowId, start)
+        start.catch(() => {
+            if (this.recentAggregateStarts.peek(workflowId) === start) {
+                this.recentAggregateStarts.delete(workflowId)
+            }
+        })
+        return await start
+    }
+
+    private async requestAggregateEvaluationWorkflow(
+        workflowId: string,
+        options: AggregateEvaluationStart
+    ): Promise<WorkflowHandle | null> {
+        const { evaluationId, event, target, traceId, sessionId, aiSessionId, settle } = options
+        const client = await this.ensureConnected()
 
         try {
             const handle = await client.workflow.start('run-aggregate-evaluation', {
@@ -304,7 +412,7 @@ export class TemporalService {
                 workflowTaskTimeout: '2 minutes',
             })
 
-            temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+            temporalWorkflowsStarted.labels({ status: 'success', payload: 'none' }).inc()
 
             logger.debug('Started aggregate evaluation workflow', {
                 workflowId,
@@ -319,7 +427,7 @@ export class TemporalService {
             return handle
         } catch (error) {
             if (error instanceof WorkflowExecutionAlreadyStartedError) {
-                temporalWorkflowsStarted.labels({ status: 'already_completed' }).inc()
+                temporalWorkflowsStarted.labels({ status: 'already_completed', payload: 'none' }).inc()
                 return null
             }
             throw error
@@ -330,12 +438,14 @@ export class TemporalService {
         const client = await this.ensureConnected()
 
         const workflowId = `llma-tagger-${taggerId}-${event.uuid}-ingestion`
+        const { eventData, payload, startOptions } = toWorkflowEventStart(event)
 
         const handle = await client.workflow.start('run-tagger', {
+            ...startOptions,
             args: [
                 {
                     tagger_id: taggerId,
-                    event_data: event,
+                    event_data: eventData,
                 },
             ],
             taskQueue: EVALUATION_TASK_QUEUE,
@@ -345,7 +455,7 @@ export class TemporalService {
             workflowTaskTimeout: '2 minutes',
         })
 
-        temporalWorkflowsStarted.labels({ status: 'success' }).inc()
+        temporalWorkflowsStarted.labels({ status: 'success', payload }).inc()
 
         logger.debug('Started tagger run workflow', {
             workflowId,

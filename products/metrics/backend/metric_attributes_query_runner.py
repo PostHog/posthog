@@ -1,7 +1,8 @@
 """Attribute key/value autocomplete for the metrics filter bar.
 
-Keys count distinct attribute values from recent metadata, without reading raw samples.
-Values use the `metric_attributes` aggregate table.
+Keys for one metric count distinct attribute values from recent series metadata.
+Keys across all metrics and values use the `metric_attributes` aggregate table:
+scanning series metadata without a metric name reads every attribute map.
 Both queries merge metric attributes and resource attributes.
 """
 
@@ -56,7 +57,9 @@ def _validate_limit(limit: int) -> int:
 
 
 class MetricAttributeKeysQueryRunner:
-    """Attribute keys ordered by distinct value count from recent series."""
+    """Attribute keys ordered by distinct value count from recent series.
+    The synthetic `service_name` key only stands in for series without a `service.name`
+    resource attribute, so senders see the one spelling they emit."""
 
     def __init__(
         self,
@@ -71,46 +74,12 @@ class MetricAttributeKeysQueryRunner:
         self.team = team
         self.metric_name = metric_name.strip()
         self.search = search.strip()
-        self.date_from, self.date_to = _resolve_window(date_from, date_to)
-        self.date_from += _TIME_BUCKET_INTERVAL
+        self.bucket_date_from, self.date_to = _resolve_window(date_from, date_to)
+        self.date_from = self.bucket_date_from + _TIME_BUCKET_INTERVAL
         self.limit = _validate_limit(limit)
 
     def run(self) -> list[dict[str, Any]]:
-        query = parse_select(
-            """
-                SELECT
-                    arrayJoin(arrayDistinct(arrayConcat(
-                        mapKeys(attributes), mapKeys(resource_attributes), ['service_name']
-                    ))) AS attribute_key,
-                    uniqCombined64(if(attribute_key IN ('service_name', 'service.name'), service_name,
-                        if(arrayElement(resource_attributes, attribute_key) != '',
-                            arrayElement(resource_attributes, attribute_key),
-                            arrayElement(attributes, attribute_key)))) AS value_count
-                FROM posthog.metric_series
-                WHERE last_seen >= {date_from}
-                  AND {metric_name_filter}
-                  AND (attribute_key ILIKE {search_pattern}
-                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern}))
-                GROUP BY attribute_key
-                ORDER BY value_count DESC, attribute_key ASC
-                LIMIT {limit}
-            """,
-            placeholders={
-                "date_from": ast.Constant(value=self.date_from),
-                "metric_name_filter": (
-                    ast.Constant(value=True)
-                    if not self.metric_name
-                    else ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["metric_name"]),
-                        right=ast.Constant(value=self.metric_name),
-                    )
-                ),
-                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
-                "limit": ast.Constant(value=self.limit),
-            },
-        )
-        assert isinstance(query, ast.SelectQuery)
+        query = self._series_query() if self.metric_name else self._aggregate_query()
 
         response = execute_hogql_query(
             query_type="MetricAttributeKeysQuery",
@@ -125,6 +94,68 @@ class MetricAttributeKeysQueryRunner:
         if not results and (search_lower in "service_name" or search_lower in "service.name"):
             results.append({"name": "service_name", "value_count": 0})
         return results
+
+    def _aggregate_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Like the series query, the window end is not enforced: keys come from recent data.
+        return parse_select(
+            """
+                SELECT attribute_key, value_count
+                FROM (
+                    SELECT attribute_key, uniq(attribute_value) AS value_count
+                    FROM posthog.metric_attributes
+                    WHERE time_bucket >= {date_from}
+                      AND attribute_key ILIKE {search_pattern}
+                    GROUP BY attribute_key
+                    UNION ALL
+                    SELECT 'service_name' AS attribute_key, uniq(service_name) AS value_count
+                    FROM posthog.metric_attributes
+                    WHERE time_bucket >= {date_from}
+                      AND ('service_name' ILIKE {search_pattern} OR 'service.name' ILIKE {search_pattern})
+                    HAVING value_count > 0
+                )
+                ORDER BY value_count DESC, attribute_key ASC
+                LIMIT {limit}
+            """,
+            placeholders={
+                "date_from": ast.Constant(value=self.bucket_date_from),
+                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
+                "limit": ast.Constant(value=self.limit),
+            },
+        )
+
+    def _series_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+                SELECT
+                    arrayJoin(arrayDistinct(arrayConcat(
+                        mapKeys(attributes), mapKeys(resource_attributes),
+                        if(mapContains(resource_attributes, 'service.name'), [], ['service_name'])
+                    ))) AS attribute_key,
+                    uniqCombined64(if(attribute_key IN ('service_name', 'service.name'), service_name,
+                        if(arrayElement(resource_attributes, attribute_key) != '',
+                            arrayElement(resource_attributes, attribute_key),
+                            arrayElement(attributes, attribute_key)))) AS value_count
+                FROM posthog.metric_series
+                WHERE last_seen >= {date_from}
+                  AND {metric_name_filter}
+                  AND (attribute_key ILIKE {search_pattern}
+                       OR (attribute_key = 'service_name' AND 'service.name' ILIKE {search_pattern})
+                       OR (attribute_key = 'service.name' AND 'service_name' ILIKE {search_pattern}))
+                GROUP BY attribute_key
+                ORDER BY value_count DESC, attribute_key ASC
+                LIMIT {limit}
+            """,
+            placeholders={
+                "date_from": ast.Constant(value=self.date_from),
+                "metric_name_filter": ast.CompareOperation(
+                    op=ast.CompareOperationOp.Eq,
+                    left=ast.Field(chain=["metric_name"]),
+                    right=ast.Constant(value=self.metric_name),
+                ),
+                "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
+                "limit": ast.Constant(value=self.limit),
+            },
+        )
 
 
 class MetricAttributeValuesQueryRunner:

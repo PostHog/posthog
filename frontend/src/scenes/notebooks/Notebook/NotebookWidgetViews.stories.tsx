@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -35,7 +36,7 @@ import {
 } from 'products/error_tracking/frontend/__mocks__/error_tracking_query'
 import { NEW_WORKFLOW } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-import { expect, waitFor } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import featureFlags from '../../feature-flags/__mocks__/feature_flags.json'
 import { notebookWidgetCatalog, NotebookWidgetTagName } from '../notebookWidgetCatalog'

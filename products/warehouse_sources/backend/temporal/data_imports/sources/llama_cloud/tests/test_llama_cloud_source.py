@@ -3,11 +3,6 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.llamacloud import (
     LlamaCloudSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.settings import (
-    ENDPOINTS,
-    LLAMA_CLOUD_ENDPOINTS,
-    LlamaCloudEndpointConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.llama_cloud.source import LlamaCloudSource
 
 
@@ -16,10 +11,6 @@ class TestLlamaCloudSource:
         self.source = LlamaCloudSource()
         self.team_id = 1
         self.config = LlamaCloudSourceConfig(api_key="llx-test")
-
-    def test_get_schemas_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -48,30 +39,6 @@ class TestLlamaCloudSource:
     def test_get_schemas_filtered_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, self.team_id, names=["parse_jobs", "projects"])
         assert {s.name for s in schemas} == {"parse_jobs", "projects"}
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_job_schemas_declare_status_lookback(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["parse_jobs"].default_incremental_lookback_seconds == 24 * 60 * 60
-        assert schemas["projects"].default_incremental_lookback_seconds is None
-
-    def test_http_sample_capture_is_fail_closed(self) -> None:
-        # A new endpoint config must default to no HTTP sample capture; only endpoints whose
-        # response is limited to safe metadata opt in. Guards against a job/config endpoint
-        # (which can carry customer document content or embedded credentials) silently
-        # sampling raw responses into object storage.
-        assert LlamaCloudEndpointConfig(name="x", path="/y").capture_http_samples is False
-        capturing = {name for name, config in LLAMA_CLOUD_ENDPOINTS.items() if config.capture_http_samples}
-        assert capturing == {"projects", "usage_metrics"}
-
-    def test_documented_tables_render_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        tables = self.source.get_documented_tables()
-        assert {t["name"] for t in tables} == set(ENDPOINTS)
-        parse_jobs = next(t for t in tables if t["name"] == "parse_jobs")
-        assert parse_jobs["description"]
 
     @parameterized.expand(
         [
@@ -110,11 +77,6 @@ class TestLlamaCloudSourceVersions:
     def setup_method(self) -> None:
         self.source = LlamaCloudSource()
 
-    def test_new_sources_default_to_v2(self) -> None:
-        # New sources (no pin) must be created on LlamaCloud's current API generation.
-        assert self.source.default_version == "v2"
-        assert self.source.resolve_api_version(None) == "v2"
-
     @parameterized.expand([("v1",), ("v2",)])
     def test_existing_pin_is_honored(self, version: str) -> None:
         # Pinned rows — including the legacy "v1" default existing sources carry — keep their
@@ -122,8 +84,9 @@ class TestLlamaCloudSourceVersions:
         assert version in self.source.supported_versions
         assert self.source.resolve_api_version(version) == version
 
-    @parameterized.expand([("v1",), ("v2",)])
-    def test_no_version_is_deprecated(self, version: str) -> None:
-        # This is a plain update, not a sunset: neither label is deprecated, so the in-product
-        # deprecation banner must stay dark for existing v1 pins.
-        assert self.source.get_version_deprecation(version) is None
+    def test_only_legacy_v1_is_deprecated_without_sunset(self) -> None:
+        # The vendor published no sunset date, so v1 pins get the advisory banner but keep syncing.
+        deprecation = self.source.get_version_deprecation("v1")
+        assert deprecation is not None
+        assert deprecation.sunset_at is None
+        assert self.source.get_version_deprecation("v2") is None

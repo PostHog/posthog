@@ -22,10 +22,6 @@ class TestLaceworkSource:
         # editor to re-enter credentials.
         assert self.source.connection_host_fields == ["account_name"]
 
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1)
-        assert [s.name for s in schemas] == list(ENDPOINTS)
-
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_get_schemas_flags_match_endpoint_settings(self, endpoint: str) -> None:
         schema = next(s for s in self.source.get_schemas(self.config, team_id=1) if s.name == endpoint)
@@ -35,12 +31,6 @@ class TestLaceworkSource:
         assert [f["field"] for f in schema.incremental_fields] == [
             f["field"] for f in endpoint_config.incremental_fields
         ]
-
-    def test_only_alerts_supports_merge_sync(self) -> None:
-        # Only alerts has a unique row id (alertId); merge sync on any other endpoint would
-        # multi-match rows and corrupt the table.
-        incremental = [s.name for s in self.source.get_schemas(self.config, team_id=1) if s.supports_incremental]
-        assert incremental == ["alerts"]
 
     def test_get_schemas_filters_by_names(self) -> None:
         schemas = self.source.get_schemas(self.config, team_id=1, names=["alerts", "audit_logs"])

@@ -1,5 +1,5 @@
-//! Finds the materialized columns a behavioral scan's row filter can read instead of the
-//! `properties` blob.
+//! Finds the materialized columns a behavioral scan's row filter and projection can read instead of
+//! the `properties` blob.
 //!
 //! A column qualifies only when its stored default expression on the data table is exactly the
 //! trim-quotes extraction the filter would otherwise evaluate. A typed `JSONExtract` column reads
@@ -7,56 +7,46 @@
 //! match. The column must also exist on the distributed `events` table the scan reads.
 
 use std::collections::{BTreeSet, HashMap};
+use std::iter;
 
 use clickhouse::Row;
 use serde::Deserialize;
 
 use super::client::ClickHouseClient;
-use super::sql::clickhouse_string_literal;
+use super::sql::{clickhouse_string_literal, fits_client_get};
+use crate::domain::MaterializedColumns;
 
 /// Only the data table's columns carry the default expressions.
 const EVENTS_DATA_TABLE: &str = "sharded_events";
 
-/// Property key to verified column name.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct MaterializedColumns(HashMap<String, String>);
-
 impl MaterializedColumns {
-    pub fn column_for(&self, key: &str) -> Option<&str> {
-        self.0.get(key).map(String::as_str)
-    }
-
     pub async fn lookup(
         client: &ClickHouseClient,
         keys: &BTreeSet<&str>,
     ) -> Result<Self, clickhouse::error::Error> {
-        if keys.is_empty() {
-            return Ok(Self::default());
-        }
-        let expected: HashMap<String, &str> = keys
+        let key_by_expression: HashMap<String, &str> = keys
             .iter()
             .map(|key| (trim_quotes_extraction(key), *key))
             .collect();
-        let rows = client
-            .query(&lookup_sql(expected.keys()))
-            .fetch_all::<ColumnRow>()
-            .await?;
-        let mut columns = HashMap::new();
-        for row in rows {
-            // Rows are sorted by name, so every chunk picks the same column for a key.
-            if let Some(key) = expected.get(&row.expression) {
-                columns
-                    .entry((*key).to_owned())
-                    .or_insert_with(|| row.name.clone());
-            }
+        let mut expressions = key_by_expression
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        expressions.sort_unstable();
+        let mut rows = Vec::new();
+        for batch in lookup_batches(&expressions) {
+            rows.extend(
+                client
+                    .query(&lookup_sql(&batch))
+                    .fetch_all::<ColumnRow>()
+                    .await?,
+            );
         }
-        Ok(Self(columns))
-    }
-}
-
-impl FromIterator<(String, String)> for MaterializedColumns {
-    fn from_iter<I: IntoIterator<Item = (String, String)>>(pairs: I) -> Self {
-        Self(pairs.into_iter().collect())
+        // Rows are sorted by name, so every chunk picks the same column for a key.
+        Ok(rows
+            .into_iter()
+            .filter_map(|row| Some((*key_by_expression.get(&row.expression)?, row.name)))
+            .collect())
     }
 }
 
@@ -74,20 +64,54 @@ fn trim_quotes_extraction(key: &str) -> String {
     format!("replaceRegexpAll(JSONExtractRaw(properties, '{escaped}'), '^\"|\"$', '')")
 }
 
-fn lookup_sql<'a>(expressions: impl Iterator<Item = &'a String>) -> String {
-    let mut expressions = expressions
+/// Each batch fits a GET, because the `cohort_seeder` profile refuses the POST form.
+fn lookup_batches<'a>(expressions: &'a [&'a str]) -> impl Iterator<Item = Vec<&'a str>> + 'a {
+    let mut pending = expressions.iter().copied().peekable();
+    iter::from_fn(move || {
+        let mut batch = vec![pending.next()?];
+        while let Some(expression) = pending
+            .next_if(|next| fits_client_get(&lookup_sql(&[batch.as_slice(), &[*next]].concat())))
+        {
+            batch.push(expression);
+        }
+        Some(batch)
+    })
+}
+
+fn lookup_sql(expressions: &[&str]) -> String {
+    let mut literals = expressions
+        .iter()
         .map(|expression| clickhouse_string_literal(expression))
         .collect::<Vec<_>>();
-    expressions.sort();
+    literals.sort();
     format!(
         "SELECT name, default_expression AS expression\nFROM system.columns\nWHERE database = currentDatabase() AND table = '{EVENTS_DATA_TABLE}'\n  AND type = 'String' AND default_kind IN ('DEFAULT', 'MATERIALIZED')\n  AND default_expression IN ({})\n  AND name IN (SELECT name FROM system.columns WHERE database = currentDatabase() AND table = 'events' AND type = 'String')\nORDER BY name",
-        expressions.join(", "),
+        literals.join(", "),
     )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_lookup_is_split_into_queries_that_each_fit_a_get() {
+        let expressions = (0..300)
+            .map(|index| trim_quotes_extraction(&format!("$feature/a-long-flag-name-{index:03}")))
+            .collect::<Vec<_>>();
+        let mut sorted = expressions.iter().map(String::as_str).collect::<Vec<_>>();
+        sorted.sort_unstable();
+
+        let batches = lookup_batches(&sorted).collect::<Vec<_>>();
+        assert!(
+            batches.len() > 1,
+            "the keys fit one query, so nothing was split"
+        );
+        for batch in &batches {
+            assert!(fits_client_get(&lookup_sql(batch)));
+        }
+        assert_eq!(batches.concat(), sorted);
+    }
 
     #[test]
     fn the_expected_expression_is_the_stored_materializer_text() {

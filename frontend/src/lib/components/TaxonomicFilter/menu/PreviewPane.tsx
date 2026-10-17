@@ -15,6 +15,7 @@ import posthog from 'posthog-js'
 import { IconPin } from '@posthog/icons'
 import { Button, cn, ScrollArea, Separator } from '@posthog/quill'
 
+import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { resolvePropertyDefinitionId } from 'lib/components/PropertyFilters/utils'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
@@ -75,6 +76,12 @@ function PreviewBody({ entry }: { entry: MenuFilterEntry }): JSX.Element | null 
                 ) : (
                     <p className="text-xs italic text-tertiary">No description.</p>
                 )}
+
+                <FlagCalledMoveNotice
+                    name={entry.name}
+                    groupType={entry.group.type}
+                    className="text-xs leading-relaxed"
+                />
 
                 {details.example && <p className="text-xs italic text-secondary">Example: {details.example}</p>}
 

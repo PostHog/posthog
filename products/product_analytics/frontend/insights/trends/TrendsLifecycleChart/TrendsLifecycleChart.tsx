@@ -11,7 +11,6 @@ import { useChartLegendSeriesMenu } from 'lib/components/ChartLegendSeriesMenu/u
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
@@ -19,6 +18,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import type { SeriesDatum } from 'products/product_analytics/frontend/insights/shared/InsightTooltip/insightTooltipUtils'
 import { trendsDataLogic } from 'products/product_analytics/frontend/insights/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -27,6 +27,7 @@ import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
+    canHandleTrendsChartClick,
     handleTrendsChartClick,
     LIFECYCLE_PERSONS_MODAL_OPTIONS,
     type TrendsChartClickDeps,
@@ -155,7 +156,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
     const config = useChartConfig(() => baseConfig, [baseConfig])
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = canHandleTrendsChartClick({ context, hasPersonsModal, querySource })
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({

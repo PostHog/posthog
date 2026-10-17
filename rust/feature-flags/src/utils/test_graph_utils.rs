@@ -1751,8 +1751,9 @@ mod precomputed_dependency_graph_tests {
     }
 
     #[test]
-    fn test_build_with_flag_keys_filters_independent_flags_on_pg_fallback() {
-        // Simulates PG fallback: single_stage metadata has per-flag empty transitive_deps.
+    fn test_build_with_flag_keys_filters_independent_flags_on_single_stage_metadata() {
+        // single_stage metadata, used when compute_flag_dependencies() fails, has per-flag
+        // empty transitive_deps.
         // flag_keys filtering should work for independent flags since each flag maps to
         // an empty dep set, allowing unrelated flags to be skipped.
         let flags = vec![

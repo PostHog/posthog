@@ -205,10 +205,11 @@ describe('textCardModalLogic', () => {
         ['text', 'Dashboard context'],
     ])('reports %s content type when a text tile saves', (contentType, body) => {
         const agentContext = 'Data Catalog metric: activation_rate'
+        const onClose = jest.fn()
         const logic = textCardModalLogic({
             dashboard: makeDashboard(),
             textTileId: null,
-            onClose: jest.fn(),
+            onClose,
             tileType: 'text',
         })
         logic.mount()
@@ -219,6 +220,7 @@ describe('textCardModalLogic', () => {
             transparent_background: false,
         })
 
+        expect(onClose).toHaveBeenCalledTimes(1)
         expect(posthog.capture).toHaveBeenCalledWith(
             'dashboard text tile saved',
             expect.objectContaining({

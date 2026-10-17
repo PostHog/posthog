@@ -2,6 +2,7 @@ from typing import TYPE_CHECKING, Optional, cast
 
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -50,7 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.woocommerc
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
+    from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
 
 WEBHOOK_SETUP_CAPTION = (
     "PostHog registers a webhook on your store for each of the product, order, coupon and customer "
@@ -69,6 +70,14 @@ class WooCommerceSource(
     ResumableSource[WooCommerceSourceConfig, WooCommerceResumeConfig],
     WebhookSource[WooCommerceSourceConfig],
 ):
+    codebase_detection = detect(
+        env=("^WOOCOMMERCE_",),
+        npm=("@woocommerce/woocommerce-rest-api",),
+        pypi=("woocommerce",),
+        composer=("automattic/woocommerce", "automattic/jetpack-woocommerce-stats", "automattic/woocommerce-analytics"),
+        rubygems=("woocommerce_api",),
+    )
+
     supported_versions = ("v3",)
     default_version = "v3"
     api_docs_url = "https://woocommerce.github.io/woocommerce-rest-api-docs/"
@@ -165,7 +174,21 @@ class WooCommerceSource(
                 "and have Read permission for this store."
             )
 
-        return False, "Could not connect to your WooCommerce store. Please check the store URL."
+        if status is None:
+            return False, (
+                "Couldn't reach your WooCommerce store. Check that the store URL is your public site address "
+                "and try again."
+            )
+
+        # The host answered but `/wp-json/wc/v3` didn't exist: usually a URL that isn't the WordPress
+        # site root, or a site on Plain permalinks, which serves the REST API under `?rest_route=` only.
+        if status == 404:
+            return False, (
+                "Your store answered, but its WooCommerce REST API wasn't found. Check the store URL and that "
+                "WordPress permalinks aren't set to Plain, then try again."
+            )
+
+        return False, "Your WooCommerce store returned an error. Check that the store is online and try again."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[WooCommerceResumeConfig]:
         return ResumableSourceManager[WooCommerceResumeConfig](inputs, WooCommerceResumeConfig)

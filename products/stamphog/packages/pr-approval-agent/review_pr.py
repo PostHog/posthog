@@ -2,8 +2,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk==0.2.113",
+#     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -15,10 +16,10 @@ Usage:
     uv run products/stamphog/packages/pr-approval-agent/review_pr.py <pr_number> [--dry-run] [--output-json path]
 
 Runs deterministic gates (deny-list, ownership, tier classification),
-then — if eligible — calls Claude for evidence-bundle review and
-second-pass audit.
+then — if eligible — calls the LLM reviewer for an evidence-bundle review.
 
-Requires `gh` CLI authenticated and ANTHROPIC_API_KEY in env.
+Requires `gh` CLI authenticated and OPENAI_API_KEY in env (or ANTHROPIC_API_KEY
+with STAMPHOG_REVIEWER_ENGINE=claude for the rollback reviewer).
 """
 
 import os
@@ -36,6 +37,7 @@ from typing import TYPE_CHECKING
 
 from familiarity import AuthorFamiliarity, compute_familiarity, familiarity_evidence
 from gates import (
+    DENY_EXEMPT_AUTHOR_TEAMS,
     MAX_FILES,
     MAX_LINES,
     POLICY,
@@ -57,11 +59,12 @@ from gates import (
     t1_risk_subclass,
     test_only,
 )
-from gateway import analytics_extra_properties
+from gateway import CLAUDE_ENGINE, analytics_extra_properties, reviewer_engine
 from github import (
     CommitProvenance,
     PRData,
     check_team_membership,
+    describe_review_evidence,
     fetch_pr,
     is_in_flight_bot_eyes,
     pr_provenance,
@@ -71,6 +74,7 @@ from github import (
 from manifest_risk import manifest_script_changes
 from migration_risk import migration_check_pending, safe_migration_files
 from policy import EffectivePolicy, ScopeBudget, _sanitize_untrusted, repo_root, resolve
+from verdict_rule import facts_summary
 from version import STAMPHOG_VERSION
 
 if TYPE_CHECKING:
@@ -145,11 +149,25 @@ def _dim(msg: str) -> str:
 _NON_RETRYABLE_PATTERNS = (
     "Reached maximum number of turns",
     "could not produce valid structured output",
+    # A retry starts with the same spent budget and fails at once.
+    "time budget exhausted",
 )
 
 
 class WorktreeUnavailableError(RuntimeError):
     """The PR head tree required for a stacked review could not be created."""
+
+
+def _llm_usage_properties(reviewer_output: dict | None) -> dict[str, object]:
+    """Token usage the reviewer reported, as event properties, or {} when it reported none.
+
+    Only the OpenAI reviewer reports usage. The Claude reviewer's usage reaches analytics through
+    the gateway's $ai_generation events instead.
+    """
+    usage = (reviewer_output or {}).get("usage")
+    if not isinstance(usage, dict):
+        return {}
+    return {f"stamphog_llm_{name}": value for name, value in usage.items()}
 
 
 def _is_retryable_error(err_msg: str) -> bool:
@@ -178,6 +196,14 @@ class GateResult:
     passed: bool
     message: str
     details: dict = field(default_factory=dict)
+
+
+def _describe_deny_category(category: str) -> str:
+    """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
+    teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
+    if not teams:
+        return category
+    return f"{category} (stamphog approves these paths only for authors on {', '.join(teams)})"
 
 
 # ── Pipeline ─────────────────────────────────────────────────────
@@ -218,6 +244,9 @@ class Pipeline:
         # git tree. The manifest scripts scan reads file text from git, so it is skipped there. That
         # can only miss a deny, never add one, and the sandbox review runs the scan again.
         self.checkout = checkout
+        # Every GitHub team the author is on, set by the hosted runtime because the sandbox holds no
+        # token. None means a local run, which asks GitHub per team instead.
+        self.author_team_slugs: set[str] | None = None
         self._wait_refetched_pr = False
         self.pr: PRData | None = None
         self.provenance: CommitProvenance | None = None
@@ -231,6 +260,8 @@ class Pipeline:
         self._diff_path: Path | None = None
         self.gate_results: list[GateResult] = []
         self.reviewer_output: dict | None = None
+        # Empty until an LLM reviewer starts, so a gate-only verdict names no engine.
+        self.reviewer_engine = ""
         self.final_verdict: str = ""
 
     def run(self) -> str:
@@ -407,7 +438,10 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
+        deny = detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations)
+        exception_lifted = bool(POLICY.deny_exceptions) and (
+            detect_deny_categories(pr.deny_paths, ignored_files=safe_migrations, apply_exceptions=False) != deny
+        )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
@@ -419,6 +453,13 @@ class Pipeline:
         )
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+        denied_before_exemptions = len(deny)
+        deny = [
+            category
+            for category in deny
+            if not any(self._author_on_team(team) for team in DENY_EXEMPT_AUTHOR_TEAMS.get(category, ()))
+        ]
+        owner_exempted = len(deny) < denied_before_exemptions
         title_flags = [
             c
             for c in detect_title_scrutiny_flags(pr.title)
@@ -430,8 +471,16 @@ class Pipeline:
         # Both checks matter: has_dependency_changes catches lockfile-paired
         # manifests, dependency_manifests_without_lockfile catches the rest
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
-        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths) and not dep_manifests
-        is_test = test_only(categories)
+        # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
+        # so without this it rides the allow-list to a T0 approval with no reviewer.
+        allow_only = (
+            is_allow_listed_only(file_paths)
+            and not has_dependency_changes(file_paths)
+            and not dep_manifests
+            and not owner_exempted
+            and not exception_lifted
+        )
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
@@ -487,12 +536,18 @@ class Pipeline:
             "review_trigger": self.review_trigger,
         }
 
+    def _author_on_team(self, team_slug: str) -> bool:
+        if self.author_team_slugs is not None:
+            return team_slug in self.author_team_slugs
+        return check_team_membership(self.repo.split("/")[0], self.pr.author, team_slug)
+
     def _summarize_assurance(self) -> dict:
         """Deterministic pre-digest of review state for the TRUSTED prompt block.
 
-        Derived only from GitHub review metadata (states, head-ness) — never
-        author-controlled text — so the reviewer gets a trustworthy at-a-glance
-        summary of who has actually vouched for the current head.
+        Derived only from GitHub review metadata (states, head-ness) and the
+        hosted server's external review evidence — never author-controlled text —
+        so the reviewer gets a trustworthy at-a-glance summary of who has
+        actually vouched for the current head.
         """
         pr = self.pr
         # Exclude the author's own reviews: an author commenting on or replying
@@ -528,6 +583,9 @@ class Pipeline:
             "head_commented": len(head_commented_users),
             "unresolved_threads": unresolved_threads,
             "discussion": len(pr.discussion),
+            # A completed external review of this head counts like a current-head review. Its
+            # published findings are review threads, so unresolved_threads above already holds them.
+            "head_review_evidence": pr.completed_review_evidence(),
         }
 
     def _maybe_compute_familiarity(self) -> None:
@@ -617,12 +675,13 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
+        matches = ", ".join(_describe_deny_category(c) for c in deny)
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
             risky_names = ", ".join(manifest_basenames(risky))
-            return False, f"matches: {', '.join(deny)} (scripts/hooks changed in {risky_names})"
+            return False, f"matches: {matches} (scripts/hooks changed in {risky_names})"
         if deny:
-            return False, f"matches: {', '.join(deny)}"
+            return False, f"matches: {matches}"
         return True, "no deny categories matched"
 
     def _summarize_ownership(self) -> str:
@@ -637,8 +696,7 @@ class Pipeline:
         author = self.pr.author
         author_teams = []
         for team_raw in teams:
-            team_slug = team_raw.split("/")[-1]
-            if check_team_membership(author, team_slug):
+            if self._author_on_team(team_raw.split("/")[-1]):
                 author_teams.append(team_raw)
 
         parts = []
@@ -653,7 +711,7 @@ class Pipeline:
             parts.append(f"author {author} is on {', '.join(author_teams)}")
         elif teams:
             parts.append(f"author {author} is not on any owning team")
-        if ownership["cross_team"]:
+        if ownership.get("cross_team"):
             parts.append("cross-team change")
 
         self.classification["ownership_summary"] = "; ".join(parts)
@@ -857,8 +915,9 @@ class Pipeline:
                     print(
                         _warn(
                             "  This is an LLM backend failure (credentials, credit, or outage), "
-                            "not a verdict on the PR. Check the STAMPHOG_ANTHROPIC_API_KEY "
-                            "secret (or local ANTHROPIC_API_KEY)."
+                            "not a verdict on the PR. Check the ai-gateway token and the reviewer "
+                            "model's allowlist (or the local OPENAI_API_KEY, or ANTHROPIC_API_KEY "
+                            "with STAMPHOG_REVIEWER_ENGINE=claude)."
                         )
                     )
                     self.reviewer_output = {
@@ -888,6 +947,17 @@ class Pipeline:
 
         raise AssertionError("review retry loop exhausted without a verdict")
 
+    def _new_reviewer(self, explore_root: Path | None) -> "Reviewer":
+        self.reviewer_engine = reviewer_engine()
+        # Deferred so the gate-only pre-check can import this module where the LLM SDKs are absent.
+        if self.reviewer_engine == CLAUDE_ENGINE:
+            from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+            return Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+        from openai_reviewer import OpenAIReviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
+
+        return OpenAIReviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+
     def _llm_review(self, gate_verdict: str) -> None:
         print(f"\n{_bold('LLM Review')}")
         # Outside the retry loop: a diff-write hiccup must not masquerade as a
@@ -900,12 +970,10 @@ class Pipeline:
         }
 
         print(_dim("  Calling reviewer..."))
-        # Deferred so the gate-only pre-check can import this module where claude_agent_sdk is absent.
-        from reviewer import Reviewer  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         try:
             with self._pr_head_worktree() as explore_root:
-                reviewer = Reviewer(REPO_ROOT, explore_root=explore_root, verbose=self.verbose)
+                reviewer = self._new_reviewer(explore_root)
                 reviewer_unavailable = self._run_reviewer_with_retries(reviewer, gate_context, diff_path)
         except WorktreeUnavailableError as exc:
             reviewer_unavailable = True
@@ -1004,6 +1072,9 @@ class Pipeline:
                 "stamphog_llm_reasoning": (self.reviewer_output or {}).get("reasoning", ""),
                 "stamphog_llm_risk": (self.reviewer_output or {}).get("risk", ""),
                 "stamphog_llm_issues": (self.reviewer_output or {}).get("issues", []),
+                "stamphog_llm_facts_summary": facts_summary((self.reviewer_output or {}).get("facts")),
+                "stamphog_reviewer_engine": self.reviewer_engine,
+                **_llm_usage_properties(self.reviewer_output),
             },
         )
 
@@ -1038,6 +1109,8 @@ class Pipeline:
         thumbs = sorted(
             {_sanitize_untrusted(r["user"], max_len=50) for r in self.pr.pr_reactions if r.get("emoji") == "👍"}
         )
+        for completed_review in assurance.get("head_review_evidence") or []:
+            bullets.append(f"{describe_review_evidence(completed_review)}.")
         if head_reviewers:
             bullets.append(f"{', '.join(head_reviewers)} reviewed the current head.")
         elif thumbs:

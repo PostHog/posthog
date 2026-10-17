@@ -4,8 +4,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
 
 _DOCS_URL = "https://sourcegraph.com/docs/analytics/api"
 
-# Table-level descriptions only: Sourcegraph doesn't publish the CSV column schema for these
-# reports, so column descriptions are left to the LLM enrichment pass (which receives the
+# Table-level descriptions only, except for the user registry: Sourcegraph doesn't publish the
+# CSV column schema for the usage reports, so their column descriptions are left to the LLM enrichment pass (which receives the
 # docs_url below) rather than curated from guesses.
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "usage_by_user": {
@@ -27,5 +27,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
     "credits": {
         "description": "Credit bucket allocations and consumption for the Sourcegraph instance, filtered by each bucket's active period.",
         "docs_url": _DOCS_URL,
+    },
+    "user_registry": {
+        "description": "Current snapshot of the Sourcegraph instance's user registry, one row per user.",
+        "docs_url": _DOCS_URL,
+        "columns": {
+            "instance_user_id": "The numeric ID assigned to the user by the Sourcegraph instance.",
+            "service_account": "Whether the user is a service account (true or false).",
+            "site_admin": "Whether the user is a site administrator (true or false).",
+        },
     },
 }

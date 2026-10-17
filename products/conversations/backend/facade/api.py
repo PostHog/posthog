@@ -27,8 +27,10 @@ from posthog.ingress.contracts import DeliveryOwnership, WebhookDelivery
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
+from posthog.slack.identity import resolve_slack_profile_by_email
 from posthog.temporal.common.client import sync_connect
 
+from products.conversations.backend import role_sla
 from products.conversations.backend.channel_summary_ids import build_channel_summary_workflow_id
 from products.conversations.backend.facade.types import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
@@ -41,7 +43,9 @@ from products.conversations.backend.facade.types import (
     EmailThreadParticipantSummary as EmailThreadParticipantSummary,
     PublicHumanReplies as PublicHumanReplies,
     ResolvedTicketRevision as ResolvedTicketRevision,
+    RoleSlaBreach as RoleSlaBreach,
     SupportChannel as SupportChannel,
+    SupportSlackSender as SupportSlackSender,
     SupportTicketMessage as SupportTicketMessage,
     TicketSummary as TicketSummary,
 )
@@ -58,7 +62,10 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import WORKFLOW_AUTHOR_TYPE
 from products.conversations.backend.services.messages import public_human_ticket_replies
 from products.conversations.backend.slack import get_slack_client
-from products.conversations.backend.support_slack import get_support_slack_bot_token
+from products.conversations.backend.support_slack import (
+    get_support_slack_bot_token,
+    supporthog_lacks_custom_identity_scope,
+)
 from products.conversations.backend.support_slack_channels import (
     SupportSlackChannelsUnavailable as SupportSlackChannelsUnavailable,
     SupportSlackNotConfigured as SupportSlackNotConfigured,
@@ -105,6 +112,14 @@ class SupportMessageSendError(Exception):
         super().__init__(code)
         self.code = code
         self.retry_after = retry_after
+
+
+class SupportSenderIdentityUnavailable(Exception):
+    """This SupportHog install can't post under a name and avatar other than the bot's own.
+
+    Slack only grants scopes at install time, so an install authorized before
+    ``chat:write.customize`` was requested needs an admin to reconnect.
+    """
 
 
 def accept_github_event(delivery: WebhookDelivery) -> None:
@@ -305,9 +320,61 @@ def list_support_bot_channels(team_id: int, *, members_only: bool = False) -> li
     return [SupportChannel(id=c["id"], name=c["name"], is_member=c["is_member"]) for c in channels]
 
 
-def post_support_message(team_id: int, channel_id: str, text: str) -> str:
+def _message_identity_kwargs(team: Team, sender: SupportSlackSender | None) -> dict[str, Any]:
+    """``chat.postMessage`` overrides for the name and avatar a message appears under."""
+    if sender is not None:
+        # The bot icon next to a person's name would contradict it, so it is not a fallback.
+        return {"username": sender.name, **({"icon_url": sender.icon_url} if sender.icon_url else {})}
+
+    kwargs: dict[str, Any] = {}
+    support_settings = team.conversations_settings or {}
+    if bot_display_name := support_settings.get("slack_bot_display_name"):
+        kwargs["username"] = bot_display_name
+    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
+        kwargs["icon_url"] = bot_icon_url
+    return kwargs
+
+
+def resolve_support_slack_sender(team_id: int, email: str) -> SupportSlackSender | None:
+    """The Slack name and avatar of the workspace member with this email, or ``None`` when
+    the email matches no Slack user.
+
+    Lets a caller post as a teammate's profile rather than the bot's; the message is still
+    a bot message, Slack only renders it under that name and avatar.
+
+    Raises :class:`SupportSlackNotConfigured` when the bot isn't connected, and
+    :class:`SupportSenderIdentityUnavailable` when the install can't post under a custom
+    identity at all — resolving a profile it could never post under only produces messages
+    Slack rejects one channel at a time.
+    """
+    try:
+        team = Team.objects.get(id=team_id)
+        client = get_slack_client(team)
+    except (Team.DoesNotExist, ValueError):
+        raise SupportSlackNotConfigured()
+
+    if supporthog_lacks_custom_identity_scope(team):
+        raise SupportSenderIdentityUnavailable()
+
+    profile = resolve_slack_profile_by_email(client, email, workspace=client.workspace_id)
+    if not profile or not profile.get("name"):
+        return None
+    return SupportSlackSender(name=str(profile["name"]), icon_url=str(profile.get("avatar") or ""))
+
+
+def post_support_message(
+    team_id: int,
+    channel_id: str,
+    text: str,
+    *,
+    sender: SupportSlackSender | None = None,
+) -> str:
     """Post ``text`` to a Slack channel as the SupportHog bot, applying the team's
     configured bot display name and icon. Returns the posted message's Slack ts.
+
+    ``sender`` overrides that identity for this message only — Slack renders it under the
+    given name and avatar (needs the ``chat:write.customize`` scope), which is how a
+    message can look like it comes from a teammate instead of the bot.
 
     Raises :class:`SupportSlackNotConfigured` when the bot isn't connected and
     :class:`SupportMessageSendError` when the post fails.
@@ -318,12 +385,7 @@ def post_support_message(team_id: int, channel_id: str, text: str) -> str:
     except (Team.DoesNotExist, ValueError):
         raise SupportSlackNotConfigured()
 
-    message_kwargs: dict[str, Any] = {}
-    support_settings = team.conversations_settings or {}
-    if bot_display_name := support_settings.get("slack_bot_display_name"):
-        message_kwargs["username"] = bot_display_name
-    if bot_icon_url := support_settings.get("slack_bot_icon_url"):
-        message_kwargs["icon_url"] = bot_icon_url
+    message_kwargs = _message_identity_kwargs(team, sender)
 
     try:
         response = client.chat_postMessage(channel=channel_id, text=text, **message_kwargs)
@@ -938,6 +1000,12 @@ def _email_thread_addresses(value: object) -> list[EmailThreadAddress]:
         if isinstance(email, str) and isinstance(name, str):
             addresses.append(EmailThreadAddress(name=name, email=email))
     return addresses
+
+
+def list_role_sla_breaches(
+    team_id: int, user_id: int, *, due_after: datetime, due_before: datetime
+) -> list[RoleSlaBreach]:
+    return role_sla.list_role_sla_breaches(team_id, user_id, due_after=due_after, due_before=due_before)
 
 
 def list_account_email_thread_messages(

@@ -76,6 +76,7 @@ from posthog.tasks.uploaded_media import sweep_abandoned_media_uploads_task
 from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credentials
 from posthog.utils import get_crontab, get_instance_region
 
+from products.account_audits.backend.facade.tasks import reconcile_account_audits
 from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -84,13 +85,16 @@ from products.approvals.backend.tasks import (
     sync_experiment_approval_policies,
     validate_pending_change_requests,
 )
-from products.canvas.backend.tasks import cleanup_canvas_builds, sweep_canvas_builds
+from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
 from products.conversations.backend.tasks.email import flush_pending_email_replies
-from products.conversations.backend.tasks.maintenance import wake_snoozed_tickets
+from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
-from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
+from products.data_modeling.backend.facade.tasks import (
+    cleanup_deleted_saved_query_nodes,
+    cleanup_expired_test_saved_queries,
+)
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
     send_external_data_failure_digest_catchup,
@@ -133,11 +137,9 @@ from products.streamlit_apps.backend.facade.api import (
 from products.surveys.backend.facade.tasks import sweep_expired_desktop_feedback_media_task
 from products.tasks.backend.facade.tasks import (
     bake_dev_stack_image_task,
-    reconcile_loop_trigger_schedules_task,
     refresh_dev_stack_image_task,
     refresh_stale_sandbox_custom_images_task,
     sweep_inactive_tasks_task,
-    sweep_loop_task_retention_task,
 )
 from products.visual_review.backend.facade.tasks import (
     send_visual_review_debt_digests,
@@ -152,7 +154,8 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import (
 )
 from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
-    poll_ses_account_reputation,
+    poll_ses_account_enforcement,
+    poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
@@ -266,6 +269,9 @@ def add_periodic_task_with_expiry(
 
 
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
+    add_periodic_task_with_expiry(
+        sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")
     # Short-interval heartbeat tasks (<60s) use intervals since cron minimum is 1 minute.
@@ -293,8 +299,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="query performance heartbeat",
     )
 
+    # Just after the hour. The task then starts each team at its own point in the next ten minutes.
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="2"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
     )
@@ -469,14 +476,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh signals repository activity",
     )
 
-    # Loop task retention sweep - daily at 4:30 AM
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(hour="4", minute="30"),
-        sweep_loop_task_retention_task.s(),
-        name="sweep loop task retention",
-    )
-
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="15"),
@@ -484,22 +483,21 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="archive inactive tasks",
     )
 
-    # Loop trigger schedule reconciliation - every 10 minutes, re-syncs schedules
-    # stranded pending/failed by a transient Temporal outage during create/edit.
-    add_periodic_task_with_expiry(
-        sender,
-        crontab(minute="*/10"),
-        reconcile_loop_trigger_schedules_task.s(),
-        name="reconcile loop trigger schedules",
-    )
-
     # AWS SES account reputation → gauges for team-facing alerting (charts alerts/specs/ses.yaml)
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*/10"),
-        poll_ses_account_reputation.s(),
-        name="poll SES account reputation",
+        poll_ses_account_enforcement.s(),
+        name="poll SES account enforcement status",
         expires_seconds=10 * 60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="20"),
+        poll_ses_reputation_findings.s(),
+        name="poll SES reputation findings",
+        expires_seconds=30 * 60,
     )
 
     # Pause the email of any workflow whose complaint or hard bounce rate breaches a threshold
@@ -922,7 +920,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="0"),
+        crontab(hour="*", minute="37"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
     )
@@ -1080,12 +1078,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="cleanup expired test saved queries",
     )
 
+    sender.add_periodic_task(
+        crontab(hour="5", minute="30"),
+        cleanup_deleted_saved_query_nodes.s(),
+        name="cleanup deleted saved query nodes",
+    )
+
     # Reopen snoozed conversation tickets whose snooze period has expired
     add_periodic_task_with_expiry(
         sender,
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="15"),
+        purge_deleted_tickets.s(),
+        name="purge soft-deleted conversation tickets",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)

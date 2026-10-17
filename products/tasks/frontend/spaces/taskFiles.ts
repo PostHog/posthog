@@ -1,41 +1,31 @@
-import { combineUrl } from 'kea-router'
-
-import { urls } from 'scenes/urls'
+import {
+    ArtifactFile,
+    collectRunArtifacts,
+    groupArtifactVersions,
+    taskArtifactPath,
+} from 'products/posthog_ai/frontend/api/taskArtifacts'
 
 import { TaskRunArtifactResponseApi } from '../generated/api.schemas'
 
 export interface TaskFile {
-    name: string
+    file: ArtifactFile
+    /** Opens the session's Artifacts tab with this file selected. */
     url: string
 }
 
 export const VISIBLE_FILE_COUNT = 2
 
-function isAgentFile(artifact: TaskRunArtifactResponseApi): boolean {
-    return (
-        !!artifact.id &&
-        !!artifact.storage_path &&
-        (artifact.type === 'output' || artifact.type === 'artifact') &&
-        artifact.source === 'agent_output' &&
-        !artifact.dismissed_at
-    )
+interface RunWithArtifacts {
+    id: string
+    artifacts?: readonly TaskRunArtifactResponseApi[] | null
 }
 
-export function taskFiles(
-    taskId: string,
-    artifacts: readonly TaskRunArtifactResponseApi[] | null | undefined
-): TaskFile[] {
-    const newestByName = new Map<string, string>()
-    for (const artifact of artifacts ?? []) {
-        if (!isAgentFile(artifact)) {
-            continue
-        }
-        const seen = newestByName.get(artifact.name)
-        if (seen === undefined || artifact.uploaded_at > seen) {
-            newestByName.set(artifact.name, artifact.uploaded_at)
-        }
-    }
-    return [...newestByName]
-        .sort(([, a], [, b]) => b.localeCompare(a))
-        .map(([name]) => ({ name, url: combineUrl(urls.aiTask(taskId), { artifact: name }).url }))
+/**
+ * The files the agent handed back on the run, newest first, one per name. It uses the Artifacts tab's own
+ * rules, so a chip always opens a file the tab lists. Cited PostHog objects stay out, like PostHog Desktop.
+ */
+export function taskFiles(taskId: string, run: RunWithArtifacts | null | undefined): TaskFile[] {
+    return groupArtifactVersions(collectRunArtifacts([run]))
+        .filter((file) => file.latest.type !== 'reference')
+        .map((file) => ({ file, url: taskArtifactPath(taskId, file.key) }))
 }

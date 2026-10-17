@@ -21,7 +21,7 @@ import {
     ERROR_TRACKING_TRIGGERS,
 } from './alertWizardConfig'
 
-const HOG_FUNCTION_FILTER_LIST = ERROR_TRACKING_SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
+const HOG_FUNCTION_FILTER_LIST = ERROR_TRACKING_SUB_TEMPLATE_IDS.map((id) => getFiltersFromSubTemplateId(id)).filter(
     (f) => !!f
 ) as CyclotronJobFiltersType[]
 
@@ -54,7 +54,7 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                 }}
                 onSwitchToTraditional={() => {
                     posthog.capture('error_tracking_alert_creation_switched_to_traditional', {
-                        source: 'wizard',
+                        ui_source: 'wizard',
                     })
                     setAlertCreationView(AlertCreationView.Traditional)
                     resetWizard()
@@ -68,7 +68,9 @@ function ErrorTrackingAlertingInner(): JSX.Element {
             <HogFunctionTemplateList
                 type="destination"
                 subTemplateIds={subTemplateIds}
-                getConfigurationOverrides={(id) => (id ? { filters: getFiltersFromSubTemplateId(id) } : undefined)}
+                getConfigurationOverrides={(id, subTemplate) =>
+                    id ? { filters: getFiltersFromSubTemplateId(id, subTemplate) } : undefined
+                }
                 extraControls={
                     <LemonButton
                         type="secondary"
@@ -102,7 +104,7 @@ function ErrorTrackingAlertingInner(): JSX.Element {
                     size="small"
                     onClick={() => {
                         posthog.capture('error_tracking_alert_creation_started', {
-                            source: 'wizard_button',
+                            ui_source: 'wizard_button',
                         })
                         setAlertCreationView(AlertCreationView.Wizard)
                     }}

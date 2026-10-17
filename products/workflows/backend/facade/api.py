@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import Any
 from uuid import UUID
 
@@ -9,18 +9,27 @@ from posthog.ingress.contracts import WebhookDelivery
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.workflows.backend.facade.contracts import (
+    CohortDependentWorkflow,
     EmailDomainDnsRecord,
     EmailDomainVerification,
     RecentWorkflow,
     TierDecision,
     TwilioAccount,
     TwilioPhoneNumber,
+    WorkflowAccessDenied,
     WorkflowActivitySummary,
+    WorkflowArchived,
+    WorkflowNotFound,
     WorkflowSummary,
     WorkflowTaskDailyLimits,
+    WorkflowVisionScanDailyLimits,
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.services.batch_jobs import create_batch_job
+from products.workflows.backend.services.default_email_sender import (
+    clear_default_email_sender,
+    set_default_email_sender_if_unset,
+)
 from products.workflows.backend.services.email_sending_controls import (
     ensure_workflows_config,
     get_email_sending_state,
@@ -29,6 +38,7 @@ from products.workflows.backend.services.email_sending_controls import (
     unsuspend_email_sending,
 )
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
+from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
 from products.workflows.backend.services.template_input_usage import (
     filter_hog_flow_references_by_access_level,
     get_hog_flows_referencing_template_input_keys,
@@ -41,7 +51,11 @@ from products.workflows.backend.utils.email_sending_tiers import (
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 __all__ = [
+    "WorkflowAccessDenied",
+    "WorkflowArchived",
+    "WorkflowNotFound",
     "MIN_EMAIL_SENDING_TIER",
+    "clear_default_email_sender",
     "compute_next_occurrences",
     "create_batch_job",
     "ensure_workflows_config",
@@ -49,24 +63,14 @@ __all__ = [
     "get_email_sending_state",
     "get_email_sending_tier_limits",
     "get_hog_flows_referencing_template_input_keys",
+    "list_owned_workflow_health",
     "max_email_sending_tier",
+    "set_default_email_sender_if_unset",
     "set_email_sending_tier",
     "suspend_email_sending",
     "unsuspend_email_sending",
     "validate_rrule",
 ]
-
-
-class WorkflowNotFound(Exception):
-    pass
-
-
-class WorkflowAccessDenied(Exception):
-    pass
-
-
-class WorkflowArchived(Exception):
-    pass
 
 
 def search_workflows(
@@ -89,6 +93,7 @@ def search_workflows(
     if include_archived:
         statuses.append(HogFlow.State.ARCHIVED)
     queryset = access_control.filter_queryset_by_access_level(
+        # nosemgrep: environment-model-scoped-by-project -- keeps the project-wide scope core /api/search used for workflows before the facade move; owners decide whether search narrows to one environment
         HogFlow.objects.filter(team__project_id=project_id, status__in=statuses)
     )
 
@@ -155,6 +160,20 @@ def get_workflow_task_daily_limits(*, team_id: int) -> WorkflowTaskDailyLimits:
     )
 
 
+def get_workflow_vision_scan_daily_limits(*, team_id: int) -> WorkflowVisionScanDailyLimits:
+    config = (
+        TeamWorkflowsConfig.objects.filter(team_id=team_id)
+        .only("replay_vision_scan_rate_limit_per_day", "replay_vision_scan_team_rate_limit_per_day")
+        .first()
+    )
+    if config is None:
+        return WorkflowVisionScanDailyLimits(per_workflow=None, per_team=None)
+    return WorkflowVisionScanDailyLimits(
+        per_workflow=config.replay_vision_scan_rate_limit_per_day,
+        per_team=config.replay_vision_scan_team_rate_limit_per_day,
+    )
+
+
 def accept_github_event(delivery: WebhookDelivery) -> None:
     """The inbound GitHub App webhook enters workflows here, so its consumer needs no internal import."""
     # Deferred to keep the Kafka producer off the facade import path.
@@ -169,45 +188,6 @@ def accept_ses_event(delivery: WebhookDelivery) -> None:
     from products.workflows.backend.services.ses_tenant_events import handle_ses_tenant_event  # noqa: PLC0415
 
     handle_ses_tenant_event(delivery)
-
-
-def set_workflow_enabled(*, team_id: int, user_id: int, workflow_id: UUID, enabled: bool) -> str:
-    """Flip a workflow between ``active`` and ``draft`` as ``user_id`` and return the new status.
-
-    The same transition the lifecycle API tools make (enable is ``active``, disable is
-    ``draft``); the scheduler fires only active workflows, so a disabled one stops at its
-    next occurrence and keeps its schedule for when it is enabled again. Archived workflows
-    are left alone. The user must hold editor access to the workflow, as in the API.
-    """
-    from posthog.models.user import User  # noqa: PLC0415 — keeps the user model off the facade import path
-
-    from products.workflows.backend.presentation.views.hog_flow import (  # noqa: PLC0415 - heavy DRF import
-        HogFlowSerializer,
-    )
-
-    hog_flow = HogFlow.objects.select_related("team").filter(team_id=team_id, id=workflow_id).first()
-    if hog_flow is None:
-        raise WorkflowNotFound()
-    if hog_flow.status == HogFlow.State.ARCHIVED:
-        raise WorkflowArchived()
-    user = User.objects.get(id=user_id)
-    if not UserAccessControl(user=user, team=hog_flow.team).check_access_level_for_object(hog_flow, "editor"):
-        raise WorkflowAccessDenied()
-    target = HogFlow.State.ACTIVE if enabled else HogFlow.State.DRAFT
-    if hog_flow.status != target:
-        if enabled:
-            serializer = HogFlowSerializer(
-                hog_flow,
-                data={"status": target},
-                partial=True,
-                context={"team_id": team_id, "get_team": lambda: hog_flow.team},
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-        else:
-            hog_flow.status = target
-            hog_flow.save(update_fields=["status", "updated_at"])
-    return str(hog_flow.status)
 
 
 def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str, str]:
@@ -258,6 +238,20 @@ def get_active_workflows_using_integration(*, team_id: int, integration_id: int)
     return [
         WorkflowSummary(id=str(flow.id), name=flow.name or "", status=flow.status)
         for flow in get_active_hog_flows_using_integration(team_id=team_id, integration_id=integration_id)
+    ]
+
+
+def get_active_workflows_using_realtime_cohort(
+    *, team_id: int, cohort_ids: Collection[int]
+) -> list[CohortDependentWorkflow]:
+    # Deferred to keep the cdp filter compiler, and the HogQL schema it loads, off the django.setup() path.
+    from products.workflows.backend.services.cohort_usage import (  # noqa: PLC0415
+        get_active_hog_flows_using_realtime_cohort,
+    )
+
+    return [
+        CohortDependentWorkflow(id=str(flow.id), name=flow.name or "", status=flow.status)
+        for flow in get_active_hog_flows_using_realtime_cohort(team_id=team_id, cohort_ids=cohort_ids)
     ]
 
 

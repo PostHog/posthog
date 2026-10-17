@@ -60,11 +60,13 @@ CREATE TABLE IF NOT EXISTS {table_name}
 ) ENGINE = {engine}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, type, timestamp)
-TTL toDateTime(timestamp) + INTERVAL 90 DAY
+{ttl}
 """.format(
         table_name=TABLE_NAME,
         columns=INGESTION_WARNINGS_V2_COLUMNS,
         engine=MergeTreeEngine(TABLE_NAME, replication_scheme=ReplicationScheme.REPLICATED),
+        # ClickHouse applies the TTL on the real clock, so it deletes test rows that have fixed timestamps.
+        ttl="" if settings.TEST else "TTL toDateTime(timestamp) + INTERVAL 90 DAY",
     )
 
 

@@ -6,46 +6,59 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { navigateToHref } from 'lib/utils/navigateToHref'
-import { getLocalTimeZone } from 'lib/utils/timezones'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { TeamType, UserType } from '~/types'
+import { recentItemsModel } from '~/models/recentItemsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { TeamPublicType, TeamType, UserType } from '~/types'
 
-import { signalsReportsForYouRetrieve } from 'products/signals/frontend/generated/api'
-import { SignalReport } from 'products/signals/frontend/inbox/types'
-import { todayBriefingRefreshCreate, todayBriefingRetrieve } from 'products/today/frontend/generated/api'
-import type { BriefingApi, BriefingItemApi } from 'products/today/frontend/generated/api.schemas'
-
-import type { TeamPublicType } from '../../../types'
+import { signalsReportsForYouRetrieve, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
 import {
-    TodayItemOpenSurface,
-    briefingDayKey,
-    hasBriefingText,
-    isBriefingSettled,
-    isExternalHref,
-    itemHref,
-} from './todayBriefingItems'
-import { SAMPLE_BRIEFING, parseSampleParam, sampleTopReports } from './todaySampleReports'
-import { TodayBriefingSegment, briefingForReports } from './todaySignalReports'
+    TodayReportList,
+    TodayReportSnapshot,
+    captureTodayReportOpened,
+    captureTodayReportsImpressed,
+} from 'products/signals/frontend/inbox/inboxAnalytics'
+import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SignalReport } from 'products/signals/frontend/inbox/types'
+import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
+import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
+
+import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
+import { EXPLORE_ITEMS, type TodayExploreItem } from './todayExploreItems'
+import {
+    VISIBLE_ROWS,
+    forYouRows,
+    reportRows,
+    rowReportId,
+    type TodayForYouRow,
+    type TodayForYouRows,
+} from './todayForYouRows'
+import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { recentObjectsForHome } from './todayRecentObjects'
+import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
+import type { TodayReportState } from './todayReportState'
+import { isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
+import { todayVerdictLogic } from './todayVerdictLogic'
 
 export const TOP_REPORT_COUNT = 5
+export const MORE_REPORTS_PAGE_SIZE = 20
+export const RECENT_OBJECT_COUNT = 4
+const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
-export const BRIEFING_POLL_MS = 10_000
-// The agent run's budget is 30 minutes (RUN_TIMEOUT in logic/generate.py). Stop asking a little after that.
-const MAX_BRIEFING_POLLS = 190
 
 /** Where a report was opened from, sent with the `today report opened` event. */
-export type TodayReportOpenSource = 'briefing' | 'chip' | 'sidebar'
+export type TodayReportOpenSource = 'list' | 'more'
 
-/** The count behind the Inbox link: reports for the person beyond the shown ones, or open in the project. */
-export interface TodayInboxMore {
-    count: number
-    scope: 'for_you' | 'project'
-}
+/** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
+export type TodayAskSource = 'walk_through' | 'report_page'
+
+export type TodayList = 'for_you' | 'recents'
 
 export interface TodayReports {
     results: SignalReport[]
@@ -53,7 +66,12 @@ export interface TodayReports {
     count: number
 }
 
-const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten']
+export interface TodayMoreReports {
+    exclude: string[]
+    results: SignalReport[]
+    count: number
+    hasMore: boolean
+}
 
 /** The report a Today report page shows, read from a path such as `/project/1/home/reports/abc`. */
 export function reportIdFromPath(pathname: string): string | null {
@@ -61,8 +79,8 @@ export function reportIdFromPath(pathname: string): string | null {
     return match ? decodeURIComponent(match[1]) : null
 }
 
-export function countWord(count: number): string {
-    return COUNT_WORDS[count] ?? String(count)
+export function isTodayPath(pathname: string): boolean {
+    return /^\/(home(\/reports\/[^/]+)?\/?)?$/.test(removeProjectIdIfPresent(pathname))
 }
 
 export function greetingForHour(hour: number, name: string | null | undefined): string {
@@ -79,51 +97,88 @@ export function greetingForHour(hour: number, name: string | null | undefined): 
     return `Evening${suffix}`
 }
 
-export function reportSummaryForHour(hour: number, count: number): string {
-    if (count === 0) {
-        return 'Nothing needs your attention'
+/**
+ * The page shows the report as it was when it loaded, but the action-or-answer framing must follow its current
+ * state: somebody can resolve the report or open a PR on it meanwhile. A failed refetch fails closed to answering.
+ */
+async function currentReportContext(
+    report: SignalReport,
+    projectId: number | string
+): Promise<{ report: SignalReport; canAct: boolean }> {
+    let current: SignalReport | null = null
+    try {
+        // The generated type is wider than the handwritten SignalReport the Inbox helpers take. See loadTopReports.
+        current = (await signalsReportsRetrieve(String(projectId), report.id)) as unknown as SignalReport
+    } catch {
+        current = null
     }
-    const reports = `${countWord(count)} ${count === 1 ? 'report' : 'reports'}`
-    const verb = count === 1 ? 'needs' : 'need'
-    if (hour < 5) {
-        return `${reports} ${count === 1 ? 'is' : 'are'} ready for tomorrow`
+    if (current && isActionCapableReport(report) && !isActionCapableReport(current)) {
+        lemonToast.info('This report can no longer take actions, so PostHog AI will answer instead.')
     }
-    if (hour < 12) {
-        return `${reports} ${verb} your attention this morning`
+    return { report: current ?? report, canAct: !!current && isActionCapableReport(current) }
+}
+
+function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
+    return {
+        reportId: report.id,
+        priority: report.priority ?? null,
+        hasPr: reportPullRequests(report).length > 0,
+        signalCount: report.signal_count,
+        sourceProducts: report.source_products ?? [],
     }
-    if (hour < 17) {
-        return `${reports} ${verb} your attention this afternoon`
-    }
-    return `${reports} still ${verb} your attention`
+}
+
+interface TodayRankedReport {
+    report: TodayReportSnapshot
+    rank: number
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayLogicValues {
+    recents: FileSystemEntry[] // recentItemsModel
+    recentsHasLoaded: boolean // recentItemsModel
     currentProjectId: number | string // teamLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    doneHighlightKeys: string[] // todayHighlightsLogic
+    forYouHighlights: HighlightItemApi[] // todayHighlightsLogic
+    highlights: HighlightsApi | null // todayHighlightsLogic
+    highlightsFailed: boolean // todayHighlightsLogic
+    highlightsLoading: boolean // todayHighlightsLogic
+    highlightsPending: boolean // todayHighlightsLogic
+    highlightsWaitOver: boolean // todayHighlightsLogic
+    reportStateOverrides: Record<string, TodayReportState> // todayVerdictLogic
     user: UserType | null // userLogic
-    briefing: TodayBriefingSegment[][]
-    briefingItems: BriefingItemApi[]
-    briefingPolls: number
-    briefingWaiting: boolean
-    gaveUpWaitingFor: string | null
+    askingAi: boolean
+    canLoadMoreReports: boolean
+    currentMoreReports: TodayMoreReports | null
+    expandedReportRows: Record<string, boolean>
+    exploreItems: TodayExploreItem[]
+    forYouCanShowLess: boolean
+    forYouCanShowMore: boolean
+    forYouFailedNote: string | null
+    forYouOpenCount: number
+    forYouReady: boolean
+    forYouRows: TodayForYouRows
+    forYouVisibleRows: TodayForYouRow[]
     greeting: string
+    homeScrollTop: number | null
     hour: number
-    hoveredItemKey: string | null
-    hoveredReportId: string | null
-    inboxMore: TodayInboxMore | null
+    isNewProject: boolean
+    listExpanded: Record<TodayList, boolean>
+    loadedMoreReports: SignalReport[]
     moreReportCount: number
+    moreReports: TodayMoreReports | null
+    moreReportsInInbox: number
+    moreReportsLoading: boolean
     now: number
-    personalBriefing: BriefingApi | null
-    personalBriefingFailed: boolean
-    personalBriefingLoading: boolean
-    refreshedBriefing: BriefingApi | null
-    refreshedBriefingLoading: boolean
+    recentObjects: FileSystemEntry[]
     reportId: string | null
-    reportSummary: string
+    reportPreviews: Record<string, TodayReportPreview>
     reports: SignalReport[]
+    reportsBroken: boolean
     reportsFailed: boolean
-    showPersonalBriefing: boolean
+    returnFocusReportId: string | null
+    shownReportIds: string[]
     topReports: TodayReports | null
     topReportsLoading: boolean
     useSampleData: boolean
@@ -152,29 +207,39 @@ export interface todayLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
-    askAi: (prompt: string) => {
-        prompt: string
-    }
-    itemOpened: (
-        item: BriefingItemApi,
-        surface: TodayItemOpenSurface
+    loadHighlights: () => any // todayHighlightsLogic
+    askAi: (
+        prompt: string,
+        source: TodayAskSource,
+        report?: SignalReport
     ) => {
-        item: BriefingItemApi
-        surface: TodayItemOpenSurface
+        prompt: string
+        report: SignalReport | undefined
+        source: TodayAskSource
     }
-    loadPersonalBriefing: () => any
-    loadPersonalBriefingFailure: (
+    askAiFinished: () => {
+        value: true
+    }
+    exploreOpened: (
+        product: string,
+        position: number
+    ) => {
+        position: number
+        product: string
+    }
+    loadMoreReports: () => any
+    loadMoreReportsFailure: (
         error: string,
         errorObject?: any
     ) => {
         error: string
         errorObject?: any
     }
-    loadPersonalBriefingSuccess: (
-        personalBriefing: BriefingApi | null,
+    loadMoreReportsSuccess: (
+        moreReports: TodayMoreReports | null,
         payload?: any
     ) => {
-        personalBriefing: BriefingApi | null
+        moreReports: TodayMoreReports | null
         payload?: any
     }
     loadTopReports: () => any
@@ -192,38 +257,6 @@ export interface todayLogicActions {
         topReports: TodayReports
         payload?: any
     }
-    openItem: (
-        item: BriefingItemApi,
-        surface: TodayItemOpenSurface
-    ) => {
-        item: BriefingItemApi
-        surface: TodayItemOpenSurface
-    }
-    openReport: (
-        report: SignalReport,
-        source: TodayReportOpenSource
-    ) => {
-        report: SignalReport
-        source: TodayReportOpenSource
-    }
-    pollBriefing: () => {
-        value: true
-    }
-    refreshBriefing: () => any
-    refreshBriefingFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    refreshBriefingSuccess: (
-        refreshedBriefing: BriefingApi | null,
-        payload?: any
-    ) => {
-        refreshedBriefing: BriefingApi | null
-        payload?: any
-    }
     reportOpened: (
         report: SignalReport,
         source: TodayReportOpenSource
@@ -231,20 +264,37 @@ export interface todayLogicActions {
         report: SignalReport
         source: TodayReportOpenSource
     }
-    setHoveredItemKey: (itemKey: string | null) => {
-        itemKey: string | null
+    retryFailedLoads: () => {
+        value: true
     }
-    setHoveredReportId: (reportId: string | null) => {
+    setHomeScrollTop: (top: number | null) => {
+        top: number | null
+    }
+    setListExpanded: (
+        list: TodayList,
+        expanded: boolean
+    ) => {
+        expanded: boolean
+        list: TodayList
+    }
+    setReturnFocusReportId: (reportId: string | null) => {
         reportId: string | null
     }
     setUseSampleData: (useSampleData: boolean) => {
         useSampleData: boolean
     }
-    stopWaitingForBriefing: (briefingId: string) => {
-        briefingId: string
+    showMoreForYou: () => {
+        value: true
     }
     tick: () => {
         value: true
+    }
+    toggleReportRow: (
+        rowKey: string,
+        reportId: string
+    ) => {
+        reportId: string
+        rowKey: string
     }
 }
 
@@ -254,18 +304,52 @@ export interface todayLogicMeta {
         reportId: (location: { hash: string; pathname: string; search: string }) => string | null
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
-        briefing: (reports: SignalReport[], useSampleData: boolean) => TodayBriefingSegment[][]
         hour: (now: number) => number
         greeting: (hour: number, user: UserType | null) => string
-        reportSummary: (hour: number, reports: SignalReport[]) => string
-        showPersonalBriefing: (personalBriefing: BriefingApi | null, useSampleData: boolean) => boolean
-        inboxMore: (personalBriefing: BriefingApi | null) => TodayInboxMore | null
-        briefingItems: (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean) => BriefingItemApi[]
-        briefingWaiting: (
-            personalBriefing: BriefingApi | null,
-            gaveUpWaitingFor: string | null,
-            refreshedBriefingLoading: boolean
+        recentObjects: (recents: FileSystemEntry[]) => FileSystemEntry[]
+        shownReportIds: (reports: SignalReport[]) => string[]
+        currentMoreReports: (
+            moreReports: TodayMoreReports | null,
+            shownReportIds: string[],
+            useSampleData: boolean
+        ) => TodayMoreReports | null
+        loadedMoreReports: (currentMoreReports: TodayMoreReports | null) => SignalReport[]
+        canLoadMoreReports: (
+            currentMoreReports: TodayMoreReports | null,
+            useSampleData: boolean,
+            moreReportCount: number
         ) => boolean
+        moreReportsInInbox: (currentMoreReports: TodayMoreReports | null) => number
+        forYouRows: (
+            reports: SignalReport[],
+            loadedMoreReports: SignalReport[],
+            forYouHighlights: HighlightItemApi[],
+            doneHighlightKeys: string[],
+            reportStateOverrides: Record<string, TodayReportState>
+        ) => TodayForYouRows
+        reportsBroken: (reportsFailed: boolean, topReports: TodayReports | null) => boolean
+        forYouReady: (
+            topReports: TodayReports | null,
+            reportsFailed: boolean,
+            highlightsPending: boolean,
+            highlightsWaitOver: boolean,
+            forYouRows: TodayForYouRows
+        ) => boolean
+        forYouFailedNote: (reportsBroken: boolean, highlightsFailed: boolean) => string | null
+        forYouOpenCount: (forYouRows: TodayForYouRows) => number
+        forYouVisibleRows: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => TodayForYouRow[]
+        forYouCanShowMore: (
+            forYouRows: TodayForYouRows,
+            listExpanded: Record<TodayList, boolean>,
+            canLoadMoreReports: boolean
+        ) => boolean
+        forYouCanShowLess: (forYouRows: TodayForYouRows, listExpanded: Record<TodayList, boolean>) => boolean
+        isNewProject: (currentTeam: TeamPublicType | TeamType | null, useSampleData: boolean) => boolean
+        exploreItems: (currentTeam: TeamPublicType | TeamType | null) => TodayExploreItem[]
+        reportPreviews: (
+            reports: SignalReport[],
+            loadedMoreReports: SignalReport[]
+        ) => Record<string, TodayReportPreview>
     }
 }
 
@@ -274,21 +358,42 @@ export type todayLogicType = MakeLogicType<todayLogicValues, todayLogicActions, 
 export const todayLogic = kea<todayLogicType>([
     path(['scenes', 'project-homepage', 'today', 'todayLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], teamLogic, ['currentTeam', 'currentProjectId']],
-        actions: [router, ['locationChanged']],
+        values: [
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam', 'currentProjectId'],
+            recentItemsModel,
+            ['recents', 'recentsHasLoaded'],
+            todayHighlightsLogic,
+            [
+                'highlights',
+                'highlightsLoading',
+                'highlightsFailed',
+                'highlightsPending',
+                'highlightsWaitOver',
+                'forYouHighlights',
+                'doneHighlightKeys',
+            ],
+            todayVerdictLogic,
+            ['reportStateOverrides'],
+        ],
+        actions: [router, ['locationChanged'], todayHighlightsLogic, ['loadHighlights']],
     })),
     actions({
-        askAi: (prompt: string) => ({ prompt }),
-        setHoveredReportId: (reportId: string | null) => ({ reportId }),
-        openReport: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
+        // `report` is the report the person reads. Without it, the context is the report list.
+        askAi: (prompt: string, source: TodayAskSource, report?: SignalReport) => ({ prompt, source, report }),
+        askAiFinished: true,
         reportOpened: (report: SignalReport, source: TodayReportOpenSource) => ({ report, source }),
+        toggleReportRow: (rowKey: string, reportId: string) => ({ rowKey, reportId }),
+        exploreOpened: (product: string, position: number) => ({ product, position }),
+        setHomeScrollTop: (top: number | null) => ({ top }),
+        setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
+        setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
+        showMoreForYou: true,
+        retryFailedLoads: true,
         setUseSampleData: (useSampleData: boolean) => ({ useSampleData }),
         tick: true,
-        setHoveredItemKey: (itemKey: string | null) => ({ itemKey }),
-        openItem: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
-        itemOpened: (item: BriefingItemApi, surface: TodayItemOpenSurface) => ({ item, surface }),
-        pollBriefing: true,
-        stopWaitingForBriefing: (briefingId: string) => ({ briefingId }),
     }),
     loaders(({ values }) => ({
         topReports: [
@@ -301,10 +406,20 @@ export const todayLogic = kea<todayLogicType>([
                     if (values.currentProjectId === null) {
                         return { results: [], count: 0 }
                     }
-                    // The person's own reports, ranked and counted the way the Today briefing ranks them.
-                    const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
-                        limit: TOP_REPORT_COUNT,
-                    })
+                    // The person's own reports, ranked and counted.
+                    // A P0 nobody owns belongs to the project, so Today leaves it to the Inbox.
+                    let response
+                    try {
+                        response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                            limit: TOP_REPORT_COUNT,
+                            include_unowned: false,
+                        })
+                    } catch (error) {
+                        if (error instanceof ApiError && error.status === 403) {
+                            return { results: [], count: 0 }
+                        }
+                        throw error
+                    }
                     // Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The
                     // generated row type is wider (string status and priority, read-only arrays), so the cast
                     // goes away when the Inbox moves to generated types.
@@ -312,29 +427,28 @@ export const todayLogic = kea<todayLogicType>([
                 },
             },
         ],
-        personalBriefing: [
-            null as BriefingApi | null,
+        moreReports: [
+            null as TodayMoreReports | null,
             {
-                loadPersonalBriefing: async (): Promise<BriefingApi | null> => {
+                loadMoreReports: async (): Promise<TodayMoreReports | null> => {
                     if (values.currentProjectId === null) {
                         return null
                     }
-                    return await todayBriefingRetrieve(String(values.currentProjectId), {
-                        timezone: getLocalTimeZone(),
+                    const exclude = values.shownReportIds
+                    const loaded = values.loadedMoreReports
+                    const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                        limit: MORE_REPORTS_PAGE_SIZE,
+                        offset: loaded.length,
+                        exclude: exclude.length > 0 ? exclude : undefined,
+                        include_unowned: false,
                     })
-                },
-            },
-        ],
-        refreshedBriefing: [
-            null as BriefingApi | null,
-            {
-                refreshBriefing: async (): Promise<BriefingApi | null> => {
-                    if (values.currentProjectId === null) {
-                        return null
+                    const results = [...loaded, ...(response.results as unknown as SignalReport[])]
+                    return {
+                        exclude,
+                        results,
+                        count: response.count,
+                        hasMore: response.results.length === MORE_REPORTS_PAGE_SIZE && results.length < response.count,
                     }
-                    return await todayBriefingRefreshCreate(String(values.currentProjectId), {
-                        timezone: getLocalTimeZone(),
-                    })
                 },
             },
         ],
@@ -342,11 +456,30 @@ export const todayLogic = kea<todayLogicType>([
     reducers({
         // Turned on with `?sample=1` and kept until `?sample=0`, so the sample survives moving between pages.
         useSampleData: [false, { persist: true }, { setUseSampleData: (_, { useSampleData }) => useSampleData }],
-        hoveredReportId: [
+        // A question about a report waits for the report's current state before PostHog AI opens.
+        askingAi: [false, { askAi: (_, { report }) => !!report, askAiFinished: () => false }],
+        expandedReportRows: [
+            {} as Record<string, boolean>,
+            {
+                toggleReportRow: (state, { rowKey }) => {
+                    const { [rowKey]: open, ...rest } = state
+                    return open ? rest : { ...state, [rowKey]: true }
+                },
+            },
+        ],
+        homeScrollTop: [
+            null as number | null,
+            {
+                setHomeScrollTop: (_, { top }) => top,
+                locationChanged: (top, { pathname }) => (isTodayPath(pathname) ? top : null),
+            },
+        ],
+        returnFocusReportId: [
             null as string | null,
             {
-                setHoveredReportId: (_, { reportId }) => reportId,
-                locationChanged: () => null,
+                setReturnFocusReportId: (_, { reportId }) => reportId,
+                locationChanged: (reportId, { pathname }) =>
+                    isTodayPath(pathname) ? (reportIdFromPath(pathname) ?? reportId) : null,
             },
         ],
         reportsFailed: [
@@ -357,38 +490,16 @@ export const todayLogic = kea<todayLogicType>([
             },
         ],
         now: [Date.now(), { tick: () => Date.now() }],
-        hoveredItemKey: [
-            null as string | null,
+        moreReports: {
+            setUseSampleData: () => null,
+        },
+        topReports: {
+            setUseSampleData: () => null,
+        },
+        listExpanded: [
+            { for_you: false, recents: false } as Record<TodayList, boolean>,
             {
-                setHoveredItemKey: (_, { itemKey }) => itemKey,
-                locationChanged: () => null,
-            },
-        ],
-        personalBriefingFailed: [
-            false,
-            {
-                loadPersonalBriefingSuccess: () => false,
-                loadPersonalBriefingFailure: () => true,
-            },
-        ],
-        // The briefing the page stopped waiting for after the poll budget ran out, so a later one still polls.
-        gaveUpWaitingFor: [
-            null as string | null,
-            {
-                stopWaitingForBriefing: (_, { briefingId }) => briefingId,
-                refreshBriefingSuccess: () => null,
-            },
-        ],
-        // Polls spent on the briefing in progress. A settled briefing closes the count, so the next
-        // one starts with the whole budget.
-        briefingPolls: [
-            0,
-            {
-                pollBriefing: (count) => count + 1,
-                loadPersonalBriefingSuccess: (count, { personalBriefing }) =>
-                    personalBriefing && isBriefingSettled(personalBriefing) ? 0 : count,
-                refreshBriefingSuccess: () => 0,
-                stopWaitingForBriefing: () => 0,
+                setListExpanded: (state, { list, expanded }) => ({ ...state, [list]: expanded }),
             },
         ],
     }),
@@ -406,171 +517,284 @@ export const todayLogic = kea<todayLogicType>([
             (topReports: TodayReports | null): number =>
                 topReports ? Math.max(topReports.count - topReports.results.length, 0) : 0,
         ],
-        briefing: [
-            (s) => [s.reports, s.useSampleData],
-            (reports: SignalReport[], useSampleData: boolean): TodayBriefingSegment[][] =>
-                useSampleData ? SAMPLE_BRIEFING : briefingForReports(reports),
-        ],
         hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [
             (s) => [s.hour, s.user],
             (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
         ],
-        reportSummary: [
-            (s) => [s.hour, s.reports],
-            (hour: number, reports: SignalReport[]): string => reportSummaryForHour(hour, reports.length),
+        recentObjects: [
+            (s) => [s.recents],
+            (recents: FileSystemEntry[]): FileSystemEntry[] => recentObjectsForHome(recents, RECENT_OBJECT_MORE_COUNT),
         ],
-        showPersonalBriefing: [
-            (s) => [s.personalBriefing, s.useSampleData],
-            (personalBriefing: BriefingApi | null, useSampleData: boolean): boolean =>
-                !useSampleData && hasBriefingText(personalBriefing),
+        shownReportIds: [(s) => [s.reports], (reports: SignalReport[]): string[] => reports.map((report) => report.id)],
+        currentMoreReports: [
+            (s) => [s.moreReports, s.shownReportIds, s.useSampleData],
+            (
+                moreReports: TodayMoreReports | null,
+                shownReportIds: string[],
+                useSampleData: boolean
+            ): TodayMoreReports | null =>
+                moreReports && !useSampleData && objectsEqual(moreReports.exclude, shownReportIds) ? moreReports : null,
         ],
-        inboxMore: [
-            (s) => [s.personalBriefing],
-            (personalBriefing: BriefingApi | null): TodayInboxMore | null => {
-                if (!personalBriefing) {
-                    return null
+        loadedMoreReports: [
+            (s) => [s.currentMoreReports],
+            (currentMoreReports: TodayMoreReports | null): SignalReport[] => currentMoreReports?.results ?? [],
+        ],
+        canLoadMoreReports: [
+            (s) => [s.currentMoreReports, s.useSampleData, s.moreReportCount],
+            (currentMoreReports: TodayMoreReports | null, useSampleData: boolean, moreReportCount: number): boolean => {
+                if (useSampleData) {
+                    return false
                 }
-                if (personalBriefing.more_reports_count > 0) {
-                    return { count: personalBriefing.more_reports_count, scope: 'for_you' }
+                if (currentMoreReports) {
+                    return currentMoreReports.hasMore
                 }
-                return personalBriefing.open_reports_count > 0
-                    ? { count: personalBriefing.open_reports_count, scope: 'project' }
-                    : null
+                return moreReportCount > 0
             },
         ],
-        briefingItems: [
-            (s) => [s.personalBriefing, s.showPersonalBriefing],
-            (personalBriefing: BriefingApi | null, showPersonalBriefing: boolean): BriefingItemApi[] =>
-                showPersonalBriefing && personalBriefing ? personalBriefing.items : [],
+        moreReportsInInbox: [
+            (s) => [s.currentMoreReports],
+            (currentMoreReports: TodayMoreReports | null): number =>
+                currentMoreReports && !currentMoreReports.hasMore
+                    ? Math.max(currentMoreReports.count - currentMoreReports.results.length, 0)
+                    : 0,
         ],
-        // While a newer briefing is written, the server returns the shown one as `writing`, so the
-        // text stays on screen and the page keeps asking until the new one is ready.
-        briefingWaiting: [
-            (s) => [s.personalBriefing, s.gaveUpWaitingFor, s.refreshedBriefingLoading],
+        forYouRows: [
+            (s) => [s.reports, s.loadedMoreReports, s.forYouHighlights, s.doneHighlightKeys, s.reportStateOverrides],
             (
-                personalBriefing: BriefingApi | null,
-                gaveUpWaitingFor: string | null,
-                refreshedBriefingLoading: boolean
+                reports: SignalReport[],
+                loadedMoreReports: SignalReport[],
+                highlights: HighlightItemApi[],
+                doneHighlightKeys: string[],
+                reportStateOverrides: Record<string, TodayReportState>
+            ): TodayForYouRows =>
+                forYouRows({
+                    reports,
+                    loadedMoreReports,
+                    highlights,
+                    doneHighlightKeys,
+                    reportStateOverrides,
+                }),
+        ],
+        reportsBroken: [
+            (s) => [s.reportsFailed, s.topReports],
+            (reportsFailed: boolean, topReports: TodayReports | null): boolean => reportsFailed && topReports === null,
+        ],
+        forYouReady: [
+            (s) => [s.topReports, s.reportsFailed, s.highlightsPending, s.highlightsWaitOver, s.forYouRows],
+            (
+                topReports: TodayReports | null,
+                reportsFailed: boolean,
+                highlightsPending: boolean,
+                highlightsWaitOver: boolean,
+                { rows }: TodayForYouRows
             ): boolean =>
-                refreshedBriefingLoading ||
-                (!!personalBriefing &&
-                    personalBriefing.id !== gaveUpWaitingFor &&
-                    !isBriefingSettled(personalBriefing)),
+                (topReports !== null || reportsFailed) &&
+                (!highlightsPending || (highlightsWaitOver && rows.length > 0)),
+        ],
+        forYouFailedNote: [
+            (s) => [s.reportsBroken, s.highlightsFailed],
+            (reportsBroken: boolean, highlightsFailed: boolean): string | null =>
+                reportsBroken && highlightsFailed
+                    ? 'Reports and highlights didn’t load.'
+                    : reportsBroken
+                      ? 'Reports didn’t load.'
+                      : highlightsFailed
+                        ? 'Highlights didn’t load.'
+                        : null,
+        ],
+        forYouOpenCount: [
+            (s) => [s.forYouRows],
+            ({ rows }: TodayForYouRows): number => rows.filter((row) => !row.done).length,
+        ],
+        forYouVisibleRows: [
+            (s) => [s.forYouRows, s.listExpanded],
+            ({ rows, limit }: TodayForYouRows, listExpanded: Record<TodayList, boolean>): TodayForYouRow[] =>
+                listExpanded.for_you ? rows : rows.slice(0, limit),
+        ],
+        forYouCanShowMore: [
+            (s) => [s.forYouRows, s.listExpanded, s.canLoadMoreReports],
+            (
+                { rows, limit }: TodayForYouRows,
+                listExpanded: Record<TodayList, boolean>,
+                canLoadMoreReports: boolean
+            ): boolean => (!listExpanded.for_you && rows.length > limit) || canLoadMoreReports,
+        ],
+        forYouCanShowLess: [
+            (s) => [s.forYouRows, s.listExpanded],
+            ({ rows }: TodayForYouRows, listExpanded: Record<TodayList, boolean>): boolean =>
+                listExpanded.for_you && rows.length > VISIBLE_ROWS + 1,
+        ],
+        isNewProject: [
+            (s) => [s.currentTeam, s.useSampleData],
+            (currentTeam: TeamPublicType | TeamType | null, useSampleData: boolean): boolean =>
+                !useSampleData && currentTeam?.ingested_event === false,
+        ],
+        exploreItems: [
+            (s) => [s.currentTeam],
+            (): TodayExploreItem[] => EXPLORE_ITEMS.filter((item) => !getProductAccessDisabledReason(item)),
+        ],
+        reportPreviews: [
+            (s) => [s.reports, s.loadedMoreReports],
+            (reports: SignalReport[], loadedMoreReports: SignalReport[]): Record<string, TodayReportPreview> => {
+                const previews: Record<string, TodayReportPreview> = {}
+                for (const report of [...reports, ...loadedMoreReports]) {
+                    const preview = reportPreview(report)
+                    if (preview) {
+                        previews[report.id] = preview
+                    }
+                }
+                return previews
+            },
         ],
     }),
     listeners(({ actions, values, cache }) => {
-        const schedulePoll = (): void => {
-            cache.disposables.add(() => {
-                const poll = window.setTimeout(() => actions.pollBriefing(), BRIEFING_POLL_MS)
-                return () => clearTimeout(poll)
-            }, 'briefingPoll')
+        // The ranking dataset reads these as the home's exposure log: one impression per report per mount,
+        // like the Inbox list.
+        const impress = (list: TodayReportList, ranked: TodayRankedReport[], listSize: number): void => {
+            const impressed: Set<string> = (cache.impressedReportIds ??= new Set<string>())
+            const fresh = ranked.filter(({ report }) => !impressed.has(report.reportId))
+            if (fresh.length === 0) {
+                return
+            }
+            fresh.forEach(({ report }) => impressed.add(report.reportId))
+            captureTodayReportsImpressed({
+                list,
+                reports: fresh.map(({ report }) => report),
+                ranks: fresh.map(({ rank }) => rank),
+                listSize,
+            })
+        }
+        const captureImpressions = (): void => {
+            if (values.useSampleData) {
+                return
+            }
+            const { rows } = values.forYouRows
+            // pinned: the ranking dataset reads the home list as 'briefing'. Renaming it breaks the dataset.
+            impress(
+                'briefing',
+                reportRows(rows, 'list').map((row, index) => ({
+                    report: signalReportSnapshot(row.report),
+                    rank: index + 1,
+                })),
+                values.reports.length
+            )
+            const moreRows = reportRows(rows, 'more')
+            impress(
+                'sidebar_more',
+                moreRows.map((row, index) => ({ report: signalReportSnapshot(row.report), rank: index + 1 })),
+                moreRows.length
+            )
         }
         return {
-            askAi: ({ prompt }) => {
-                router.actions.push(urls.ai(undefined, prompt))
+            askAi: async ({ prompt, source, report }, breakpoint) => {
+                let context: TodayAskContext
+                // Sample reports have ids that do not exist, so PostHog AI gets no context to look up. A real
+                // report can still open while sample mode is on, so a report decides by its own id.
+                if (report) {
+                    context = isSampleReportId(report.id)
+                        ? { kind: 'none' }
+                        : { kind: 'report', ...(await currentReportContext(report, values.currentProjectId)) }
+                    breakpoint()
+                } else {
+                    context = values.useSampleData ? { kind: 'none' } : { kind: 'reports', reports: values.reports }
+                }
+                actions.askAiFinished()
+                router.actions.push(urls.ai(undefined, todayAskPrompt(prompt, context)))
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today ai asked', {
+                    source,
+                    context: context.kind,
+                    report_id: context.kind === 'report' ? context.report.id : null,
+                })
             },
             tick: () => {
-                // An open tab moves to the new day's briefing at 8:00 without a reload, including a laptop
-                // that slept through it. The first tick, at mount, only records the day.
-                const day = briefingDayKey(values.now)
-                if (cache.day !== undefined && day !== cache.day && !values.useSampleData) {
-                    actions.loadPersonalBriefing()
+                const { now, highlights } = values
+                if (highlights && !values.highlightsLoading && now >= Date.parse(highlights.refresh_at)) {
+                    actions.loadHighlights()
                 }
-                cache.day = day
             },
-            openReport: ({ report, source }) => {
-                router.actions.push(urls.todayReport(report.id))
-                actions.reportOpened(report, source)
-            },
-            setUseSampleData: ({ useSampleData }) => {
+            setUseSampleData: () => {
                 actions.loadTopReports()
-                if (!useSampleData) {
-                    actions.loadPersonalBriefing()
-                }
             },
-            loadPersonalBriefingSuccess: ({ personalBriefing }) => {
-                if (!personalBriefing) {
+            exploreOpened: ({ product, position }) => {
+                posthog.capture('today explore opened', { product, position })
+            },
+            toggleReportRow: ({ rowKey, reportId }) => {
+                if (!values.expandedReportRows[rowKey] || values.useSampleData) {
                     return
                 }
-                if (values.briefingWaiting) {
-                    if (values.briefingPolls >= MAX_BRIEFING_POLLS) {
-                        actions.stopWaitingForBriefing(personalBriefing.id)
+                const { rows } = values.forYouRows
+                for (const [list, source] of [
+                    ['team', 'list'],
+                    ['more', 'more'],
+                ] as const) {
+                    const listRows = reportRows(rows, source)
+                    const index = listRows.findIndex((row) => row.report.id === reportId)
+                    if (index !== -1) {
+                        posthog.capture('today report previewed', {
+                            list,
+                            report_id: reportId,
+                            rank: index + 1,
+                            has_metric: !!listRows[index].report.metrics?.length,
+                            surface: 'list',
+                        })
                         return
                     }
-                    schedulePoll()
-                    return
-                }
-                if (cache.viewedBriefingId === personalBriefing.id) {
-                    return
-                }
-                cache.viewedBriefingId = personalBriefing.id
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('today briefing viewed', {
-                    status: personalBriefing.status,
-                    writer: personalBriefing.writer,
-                    item_count: personalBriefing.items.length,
-                    done_item_count: personalBriefing.items.filter((item) => item.state === 'done').length,
-                    more_reports_count: personalBriefing.more_reports_count,
-                })
-            },
-            loadPersonalBriefingFailure: ({ errorObject }) => {
-                // A poll that fails while the briefing is written keeps polling; a 404 means there is no
-                // briefing for this person, so the report list stays.
-                const notFound = errorObject instanceof ApiError && errorObject.status === 404
-                if (values.briefingWaiting && !notFound && values.briefingPolls < MAX_BRIEFING_POLLS) {
-                    schedulePoll()
                 }
             },
-            pollBriefing: () => {
-                actions.loadPersonalBriefing()
-            },
-            refreshBriefing: () => {
-                // pinned: analytics event name. Renaming it breaks dashboards.
-                posthog.capture('today refresh clicked', { writer: values.personalBriefing?.writer ?? null })
-            },
-            refreshBriefingSuccess: () => {
-                actions.loadPersonalBriefing()
-            },
-            refreshBriefingFailure: ({ errorObject }) => {
-                const detail = errorObject instanceof ApiError ? errorObject.detail : null
-                lemonToast.error(detail || 'Couldn’t refresh your briefing. Try again in a minute.')
-            },
-            openItem: ({ item, surface }) => {
-                const href = itemHref(item)
-                if (isExternalHref(href)) {
-                    window.open(href, '_blank', 'noopener')
-                } else {
-                    navigateToHref(href)
+            showMoreForYou: () => {
+                actions.setListExpanded('for_you', true)
+                if (values.canLoadMoreReports) {
+                    actions.loadMoreReports()
                 }
-                actions.itemOpened(item, surface)
             },
-            itemOpened: ({ item, surface }) => {
-                // pinned: analytics event name and properties. Renaming them breaks dashboards.
-                posthog.capture('today item opened', {
-                    group: item.group,
-                    source: item.source,
-                    reason: item.reason,
-                    rank: item.rank,
-                    state: item.state,
-                    surface,
-                })
+            retryFailedLoads: () => {
+                if (values.reportsBroken) {
+                    actions.loadTopReports()
+                }
+                if (values.highlightsFailed) {
+                    actions.loadHighlights()
+                }
             },
             locationChanged: ({ searchParams }) => {
                 const useSampleData = parseSampleParam(searchParams.sample)
                 if (useSampleData !== null && useSampleData !== values.useSampleData) {
                     actions.setUseSampleData(useSampleData)
                 }
+                const { reportId, listExpanded } = values
+                if (reportId && !listExpanded.for_you) {
+                    const { rows, limit } = values.forYouRows
+                    if (rows.findIndex((row) => rowReportId(row) === reportId) >= limit) {
+                        actions.setListExpanded('for_you', true)
+                    }
+                }
             },
             loadTopReportsSuccess: ({ topReports }) => {
                 if (values.useSampleData) {
                     return
                 }
+                captureImpressions()
                 // pinned: analytics event name and properties. Renaming them breaks dashboards.
                 posthog.capture('today home loaded', {
                     report_count: topReports.results.length,
                     more_report_count: values.moreReportCount,
                 })
+            },
+            loadMoreReports: () => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today more reports clicked', { shown_report_count: values.shownReportIds.length })
+            },
+            loadMoreReportsSuccess: () => {
+                captureImpressions()
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('today more reports loaded', {
+                    report_count: values.loadedMoreReports.length,
+                    inbox_report_count: values.moreReportsInInbox,
+                })
+            },
+            loadMoreReportsFailure: () => {
+                lemonToast.error('Couldn’t load more reports. Try again in a minute.')
             },
             reportOpened: ({ report, source }) => {
                 if (values.useSampleData) {
@@ -581,6 +805,15 @@ export const todayLogic = kea<todayLogicType>([
                     report_id: report.id,
                     priority: report.priority ?? null,
                     has_pr: !!report.implementation_pr_url,
+                    source,
+                })
+                const listRows = reportRows(values.forYouRows.rows, source)
+                const rank = listRows.findIndex((row) => row.report.id === report.id) + 1
+                captureTodayReportOpened({
+                    report: signalReportSnapshot(report),
+                    list: source === 'more' ? 'sidebar_more' : 'briefing',
+                    rank: rank || null,
+                    listSize: listRows.length,
                     source,
                 })
             },
@@ -594,9 +827,6 @@ export const todayLogic = kea<todayLogicType>([
             actions.setUseSampleData(useSampleData)
         } else {
             actions.loadTopReports()
-            if (!values.useSampleData) {
-                actions.loadPersonalBriefing()
-            }
         }
         cache.disposables.add(() => {
             const clock = window.setInterval(() => actions.tick(), CLOCK_MS)

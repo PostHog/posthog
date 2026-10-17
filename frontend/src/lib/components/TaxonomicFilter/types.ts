@@ -2,6 +2,7 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
+import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
 import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
@@ -126,7 +127,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     /** The series/entity filter the picker is editing — lets the list surface
      *  the committed selection with its rename (`custom_name`) applied. */
-    filter?: EntityFilter | ActionFilter
+    filter?: EntityFilter | ActionFilter | SeriesNode
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -236,6 +237,7 @@ export type DefinitionPopoverRendererProps = {
     group: TaxonomicFilterGroup
     defaultView: JSX.Element
 }
+/** Return `defaultView` itself for an item the renderer does not handle. The popover compares it by reference. */
 export type DefinitionPopoverRenderer = (props: DefinitionPopoverRendererProps) => JSX.Element | null
 
 export interface TaxonomicFilterGroup {
@@ -285,6 +287,8 @@ export interface TaxonomicFilterGroup {
     componentProps?: Record<string, any>
     /** Minimum number of characters before a remote search is issued. */
     minSearchQueryLength?: number
+    shouldSearch?: (query: string) => boolean
+    searchQueryHint?: string
     /** Description shown in the empty state when minSearchQueryLength is set. */
     searchDescription?: string
     /** Synthetic results surfaced inline when the search query matches a keyword.

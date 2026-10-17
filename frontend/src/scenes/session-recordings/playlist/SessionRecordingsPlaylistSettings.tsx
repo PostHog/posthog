@@ -2,13 +2,13 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, IconTrash } from '@posthog/icons'
+import { IconCheck, IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSettings'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { IconBlank } from 'lib/lemon-ui/icons'
+import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
@@ -20,10 +20,11 @@ import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLo
 import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
 import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
 
-import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { useAutoplayMenuItems, useHideRecordingsMenuItems, useTimestampFormatMenuItems } from './listViewMenuItems'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
+    RecordingSort,
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
@@ -45,18 +46,6 @@ const SortingKeyToLabel = {
 const RELEVANCE_SORT_EXPLANATION =
     'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
 
-function getLabel(filters: RecordingUniversalFilters): string {
-    const order_field = filters.order || 'start_time'
-    if (order_field === 'start_time') {
-        return filters.order_direction === 'ASC' ? 'Oldest' : 'Latest'
-    }
-
-    return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
-}
-
-type RecordingSort = { order: NonNullable<RecordingUniversalFilters['order']>; order_direction: 'ASC' | 'DESC' }
-
-/** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
 export function getSortChangedEvent(
     filters: RecordingUniversalFilters,
     sort: RecordingSort
@@ -76,17 +65,12 @@ export function getRecommendedFilterChange(enabled: boolean): Partial<RecordingU
     return { recommended_only: enabled }
 }
 
-function SortedBy({
-    filters,
-    setFilters,
-    disabledReason,
-}: {
-    filters: RecordingUniversalFilters
+function useSortMenuItems(
+    filters: RecordingUniversalFilters,
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-    disabledReason?: string
-}): JSX.Element {
-    const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
-    const showRelevanceSort = surfacingScoreEnabled
+): LemonMenuItem[] {
+    const { canSortByRelevance: showRelevanceSort, listSort } = useValues(sessionRecordingsPlaylistLogic)
+    filters = { ...filters, ...listSort }
 
     const changeSort = (sort: RecordingSort): void => {
         const sortChangedEvent = getSortChangedEvent(filters, sort)
@@ -97,149 +81,163 @@ function SortedBy({
         setFilters(sort)
     }
 
-    return (
-        <SettingsMenu
-            data-attr="list-sort-menu"
-            highlightWhenActive={false}
-            disabledReason={disabledReason}
-            items={[
-                ...(showRelevanceSort
-                    ? [
-                          {
-                              label: SortingKeyToLabel['surfacing_score'],
-                              tooltip: RELEVANCE_SORT_EXPLANATION,
-                              onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
-                              'data-attr': 'list-sort-surfacing-score',
-                              active: filters.order === 'surfacing_score',
-                          },
-                      ]
-                    : []),
+    return [
+        ...(showRelevanceSort
+            ? [
+                  {
+                      label: SortingKeyToLabel['surfacing_score'],
+                      tooltip: RELEVANCE_SORT_EXPLANATION,
+                      onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
+                      'data-attr': 'list-sort-surfacing-score',
+                      active: filters.order === 'surfacing_score',
+                  },
+              ]
+            : []),
+        {
+            label: 'Start time',
+            items: [
                 {
-                    label: 'Start time',
-                    items: [
-                        {
-                            label: 'Latest',
-                            onClick: () => changeSort({ order: 'start_time', order_direction: 'DESC' }),
-                            'data-attr': 'list-sort-latest',
-                            active:
-                                !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
-                        },
-                        {
-                            label: 'Oldest',
-                            onClick: () => changeSort({ order: 'start_time', order_direction: 'ASC' }),
-                            'data-attr': 'list-sort-oldest',
-                            active: filters.order === 'start_time' && filters.order_direction === 'ASC',
-                        },
-                    ],
+                    label: 'Latest',
+                    onClick: () => changeSort({ order: 'start_time', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-latest',
+                    active: !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
                 },
                 {
-                    label: SortingKeyToLabel['activity_score'],
-                    onClick: () => changeSort({ order: 'activity_score', order_direction: 'DESC' }),
-                    'data-attr': 'list-sort-activity',
-                    active: filters.order === 'activity_score',
+                    label: 'Oldest',
+                    onClick: () => changeSort({ order: 'start_time', order_direction: 'ASC' }),
+                    'data-attr': 'list-sort-oldest',
+                    active: filters.order === 'start_time' && filters.order_direction === 'ASC',
+                },
+            ],
+        },
+        {
+            label: SortingKeyToLabel['activity_score'],
+            onClick: () => changeSort({ order: 'activity_score', order_direction: 'DESC' }),
+            'data-attr': 'list-sort-activity',
+            active: filters.order === 'activity_score',
+        },
+        {
+            label: SortingKeyToLabel['console_error_count'],
+            onClick: () => changeSort({ order: 'console_error_count', order_direction: 'DESC' }),
+            'data-attr': 'list-sort-console-errors',
+            active: filters.order === 'console_error_count',
+        },
+        {
+            label: 'Longest',
+            items: [
+                {
+                    label: SortingKeyToLabel['duration'],
+                    onClick: () => changeSort({ order: 'duration', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-duration',
+                    active: filters.order === 'duration',
                 },
                 {
-                    label: SortingKeyToLabel['console_error_count'],
-                    onClick: () => changeSort({ order: 'console_error_count', order_direction: 'DESC' }),
-                    'data-attr': 'list-sort-console-errors',
-                    active: filters.order === 'console_error_count',
+                    label: SortingKeyToLabel['active_seconds'],
+                    onClick: () => changeSort({ order: 'active_seconds', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-active-seconds',
+                    active: filters.order === 'active_seconds',
                 },
                 {
-                    label: 'Longest',
-                    items: [
-                        {
-                            label: SortingKeyToLabel['duration'],
-                            onClick: () => changeSort({ order: 'duration', order_direction: 'DESC' }),
-                            'data-attr': 'list-sort-duration',
-                            active: filters.order === 'duration',
-                        },
-                        {
-                            label: SortingKeyToLabel['active_seconds'],
-                            onClick: () => changeSort({ order: 'active_seconds', order_direction: 'DESC' }),
-                            'data-attr': 'list-sort-active-seconds',
-                            active: filters.order === 'active_seconds',
-                        },
-                        {
-                            label: SortingKeyToLabel['inactive_seconds'],
-                            onClick: () => changeSort({ order: 'inactive_seconds', order_direction: 'DESC' }),
-                            'data-attr': 'list-sort-inactive-seconds',
-                            active: filters.order === 'inactive_seconds',
-                        },
-                    ],
+                    label: SortingKeyToLabel['inactive_seconds'],
+                    onClick: () => changeSort({ order: 'inactive_seconds', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-inactive-seconds',
+                    active: filters.order === 'inactive_seconds',
+                },
+            ],
+        },
+        {
+            label: 'Most active',
+            items: [
+                {
+                    label: SortingKeyToLabel['click_count'],
+                    onClick: () => changeSort({ order: 'click_count', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-clicks',
+                    active: filters.order === 'click_count',
                 },
                 {
-                    label: 'Most active',
-                    items: [
-                        {
-                            label: SortingKeyToLabel['click_count'],
-                            onClick: () => changeSort({ order: 'click_count', order_direction: 'DESC' }),
-                            'data-attr': 'list-sort-clicks',
-                            active: filters.order === 'click_count',
-                        },
-                        {
-                            label: SortingKeyToLabel['keypress_count'],
-                            onClick: () => changeSort({ order: 'keypress_count', order_direction: 'DESC' }),
-                            'data-attr': 'list-sort-keypresses',
-                            active: filters.order === 'keypress_count',
-                        },
-                        {
-                            label: SortingKeyToLabel['mouse_activity_count'],
-                            onClick: () => changeSort({ order: 'mouse_activity_count', order_direction: 'DESC' }),
-                            'data-attr': 'list-sort-mouse-activity',
-                            active: filters.order === 'mouse_activity_count',
-                        },
-                    ],
+                    label: SortingKeyToLabel['keypress_count'],
+                    onClick: () => changeSort({ order: 'keypress_count', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-keypresses',
+                    active: filters.order === 'keypress_count',
                 },
                 {
-                    label: 'Expiration',
-                    onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
-                    'data-attr': 'list-sort-expiration',
-                    active: filters.order === 'recording_ttl',
+                    label: SortingKeyToLabel['mouse_activity_count'],
+                    onClick: () => changeSort({ order: 'mouse_activity_count', order_direction: 'DESC' }),
+                    'data-attr': 'list-sort-mouse-activity',
+                    active: filters.order === 'mouse_activity_count',
                 },
-            ]}
-            icon={<IconSort className="text-lg" />}
-            label={
-                filters.order === 'surfacing_score' ? (
-                    <span className="inline-flex items-center gap-1">
-                        {SortingKeyToLabel['surfacing_score']}
-                        <Tooltip title={RELEVANCE_SORT_EXPLANATION}>
-                            <IconInfo className="text-sm" />
-                        </Tooltip>
-                    </span>
-                ) : (
-                    getLabel(filters)
-                )
-            }
-        />
-    )
+            ],
+        },
+        {
+            label: 'Expiration',
+            onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
+            'data-attr': 'list-sort-expiration',
+            active: filters.order === 'recording_ttl',
+        },
+    ]
 }
 
-function RecommendedOnlyFilter({
-    filters,
-    setFilters,
-}: {
-    filters: RecordingUniversalFilters
+function useRecommendedOnlyToggle(
+    filters: RecordingUniversalFilters,
     setFilters: (filters: Partial<RecordingUniversalFilters>) => void
-}): JSX.Element | null {
-    const enabled = useFeatureFlag('REPLAY_RECOMMENDED_RECORDINGS_FILTER_EXPERIMENT', 'test')
+): { enabled: boolean; checked: boolean; toggle: (checked: boolean) => void } {
+    const { canFilterByRelevance: enabled } = useValues(sessionRecordingsPlaylistLogic)
+    const checked = !!filters.recommended_only
+    const toggle = (checked: boolean): void => {
+        posthog.capture('session recording recommended filter changed', { enabled: checked })
+        setFilters(getRecommendedFilterChange(checked))
+    }
+    return { enabled, checked, toggle }
+}
+
+function useRecommendedOnlyMenuItem(
+    filters: RecordingUniversalFilters,
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+): LemonMenuItem | null {
+    const { enabled, checked, toggle } = useRecommendedOnlyToggle(filters, setFilters)
     if (!enabled) {
         return null
     }
+    return {
+        label: 'High relevance only',
+        icon: checked ? <IconCheck /> : <IconBlank />,
+        active: checked,
+        onClick: () => toggle(!checked),
+        'data-attr': 'session-recordings-recommended-only',
+    }
+}
+
+function ListViewMenu({
+    filters,
+    setFilters,
+    disabledReason,
+}: {
+    filters: RecordingUniversalFilters
+    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    disabledReason?: string
+}): JSX.Element {
+    const sortItems = useSortMenuItems(filters, setFilters)
+    const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
+    const hideItems = useHideRecordingsMenuItems()
+    const timestampItems = useTimestampFormatMenuItems()
+
+    const items: LemonMenuItems = [
+        { title: 'Sort by', items: sortItems },
+        { title: 'Show', items: [recommendedItem, ...hideItems] },
+        { title: 'Timestamps', items: timestampItems },
+    ]
 
     return (
-        <Tooltip title="Show recordings with high relevance">
-            <span className="inline-flex items-center ml-3">
-                <LemonCheckbox
-                    label="High relevance"
-                    checked={!!filters.recommended_only}
-                    onChange={(checked) => {
-                        posthog.capture('session recording recommended filter changed', { enabled: checked })
-                        setFilters(getRecommendedFilterChange(checked))
-                    }}
-                    data-attr="session-recordings-recommended-only"
-                />
-            </span>
-        </Tooltip>
+        <LemonMenu items={items} buttonSize="xsmall" closeOnClickInside={false} placement="bottom-end">
+            <LemonButton
+                size="xsmall"
+                icon={<IconSort className="text-lg" />}
+                disabledReason={disabledReason}
+                data-attr="list-view-menu"
+            >
+                View
+            </LemonButton>
+        </LemonMenu>
     )
 }
 
@@ -539,8 +537,7 @@ export function SessionRecordingsPlaylistTopSettings({
     type?: 'filters' | 'collection'
     shortId?: string
 }): JSX.Element {
-    const { autoplayDirection } = useValues(playerSettingsLogic)
-    const { setAutoplayDirection } = useActions(playerSettingsLogic)
+    const autoplayItems = useAutoplayMenuItems()
     const {
         selectedRecordingsIds,
         otherRecordings,
@@ -613,37 +610,28 @@ export function SessionRecordingsPlaylistTopSettings({
         return menuItems
     }
 
+    const selectAllDisabledReason =
+        recordings.length === 0
+            ? 'No recordings'
+            : recordings.length > MAX_SELECTED_RECORDINGS
+              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
+              : undefined
+
     return (
         <SettingsBar border="none" className="justify-between">
             <div className="flex items-center">
-                <LemonCheckbox
-                    disabledReason={
-                        recordings.length === 0
-                            ? 'No recordings'
-                            : recordings.length > MAX_SELECTED_RECORDINGS
-                              ? `Cannot select more than ${MAX_SELECTED_RECORDINGS} recordings at once`
-                              : undefined
-                    }
-                    checked={checked}
-                    onChange={(checked) => handleSelectUnselectAll(checked, type)}
-                    stopPropagation
-                    className="ml-2"
-                    data-attr="select-all-recordings"
-                    aria-label="Select all recordings"
-                />
-                {filters && setFilters ? (
-                    <>
-                        <span className="text-xs font-normal inline-flex items-center ml-2">
-                            Sort by:{' '}
-                            <SortedBy
-                                filters={filters}
-                                setFilters={setFilters}
-                                disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
-                            />
-                        </span>
-                        <RecommendedOnlyFilter filters={filters} setFilters={setFilters} />
-                    </>
-                ) : null}
+                <Tooltip title={selectAllDisabledReason ? undefined : 'Select all recordings'}>
+                    <span className="flex ml-[7px]">
+                        <LemonCheckbox
+                            disabledReason={selectAllDisabledReason}
+                            checked={checked}
+                            onChange={(checked) => handleSelectUnselectAll(checked, type)}
+                            stopPropagation
+                            data-attr="select-all-recordings"
+                            aria-label="Select all recordings"
+                        />
+                    </span>
+                </Tooltip>
             </div>
             <div className="flex items-center">
                 {selectedRecordingsIds.length > 0 && (
@@ -653,34 +641,18 @@ export function SessionRecordingsPlaylistTopSettings({
                         data-attr="bulk-action-menu"
                     />
                 )}
+                {filters && setFilters && (
+                    <ListViewMenu
+                        filters={filters}
+                        setFilters={setFilters}
+                        disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
+                    />
+                )}
                 <SettingsMenu
                     data-attr="list-autoplay-menu"
-                    items={[
-                        {
-                            label: 'Autoplay',
-                            items: [
-                                {
-                                    label: 'Off',
-                                    onClick: () => setAutoplayDirection(null),
-                                    'data-attr': 'list-autoplay-off',
-                                    active: !autoplayDirection,
-                                },
-                                {
-                                    label: 'Newer recordings',
-                                    onClick: () => setAutoplayDirection('newer'),
-                                    'data-attr': 'list-autoplay-newer',
-                                    active: autoplayDirection === 'newer',
-                                },
-                                {
-                                    label: 'Older recordings',
-                                    onClick: () => setAutoplayDirection('older'),
-                                    'data-attr': 'list-autoplay-older',
-                                    active: autoplayDirection === 'older',
-                                },
-                            ],
-                        },
-                    ]}
+                    items={[{ label: 'Autoplay', items: autoplayItems }]}
                     icon={<IconEllipsis className="rotate-90" />}
+                    placement="bottom-end"
                     disabledReason={recordings.length === 0 ? 'No recordings' : undefined}
                 />
             </div>
