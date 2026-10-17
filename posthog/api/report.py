@@ -5,7 +5,7 @@ from django.views.decorators.csrf import csrf_exempt
 import structlog
 from rest_framework import status
 
-from posthog.api.capture import CaptureInternalError, capture_batch_internal, capture_internal
+from posthog.api.capture import CaptureInternalError, capture_batch_internal, capture_internal, is_well_formed_token
 from posthog.api.csp import process_csp_report
 from posthog.api.report_buffer import csp_report_buffer
 from posthog.api.utils import get_token
@@ -46,20 +46,22 @@ def get_csp_event(request):
         if not token:
             token = ""
 
+        # Buffered mode never makes the synchronous capture call that would
+        # reject an empty token, so reject it here before enqueueing.
+        # A malformed token fails later in the Authorization header, so reject it in both modes.
+        if not is_well_formed_token(token) or (settings.CSP_REPORT_BUFFERED_FORWARD and not token):
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "csp_report_capture",
+                    f"Failed to submit CSP report",
+                    code="capture_error",
+                    type="capture_error",
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                ),
+            )
+
         if settings.CSP_REPORT_BUFFERED_FORWARD:
-            # Buffered mode never makes the synchronous capture call that would
-            # reject an empty token, so reject it here before enqueueing.
-            if not token:
-                return cors_response(
-                    request,
-                    generate_exception_response(
-                        "csp_report_capture",
-                        f"Failed to submit CSP report",
-                        code="capture_error",
-                        type="capture_error",
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                    ),
-                )
             events = csp_report if isinstance(csp_report, list) else [csp_report]
             csp_report_buffer.enqueue(events, token=token)
             return cors_response(request, HttpResponse(status=status.HTTP_204_NO_CONTENT))

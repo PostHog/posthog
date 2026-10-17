@@ -235,6 +235,11 @@ def _reported_reason(details: Any) -> str:
 # --------------------------------------------------------------------------- #
 
 
+def is_well_formed_token(token: str) -> bool:
+    """A token goes into the Authorization header, so whitespace or control characters make the request fail."""
+    return token.isprintable() and not any(c.isspace() for c in token)
+
+
 def _build_v1_headers(token: str, attempt: int) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
@@ -359,6 +364,8 @@ def _validate_batch_inputs(
         raise CaptureInternalError(f"{fn}: event_source is required (identifies the submitting call site)")
     if not token:
         raise CaptureInternalError(f"{fn} ({event_source}): API token is required")
+    if not is_well_formed_token(token):
+        raise CaptureInternalError(f"{fn} ({event_source}): API token contains whitespace or control characters")
     if not events:
         raise CaptureInternalError(f"{fn} ({event_source}): at least one event is required")
 

@@ -118,6 +118,25 @@ class TestCspReport(BaseTest):
         mock_buffer.enqueue.assert_not_called()
         assert CSP_REPORT_REJECTED.labels(reason=expected_reason)._value.get() - rejected_before == 1
 
+    @parameterized.expand([("buffered", True), ("unbuffered", False)])
+    def test_token_with_trailing_newline_is_rejected(self, _name, buffered):
+        with (
+            self.settings(CSP_REPORT_BUFFERED_FORWARD=buffered),
+            patch("posthog.api.report.capture_internal") as mock_capture,
+            patch("posthog.api.report.csp_report_buffer") as mock_buffer,
+            patch("posthog.api.report.capture_exception") as mock_capture_exception,
+        ):
+            response = self.client.post(
+                f"/report/?token={self.team.api_token}%0A",
+                data=json.dumps(SINGLE_VIOLATION_REPORT_URI),
+                content_type="application/csp-report",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_capture.assert_not_called()
+        mock_buffer.enqueue.assert_not_called()
+        mock_capture_exception.assert_not_called()
+
     @patch("posthog.api.report.capture_batch_internal")
     def test_mixed_report_types_not_rejected_by_violation_count_cap(self, mock_batch_capture):
         # A reports+json bundle can legitimately carry non-CSP report types (deprecation,
