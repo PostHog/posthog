@@ -71,6 +71,7 @@ jest.mock('products/conversations/frontend/generated/api', () => ({
     conversationsTicketsNotesPartialUpdate: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsNotesDestroy: jest.fn().mockResolvedValue(undefined),
     conversationsTicketsPartialUpdate: jest.fn(),
+    conversationsTicketsRetrieve: jest.fn(),
 }))
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -84,6 +85,7 @@ import {
     conversationsTicketsMessagesFullEmailRetrieve,
     conversationsTicketsNotesPartialUpdate,
     conversationsTicketsPartialUpdate,
+    conversationsTicketsRetrieve,
 } from 'products/conversations/frontend/generated/api'
 
 const submitAiFeedbackMock = conversationsTicketsAiFeedbackCreate as jest.Mock
@@ -1304,6 +1306,105 @@ describe('supportTicketSceneLogic discussion polling', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(commentsLogic.findMounted(discussionProps)).toBeNull()
+    })
+})
+
+describe('supportTicketSceneLogic AI source refresh on poll', () => {
+    let logic: ReturnType<typeof supportTicketSceneLogic.build>
+
+    const commentsListMock = api.comments.list as jest.Mock
+    const ticketGetMock = api.conversationsTickets.get as jest.Mock
+    const ticketRetrieveMock = conversationsTicketsRetrieve as jest.Mock
+
+    const loadedTicket = (): Ticket => ({ ...makeTicket(), priority: 'medium', assignee: null }) as Ticket
+    const citedAiComment = (): CommentType =>
+        ({
+            ...makeAiComment('msg-ai-cited', false),
+            item_context: { author_type: 'AI', is_private: false, citations: ['chunk-1'] },
+        }) as CommentType
+    const source = { ref: 'chunk-1', title: 'Billing FAQ', source_id: 'source-1' }
+
+    beforeEach(async () => {
+        initKeaTests()
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+        ticketGetMock.mockReset().mockResolvedValue(loadedTicket())
+        logic = supportTicketSceneLogic({ id: 42 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages'])
+        ticketRetrieveMock.mockReset().mockResolvedValue(loadedTicket())
+    })
+
+    afterEach(() => {
+        stopPolling(logic)
+        commentsListMock.mockReset().mockResolvedValue({ results: [] })
+    })
+
+    it('keeps a new AI outcome when the source refresh finishes late', async () => {
+        let finishTicketRefresh!: (ticket: Ticket) => void
+        let refreshStarted!: () => void
+        const ticketRefreshStarted = new Promise<void>((resolve) => {
+            refreshStarted = resolve
+        })
+        ticketRetrieveMock.mockImplementationOnce(
+            () =>
+                new Promise<Ticket>((resolve) => {
+                    finishTicketRefresh = resolve
+                    refreshStarted()
+                })
+        )
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+
+        logic.actions.loadMessages()
+        await ticketRefreshStarted
+
+        const message = {
+            id: 'msg-ai-cited',
+            content: 'Draft reply',
+            authorType: 'AI' as const,
+            authorName: 'PostHog Assistant',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+            persistAs: 'reply' as const,
+        }
+        await expectLogic(logic, () => logic.actions.applyAiDraft(message)).toDispatchActions(['setTicket'])
+        expect(logic.values.ticket?.ai_triage?.human_outcome).toBe('used')
+
+        finishTicketRefresh({
+            ...loadedTicket(),
+            ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
+        })
+        await expectLogic(logic).toDispatchActions(['setAiTriage'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.ticket?.ai_triage?.human_outcome).toBe('used')
+    })
+
+    it('loads the sources of an AI draft that arrives while the ticket is open, keeping unsaved edits', async () => {
+        logic.actions.setStatus('pending')
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+        ticketRetrieveMock.mockResolvedValue({
+            ...loadedTicket(),
+            status: 'resolved',
+            ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
+        })
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toDispatchActions(['setMessages', 'refreshAiTriage', 'setAiTriage'])
+
+        expect(logic.values.ticket?.ai_triage?.sources).toEqual([source])
+        expect(logic.values.status).toBe('pending')
+    })
+
+    it('does not fetch the ticket again when the poll brings no new AI message', async () => {
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+        ticketRetrieveMock.mockClear()
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(ticketRetrieveMock).not.toHaveBeenCalled()
     })
 })
 
