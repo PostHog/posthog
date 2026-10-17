@@ -24,6 +24,7 @@ Algolia fail:stall-budget
 Alguna fail:stall-budget
 AlphaVantage fail:rate-limit-budget,stall-budget
 AmazonAds fail:rate-limit-budget,stall-budget
+AmazonS3 not-checkable:schemas
 Amplemarket fail:stall-budget
 Amplitude fail:rate-limit-budget,stall-budget
 Anthropic fail:safe-point,stall-budget

@@ -76,6 +76,7 @@ the row lists both.
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
+| amazon_s3                        | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
 | amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
@@ -957,6 +958,10 @@ the row lists both.
 - **linkedin_ads** uses `linkedin-api`'s `RestliClient`, which constructs its own internal `requests.Session`.
   We don't yet have a session-injection seam on it, so outbound calls bypass the tracked transport. (The file
   imports `requests` only for exception types — those references are expected and don't need a pragma.)
+- **amazon_s3** lists through a boto3 client, reads files through `s3fs` (aiobotocore over aiohttp), and reads
+  Delta tables through delta-rs, which has its own Rust object store client. None of the three exposes a
+  `requests` session or an interceptor seam, so outbound traffic bypasses the tracked transport. Each client sets
+  its own connect and read timeouts and a bounded retry count.
 - **temporalio** talks gRPC, but the Python `temporalio` SDK runs its entire gRPC stack in a Rust core
   (`temporalio.bridge`, a PyO3 module) — service RPCs dispatch through `ServiceClient._rpc_call` into the
   bridge, so there is no Python `grpc.Channel` or client-interceptor seam for the tracked gRPC transport to
@@ -1010,7 +1015,6 @@ doesn't conflict with concurrent PRs.
 - amazon_cloudwatch
 - amazon_eventbridge
 - amazon_kinesis
-- amazon_s3
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
