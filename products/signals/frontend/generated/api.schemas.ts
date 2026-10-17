@@ -5901,6 +5901,34 @@ export interface TopEventEntryApi {
 }
 
 /**
+ * One entry in `inventory.surfaces`.
+ */
+export interface SurfaceEntryApi {
+    /**
+     * True when the scout's default pre-check query found rows. False when it found none, or one false value such as a zero count. Null when the profile could not answer, so check the surface yourself.
+     * @nullable
+     */
+    in_use: boolean | null
+    /**
+     * ISO-8601 time the query ran. Null when `in_use` is null.
+     * @nullable
+     */
+    evaluated_at: string | null
+    /** `skill_default` when the scout's shipped default query answered. Otherwise the reason `in_use` is null: `query_error`, `no_acting_user`, `time_budget`, or `deferred` when a background build has not run the query yet. */
+    source: string
+    /**
+     * Rows the query returned, capped at the pre-check row cap. Null when `in_use` is null.
+     * @nullable
+     */
+    row_count: number | null
+}
+
+/**
+ * Whether each canonical scout's surface is in use, keyed by scout skill name, from that scout's default pre-check query. Read this, not `top_events`, to decide whether a surface is in use: `top_events` keeps only the top events by volume, so a quiet surface falls off it.
+ */
+export type ProjectProfileInventoryApiSurfaces = { [key: string]: SurfaceEntryApi }
+
+/**
  * The deterministic inventory layer of a project profile.
  *
  * Read this to orient on the team's product mix, integrations, warehouse sources, signal
@@ -5955,6 +5983,8 @@ export interface ProjectProfileInventoryApi {
      * @nullable
      */
     top_events: TopEventEntryApi[] | null
+    /** Whether each canonical scout's surface is in use, keyed by scout skill name, from that scout's default pre-check query. Read this, not `top_events`, to decide whether a surface is in use: `top_events` keeps only the top events by volume, so a quiet surface falls off it. */
+    surfaces?: ProjectProfileInventoryApiSurfaces
 }
 
 /**

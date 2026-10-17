@@ -2579,6 +2579,35 @@ class RecentActionsSerializer(serializers.Serializer):
     )
 
 
+class SurfaceEntrySerializer(serializers.Serializer):
+    """One entry in `inventory.surfaces`."""
+
+    in_use = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "True when the scout's default pre-check query found rows. False when it found none, or one "
+            "false value such as a zero count. Null when the profile could not answer, so check the "
+            "surface yourself."
+        ),
+    )
+    evaluated_at = serializers.CharField(
+        allow_null=True, help_text="ISO-8601 time the query ran. Null when `in_use` is null."
+    )
+    # A plain CharField rather than a ChoiceField: `source` is a collision-prone enum field name.
+    # Keep the help text in step with `SurfaceEntry.source` in `profile/schema.py`.
+    source = serializers.CharField(
+        help_text=(
+            "`skill_default` when the scout's shipped default query answered. Otherwise the reason "
+            "`in_use` is null: `query_error`, `no_acting_user`, `time_budget`, or `deferred` when a "
+            "background build has not run the query yet."
+        ),
+    )
+    row_count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Rows the query returned, capped at the pre-check row cap. Null when `in_use` is null.",
+    )
+
+
 class ProjectProfileInventorySerializer(serializers.Serializer):
     """The deterministic inventory layer of a project profile.
 
@@ -2717,6 +2746,16 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "from `[]`, which means the team has no captures in the window). Use the gap "
             "between `first_seen_in_window` and `now` to spot new event types or recent "
             "bursts."
+        ),
+    )
+    # Not required: rows built before this section shipped share its `source_version`.
+    surfaces = serializers.DictField(
+        child=SurfaceEntrySerializer(),
+        required=False,
+        help_text=(
+            "Whether each canonical scout's surface is in use, keyed by scout skill name, from that "
+            "scout's default pre-check query. Read this, not `top_events`, to decide whether a surface "
+            "is in use: `top_events` keeps only the top events by volume, so a quiet surface falls off it."
         ),
     )
 

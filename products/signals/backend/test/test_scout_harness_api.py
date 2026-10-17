@@ -3067,6 +3067,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_actions",
             "recent_reviewer_corrections",
             "top_events",
+            "surfaces",
         }
 
     def test_emit_gate_stays_in_the_response_prefix_for_a_large_profile(self) -> None:
