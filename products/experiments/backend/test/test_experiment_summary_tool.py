@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ExperimentVariantResultBayesian,
@@ -18,11 +19,13 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import InternalHogQLError, QueryError
 
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.experiments.backend.experiment_summary_data_service import (
     ExperimentSummaryDataService,
+    capture_query_error,
     get_chance_to_win,
     get_delta_from_interval,
     parse_metric_dict,
@@ -202,6 +205,20 @@ class TestExperimentSummaryToolHelpers(SimpleTestCase):
     )
     def test_get_default_metric_title(self, _name, metric_dict, expected):
         self.assertEqual(get_default_metric_title(metric_dict), expected)
+
+    @parameterized.expand(
+        [
+            ("unresolved_field", QueryError("Unable to resolve field: missing_alias"), False),
+            ("validation_error", ValidationError("Invalid metric"), False),
+            ("internal_hogql_error", InternalHogQLError("Unexpected AST node"), True),
+            ("unexpected_error", RuntimeError("boom"), True),
+        ]
+    )
+    def test_capture_query_error_skips_user_metric_errors(self, _name, error, expected_captured):
+        with patch("products.experiments.backend.experiment_summary_data_service.capture_exception") as mock_capture:
+            capture_query_error(error, experiment_id=1)
+
+        self.assertEqual(mock_capture.called, expected_captured)
 
 
 @override_settings(IN_UNIT_TESTING=True)
