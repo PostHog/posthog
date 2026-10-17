@@ -127,6 +127,16 @@ class TestFunnelValidationRules(BaseTest):
                 FunnelExclusionEventsNode(event="exclude", funnelFromStep=0, funnelToStep=3),
                 "Exclusion event range is invalid. End of range is greater than number of steps.",
             ),
+            (
+                "start_step_negative",
+                FunnelExclusionEventsNode(event="exclude", funnelFromStep=-1, funnelToStep=1),
+                "Exclusion event range is invalid. Start of range cannot be negative.",
+            ),
+            (
+                "start_step_large_negative",
+                FunnelExclusionEventsNode(event="exclude", funnelFromStep=-5, funnelToStep=2),
+                "Exclusion event range is invalid. Start of range cannot be negative.",
+            ),
         ]
     )
     def test_validates_funnel_exclusion_ranges(self, _name, exclusion, expected_error):
