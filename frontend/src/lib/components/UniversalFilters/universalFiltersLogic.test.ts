@@ -1,11 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
+
 import { initKeaTests } from '~/test/init'
 import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
     PropertyOperator,
+    SessionRecordingPlaylistType,
     UniversalFiltersGroup,
 } from '~/types'
 
@@ -375,6 +378,44 @@ describe('universalFiltersLogic', () => {
                     values: [...defaultFilter.values, ...expected],
                 },
             })
+        })
+    })
+
+    describe('addGroupFilter with a saved replay filter', () => {
+        const savedFilter = {
+            short_id: 'abc123',
+            name: 'Rage clicks',
+            filters: { date_from: '-7d' },
+        } as unknown as SessionRecordingPlaylistType
+        const savedFiltersGroup = { type: TaxonomicFilterGroupType.ReplaySavedFilters } as TaxonomicFilterGroup
+
+        beforeEach(() => {
+            sessionRecordingSavedFiltersLogic.mount()
+        })
+
+        it('applies the saved filter the Saved filters list hands back', async () => {
+            await expectLogic(sessionRecordingSavedFiltersLogic, () => {
+                logic.actions.addGroupFilter(savedFiltersGroup, 'abc123', savedFilter)
+            }).toDispatchActions([
+                sessionRecordingSavedFiltersLogic.actionCreators.requestApplySavedFilter(savedFilter),
+            ])
+        })
+
+        it('asks for a Recent row by short id, because the row holds no filters', async () => {
+            const recentRow = {
+                name: 'Rage clicks',
+                _recentContext: {
+                    sourceGroupType: TaxonomicFilterGroupType.ReplaySavedFilters,
+                    sourceGroupName: 'Saved filters',
+                    sourceValue: 'abc123',
+                },
+            }
+
+            await expectLogic(sessionRecordingSavedFiltersLogic, () => {
+                logic.actions.addGroupFilter(savedFiltersGroup, 'abc123', recentRow)
+            }).toDispatchActions([
+                sessionRecordingSavedFiltersLogic.actionCreators.requestApplySavedFilterByShortId('abc123'),
+            ])
         })
     })
 })

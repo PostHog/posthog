@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectClean } from 'lib/utils/objects'
@@ -102,6 +103,9 @@ export interface sessionRecordingSavedFiltersLogicActions {
     requestApplySavedFilter: (filter: SessionRecordingPlaylistType) => {
         filter: SessionRecordingPlaylistType
     }
+    requestApplySavedFilterByShortId: (shortId: SessionRecordingPlaylistType['short_id']) => {
+        shortId: SessionRecordingPlaylistType['short_id']
+    }
     setAppliedSavedFilter: (appliedSavedFilter: SessionRecordingPlaylistType | null) => {
         appliedSavedFilter: SessionRecordingPlaylistType | null
     }
@@ -186,6 +190,7 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         checkForSavedFilterRedirect: true,
         setAppliedSavedFilter: (appliedSavedFilter: SessionRecordingPlaylistType | null) => ({ appliedSavedFilter }),
         requestApplySavedFilter: (filter: SessionRecordingPlaylistType) => ({ filter }),
+        requestApplySavedFilterByShortId: (shortId: SessionRecordingPlaylistType['short_id']) => ({ shortId }),
         clearPendingFilterApplication: true,
     })),
     reducers(() => ({
@@ -275,6 +280,21 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
         },
     })),
     listeners(({ actions, values }) => ({
+        requestApplySavedFilterByShortId: async ({ shortId }) => {
+            const loadedFilter = values.savedFilters.results.find((savedFilter) => savedFilter.short_id === shortId)
+            if (loadedFilter?.filters) {
+                actions.requestApplySavedFilter(loadedFilter)
+                return
+            }
+            // `savedFilters` holds one page of the list, narrowed by the search and the created-by
+            // filter of the saved filters panel, so a filter the picker offers can be absent from it.
+            const fetchedFilter = await api.recordings.getPlaylist(shortId).catch(() => null)
+            if (fetchedFilter?.filters) {
+                actions.requestApplySavedFilter(fetchedFilter)
+                return
+            }
+            lemonToast.error('Could not apply that saved filter. It may have been deleted.')
+        },
         setIsFiltersExpanded: ({ isFiltersExpanded }) => {
             if (isFiltersExpanded) {
                 actions.loadSavedFiltersIfNeeded()

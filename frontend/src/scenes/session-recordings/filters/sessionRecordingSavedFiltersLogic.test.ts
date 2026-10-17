@@ -1,6 +1,7 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
@@ -13,6 +14,7 @@ import { ReplayTabs } from '~/types'
 describe('sessionRecordingSavedFiltersLogic', () => {
     let logic: ReturnType<typeof sessionRecordingSavedFiltersLogic.build>
     let savedFiltersRequestCount: number
+    let savedFilterRequestCount: number
     const savedFilter = {
         id: 'abc',
         short_id: 'short_abc',
@@ -23,13 +25,17 @@ describe('sessionRecordingSavedFiltersLogic', () => {
 
     beforeEach(() => {
         savedFiltersRequestCount = 0
+        savedFilterRequestCount = 0
         useMocks({
             get: {
                 '/api/projects/:team/session_recording_playlists': () => {
                     savedFiltersRequestCount += 1
                     return { results: [], count: 0 }
                 },
-                '/api/projects/:team/session_recording_playlists/:id': savedFilter,
+                '/api/projects/:team/session_recording_playlists/:id': () => {
+                    savedFilterRequestCount += 1
+                    return savedFilter
+                },
             },
         })
         initKeaTests()
@@ -85,6 +91,57 @@ describe('sessionRecordingSavedFiltersLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['setAppliedSavedFilter'])
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toBe(urls.replay())
+    })
+
+    describe('requestApplySavedFilterByShortId', () => {
+        it('applies a saved filter the loaded page holds, without fetching it again', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recording_playlists': () => ({
+                        results: [savedFilter],
+                        count: 1,
+                    }),
+                },
+            })
+            logic.mount()
+            logic.actions.loadSavedFilters()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => {
+                logic.actions.requestApplySavedFilterByShortId(savedFilter.short_id)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ pendingFilterApplication: savedFilter })
+            expect(savedFilterRequestCount).toBe(0)
+        })
+
+        it('fetches a saved filter the loaded page does not hold', async () => {
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.requestApplySavedFilterByShortId(savedFilter.short_id)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ pendingFilterApplication: savedFilter })
+            expect(savedFilterRequestCount).toBe(1)
+        })
+
+        it('reports a short id that resolves to no saved filter', async () => {
+            const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recording_playlists/:id': () => [404, { detail: 'Not found.' }],
+                },
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.requestApplySavedFilterByShortId('gone')
+            })
+                .toFinishAllListeners()
+                .toMatchValues({ pendingFilterApplication: null })
+            expect(errorToast).toHaveBeenCalled()
+        })
     })
 
     it('does not redirect a saved filter load that resolves after the user navigated away', async () => {
