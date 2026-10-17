@@ -137,8 +137,18 @@ def clay_source(
     return SourceResponse(name=table_id, items=lambda: resource, primary_keys=None)
 
 
+def credit_balance_row(balance: dict[str, Any], retrieved_at: datetime) -> dict[str, Any]:
+    # Clay sends whole balances as JSON integers. Cast to float so the first snapshot does not
+    # create an int64 column that a later fractional balance cannot be written to.
+    row: dict[str, Any] = {**balance, "retrieved_at": retrieved_at}
+    for field in ("balance", "action_execution_balance"):
+        if row.get(field) is not None:
+            row[field] = float(row[field])
+    return row
+
+
 def clay_credit_balances_source(api_key: str, team_id: int, job_id: str) -> SourceResponse:
-    retrieved_at = datetime.now(UTC).isoformat()
+    retrieved_at = datetime.now(UTC)
     config: RESTAPIConfig = {
         "client": _client_config(api_key),
         "resource_defaults": {},
@@ -152,7 +162,7 @@ def clay_credit_balances_source(api_key: str, team_id: int, job_id: str) -> Sour
                     "data_selector": "$",
                     "paginator": "single_page",
                 },
-                "data_map": lambda balance: {**balance, "retrieved_at": retrieved_at},
+                "data_map": lambda balance: credit_balance_row(balance, retrieved_at),
                 "table_format": "delta",
             }
         ],

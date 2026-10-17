@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Optional
 
 import pytest
@@ -105,7 +106,7 @@ class TestClaySourceBehavior:
     def test_credit_balances_reads_balance_endpoint_and_stamps_snapshot_time(self) -> None:
         result = self._driver().run(
             "credit_balances",
-            [ScriptedResponse(json={"balance": 1250.5, "action_execution_balance": 300})],
+            [ScriptedResponse(json={"balance": 1250, "action_execution_balance": 300.5})],
         )
 
         assert result.raised is None
@@ -114,8 +115,13 @@ class TestClaySourceBehavior:
         ]
         assert result.requests[0].headers["clay-api-key"] == "clay_test_key"
         assert result.rows == [
-            {"balance": 1250.5, "action_execution_balance": 300, "retrieved_at": "2026-03-04T05:06:07+00:00"}
+            {
+                "balance": 1250.0,
+                "action_execution_balance": 300.5,
+                "retrieved_at": datetime(2026, 3, 4, 5, 6, 7, tzinfo=UTC),
+            }
         ]
+        assert isinstance(result.rows[0]["balance"], float)
 
 
 @pytest.mark.parametrize(
