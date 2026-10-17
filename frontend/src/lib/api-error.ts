@@ -167,6 +167,9 @@ export function isBrowserNetworkFailure(error: unknown): boolean {
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
+ * - 403 `feature_flag_required` — the flag gate on the endpoint works as intended. The browser can
+ *   evaluate the flag as on before the server does (early access enrollment lag, or a flag that
+ *   self-hosted persists only in the frontend), and each gated product would open its own issue.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 409 carrying a `current_version` — an optimistic-concurrency conflict (experiments). The
  *   editing surface toasts, reloads the fresh state, and keeps the user's unsaved edits.
@@ -217,7 +220,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (isScopeNotFoundError(failure)) {
         return false
     }
-    if (isAccessDeniedError(failure)) {
+    if (isAccessDeniedError(failure) || isFeatureFlagGatedError(failure)) {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
