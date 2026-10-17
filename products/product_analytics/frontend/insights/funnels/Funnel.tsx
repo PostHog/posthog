@@ -3,11 +3,13 @@ import './Funnel.scss'
 import { useValues } from 'kea'
 
 import { FunnelLayout } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ChartParams, FunnelVizType } from '~/types'
 
 import { FunnelBarHorizontalChart } from './FunnelBarHorizontalChart/FunnelBarHorizontalChart'
+import { FunnelBarListChart } from './FunnelBarListChart/FunnelBarListChart'
 import { funnelDataLogic } from './funnelDataLogic'
 import { FunnelFlowGraph } from './FunnelFlowGraph/FunnelFlowGraph'
 import { FunnelHistogramChart } from './FunnelHistogramChart/FunnelHistogramChart'
@@ -18,6 +20,7 @@ export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter, funnelVizType } = useValues(funnelDataLogic(insightProps))
     const { layout } = funnelsFilter || {}
+    const showBarList = useFeatureFlag('FUNNEL_BAR_LIST')
 
     let viz: JSX.Element | null = null
     if (funnelVizType == FunnelVizType.Trends) {
@@ -29,7 +32,7 @@ export function Funnel(props: ChartParams): JSX.Element {
     } else if ((layout || FunnelLayout.vertical) === FunnelLayout.vertical) {
         viz = <FunnelStepsBarChart {...props} />
     } else {
-        viz = <FunnelBarHorizontalChart {...props} />
+        viz = showBarList ? <FunnelBarListChart {...props} /> : <FunnelBarHorizontalChart {...props} />
     }
 
     return (
