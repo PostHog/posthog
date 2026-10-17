@@ -24,6 +24,9 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
     SourceFieldOauthAccountSelectConfig,
     SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
+    SourceFieldSelectConfigConverter,
+    SourceFieldSelectConfigOption,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
@@ -302,6 +305,7 @@ class GoogleAdsSource(
             db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback,
             history_start=inputs.history_start,
             requested_start=config.start_date if isinstance(config, GoogleAdsSourceConfig) else None,
+            skip_removed=isinstance(config, GoogleAdsSourceConfig) and config.skip_removed_keywords,
         )
 
     @property
@@ -347,6 +351,23 @@ class GoogleAdsSource(
                         required=False,
                         placeholder="2020-01-01",
                         secret=False,
+                    ),
+                    SourceFieldSelectConfig(
+                        name="skip_removed_keywords",
+                        label="Skip removed keywords?",
+                        caption=(
+                            "Leave out keywords that are removed, or that sit in a removed ad group or "
+                            "campaign, from the keyword and ad group criterion tables. Every sync reads "
+                            "these tables in full, so removed keywords count towards your billed row "
+                            "usage on each sync."
+                        ),
+                        required=True,
+                        defaultValue="false",
+                        converter=SourceFieldSelectConfigConverter.STR_TO_BOOL,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Yes", value="true"),
+                            SourceFieldSelectConfigOption(label="No", value="false"),
+                        ],
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="is_mcc_account",
