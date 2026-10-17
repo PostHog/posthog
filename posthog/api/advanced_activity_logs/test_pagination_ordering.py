@@ -2,14 +2,17 @@ from datetime import timedelta
 
 import time_machine
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
+from django.db import OperationalError
 from django.utils import timezone
 
+import psycopg
 from parameterized import parameterized
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.advanced_activity_logs.viewset import activity_log_ordering
+from posthog.api.advanced_activity_logs.viewset import ActivityLogPagination, activity_log_ordering
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 
@@ -41,6 +44,16 @@ class TestActivityLogCursorOrdering(APIBaseTest):
 
         assert response.status_code == 400
         assert response.json()["attr"] == "page_size"
+
+    def test_statement_timeout_returns_a_client_error(self):
+        timeout = OperationalError("canceling statement due to statement timeout")
+        timeout.__cause__ = psycopg.errors.QueryCanceled()
+
+        with patch.object(ActivityLogPagination, "paginate_queryset", side_effect=timeout):
+            response = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/?search_text=early-access")
+
+        assert response.status_code == 400, response.json()
+        assert "Narrow the date range" in response.json()["detail"]
 
     def test_follow_keeps_the_cursor_usable_and_picks_up_new_entries(self):
         self._create_logs(3)

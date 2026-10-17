@@ -154,6 +154,10 @@ class AdvancedActivityLogFilterManager:
             if value is None:
                 continue
 
+            containment = self._create_containment_query(field_path, operation, value)
+            if containment is not None:
+                queryset = queryset.filter(containment)
+
             if "[]" in field_path:
                 # Array fields like changes[].type need special handling
                 queryset = self._apply_array_field_filter(queryset, field_path, operation, value)
@@ -163,6 +167,35 @@ class AdvancedActivityLogFilterManager:
                 queryset = queryset.filter(query_condition)
 
         return queryset
+
+    def _create_containment_query(self, field_path: str, operation: str, value: Any) -> Q | None:
+        """Build a `detail @> ...` pre-filter that `idx_alog_detail_gin_path_ops` can serve.
+
+        No index serves a key-path lookup, so without this pre-filter Postgres tests every row in
+        the date range. Each row that the key-path lookup matches also matches this containment,
+        so the caller keeps the key-path lookup to recheck the exact semantics.
+        """
+        if operation == "exact":
+            values = self._get_type_variants(value)
+        elif operation == "in":
+            values = self._expand_values_with_type_variants(value)
+        else:
+            return None
+
+        segments = field_path.split(".")
+        keys = [segment.removesuffix("[]") for segment in segments]
+        # Skip the shapes containment can't express exactly: a numeric segment (Django reads it as an
+        # array index), a trailing `[]` (element-contains semantics), and a `[]` inside a segment.
+        if not values or segments[-1].endswith("[]") or any(key.isdigit() or "[]" in key for key in keys):
+            return None
+
+        condition = Q()
+        for variant in values:
+            document: Any = variant
+            for segment, key in zip(reversed(segments), reversed(keys)):
+                document = {key: [document] if segment.endswith("[]") else document}
+            condition |= Q(detail__contains=document)
+        return condition
 
     def _apply_array_field_filter(
         self, queryset: QuerySet[ActivityLog], field_path: str, operation: str, value: Any
