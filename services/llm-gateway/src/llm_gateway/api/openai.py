@@ -23,6 +23,7 @@ from llm_gateway.modal_routing import send_modal_chat_completions, send_modal_re
 from llm_gateway.models.openai import ChatCompletionRequest, ResponsesRequest, TranscriptionRequest
 from llm_gateway.products.config import validate_product
 from llm_gateway.request_context import apply_posthog_context_from_headers
+from llm_gateway.services.model_registry import ModelRegistryService
 
 openai_router = APIRouter()
 
@@ -52,6 +53,20 @@ def _reject_invalid_user_content_parts(messages: list[dict[str, Any]]) -> None:
                 )
 
 
+def _drop_temperature_for_anthropic_thinking(data: dict[str, Any]) -> dict[str, Any]:
+    """Drop a sampling temperature that Anthropic rejects once litellm turns on thinking.
+
+    litellm maps `reasoning_effort` to an Anthropic `thinking` block but keeps `temperature`.
+    Anthropic answers 400 for any temperature other than 1 when thinking is on.
+    """
+    if data.get("reasoning_effort") in (None, "none") or data.get("temperature") in (None, 1):
+        return data
+    model = ModelRegistryService.get_instance().get_model(data["model"].removeprefix("anthropic/"))
+    if model is None or model.provider != "anthropic":
+        return data
+    return {key: value for key, value in data.items() if key != "temperature"}
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
@@ -67,7 +82,7 @@ async def _handle_chat_completions(
         return await send_modal_chat_completions(data, user, body.stream or False, product)
 
     return await handle_llm_request(
-        request_data=data,
+        request_data=_drop_temperature_for_anthropic_thinking(data),
         user=user,
         model=body.model,
         is_streaming=body.stream or False,
