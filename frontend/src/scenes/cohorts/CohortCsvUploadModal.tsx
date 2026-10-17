@@ -11,6 +11,13 @@ export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
     const { setCohortValue, setCsvUploadModalOpen, uploadCohortCsv } = useActions(logic)
 
     const onClose = (): void => {
+        if (!cohortErrors.name) {
+            setCohortValue('csv', undefined)
+        }
+        setCsvUploadModalOpen(false)
+    }
+
+    const onCancel = (): void => {
         setCohortValue('csv', undefined)
         setCsvUploadModalOpen(false)
     }
@@ -26,7 +33,7 @@ export function CohortCsvUploadModal({ id }: CohortLogicProps): JSX.Element {
                 <>
                     <LemonButton
                         type="secondary"
-                        onClick={onClose}
+                        onClick={onCancel}
                         disabledReason={cohortLoading ? 'Uploading the CSV' : undefined}
                         data-attr="cohort-upload-csv-modal-cancel"
                     >

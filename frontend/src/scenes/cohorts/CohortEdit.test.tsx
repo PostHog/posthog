@@ -110,7 +110,6 @@ describe('cohortEditLogic', () => {
 
         it('shows cohort name validation errors in the modal', async () => {
             logic = cohortEditLogic({ id: 'new' })
-            logic.mount()
             render(<CohortCsvUploadModal id="new" />)
 
             act(() => {
@@ -127,6 +126,13 @@ describe('cohortEditLogic', () => {
             await userEvent.click(screen.getByRole('button', { name: 'Upload' }))
 
             expect(await screen.findByText('Cohort name cannot be empty')).toBeVisible()
+
+            await userEvent.click(screen.getByRole('button', { name: 'close' }))
+            expect(logic.values.cohort.csv).toBeInstanceOf(File)
+
+            act(() => logic.actions.setCsvUploadModalOpen(true))
+            await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+            expect(logic.values.cohort.csv).toBeUndefined()
         })
     })
 
@@ -162,7 +168,7 @@ describe('cohortEditLogic', () => {
                 logic.actions.submitCohort()
             }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortFailure'])
 
-            await new Promise((resolve) => setTimeout(resolve, 10))
+            await new Promise((resolve) => requestAnimationFrame(resolve))
 
             expect(querySelectorSpy).toHaveBeenCalledWith('.Field--error')
             expect(scrollIntoViewSpy).toHaveBeenCalledWith({
