@@ -208,10 +208,15 @@ def _is_flat_block(item: dict[str, Any]) -> bool:
     return item_type in _CONTENT_BLOCK_TYPES
 
 
+# `reply_text` is built before the Hog VM's guarded run, so a decode error here would fail every Hog
+# evaluation on the event. A deeply nested string makes `json.loads` raise RecursionError.
+_UNDECODABLE_JSON_ERRORS = (ValueError, TypeError, RecursionError)
+
+
 def _decode_choice_string(choice: str) -> Any:
     try:
         decoded = json.loads(choice)
-    except (ValueError, TypeError):
+    except _UNDECODABLE_JSON_ERRORS:
         return choice
     is_message = isinstance(decoded, dict) and (
         isinstance(decoded.get("message"), dict) or _str_value(decoded.get("role")) is not None
@@ -267,7 +272,7 @@ def _extract_hog_reply_text(output: Any, *, from_choices: bool) -> str:
             # Some SDKs send the choices as one JSON string.
             try:
                 output = json.loads(output)
-            except (ValueError, TypeError):
+            except _UNDECODABLE_JSON_ERRORS:
                 return output
         return _reply_text_from_choices(output)
     # The app's own output is the reply as written, unless it is one assistant message.

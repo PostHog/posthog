@@ -561,6 +561,20 @@ class TestHogEvalExamplesBehavior:
         assert result["error"] is None
         assert result["verdict"] is expected
 
+    @parameterized.expand(
+        [
+            ("choices_string", "[" * 100_000 + "]" * 100_000),
+            ("choice_item_string", ["[" * 100_000 + "]" * 100_000]),
+        ]
+    )
+    def test_deeply_nested_choices_do_not_break_the_run(self, _name: str, output_choices: Any) -> None:
+        bytecode = compile_hog(_get_source("Empty or failed output"), "destination")
+
+        result = run_hog_eval(bytecode, _make_event(ai_output_choices=output_choices))
+
+        assert result["error"] is None
+        assert result["verdict"] is True
+
     @parameterized.expand([("Empty or failed output",), ("Valid JSON output",)])
     def test_output_body_checks_pass_a_step_that_only_calls_tools(self, label: str) -> None:
         bytecode = compile_hog(_get_source(label), "destination")
