@@ -285,7 +285,7 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
 
         query = """
             SELECT
-                properties.$session_id AS session_id,
+                $session_id AS session_id,
                 countIf(event = '$rageclick') * 3
                     + countIf(event = '$exception') * 2
                     AS frustration_score
@@ -294,8 +294,8 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
                 event IN ('$rageclick', '$exception')
                 AND timestamp >= {date_from}
                 AND timestamp <= {date_to}
-                AND notEmpty(properties.$session_id)
-            GROUP BY properties.$session_id
+                AND notEmpty($session_id)
+            GROUP BY $session_id
             HAVING frustration_score > {min_frustration_score}
             ORDER BY frustration_score DESC
             LIMIT 1000

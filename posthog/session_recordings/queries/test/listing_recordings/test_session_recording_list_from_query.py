@@ -39,6 +39,7 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
 from posthog.clickhouse.query_tagging import tags_context
+from posthog.models import PropertyDefinition
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
@@ -863,6 +864,29 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             },
             [],
         )
+
+    def test_numeric_session_id_property_definition_does_not_break_listing(self) -> None:
+        PropertyDefinition.objects.create(
+            team=self.team, name="$session_id", property_type="Numeric", type=PropertyDefinition.Type.EVENT
+        )
+        user = "numeric-session-id-user"
+        person = create_person(team=self.team, distinct_ids=[user])
+        session_id = str(uuid7())
+        produce_replay_summary(
+            distinct_id=user, session_id=session_id, first_timestamp=self.an_hour_ago, team_id=self.team.id
+        )
+        create_event(
+            team=self.team,
+            distinct_id=user,
+            timestamp=self.an_hour_ago,
+            properties={"$session_id": session_id, "$window_id": str(uuid4())},
+        )
+
+        self._assert_query_matches_session_ids(
+            {"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}, [session_id]
+        )
+        with self.settings(PERSON_ON_EVENTS_V2_OVERRIDE=True):
+            self._assert_query_matches_session_ids({"person_uuid": str(person.uuid)}, [session_id])
 
     def test_event_filter_session_subquery_has_no_ordering(self) -> None:
         subquery = ReplayFiltersEventsSubQuery(
