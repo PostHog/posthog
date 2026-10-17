@@ -85,6 +85,9 @@ def clickhouse_error_type(e: Exception) -> str:
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
 
 
+# An executable UDF (e.g. the funnel aggregation UDFs) that does not answer in time fails with
+# UDF_EXECUTION_FAILED (754). The inner timeout is the same slow-query condition as TIMEOUT_EXCEEDED (159).
+UDF_TIMEOUT_PATTERN = re.compile(r"Code: 159\b|Pipe read timeout")
 STORAGE_FILE_URI_PATTERN = re.compile(r"\(in file/uri ([^)]+)\)")
 BAD_GET_TYPE_MISMATCH_PATTERN = re.compile(
     r"\bBad get: has (?P<actual>[A-Za-z][A-Za-z0-9_]{0,63}), "
@@ -232,6 +235,8 @@ def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     code = getattr(error, "code", None)
     if code is None or code not in CLICKHOUSE_ERROR_CODE_LOOKUP:
         return CLICKHOUSE_UNKNOWN_EXCEPTION
+    if code == 754 and UDF_TIMEOUT_PATTERN.search(str(getattr(error, "message", ""))):
+        return CLICKHOUSE_ERROR_CODE_LOOKUP[159]
     return CLICKHOUSE_ERROR_CODE_LOOKUP[code]
 
 
