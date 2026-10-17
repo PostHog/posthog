@@ -431,10 +431,11 @@ TEAM_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     update_fn=update_team_metadata_cache,
     cache_name="team_metadata",
     get_team_ids_to_skip_fix_fn=_get_team_ids_with_recently_updated_teams,
-    # The refresh serializes exactly these columns (plus organization/project names
-    # via select_related), so narrowing the SELECT to them keeps the job resilient to
-    # newly added Team columns the read replica may not have yet.
-    refresh_only_fields=TEAM_METADATA_FIELDS,
+    # The refresh serializes exactly these columns, so narrowing the SELECT to them keeps
+    # the job resilient to newly added Team columns the read replica may not have yet.
+    # The two related paths are the only columns it reads off the joined organization and
+    # project rows; every other column on those rows stays out of the SELECT.
+    refresh_only_fields=[*TEAM_METADATA_FIELDS, "organization__name", "project__name"],
 )
 
 
