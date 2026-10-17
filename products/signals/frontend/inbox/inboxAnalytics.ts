@@ -41,6 +41,7 @@ export const INBOX_EVENTS = {
     REPORTS_IMPRESSED: 'Inbox reports impressed',
     REPORT_OPENED: 'Inbox report opened',
     REPORT_CLOSED: 'Inbox report closed',
+    REPORT_EVIDENCE_LOADED: 'Inbox report evidence loaded',
     REPORT_SCROLLED: 'Inbox report scrolled',
     REPORT_ACTION: 'Inbox report action',
     SELECTION_MODE_ENTERED: 'Inbox selection mode entered',
@@ -288,6 +289,18 @@ export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
 
 function captureInboxEvent(event: InboxEvent, properties: Record<string, unknown>, options?: CaptureOptions): void {
     posthog.capture(event, { inbox_client: INBOX_CLIENT, ...properties }, options)
+}
+
+export function captureInboxReportEvidenceLoaded(
+    reportId: string,
+    durationMs: number,
+    outcome: 'success' | 'error' | 'timeout'
+): void {
+    captureInboxEvent(INBOX_EVENTS.REPORT_EVIDENCE_LOADED, {
+        report_id: reportId,
+        duration_ms: Math.round(durationMs),
+        outcome,
+    })
 }
 
 /** Whole hours since the report was created, rounded to one decimal. Mirrors desktop `report_age_hours`. */

@@ -1972,6 +1972,13 @@ export interface ReportChartApi {
      * * `medium` - medium
      * * `large` - large */
     size?: SizeEnumApi | null
+    /** Last successful chart result. Hidden when the viewer's access differs from the shared query context. */
+    cached_results?: unknown
+    /**
+     * When the saved chart result was measured.
+     * @nullable
+     */
+    cached_results_at?: string | null
 }
 
 /**

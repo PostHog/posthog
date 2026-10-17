@@ -156,6 +156,7 @@ from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES, anno
 from products.signals.backend.receivers import capture_verdict_reason_added_analytics
 from products.signals.backend.repo_corrections import sanitized_repository
 from products.signals.backend.report_assignments import InvalidPullRequestUrl, ReportClaimConflict, claim_report
+from products.signals.backend.report_chart_refresh import schedule_report_chart_refresh
 from products.signals.backend.report_check_authoring import (
     CheckCreationError,
     CheckQueryAccessError,
@@ -2181,6 +2182,8 @@ class SignalReportViewSet(
                 if private is not None:
                     return Response(private)
         report = self.get_object()
+        if report.charts:
+            schedule_report_chart_refresh(self.team_id, str(report.id))
         serializer = self.get_serializer(report, context=self._enriched_report_context(report))
         return Response(serializer.data)
 
@@ -2902,7 +2905,11 @@ class SignalReportViewSet(
                 private = store.get_report(str(pk))
                 if private is not None:
                     document = TrialInboxReads(self, store).detail(str(pk))
-                    evidence = fetch_signals_for_report_sync(self.team, str(pk)) if private.source_report_id else []
+                    evidence = (
+                        fetch_signals_for_report_sync(self.team, str(pk), max_execution_time=15)
+                        if private.source_report_id
+                        else []
+                    )
                     return Response(
                         ReportSignalsResponseSerializer(
                             {"report": document, "signals": [*evidence, *private.evidence]}
@@ -2910,7 +2917,7 @@ class SignalReportViewSet(
                     )
         report = self.get_object()
         report_data = SignalReportSerializer(report, context=self._enriched_report_context(report)).data
-        signals_list = fetch_signals_for_report_sync(self.team, str(report.id))
+        signals_list = fetch_signals_for_report_sync(self.team, str(report.id), max_execution_time=15)
         return Response(ReportSignalsResponseSerializer({"report": report_data, "signals": signals_list}).data)
 
     @extend_schema(

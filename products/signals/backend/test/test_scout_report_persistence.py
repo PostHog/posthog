@@ -691,6 +691,10 @@ class TestScoutReportCharts(BaseTest):
         charts = [self._chart("signups-drop", "Daily signups")]
         report_id = self._create(charts)
 
+        stored = self._stored_charts(report_id)
+        stored[0]["cached_results"] = {"results": [[7]]}
+        stored[0]["cached_results_at"] = timezone.now().isoformat()
+        SignalReport.objects.filter(id=report_id).update(charts=stored)
         assert set_report_charts(team_id=self.team.id, report_id=report_id, charts=charts) is False
         assert (
             set_report_charts(

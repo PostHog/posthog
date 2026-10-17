@@ -2,6 +2,8 @@ import '@testing-library/jest-dom'
 
 import { render, screen } from '@testing-library/react'
 
+import { initKeaTests } from '~/test/init'
+
 import type { ReportChartApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { ReportChart } from './ReportChart'
@@ -18,6 +20,10 @@ const CHART: ReportChartApi = {
 }
 
 describe('ReportChart', () => {
+    beforeEach(() => {
+        initKeaTests()
+    })
+
     it('draws the chart from the charts in context, without the Inbox detail logic', () => {
         render(
             <ReportChartsContext.Provider value={new Map([[CHART.chart_id, CHART]])}>

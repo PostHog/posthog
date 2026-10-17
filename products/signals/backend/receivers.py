@@ -25,6 +25,7 @@ from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalReport, SignalReportArtefact
+from products.signals.backend.report_chart_refresh import schedule_report_chart_refresh
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -45,6 +46,15 @@ _SNOOZE_SOURCE_STATUSES = frozenset(
 # The fields the embedded report document is rendered from. A save touching none of them cannot
 # change the document, so it skips both the prior-state read and the re-embed.
 _DOCUMENT_FIELDS = frozenset({"title", "summary"})
+
+
+@receiver(post_save, sender=SignalReport)
+def schedule_chart_snapshots(sender: type, instance: SignalReport, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if not instance.charts or (update_fields is not None and "charts" not in update_fields):
+        return
+    team_id, report_id = instance.team_id, str(instance.id)
+    transaction.on_commit(lambda: schedule_report_chart_refresh(team_id, report_id), robust=True)
 
 
 def connect_task_run_assignment_sync() -> None:

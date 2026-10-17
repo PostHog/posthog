@@ -72,6 +72,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON
+from products.signals.backend.report_chart_refresh import schedule_report_chart_refresh
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.resolve_reviewers import ReviewerPayloadIndex, bounded_reviewer_reason
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
@@ -938,7 +939,13 @@ def set_report_charts(
         )
         if stored is None:
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
-        if stored == payload:
+        authored_stored = [
+            {key: value for key, value in chart.items() if key not in {"cached_results", "cached_results_at"}}
+            if isinstance(chart, dict)
+            else chart
+            for chart in stored
+        ]
+        if authored_stored == payload:
             logger.info(
                 "signals_scout.edit_report: charts unchanged",
                 extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},
@@ -948,6 +955,7 @@ def set_report_charts(
             charts=payload,
             updated_at=timezone.now(),
         )
+        transaction.on_commit(lambda: schedule_report_chart_refresh(team_id, report_id), robust=True)
         if attribution is not None:
             SignalReportArtefact.add_log(
                 team_id=team_id,

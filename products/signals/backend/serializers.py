@@ -948,6 +948,21 @@ class ReportChartSerializer(serializers.Serializer):
             "from its query, and two charts referenced from the same paragraph sit side by side."
         ),
     )
+    cached_results = serializers.JSONField(
+        required=False,
+        allow_null=True,
+        help_text="Last successful chart result. Hidden when the viewer's access differs from the shared query context.",
+    )
+    cached_results_at = serializers.DateTimeField(
+        required=False, allow_null=True, help_text="When the saved chart result was measured."
+    )
+
+    def to_representation(self, instance: dict) -> dict:
+        representation = super().to_representation(instance)
+        if not report_metric_access_policy(self.context).may_read_chart_snapshot(instance):
+            representation["cached_results"] = None
+            representation["cached_results_at"] = None
+        return representation
 
 
 class _MetricFloatField(serializers.FloatField):
