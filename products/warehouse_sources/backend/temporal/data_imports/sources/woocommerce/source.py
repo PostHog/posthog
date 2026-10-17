@@ -306,7 +306,7 @@ class WooCommerceSource(
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-                        secret=False,
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="consumer_secret",
