@@ -22,7 +22,7 @@ individual traces, also use `exploring-llm-traces`.
 | Tool                            | Purpose                                                            |
 | ------------------------------- | ------------------------------------------------------------------ |
 | `posthog:execute-sql`           | Rank users and compare their metrics against the project baseline  |
-| `posthog:query-llm-traces-list` | Find high-cost traces for a specific user                          |
+| `posthog:query-llm-traces-list` | List a user's recent traces (rank by cost with `execute-sql`)      |
 | `posthog:query-llm-trace`       | Read representative traces to explain what actually happened       |
 | `posthog:read-data-schema`      | Discover custom event or person properties before grouping by them |
 | `posthog:generate-app-url`      | Build region- and project-qualified links back to the UI           |
