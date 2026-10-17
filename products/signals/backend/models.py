@@ -3249,6 +3249,10 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
             # slower for the life of the project.
             GinIndex(fields=["emitted_report_ids"], name="signal_scout_run_emitted_idx"),
             GinIndex(fields=["edited_report_ids"], name="signal_scout_run_edited_idx"),
+            # Back the run search's `text` filter, the scouts' dedupe path. Without it the planner tests
+            # UPPER(summary) on every one of the team's runs, so a rare term costs the team's whole
+            # history. On UPPER(...) because icontains compiles to UPPER(col::text) LIKE UPPER(pattern).
+            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signal_scout_run_summary_trgm"),
         ]
 
     def save(self, *args: Any, update_fields: Any = None, **kwargs: Any) -> None:
