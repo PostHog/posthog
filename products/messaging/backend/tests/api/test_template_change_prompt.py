@@ -113,6 +113,13 @@ class TestTemplateChangePrompt(APIBaseTest):
                 PERSONALIZATION,
             ),
             (
+                "path_with_route_groups_and_brackets",
+                {**NO_VARIABLES, "source": {"path": "app/(marketing)/emails/[locale]/welcome.html"}},
+                "In `app/(marketing)/emails/[locale]/welcome.html`, change ",
+                "- It is the PostHog email template with the key `welcome`.",
+                PERSONALIZATION,
+            ),
+            (
                 "source_values_that_could_instruct_the_agent",
                 {
                     **NO_VARIABLES,

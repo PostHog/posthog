@@ -19,7 +19,7 @@ COMMIT_SHA: Final = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 # Uploads store source values as free text, and the prompt goes to an agent that can write to the repository,
 # so a value that could carry an instruction (spaces, backticks, newlines) is treated as unknown.
 SOURCE_REPOSITORY: Final = re.compile(r"[\w.-]+(?:/[\w.-]+)+")
-SOURCE_PATH: Final = re.compile(r"[\w.@+-]+(?:/[\w.@+-]+)*")
+SOURCE_PATH: Final = re.compile(r"[^\s`\x00-\x1f\x7f]+")
 SOURCE_REF: Final = re.compile(r"[\w./-]+")
 SHORT_SHA_LENGTH: Final = 7
 
@@ -142,7 +142,6 @@ def _liquid_markups(text: str) -> Iterator[str]:
     """Each `{{ … }}` and `{% … %}` in one forward pass. A lazy regex rescans the rest of the text after every
     opener that never closes, which turns a large uploaded HTML into quadratic work on every read."""
     next_opener = {opener: text.find(opener) for opener, _ in LIQUID_DELIMITERS}
-    position = 0
     while True:
         open_delimiters = [
             (at, opener, closer) for opener, closer in LIQUID_DELIMITERS if (at := next_opener[opener]) >= 0
