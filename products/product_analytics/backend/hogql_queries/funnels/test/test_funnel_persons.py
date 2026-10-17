@@ -435,6 +435,36 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+        # Dropoff after a skipped optional step, with recording from the prior required step
+        query_with_optional_step = FunnelsQuery(
+            series=[
+                EventsNode(event="step one"),
+                EventsNode(event="step two"),
+                EventsNode(event="optional step", optionalInFunnel=True),
+                EventsNode(event="step three"),
+            ],
+            interval="day",
+            dateRange=DateRange(date_from="2021-01-01", date_to="2021-01-08"),
+            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
+        )
+        results = get_actors(query_with_optional_step, self.team, funnel_step=-4, include_recordings=True)
+        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(
+            list(results[0][2]),
+            [
+                {
+                    "session_id": "s2",
+                    "events": [
+                        {
+                            "uuid": UUID("21111111-1111-1111-1111-111111111111"),
+                            "timestamp": timezone.now() + timedelta(days=1),
+                            "window_id": "w2",
+                        }
+                    ],
+                }
+            ],
+        )
+
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(
             distinct_ids=["person1"],
