@@ -544,3 +544,47 @@ export const PullRequestLegacy: Story = {
         </Frame>
     ),
 }
+
+const actionEvidenceReport = { ...reportTabReports[0], id: '019e64b8-0000-7000-8000-000000000901' }
+
+const actionEvidenceFlags = {
+    ...meta.parameters?.featureFlags,
+    [FEATURE_FLAGS.INBOX_REPORT_ACTIONS_EVIDENCE]: true,
+}
+
+export const ReportNeedsInvestigation: Story = {
+    parameters: { featureFlags: actionEvidenceFlags },
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail report={{ ...actionEvidenceReport, status: SignalReportStatus.PENDING_INPUT }} />
+        </Frame>
+    ),
+}
+
+export const ReportWithCitedEvidence: Story = {
+    parameters: { featureFlags: actionEvidenceFlags },
+    decorators: [readyToImplementMocks],
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={{
+                    ...actionEvidenceReport,
+                    summary: `## Problem
+The invite form accepts an empty recipient row. [The error report](/project/997/error_tracking/${actionEvidenceReport.id}-src-0) shows the failed request.
+
+## Impact
+[The recording](/project/997/replay/${actionEvidenceReport.id}-src-1) shows repeated attempts to submit the form.
+
+## Solution
+Validate each recipient and show the field error before sending the request.`,
+                }}
+            />
+        </Frame>
+    ),
+}
+
+export const PullRequestNextAction: Story = {
+    ...PullRequest,
+    parameters: { featureFlags: actionEvidenceFlags },
+}

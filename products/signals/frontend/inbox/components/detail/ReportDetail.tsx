@@ -26,6 +26,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
+import { selectReportEvidence } from '../../utils/reportEvidence'
 import {
     displayConventionalCommitTitle,
     parseConventionalCommitTitle,
@@ -55,6 +56,7 @@ import { useReportDetailActions } from './ReportDetailActions'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
+import { ReportNextAction } from './ReportNextAction'
 import { ReportPrimaryMetric } from './ReportPrimaryMetric'
 import { ReportSourceSuggestion } from './ReportSourceSuggestion'
 import { ReportStatusSection } from './ReportStatusSection'
@@ -212,6 +214,7 @@ export function InboxDetailFrame({
     pullRequestNote,
     children,
 }: InboxDetailFrameProps): JSX.Element {
+    const actionsEvidenceEnabled = useFeatureFlag('INBOX_REPORT_ACTIONS_EVIDENCE')
     const { searchParams } = useValues(router)
     // A `?back=` internal path (set by surfaces embedding inbox cards, e.g. the customer analytics
     // feed) redirects the back button there instead of the inbox list tab.
@@ -249,6 +252,7 @@ export function InboxDetailFrame({
     const signals = [...(reportSignals ?? [])].sort(
         (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
     )
+    const previewSignals = actionsEvidenceEnabled ? selectReportEvidence(signals) : signals.slice(0, 2)
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
@@ -356,8 +360,9 @@ export function InboxDetailFrame({
                     {report.summary ? (
                         <ReportSummaryBody
                             summary={report.summary}
+                            evidence={actionsEvidenceEnabled ? { report, signals } : undefined}
                             chartPlacements={chartPlacements}
-                            implementButton={implementButton}
+                            implementButton={actionsEvidenceEnabled ? undefined : implementButton}
                             pullRequestNote={pullRequestNote}
                             impactMetrics={impactMetrics}
                             expectedImpact={expectedImpact}
@@ -458,19 +463,36 @@ export function InboxDetailFrame({
                                 {reportSignalsLoading && reportSignals === null ? (
                                     <EvidenceSkeleton count={evidenceCount} />
                                 ) : (
-                                    <div className="flex flex-col gap-3">
-                                        {(evidenceExpanded ? signals : signals.slice(0, 2)).map(
-                                            (signal: SignalNode) => (
-                                                <SignalCard key={signal.signal_id} signal={signal} />
-                                            )
-                                        )}
-                                        {signals.length > 2 && (
+                                    <div
+                                        className="flex flex-col gap-3"
+                                        onClickCapture={(event) => {
+                                            if (
+                                                actionsEvidenceEnabled &&
+                                                event.target instanceof Element &&
+                                                event.target.closest('a')
+                                            ) {
+                                                captureInboxReportAction({
+                                                    report,
+                                                    actionType: 'open_evidence_source',
+                                                    surface: 'detail_pane',
+                                                })
+                                            }
+                                        }}
+                                    >
+                                        {(evidenceExpanded ? signals : previewSignals).map((signal: SignalNode) => (
+                                            <SignalCard key={signal.signal_id} signal={signal} />
+                                        ))}
+                                        {signals.length > previewSignals.length && (
                                             <LemonButton
                                                 type="tertiary"
                                                 size="small"
                                                 onClick={evidenceExpanded ? collapseEvidence : expandEvidence}
                                             >
-                                                {evidenceExpanded ? 'Show less' : 'Show more'}
+                                                {evidenceExpanded
+                                                    ? 'Show less'
+                                                    : actionsEvidenceEnabled
+                                                      ? `Show all ${signals.length} signals`
+                                                      : 'Show more'}
                                             </LemonButton>
                                         )}
                                         {report.source_suggestion && (
@@ -561,9 +583,9 @@ export function InboxDetailFrame({
                 >
                     {backLabel}
                 </LemonButton>
-                <div className="flex items-center gap-2">
-                    {primaryAction}
-                    {!summaryHasSolution && implementButton}
+                <div className="flex flex-wrap items-center gap-2">
+                    {actionsEvidenceEnabled ? <ReportNextAction report={currentReport ?? report} /> : primaryAction}
+                    {!actionsEvidenceEnabled && !summaryHasSolution && implementButton}
                     {/* Discuss is always available and stays inline as its own dropdown button. */}
                     <DiscussReportButton report={report} reportUrl={reportUrl} />
                     {/* Buttons inline on wide layouts; collapse into a standard LemonMenu kebab below @4xl. */}

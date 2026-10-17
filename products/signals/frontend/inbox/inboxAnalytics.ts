@@ -171,6 +171,8 @@ export type InboxReportActionType =
     | 'copy_implementation_prompt'
     | 'refund'
     | 'open_pr'
+    | 'open_task'
+    | 'open_evidence_source'
     | 'view_diff'
     | 'show_more'
     | 'expand_section'

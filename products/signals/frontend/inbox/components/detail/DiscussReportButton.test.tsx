@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,9 +19,11 @@ import {
     REPORT_AI_PANEL,
     REPORT_DISCUSSION_QUESTION_MAX_LENGTH,
 } from '../../inboxTaskKickoffLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { DiscussReportButton } from './DiscussReportButton'
 import { ReportDiscussionComposer } from './ReportDiscussionComposer'
+import { ReportNextAction } from './ReportNextAction'
 
 jest.mock('../../inboxAnalytics', () => ({
     ...jest.requireActual('../../inboxAnalytics'),
@@ -313,5 +315,51 @@ describe('DiscussReportButton', () => {
         await openPanel({ ...makeReport(), status: SignalReportStatus.RESOLVED })
 
         expect(screen.getByText(/Ask a question/)).toBeInTheDocument()
+    })
+    it('investigates a report that needs input without starting implementation', async () => {
+        const report = {
+            ...makeReport(),
+            status: SignalReportStatus.PENDING_INPUT,
+            actionability: 'immediately_actionable' as const,
+        }
+        const logic = inboxReportDetailLogic({ reportId: report.id, report })
+        logic.mount()
+        const createPr = jest.spyOn(inboxTaskKickoffLogic.actions, 'createPrFromReport')
+        render(<ReportNextAction report={report} />)
+        act(() => logic.actions.loadReportTasksSuccess([]))
+
+        await userEvent.click(screen.getByText('Investigate'))
+
+        expect(createPr).not.toHaveBeenCalled()
+        expect(discussReport).toHaveBeenCalledWith(
+            report,
+            expect.stringContaining(report.id),
+            'Check the evidence and identify the next step.',
+            expect.stringContaining("Do not change code, open a pull request, or change the report's state.")
+        )
+        expect(jest.mocked(captureInboxReportAction)).toHaveBeenCalledWith(
+            expect.objectContaining({
+                actionType: 'discuss',
+                extra: expect.objectContaining({ next_step: 'investigate', question_source: 'preset' }),
+            })
+        )
+        logic.unmount()
+    })
+
+    it('reloads artefacts before it derives linked runs', () => {
+        const report = makeReport()
+        const logic = inboxReportDetailLogic({ reportId: report.id, report })
+        logic.mount()
+        logic.actions.loadReportArtefactsFailure('failed')
+        const loadReportArtefacts = jest.spyOn(logic.actions, 'loadReportArtefacts')
+        const loadReportTasks = jest.spyOn(logic.actions, 'loadReportTasks')
+        render(<ReportNextAction report={report} />)
+
+        fireEvent.click(screen.getByText('Reload runs'))
+
+        expect(loadReportArtefacts).toHaveBeenCalledTimes(1)
+        expect(loadReportTasks).not.toHaveBeenCalled()
+        expect(screen.getByText('Checking runs')).toBeInTheDocument()
+        logic.unmount()
     })
 })
