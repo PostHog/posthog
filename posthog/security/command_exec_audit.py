@@ -12,6 +12,7 @@ from typing import Any, Optional
 
 import wrapt
 import structlog
+from prometheus_client import Counter
 
 # C exec primitive under subprocess.Popen; absent on some platforms (Windows/wasm).
 _posixsubprocess: ModuleType | None = None
@@ -23,6 +24,25 @@ except ImportError:  # pragma: no cover
     pass
 
 logger = structlog.get_logger(__name__)
+
+# Bounded label values only: never the command, binary, cwd, team or anything user-controlled.
+COMMAND_EXEC_AUDIT_COUNTER = Counter(
+    "posthog_command_exec_audit_total",
+    "Audited process executions, including volume-suppressed ones that are not logged.",
+    labelnames=[
+        "sink",
+        "shell",
+        "has_shell_operators",
+        "has_encoded_blob",
+        "replaces_process",
+        "suppressed",
+    ],
+)
+COMMAND_EXEC_AUDIT_FAILURES_COUNTER = Counter(
+    "posthog_command_exec_audit_failures_total",
+    "Audit entries that could not be emitted (kind=emit) or sinks that could not be wrapped (kind=wrap).",
+    labelnames=["kind", "sink", "target"],
+)
 
 # Reentrancy guard. Emitting a log touches the query-tag context, which on first access
 # shells out to `git` (see posthog/git.py via query_tagging.__get_constant_tags) — without
@@ -72,6 +92,9 @@ _CONTROL_CHARS[0x7F] = " "
 
 # Characters that let one command string spawn or chain into another.
 _SHELL_OPERATORS = frozenset(";|&$`<>\n")
+# With shell=False the arguments still reach a shell parser when the program itself is one, so
+# `["bash", "-c", "curl x | sh"]` carries the same risk as shell=True.
+_SHELL_BINARIES = frozenset({"sh", "bash", "dash", "zsh", "ksh", "csh", "tcsh", "fish", "busybox"})
 
 _VOLUME_SUPPRESSION_RULES: dict[str, Callable[[list[str]], bool]] = {
     "uname": lambda tail: all(a.startswith("-") for a in tail),
@@ -136,6 +159,13 @@ def _is_volume_suppressed(command: Any, shell: bool) -> bool:
     argv = [_to_text(token) for token in command]
     predicate = _VOLUME_SUPPRESSION_RULES.get(os.path.basename(argv[0].strip()))
     return predicate is not None and predicate(argv[1:])
+
+
+def _runs_a_shell(command: Any, binary: Optional[str]) -> bool:
+    program = binary or (command[0] if isinstance(command, (list, tuple)) and command else None)
+    if program is None:
+        return False
+    return os.path.basename(_to_text(program).strip()).lower() in _SHELL_BINARIES
 
 
 def _scrub_args(tokens: Any) -> list[str]:
@@ -226,6 +256,28 @@ def _context() -> dict[str, Any]:
     return ctx
 
 
+def _count(sink: str, payload: Mapping[str, Any], *, suppressed: bool = False) -> None:
+    # Metrics must never break the audit path (or the command), so swallow everything.
+    try:
+        COMMAND_EXEC_AUDIT_COUNTER.labels(
+            sink=sink,
+            shell=str(bool(payload.get("shell", False))).lower(),
+            has_shell_operators=str(bool(payload.get("has_shell_operators", False))).lower(),
+            has_encoded_blob=str(bool(payload.get("has_encoded_blob", False))).lower(),
+            replaces_process=str(bool(payload.get("replaces_process", False))).lower(),
+            suppressed=str(suppressed).lower(),
+        ).inc()
+    except Exception:
+        pass
+
+
+def _count_failure(kind: str, *, sink: str = "", target: str = "") -> None:
+    try:
+        COMMAND_EXEC_AUDIT_FAILURES_COUNTER.labels(kind=kind, sink=sink, target=target).inc()
+    except Exception:
+        pass
+
+
 def _emit(
     *,
     component: str,
@@ -238,8 +290,6 @@ def _emit(
     extra: Optional[dict[str, Any]] = None,
 ) -> None:
     if _in_audit.get():
-        return
-    if _is_volume_suppressed(command, shell):
         return
     token = _in_audit.set(True)
     try:
@@ -257,14 +307,20 @@ def _emit(
 
         # Scan the raw command, not the scrubbed copy: an operator inside a redacted token (e.g.
         # `--token=$(cat x)`) would otherwise vanish before this check. Only meaningful under a
-        # shell; in argv form (shell=False) these chars are passed literally.
-        if shell and any(char in _SHELL_OPERATORS for char in raw):
+        # shell; in argv form (shell=False) these chars are passed literally unless the program
+        # that runs is itself a shell.
+        if (shell or _runs_a_shell(command, binary)) and any(char in _SHELL_OPERATORS for char in raw):
             payload["has_shell_operators"] = True
 
         # An encoded payload is worth surfacing whether it's a smuggled secret or an evasion
         # technique — even though we redact the body itself from `command`.
         if _BLOB_RE.search(raw):
             payload["has_encoded_blob"] = True
+
+        if _is_volume_suppressed(command, shell):
+            # Counted with its detection labels so the metric is a true execution rate; still not logged.
+            _count(sink, {**payload, **(extra or {})}, suppressed=True)
+            return
 
         if cwd is not None:
             payload["cwd"] = _coerce_str(cwd)
@@ -279,7 +335,9 @@ def _emit(
         payload.update(_context())
 
         logger.info("command_execution", **payload)
+        _count(sink, payload)
     except Exception:
+        _count_failure("emit", sink=sink)
         try:
             logger.warning("command_execution_audit_failed", sink=sink, exc_info=True)
         except Exception:
@@ -416,6 +474,7 @@ def _wrap(module: Any, name: str, wrapper: Any) -> None:
             return
         wrapt.wrap_function_wrapper(module, name, wrapper)
     except Exception:
+        _count_failure("wrap", target=name)
         logger.warning("command_exec_audit_wrap_failed", target=name, exc_info=True)
 
 
