@@ -1272,6 +1272,18 @@ class TestResolver(BaseTest):
             description="When the person was first seen by PostHog.",
         )
 
+    @parameterized.expand(
+        [
+            ("from_root_table", "SELECT events.`..`.event FROM events"),
+            ("trailing_double_dot", "SELECT events.poe.`..` FROM events"),
+        ]
+    )
+    def test_field_traverser_double_dot_without_parent(self, _name: str, query: str):
+        node = self._select(query)
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert "no parent table" in str(ctx.exception)
+
     def test_visit_hogqlx_tag(self):
         node = self._select("select event from <HogQLQuery query='select event from events' />")
         assert isinstance(node, ast.SelectQuery)

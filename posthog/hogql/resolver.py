@@ -2560,6 +2560,11 @@ class Resolver(CloningVisitor):
                         expression = ast.Call(name="tupleElement", args=[expression, ast.Constant(value=member)])
                     return self.visit(expression)
             if next_chain == "..":  # only support one level of ".."
+                if len(previous_types) < 3 or len(chain_to_parse) == 0:
+                    raise QueryError(
+                        f"Cannot resolve field: {'.'.join(str(c) for c in node.chain)}. "
+                        f"The '..' step has no parent table to go up to."
+                    )
                 previous_types.pop()
                 previous_types.pop()
                 loop_type = previous_types[-1]
