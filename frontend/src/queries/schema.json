@@ -17579,6 +17579,9 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "barGap": {
+                    "type": "number"
+                },
                 "boxPlot": {
                     "$ref": "#/definitions/BoxPlotSettings"
                 },
@@ -17656,11 +17659,30 @@
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
                 },
+                "valueLabelBackground": {
+                    "type": "boolean"
+                },
+                "valueLabelFontSize": {
+                    "type": "number"
+                },
+                "valueLabelPosition": {
+                    "enum": ["end", "center"],
+                    "type": "string"
+                },
+                "valueLabelRotation": {
+                    "type": "number"
+                },
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
+                "xAxisDateFormat": {
+                    "type": "string"
+                },
                 "xAxisLabel": {
                     "type": "string"
+                },
+                "xAxisTickRotation": {
+                    "type": "number"
                 },
                 "yAxis": {
                     "items": {
@@ -51132,6 +51154,9 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "customColor": {
+                    "type": "string"
                 },
                 "hidden": {
                     "type": "boolean"

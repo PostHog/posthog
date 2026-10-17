@@ -98,9 +98,30 @@ const meta: Meta = {
                 '/api/projects/:team_id/external_data_sources/direct_connection_options/': [],
             },
             post: {
+                '/api/projects/:team_id/query/HogQLMetadata/': {
+                    isValid: true,
+                    errors: [],
+                    warnings: [],
+                    notices: [],
+                    output_columns: [{ name: 'value', type: 'Float64' }],
+                },
                 '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
                     const { query } = (await request.json()) as {
                         query: { kind: string; query?: string; limit?: number }
+                    }
+                    if (query.kind === NodeKind.HogQLMetadata) {
+                        return [
+                            200,
+                            {
+                                isValid: true,
+                                errors: [],
+                                warnings: [],
+                                notices: [],
+                                output_columns: [
+                                    { name: 'value', type: query.query?.includes('revenue') ? 'Float64' : 'String' },
+                                ],
+                            },
+                        ]
                     }
                     if (query.kind === NodeKind.DatabaseSchemaQuery) {
                         const fields = [
