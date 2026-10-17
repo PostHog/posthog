@@ -1,5 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPerson } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { SettingsSnapshot } from 'lib/components/SettingsSnapshot'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
@@ -7,6 +10,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
+import { asLink } from 'products/persons/frontend/person-utils'
 
 import { OverviewTab } from '../player-meta/overviewTabs'
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
@@ -73,13 +77,26 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
     const { sessionPerson, snapshotAt } = useValues(playerMetaLogic(logicProps))
     const { overviewTab } = useValues(playerSidebarLogic)
     const { setOverviewTab } = useActions(playerSidebarLogic)
+    const personLink = sessionPerson?.properties ? asLink(sessionPerson) : undefined
 
     return (
-        <div className="flex flex-col overflow-auto bg-primary px-2 py-1 h-full gap-1">
+        <div className="@container flex flex-col overflow-auto bg-primary px-2 py-1 h-full gap-1">
             <div className="flex flex-row justify-between items-center gap-2 min-w-0">
                 <div className="min-w-0 flex-1">
                     <PersonDisplay person={sessionPerson} withIcon withCopyButton placement="bottom" />
                 </div>
+                {personLink && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconPerson />}
+                        to={personLink}
+                        tooltip="View person"
+                        data-attr="replay-sidebar-view-person"
+                    >
+                        <span className="hidden @[28rem]:inline">View person</span>
+                    </LemonButton>
+                )}
                 <ResolutionView />
             </div>
             <TTLWarning />
