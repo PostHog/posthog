@@ -8,6 +8,10 @@ backpressure: when the budget is spent the send blocks (the message stays on the
 slot frees. Offsets commit only after a successful send; permanently-rejected (poison) messages go
 to a DLQ so they can't wedge a partition.
 
+When ``WAREHOUSE_GROUP_PROPERTY_DIRECT_WRITE_ENABLED`` is on, a group message does not go through
+capture. The consumer writes it to the group directly (see ``group_property_writer``), so the sync
+adds no ``$groupidentify`` event. The same rate budget paces both paths.
+
 The rate gate and the message->capture mapping are the tested seams; the Kafka loop, the capture
 call, and the distributed limiter are the boundaries.
 """
@@ -33,7 +37,15 @@ from posthog.kafka_client.topics import (
     KAFKA_WAREHOUSE_PERSON_PROPERTY_UPDATES_DLQ,
 )
 from posthog.models.instance_setting import get_instance_setting
+from posthog.personhog_client.client import get_personhog_client
 from posthog.settings import CONSTANCE_CONFIG
+
+from products.warehouse_sources.backend.temporal.data_imports.group_property_writer import (
+    GroupPropertyUpdate,
+    GroupPropertyWriter,
+    GroupWriteOutcome,
+    parse_group_update,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +66,11 @@ SENT_TOTAL = Counter(
     "warehouse_person_property_sent_total",
     "person-property update events sent to capture ($set for persons, $groupidentify for groups)",
     labelnames=["kind"],
+)
+GROUP_DIRECT_WRITE_TOTAL = Counter(
+    "warehouse_group_property_direct_write_total",
+    "group property updates written to the group directly, without a $groupidentify event",
+    labelnames=["outcome"],
 )
 DLQ_TOTAL = Counter(
     "warehouse_person_property_dlq_total",
@@ -86,6 +103,9 @@ _RETRY_BACKOFF_SECONDS = 1.0
 # Pause between polls of the shared budget while a send is throttled. Small so the send fires
 # promptly once a slot frees; Kafka lag, not this sleep, is the real buffer.
 _THROTTLE_BACKOFF_SECONDS = 0.05
+
+
+_GROUP_DIRECT_WRITE_SETTING = "WAREHOUSE_GROUP_PROPERTY_DIRECT_WRITE_ENABLED"
 
 
 class InvalidPersonPropertyMessage(Exception):
@@ -193,6 +213,7 @@ class PersonPropertyUpdateConsumer:
         self,
         *,
         capture_fn: Callable[..., Any] | None = None,
+        group_write_fn: Callable[[GroupPropertyUpdate], GroupWriteOutcome] | None = None,
         grant_fn: Callable[[], bool] | None = None,
         dlq_producer: Any | None = None,
         sleep: Callable[[float], None] = time.sleep,
@@ -203,6 +224,7 @@ class PersonPropertyUpdateConsumer:
 
             capture_fn = capture_internal
         self._capture = capture_fn
+        self._write_group = group_write_fn or GroupPropertyWriter().write
         # The distributed limiter's non-blocking check: True if this send fits the shared budget.
         # Built per process (lazy Redis backend), reused for every message.
         if grant_fn is None:
@@ -279,6 +301,16 @@ class PersonPropertyUpdateConsumer:
             self._sleep(_THROTTLE_BACKOFF_SECONDS)
         return False
 
+    def _direct_group_update(self, payload: dict[str, Any]) -> GroupPropertyUpdate | None:
+        """The direct write for a group message, or None when the message must go through capture."""
+        if payload.get("kind") != "group" or not get_instance_setting(_GROUP_DIRECT_WRITE_SETTING):
+            return None
+        # A pod without a personhog address cannot write a group. Capture still can, and a write
+        # that fails on every attempt blocks the person messages behind it on the partition.
+        if get_personhog_client() is None:
+            return None
+        return parse_group_update(payload)
+
     def process_record(self, value: bytes) -> str:
         """Handle one message. Terminal outcomes (sent/dlq) commit; retry does not."""
         try:
@@ -299,6 +331,19 @@ class PersonPropertyUpdateConsumer:
         # redelivery rather than sending or dropping it.
         if not self._acquire_slot():
             return RETRY
+        group_update = self._direct_group_update(payload)
+        if group_update is not None:
+            try:
+                outcome = self._write_group(group_update)
+            except Exception:
+                # The message shape passed validation, so a failure here comes from personhog,
+                # Kafka, or Postgres. Leave the message uncommitted so that it is redelivered.
+                RETRY_TOTAL.inc()
+                logger.exception("person_property_update.group_write_error")
+                return RETRY
+            GROUP_DIRECT_WRITE_TOTAL.labels(outcome=outcome).inc()
+            SENT_TOTAL.labels(kind="group").inc()
+            return SENT
         try:
             result = self._capture(**kwargs)
         except Exception as exc:
