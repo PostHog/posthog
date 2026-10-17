@@ -79,6 +79,34 @@ class TestBehavioralPropertyDateRangeValidation(SimpleTestCase):
                 explicit_datetime_to="-7d",
             )
 
+    @parameterized.expand(
+        [
+            ("explicit_datetime", {"explicit_datetime": "-30d"}),
+            ("explicit_datetime_range", {"explicit_datetime": "-30d", "explicit_datetime_to": "-7d"}),
+            ("time_value_interval", {"time_value": 30, "time_interval": "day"}),
+        ]
+    )
+    def test_performed_event_sequence_accepts_time_bound(self, _name, time_bound) -> None:
+        self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **self._sequence_fields(), **time_bound)
+
+    @parameterized.expand(
+        [
+            ("no_time_fields", {}),
+            ("only_upper_bound", {"explicit_datetime_to": "-7d"}),
+        ]
+    )
+    def test_performed_event_sequence_rejects_missing_time_bound(self, _name, time_bound) -> None:
+        with self.assertRaises(ValueError):
+            self._build(value=BehavioralPropertyType.PERFORMED_EVENT_SEQUENCE, **self._sequence_fields(), **time_bound)
+
+    def _sequence_fields(self) -> dict:
+        return {
+            "seq_event_type": "events",
+            "seq_event": "$pageleave",
+            "seq_time_value": 1,
+            "seq_time_interval": "day",
+        }
+
 
 class TestBehavioralPropertyValueAlias(SimpleTestCase):
     """Some cohort filter generators store "performed_event_multiple_times" instead of
