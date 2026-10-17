@@ -1,5 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { EXIT_NODE_ID, NEW_WORKFLOW, TRIGGER_NODE_ID, workflowLogic } from '../workflowLogic'
@@ -210,6 +214,108 @@ describe('hogFlowEditorLogic', () => {
             edge(delay.id, duplicatedAction!.id, 'continue'),
             edge(duplicatedAction!.id, EXIT_NODE_ID, 'continue'),
         ])
+    })
+
+    describe('remembered editor view', () => {
+        const OTHER_WORKFLOW_ID = 'other-workflow'
+
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': { ...NEW_WORKFLOW, id: OTHER_WORKFLOW_ID },
+                    '/api/environments/:team_id/messaging_categories/': { results: [], count: 0 },
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+            })
+        })
+
+        afterEach(() => {
+            localStorage.clear()
+        })
+
+        const openWorkflowEditor = async (
+            id: string,
+            searchParams: { view?: string } = {}
+        ): Promise<ReturnType<typeof hogFlowEditorLogic.build>> => {
+            logic.unmount()
+            router.actions.push(urls.workflow(id, 'workflow'), searchParams)
+            const editor = hogFlowEditorLogic({ id })
+            editor.mount()
+            await expectLogic(editor).toFinishAllListeners()
+            return editor
+        }
+
+        const openOtherWorkflowEditor = (
+            searchParams: { view?: string } = {}
+        ): Promise<ReturnType<typeof hogFlowEditorLogic.build>> => openWorkflowEditor(OTHER_WORKFLOW_ID, searchParams)
+
+        it.each([
+            { description: 'the picked view when the link has none', searchParams: {}, expected: 'advanced' },
+            { description: 'the view the link asks for', searchParams: { view: 'linear' }, expected: 'simple' },
+        ])('opens the next workflow in $description', async ({ searchParams, expected }) => {
+            logic.actions.pickEditorLayout('advanced')
+
+            const otherEditor = await openOtherWorkflowEditor(searchParams)
+
+            expect(otherEditor.values.editorLayout).toEqual(expected)
+        })
+
+        it('opens the picked view without adding a history entry Back has to step over', async () => {
+            logic.actions.pickEditorLayout('advanced')
+
+            await openOtherWorkflowEditor()
+
+            expect(router.values.searchParams).not.toHaveProperty('view')
+        })
+
+        it('opens a workflow outside the workflow page, such as a notebook widget, in the picked view', async () => {
+            logic.actions.pickEditorLayout('advanced')
+            logic.unmount()
+            router.actions.push(urls.notebooks())
+
+            const widgetEditor = hogFlowEditorLogic({ id: OTHER_WORKFLOW_ID })
+            widgetEditor.mount()
+
+            expect(widgetEditor.values.editorLayout).toEqual('advanced')
+        })
+
+        it('does not remember the graph view it falls back to for a workflow the list cannot show', async () => {
+            const unreachableDelay: HogFlowAction = {
+                id: 'unreachable-delay',
+                name: 'Delay',
+                description: '',
+                type: 'delay',
+                created_at: 0,
+                updated_at: 0,
+                config: { delay_duration: '1d' },
+            }
+            workflowLogic().actions.setWorkflowInfo({ actions: [...NEW_WORKFLOW.actions, unreachableDelay] })
+            expect(logic.values.editorLayout).toEqual('advanced')
+
+            const otherEditor = await openOtherWorkflowEditor()
+
+            expect(otherEditor.values.editorLayout).toEqual('simple')
+        })
+
+        it('remembers a pick while another workflow editor stays open on the page', async () => {
+            hogFlowEditorLogic({ id: OTHER_WORKFLOW_ID }).mount()
+
+            logic.actions.pickEditorLayout('advanced')
+            const thirdEditor = await openWorkflowEditor('third-workflow')
+
+            expect(thirdEditor.values.editorLayout).toEqual('advanced')
+        })
+
+        it('keeps the view the link asks for when a new workflow is saved for the first time', async () => {
+            logic.actions.pickEditorLayout('advanced')
+            const newWorkflowEditor = await openWorkflowEditor('new', { view: 'linear' })
+
+            workflowLogic({ id: 'new' }).actions.saveWorkflowSuccess({ ...NEW_WORKFLOW, id: OTHER_WORKFLOW_ID })
+            await expectLogic(newWorkflowEditor).toFinishAllListeners()
+
+            expect(router.values.location.pathname).toContain(OTHER_WORKFLOW_ID)
+            expect(newWorkflowEditor.values.editorLayout).toEqual('simple')
+        })
     })
 
     describe('conditional branch naming', () => {
