@@ -1104,6 +1104,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "$virt_mcp_harness": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_mcp_harness`",
+                  "id": null,
+                  "name": "$virt_mcp_harness",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               }
           },
           "id": "events",
@@ -15322,6 +15332,16 @@
                   "hogql_value": "`$virt_bot_operator`",
                   "id": null,
                   "name": "$virt_bot_operator",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "$virt_mcp_harness": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "`$virt_mcp_harness`",
+                  "id": null,
+                  "name": "$virt_mcp_harness",
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
