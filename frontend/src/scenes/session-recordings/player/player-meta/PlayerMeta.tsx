@@ -151,7 +151,7 @@ export function PlayerMeta(): JSX.Element {
                 <div className="flex justify-between items-center m-2">
                     {!whitelabel ? (
                         <Tooltip title="Powered by PostHog" placement="right">
-                            <Link to="https://posthog.com" className="flex items-center" target="blank">
+                            <Link to="https://posthog.com" className="flex items-center" target="_blank">
                                 <Logo size="md" />
                             </Link>
                         </Tooltip>
