@@ -381,6 +381,17 @@ export enum TaxonomicFilterGroupType {
     Empty = 'empty',
 }
 
+/**
+ * Groups whose items people pick from the All list and search, almost never from their own tab.
+ * They stay searched and feed All, but are not offered as categories.
+ */
+export const SEARCH_ONLY_GROUP_TYPES: ReadonlySet<TaxonomicFilterGroupType> = new Set([
+    TaxonomicFilterGroupType.EmailAddresses,
+    TaxonomicFilterGroupType.AutocaptureEvents,
+    TaxonomicFilterGroupType.PageviewEvents,
+    TaxonomicFilterGroupType.ScreenEvents,
+])
+
 export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.SuggestedFilters,

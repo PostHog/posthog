@@ -47,6 +47,7 @@ import { HiddenEventExplanation } from '../HiddenEventExplanation'
 import { useGroupList } from '../hooks/useGroupList'
 import {
     OPEN_AS_SELF_ON_REOPEN,
+    SEARCH_ONLY_GROUP_TYPES,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
     TaxonomicFilterGroupType,
@@ -330,8 +331,8 @@ export function MenuFilterCombobox({
     const categoryOptions = useMemo<{ value: DrillCategory; label: string }[]>(() => {
         const opts: { value: DrillCategory; label: string }[] = [{ value: 'all', label: 'All' }]
         for (const g of visibleChipGroups) {
-            // Collapsed groups feed the "all" rows but aren't navigable categories.
-            if (COLLAPSED_TO_CONTAINS_ROW.has(g.type)) {
+            // Collapsed and search-only groups feed the "all" rows but aren't navigable categories.
+            if (COLLAPSED_TO_CONTAINS_ROW.has(g.type) || SEARCH_ONLY_GROUP_TYPES.has(g.type)) {
                 continue
             }
             opts.push({ value: g.type, label: g.name })

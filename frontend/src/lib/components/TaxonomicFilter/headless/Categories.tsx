@@ -3,7 +3,7 @@ import { ReactNode } from 'react'
 import { Button } from '@posthog/quill'
 
 import { useGroupList } from '../hooks/useGroupList'
-import { TaxonomicFilterGroup } from '../types'
+import { SEARCH_ONLY_GROUP_TYPES, TaxonomicFilterGroup } from '../types'
 import { useTaxonomicFilterContext } from './context'
 
 export interface TaxonomicFilterCategoriesProps {
@@ -24,9 +24,11 @@ export function TaxonomicFilterCategories({ renderTab, className }: TaxonomicFil
     const { groups } = useTaxonomicFilterContext()
     return (
         <div className={className} role="tablist">
-            {groups.map((group) => (
-                <TaxonomicFilterCategoryTab key={group.type} group={group} renderTab={renderTab} />
-            ))}
+            {groups
+                .filter((group) => !SEARCH_ONLY_GROUP_TYPES.has(group.type))
+                .map((group) => (
+                    <TaxonomicFilterCategoryTab key={group.type} group={group} renderTab={renderTab} />
+                ))}
         </div>
     )
 }
