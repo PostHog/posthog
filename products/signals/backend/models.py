@@ -3016,14 +3016,18 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                 max_enabled_scouts if max_enabled_scouts is not None else max_enabled_scouts_for_team(self.team_id)
             )
         with transaction.atomic():
-            # One ordered query locks the whole team's rows, not just ours: the cap check below
+            # A resume locks the whole team's rows in one ordered query: the cap check below
             # counts sibling rows, so two concurrent resumes locking only their own rows would
-            # each read the other as still paused and both slip under the cap. A single ordered
-            # lock set also keeps concurrent transitions on one team deadlock-free. Team config
-            # counts are small (capped) and transitions rare, so the wider lock is cheap.
+            # each read the other as still paused and both slip under the cap. Any other
+            # transition locks only its own row, so a sweep or breaker pause never waits behind
+            # an unrelated config edit on the same team. One row lock cannot deadlock with the
+            # ordered team lock.
             team_rows = {
                 row.pk: row
-                for row in type(self).all_teams.select_for_update().filter(team_id=self.team_id).order_by("pk")
+                for row in type(self)
+                .all_teams.select_for_update()
+                .filter(team_id=self.team_id, **({} if resume_cap is not None else {"pk": self.pk}))
+                .order_by("pk")
             }
             locked = team_rows.get(self.pk)
             if locked is None:

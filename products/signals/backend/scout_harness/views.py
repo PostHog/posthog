@@ -2738,11 +2738,14 @@ def _upsert_scout_config(
     config = SignalScoutConfig.objects.for_team(team_id).select_for_update().get(id=config.id)
     # The coordinator or another caller may have won the create race. Apply only
     # fields supplied by this request so omitted settings remain untouched.
+    # Every caller validated `tunables` through `SignalScoutConfigOptionsSerializer` before the
+    # lock, and that already ran the GitHub reachability check, so it must not run again here
+    # while the config row is locked.
     update = SignalScoutConfigUpdateSerializer(
         config,
         data=update_data,
         partial=True,
-        context=serializer_context,
+        context={**serializer_context, REPOSITORIES_REACHABILITY_CHECKED_CONTEXT_KEY: True},
     )
     update.is_valid(raise_exception=True)
     update.validated_data.update(
