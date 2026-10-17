@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft } from '@posthog/icons'
 import { Badge, Button, Separator, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { ticketStatusBadgeVariant } from '../../ticketStatusBadgeVariant'
 import { sidePanelTicketFilterLabels } from '../../types'
-import { QuillTicketComposer } from '../QuillTicketComposer/QuillTicketComposer'
-import { QuillTicketMessages } from '../QuillTicketMessages/QuillTicketMessages'
 import { sidepanelTicketsLogic } from '../SidePanel/sidepanelTicketsLogic'
+import { QuillTicketComposer } from './QuillTicketComposer'
+import { QuillTicketMessages } from './QuillTicketMessages'
+import { ticketStatusBadgeVariant } from './ticketStatusBadgeVariant'
 
 export function QuillTicket(): JSX.Element {
     const { messages, messagesLoading, messageSending, currentTicket } = useValues(sidepanelTicketsLogic)

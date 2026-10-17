@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft } from '@posthog/icons'
 import { Button, Heading, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { QuillTicketComposer } from '../QuillTicketComposer/QuillTicketComposer'
 import { sidepanelTicketsLogic } from '../SidePanel/sidepanelTicketsLogic'
+import { QuillTicketComposer } from './QuillTicketComposer'
 
 export function QuillNewTicket(): JSX.Element {
     const { messageSending, newTicketDraft, supportResponseTime } = useValues(sidepanelTicketsLogic)

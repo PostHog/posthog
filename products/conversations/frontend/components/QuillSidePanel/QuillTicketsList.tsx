@@ -25,8 +25,8 @@ import {
     sidePanelTicketFilterLabels,
     sidePanelTicketFilterOrder,
 } from '../../types'
-import { QuillTicketRow } from '../QuillTicketRow/QuillTicketRow'
 import { sidepanelTicketsLogic } from '../SidePanel/sidepanelTicketsLogic'
+import { QuillTicketRow } from './QuillTicketRow'
 
 export function QuillTicketsList(): JSX.Element {
     const { tickets, filteredTickets, ticketsLoading, canCreateTicket, effectiveStatusFilter, ticketFilterCounts } =

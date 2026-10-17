@@ -1,10 +1,10 @@
 import { useValues } from 'kea'
 
-import { QuillNewTicket } from '../QuillNewTicket/QuillNewTicket'
-import { QuillRestoreTickets } from '../QuillRestoreTickets/QuillRestoreTickets'
-import { QuillTicket } from '../QuillTicket/QuillTicket'
-import { QuillTicketsList } from '../QuillTicketsList/QuillTicketsList'
 import { sidepanelTicketsLogic } from '../SidePanel/sidepanelTicketsLogic'
+import { QuillNewTicket } from './QuillNewTicket'
+import { QuillRestoreTickets } from './QuillRestoreTickets'
+import { QuillTicket } from './QuillTicket'
+import { QuillTicketsList } from './QuillTicketsList'
 
 export function QuillSupportTickets(): JSX.Element {
     const { view, newTicketDraftRevision } = useValues(sidepanelTicketsLogic)

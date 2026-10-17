@@ -3,8 +3,8 @@ import { Badge, Item, ItemActions, ItemContent, ItemDescription, ItemTitle, cn }
 import { dayjs } from 'lib/dayjs'
 import { stripMarkdown } from 'lib/utils/markdown'
 
-import { ticketStatusBadgeVariant } from '../../ticketStatusBadgeVariant'
 import { type ConversationTicket, sidePanelTicketFilterLabels } from '../../types'
+import { ticketStatusBadgeVariant } from './ticketStatusBadgeVariant'
 
 export function QuillTicketRow({ ticket, onOpen }: { ticket: ConversationTicket; onOpen: () => void }): JSX.Element {
     const unread = ticket.unread_count ?? 0

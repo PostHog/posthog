@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingPlan, SidePanelTab } from '~/types'
 
-import { QuillSupportTickets } from 'products/conversations/frontend/components/QuillSupportTickets/QuillSupportTickets'
+import { QuillSupportTickets } from 'products/conversations/frontend/components/QuillSidePanel/QuillSupportTickets'
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
