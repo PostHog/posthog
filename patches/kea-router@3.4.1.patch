@@ -1,0 +1,60 @@
+diff --git a/lib/builders.js b/lib/builders.js
+index 6104f9f0fe42b0330334db63edbc179b5d98eda1..bbabc03faeee707b3a97fe89bacc6e1249c1949b 100644
+--- a/lib/builders.js
++++ b/lib/builders.js
+@@ -61,6 +61,25 @@ function actionToUrl(input) {
+     };
+ }
+ exports.actionToUrl = actionToUrl;
++// PostHog patch: the literal text before the first url-pattern special character. url-pattern
++// anchors its regex and matches literal text exactly, so a path that does not start with this
++// prefix cannot match the pattern.
++function staticPrefix(path, options) {
++    var specials = [
++        (options && options.segmentNameStartChar) || ':',
++        (options && options.optionalSegmentStartChar) || '(',
++        (options && options.wildcardChar) || '*',
++        (options && options.escapeChar) || '\\',
++    ];
++    var end = path.length;
++    for (var i = 0; i < specials.length; i++) {
++        var index = path.indexOf(specials[i]);
++        if (index !== -1 && index < end) {
++            end = index;
++        }
++    }
++    return path.slice(0, end);
++}
+ function urlToAction(input) {
+     return function (logic) {
+         var inputEntries = typeof input === 'function' ? input(logic) : input;
+@@ -68,11 +87,15 @@ function urlToAction(input) {
+         logic.cache.__routerListeningToLocation = true;
+         var newListeners = {};
+         var _a = (0, router_1.getRouterContext)(), urlPatternOptions = _a.urlPatternOptions, pathFromWindowToRoutes = _a.pathFromWindowToRoutes;
++        // PostHog patch: compiling a UrlPattern for every route on mount is costly for a large route
++        // table. A pattern can only match a path that starts with its static prefix, so check the
++        // prefix first and compile the pattern on first use.
+         var routes = Object.entries(inputEntries).map(function (_a) {
+             var pathFromRoutes = _a[0], action = _a[1];
+             return ({
+                 path: pathFromRoutes,
+-                pattern: new url_pattern_1.default(pathFromRoutes, urlPatternOptions),
++                prefix: staticPrefix(pathFromRoutes, urlPatternOptions),
++                pattern: null,
+                 action: action,
+             });
+         });
+@@ -84,6 +107,12 @@ function urlToAction(input) {
+             var params;
+             for (var _i = 0, routes_1 = routes; _i < routes_1.length; _i++) {
+                 var route = routes_1[_i];
++                if (pathInRoutes.indexOf(route.prefix) !== 0) {
++                    continue;
++                }
++                if (!route.pattern) {
++                    route.pattern = new url_pattern_1.default(route.path, urlPatternOptions);
++                }
+                 params = route.pattern.match(pathInRoutes);
+                 if (params) {
+                     matchedRoute = route;
