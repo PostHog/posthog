@@ -47,6 +47,12 @@ class TestWrapClickhouseQueryError:
                 "CANNOT_PARSE_TEXT",
                 "Cannot parse a value as the requested type. Check your input formats and type conversions.",
             ),
+            (
+                15,
+                "DUPLICATE_COLUMN",
+                "A column or tuple field name appears more than once. Make sure each name in a Tuple(...) type "
+                "or column list is unique.",
+            ),
             (38, "CANNOT_PARSE_DATE", "Cannot parse a date. Check your date values and their format."),
             (41, "CANNOT_PARSE_DATETIME", "Cannot parse a date and time. Check your datetime values and their format."),
             (69, "ARGUMENT_OUT_OF_BOUND", "An argument is out of bounds."),
