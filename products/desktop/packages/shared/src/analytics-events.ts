@@ -69,6 +69,7 @@ export type CommandMenuAction =
   | "complete-filter"
   | "show-all-matches"
   | "repair-query"
+  | "change-sort"
   | "open-feed"
   | "open-inbox"
   | "open-archived"
@@ -283,6 +284,10 @@ export interface CommandMenuActionProperties {
   action_type: CommandMenuAction;
   /** Channel acted on for the bluebird `open-channel` / `open-task` actions. */
   channel_id?: string;
+  /** The list order, while the palette lists one object type. */
+  sort?: "recent" | "created" | "name";
+  /** The object type the sorted list shows. */
+  object_type?: "task" | "canvas" | "space";
 }
 
 export type SidebarNavItem =

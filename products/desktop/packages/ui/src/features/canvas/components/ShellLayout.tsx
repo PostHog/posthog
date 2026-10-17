@@ -41,6 +41,7 @@ import {
   useDashboard,
   useDashboardMutations,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useRecordVisits } from "@posthog/ui/features/canvas/hooks/useRecordVisits";
 import { useSelectedCanvasId } from "@posthog/ui/features/canvas/hooks/useSelectedCanvasId";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
 import { useCanvasChatPanelStore } from "@posthog/ui/features/canvas/stores/canvasChatPanelStore";
@@ -350,6 +351,7 @@ export function ShellLayout() {
     strict: false,
     select: (p) => p.dashboardId,
   });
+  useRecordVisits(channelId, dashboardId);
   const { dashboard: selectedCanvas } = useDashboard(selectedCanvasId);
   const toolbarDashboardId = dashboardId ?? selectedCanvasId;
   const toolbarChannelId = channelId ?? selectedCanvas?.channelId;
