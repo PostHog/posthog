@@ -1,9 +1,5 @@
-from typing import cast
-
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
-from langgraph.types import Send
 from parameterized import parameterized
 
 from posthog.schema import AssistantMessage, AssistantMessageMetadata, HumanMessage
@@ -60,28 +56,15 @@ class TestSlashCommandHandlerNode(BaseTest):
         result = await self.node.arouter(state)
         self.assertEqual(result, AssistantNodeName.END)
 
-    async def test_router_returns_send_list_for_non_command(self):
-        """Test that non-command messages route to normal flow."""
-        state = AssistantState(messages=[HumanMessage(content="Hello, how are you?")])
-        with patch.object(self.node, "_team", self.team), patch.object(self.node, "_user", self.user):
-            result = await self.node.arouter(state)
-
-        self.assertIsInstance(result, list)
-        send_list = cast(list[Send], result)
-        self.assertEqual(len(send_list), 2)
-        self.assertIsInstance(send_list[0], Send)
-        self.assertIsInstance(send_list[1], Send)
-        self.assertEqual(send_list[0].node, AssistantNodeName.ROOT)
-        self.assertEqual(send_list[1].node, AssistantNodeName.MEMORY_COLLECTOR)
-
-    async def test_router_returns_send_list_for_empty_messages(self):
-        """Test that empty messages route to normal flow."""
-        state = AssistantState(messages=[])
-        with patch.object(self.node, "_team", self.team), patch.object(self.node, "_user", self.user):
-            result = await self.node.arouter(state)
-
-        self.assertIsInstance(result, list)
-        self.assertEqual(len(result), 2)
+    @parameterized.expand(
+        [
+            ("plain_message", [HumanMessage(content="Hello, how are you?")]),
+            ("empty_messages", []),
+        ]
+    )
+    async def test_router_returns_scope_gate_for_non_command(self, _name, messages):
+        result = await self.node.arouter(AssistantState(messages=messages))
+        self.assertEqual(result, AssistantNodeName.SCOPE_GATE)
 
     def test_command_handlers_contains_usage(self):
         """Test that COMMAND_HANDLERS registry contains /usage with correct class."""

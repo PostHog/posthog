@@ -12,6 +12,7 @@ from ee.hogai.chat_agent.memory.nodes import (
     MemoryOnboardingNode,
 )
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
+from ee.hogai.chat_agent.scope_gate.nodes import ScopeGateNode
 from ee.hogai.chat_agent.slash_commands.nodes import SlashCommandHandlerNode
 from ee.hogai.core.loop_graph.graph import AgentLoopGraph
 from ee.hogai.core.title_generator.nodes import TitleGeneratorNode
@@ -127,10 +128,21 @@ class AssistantGraph(AgentLoopGraph):
 
         return self
 
+    def add_scope_gate(self):
+        """
+        The ScopeGateNode ends the conversation turn for messages that are clearly unrelated to the product.
+        Every other message continues to the normal conversation flow.
+        """
+        scope_gate = ScopeGateNode(self._team, self._user)
+        self.add_node(AssistantNodeName.SCOPE_GATE, scope_gate)
+        self._graph.add_conditional_edges(AssistantNodeName.SCOPE_GATE, scope_gate.arouter)
+        return self
+
     def compile_full_graph(self, checkpointer: DjangoCheckpointer | None | Literal[False] = None):
         return (
             self.add_title_generator()
             .add_slash_command_handler()
+            .add_scope_gate()
             .add_memory_onboarding()
             .add_memory_collector()
             .add_memory_collector_tools()
