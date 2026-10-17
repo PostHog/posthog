@@ -39,7 +39,8 @@ pub use partitioner::{
 };
 pub use pause::{ConsumerPauser, PartitionPauser};
 pub use positions::{
-    list_offsets, FollowerGroup, InputGroups, InputPositions, InputTopic, ResumeOffset,
+    list_offsets, FollowerGroup, InputGroups, InputPositions, InputTopic, OwnedPositions,
+    PositionsError, ResumeOffset,
 };
 pub use rebalance::CohortConsumerContext;
 pub use router::{

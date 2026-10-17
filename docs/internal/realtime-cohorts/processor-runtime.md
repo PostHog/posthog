@@ -183,7 +183,9 @@ State never moves between pods.
 A pod's store holds the slices of the partitions it owns, and nothing hands a slice to another pod.
 The store records the split it was written under in `cf_meta[pod_partitions]`: the pod count, the ordinal and the partition count.
 A store from before that record takes the configured split as its own the first time it opens.
-A store written under another split refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
+A split covers another when it owns every partition the other owns.
+A store written under a split that covers the pod's opens and records the pod's split.
+A store written under any other split refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
 With durable restore enabled, boot deletes the slices of partitions the pod does not own, so a single pod deletes nothing.
 
 The store record cannot stop a pod on an empty volume, so the **ownership fence** keeps a second record on the broker.
@@ -206,12 +208,11 @@ Two processes of the same split, such as two pods with the same ordinal, write t
 
 So changing `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
 That volume keeps its old record, so when a later change brings that split back, it opens with slices another pod has moved past.
-With checkpoints enabled, also delete every pod's checkpoints, local and in S3.
-A checkpoint from the old split restores and then refuses to open, so every boot fails the same way.
+With checkpoints enabled, keep the checkpoints: a restore passes over one whose split does not cover the pod.
 The old split's stamps also hold every pod of the new split at boot.
 An offset reset of each input group to its current offsets clears them, because it commits without a stamp.
 Run it only after every pod of the old split has stopped, or the fence admits the new split while the old one still commits.
-Each slice then begins again behind the coverage fence and holds no history until a backfill runs.
+Each slice without a covering checkpoint then begins again behind the coverage fence and holds no history until a backfill runs.
 Nothing moves a slice between pods yet, so one pod that owns every partition is the supported deployment.
 
 ## Startup
@@ -225,7 +226,7 @@ At boot the processor:
 5. waits until the [ownership fence](#ownership-and-the-single-pod-deployment) admits its split,
 6. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
    A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes.
-   A store written under another split of the partitions refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
+   A store written under a split that does not cover the pod's refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
 7. stamps every owned partition on every input group, and reads the stamps back,
 8. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
 

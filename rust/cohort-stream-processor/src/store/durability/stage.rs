@@ -336,8 +336,9 @@ mod tests {
     use rdkafka::error::KafkaResult;
     use tempfile::TempDir;
 
-    use crate::partitions::{InputPositions, InputTopic, ResumeOffset};
-    use crate::store::durability::lineage::PodOrdinal;
+    use crate::partitions::{
+        InputPositions, InputTopic, OwnedPositions, PartitionOwnership, ResumeOffset,
+    };
     use crate::store::keyspace::{Behavioral, BehavioralKey, Meta, META_SCHEMA_VERSION};
     use crate::store::{LeafStateKey, StoreConfig};
 
@@ -376,9 +377,11 @@ mod tests {
             )
         };
         OffsetManifest::capture(
-            PodOrdinal::STANDALONE,
             &BTreeSet::from([0]),
-            vec![at(EVENTS, 42), at(MERGES, 5)],
+            OwnedPositions::for_test(
+                PartitionOwnership::single(1),
+                vec![at(EVENTS, 42), at(MERGES, 5)],
+            ),
         )
         .unwrap()
     }
