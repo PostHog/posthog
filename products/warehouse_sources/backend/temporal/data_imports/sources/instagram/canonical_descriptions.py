@@ -24,7 +24,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "media": {
-        "description": "Posts, reels and carousels published by the account, newest first. Limited to the 10,000 most recently created media.",
+        "description": "Posts, reels and carousels published by the account, newest first. Limited to the 10,000 most recently created media. Incremental syncs re-read the last 90 days of posts to refresh like and comment counts. Use a full refresh to update counts on older posts.",
         "docs_url": _MEDIA_DOCS,
         "columns": {
             "id": "Media identifier.",
@@ -40,6 +40,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "like_count": "Number of likes. Omitted if the owner has hidden like counts.",
             "comments_count": "Number of comments on the media.",
             "is_comment_enabled": "Whether comments are enabled on the media.",
+            "is_shared_to_feed": "Whether the reel also appears in the Feed and Reels tabs. Reels only.",
+            "owner": "The account that created the media, as an object with its ID.",
+            "boost_ads_list": "Ads that boost this media, with each ad's ID and delivery status.",
+            "boost_eligibility_info": "Whether the media can be boosted as an ad, and the reason if it cannot.",
+            "copyright_check_information": "Status of Instagram's copyright check on the media, with any matches found.",
+            "legacy_instagram_media_id": "Media ID that the Marketing API used in Graph API v21.0 and older.",
         },
     },
     "stories": {

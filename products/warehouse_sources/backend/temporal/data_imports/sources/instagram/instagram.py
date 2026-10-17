@@ -748,6 +748,8 @@ def get_rows(
     if config.supports_time_window:
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             since = _to_unix_seconds(db_incremental_field_last_value)
+            if since is not None and config.incremental_lookback is not None:
+                since -= int(config.incremental_lookback.total_seconds())
         if since is None:
             since = _to_unix_seconds(start_date)
 
