@@ -9,6 +9,7 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
+import { surveysOptInLogic } from 'scenes/surveys/surveysOptInLogic'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -20,7 +21,8 @@ import { SurveyAppearancePreview } from './SurveyAppearancePreview'
 
 export function SurveyEnableToggle(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { updateCurrentTeam } = useActions(teamLogic)
+    const { checkingRunningSurveys } = useValues(surveysOptInLogic)
+    const { setSurveysOptIn } = useActions(surveysOptInLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -29,14 +31,11 @@ export function SurveyEnableToggle(): JSX.Element {
     return (
         <LemonSwitch
             data-attr="opt-in-surveys-switch"
-            onChange={(checked) => {
-                updateCurrentTeam({
-                    surveys_opt_in: checked,
-                })
-            }}
+            onChange={(checked) => setSurveysOptIn(checked)}
             label="Enable surveys"
             bordered
             checked={!!currentTeam?.surveys_opt_in}
+            loading={checkingRunningSurveys}
             disabled={currentTeamLoading}
             disabledReason={currentTeamLoading ? 'Loading...' : restrictedReason}
         />
