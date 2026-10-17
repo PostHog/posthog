@@ -1789,10 +1789,13 @@ class Database(BaseModel):
         trigger: str = "direct",
         allowed_system_tables: Collection[str] | None = None,
         schema_table_names: set[str] | None = None,
+        include_flag_evaluations_table: bool | None = None,
     ) -> Database:
         """Build a query catalog, or a reduced catalog for schema serialization only.
 
         Query execution must omit schema_table_names because it can prune unrelated warehouse tables.
+        ``include_flag_evaluations_table`` overrides the organization flag that decides whether
+        ``posthog.flag_evaluations`` is in the catalog. None follows the flag.
         """
         build_started = time.perf_counter()
 
@@ -1852,6 +1855,11 @@ class Database(BaseModel):
             sources = dataclasses.replace(
                 sources,
                 is_hogql_warehouse_access_control_enabled=_evaluate_warehouse_access_control_flag(cast("Team", team)),
+            )
+        if include_flag_evaluations_table is not None:
+            # A direct-connection catalog has no "posthog" node to hold the table.
+            sources = dataclasses.replace(
+                sources, include_flag_evaluations_table=include_flag_evaluations_table and connection_id is None
             )
 
         with _OTEL_DATABASE.timed_histogram_twin(
