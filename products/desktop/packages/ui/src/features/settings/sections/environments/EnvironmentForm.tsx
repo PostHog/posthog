@@ -138,9 +138,10 @@ export function EnvironmentForm({
       <Flex direction="column" gap="1">
         <Text className="font-medium text-[13px]">Setup script</Text>
         <Text color="gray" className="text-[12px]">
-          Runs in the worktree root right after it's created, before the agent
-          starts. Use it to install dependencies, generate build artifacts, or
-          seed a local database. Leave blank if no setup is needed.
+          Starts in the worktree root right after it's created, before the agent
+          starts. The agent doesn't wait for it to finish. Use it to install
+          dependencies, generate build artifacts, or seed a local database.
+          Leave blank if no setup is needed.
         </Text>
         <TextArea
           size="1"

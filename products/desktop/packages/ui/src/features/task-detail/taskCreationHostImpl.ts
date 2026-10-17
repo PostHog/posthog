@@ -25,18 +25,21 @@ import {
   type HostTrpcClient,
 } from "@posthog/host-router/client";
 import {
+  ANALYTICS_EVENTS,
   type ExecutionMode,
   expandTildePath,
   type Workspace,
 } from "@posthog/shared";
 import { injectable } from "inversify";
 import { track } from "../../shell/analytics";
+import { getActionSessionId, useActionStore } from "../actions/actionStore";
 import { getAuthenticatedClient } from "../auth/authClientImperative";
 import { assertCloudUsageAvailable } from "../billing/preflightCloudUsage";
 import { resolveLocalSkillPrompt } from "../message-editor/commands";
 import { DEFAULT_PANEL_IDS } from "../panels/panelConstants";
 import { usePanelLayoutStore } from "../panels/panelLayoutStore";
 import { useProvisioningStore } from "../provisioning/store";
+import { terminalManager } from "../terminal/TerminalManager";
 import { takeWarmTaskLease } from "./hooks/warmTaskLease";
 
 interface EnvironmentHostClient {
@@ -219,6 +222,35 @@ export class TrpcTaskCreationHost implements ITaskCreationHost {
 
   dispatchSetupAction(args: SetupActionDispatch): void {
     const actionId = `setup-${args.taskId}-${Date.now()}`;
+    const sessionId = getActionSessionId(actionId, 0);
+    const startedAt = Date.now();
+
+    // Spawn now rather than when the tab mounts: a background tab never
+    // mounts, so the script would not run until the user opens it.
+    useActionStore.getState().setStatus(actionId, "running");
+    const offExit = terminalManager.on("exit", (event) => {
+      if (event.sessionId !== sessionId) return;
+      offExit();
+      useActionStore
+        .getState()
+        .setStatus(actionId, event.exitCode === 0 ? "success" : "error");
+      track(ANALYTICS_EVENTS.ENVIRONMENT_SETUP_FINISHED, {
+        task_id: args.taskId,
+        exit_code: event.exitCode ?? null,
+        duration_ms: Date.now() - startedAt,
+      });
+    });
+    terminalManager.create({
+      sessionId,
+      persistenceKey: sessionId,
+      cwd: args.cwd,
+      taskId: args.taskId,
+      command: args.command,
+    });
+    track(ANALYTICS_EVENTS.ENVIRONMENT_SETUP_STARTED, {
+      task_id: args.taskId,
+    });
+
     usePanelLayoutStore
       .getState()
       .addActionTab(args.taskId, DEFAULT_PANEL_IDS.MAIN_PANEL, {

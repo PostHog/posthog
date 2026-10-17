@@ -302,6 +302,16 @@ export type SidebarNavItem =
   | "loops"
   | "more";
 
+export interface EnvironmentSetupStartedProperties {
+  task_id: string;
+}
+
+export interface EnvironmentSetupFinishedProperties {
+  task_id: string;
+  exit_code: number | null;
+  duration_ms: number;
+}
+
 export interface CommentSentToAgentProperties {
   surface: "artifact" | "canvas" | "task";
   with_context: boolean;
@@ -1866,6 +1876,10 @@ export const ANALYTICS_EVENTS = {
   LOOP_RUN_VIEWED: "Loop run viewed",
   LOOP_LINK_COPIED: "Loop link copied",
   COMMENT_SENT_TO_AGENT: "Comment sent to agent",
+
+  // Worktree environment setup script
+  ENVIRONMENT_SETUP_STARTED: "Environment setup started",
+  ENVIRONMENT_SETUP_FINISHED: "Environment setup finished",
 } as const;
 
 // Event property mapping
@@ -2096,6 +2110,10 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.LOOP_RUN_VIEWED]: LoopRunViewedProperties;
   [ANALYTICS_EVENTS.LOOP_LINK_COPIED]: LoopLinkCopiedProperties;
   [ANALYTICS_EVENTS.COMMENT_SENT_TO_AGENT]: CommentSentToAgentProperties;
+
+  // Worktree environment setup script
+  [ANALYTICS_EVENTS.ENVIRONMENT_SETUP_STARTED]: EnvironmentSetupStartedProperties;
+  [ANALYTICS_EVENTS.ENVIRONMENT_SETUP_FINISHED]: EnvironmentSetupFinishedProperties;
 };
 
 /**
