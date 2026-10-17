@@ -207,6 +207,18 @@ function reportPartialDeviceFailures(failures: PushSendError[], addLog: ReturnTy
     }
 }
 
+function noDeviceTokenMessage(
+    platform: 'FCM' | 'APNS',
+    invocation: CyclotronJobInvocationHogFunction,
+    distinctId: string
+): string {
+    // Tokens come from the person who triggered the run, not from the Distinct ID input.
+    if (!invocation.state.globals.person) {
+        return `No ${platform} device token to send to: this run has no person. A manual trigger runs without a person. To test, trigger the workflow with an event from a person who registered a device.`
+    }
+    return `No active ${platform} device token found on the person who triggered this run (distinct_id: ${distinctId}). The step reads device tokens from the triggering person. If a transformation changes the distinct_id when the app registers the device, the token is stored on a different person.`
+}
+
 function pushSendError(platform: PushPlatform, err: NormalizedPushError, retryAfterMs?: number): PushSendError {
     // Append the raw provider code so the failure surfaced to the hog template stays debuggable, while
     // the human-readable sentence leads.
@@ -486,7 +498,7 @@ export class PushNotificationService {
         const subscriptions = getDevicePushSubscriptions(personProperties, projectId, this.encryptedFields)
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active FCM device token found for distinct_id: ${params.distinctId}`)
+            addLog('warn', noDeviceTokenMessage('FCM', invocation, params.distinctId))
             pushNotificationSkippedCounter.labels({ platform: 'fcm', reason: 'no_token' }).inc()
             return false
         }
@@ -620,7 +632,7 @@ export class PushNotificationService {
         const subscriptions = getDevicePushSubscriptions(personProperties, bundleId, this.encryptedFields)
 
         if (subscriptions.length === 0) {
-            addLog('warn', `No active APNS device token found for distinct_id: ${params.distinctId}`)
+            addLog('warn', noDeviceTokenMessage('APNS', invocation, params.distinctId))
             pushNotificationSkippedCounter.labels({ platform: 'apns', reason: 'no_token' }).inc()
             return false
         }
