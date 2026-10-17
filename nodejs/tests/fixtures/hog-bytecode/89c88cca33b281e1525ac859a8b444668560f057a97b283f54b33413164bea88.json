@@ -1,0 +1,1 @@
+{"source":"events","actions":[],"events":[{"id":"$identify","name":"$identify","type":"events","order":0},{"id":"$set","name":"$set","type":"events","order":1}],"filter_test_accounts":true,"bytecode":["_H",1,32,"$identify",32,"event",1,1,11,32,"$set",32,"event",1,1,11,4,2],"bytecode_contract":"bfd6ece60e41383c"}
