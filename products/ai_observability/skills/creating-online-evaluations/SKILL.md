@@ -219,13 +219,12 @@ the complete trace or session. Sentiment evaluations support only the generation
 
 New Hog source should use the globals shared by all targets:
 
-| Global                                 | Meaning                                                                                                                                       |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `evaluation_events`                    | One generation event for a generation target, or every captured event for a trace or session target.                                          |
-| `target`                               | The target's `type`, `id`, `total_cost_usd`, and `total_latency_seconds`.                                                                     |
-| `item.input_text` / `item.output_text` | Best-effort readable projections; use these for length, keyword, and regex checks.                                                            |
-| `item.reply_text`                      | The model's reply alone, without reasoning, tool calls, or role labels; use it to check the reply itself, such as valid JSON or empty output. |
-| `item.input` / `item.output`           | Original serialized values; use these when the evaluator needs to parse the captured JSON itself.                                             |
+| Global                                 | Meaning                                                                                              |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `evaluation_events`                    | One generation event for a generation target, or every captured event for a trace or session target. |
+| `target`                               | The target's `type`, `id`, `total_cost_usd`, and `total_latency_seconds`.                            |
+| `item.input_text` / `item.output_text` | Best-effort readable projections; use these for length, keyword, and regex checks.                   |
+| `item.input` / `item.output`           | Original serialized values; use these when the evaluator needs to parse the captured JSON itself.    |
 
 For a session target, `target.id` is the session id, and `target.total_cost_usd` /
 `target.total_latency_seconds` are summed across the session's traces. `total_latency_seconds` is time

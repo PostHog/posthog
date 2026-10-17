@@ -75,11 +75,6 @@ const HOG_EVAL_COMMON_GLOBAL_DEFINITIONS: readonly HogGlobalDefinition[] = [
                 description: 'Best-effort readable text extracted from the output.',
             },
             {
-                name: 'reply_text',
-                type: 'string',
-                description: "The model's reply text alone, without reasoning, tool calls, or role labels.",
-            },
-            {
                 name: 'properties',
                 type: 'object',
                 description: 'Event properties without large input, output, and tool payloads.',

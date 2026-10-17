@@ -19,11 +19,9 @@ export type EvaluationTemplateIcon =
     | 'thumbs-down'
     | 'piggy-bank'
     | 'clock'
-    | 'x-circle'
     | 'refresh'
     | 'flag'
     | 'undo'
-    | 'brackets'
 
 export type EvaluationTemplateCategory = 'quality' | 'safety' | 'agents' | 'users' | 'cost_speed'
 
@@ -393,28 +391,6 @@ if (latency == null) {
 }
 print(concat('Latency: ', toString(latency), 's'))
 return latency`,
-    },
-    {
-        key: 'failed_output',
-        name: 'Empty or failed output',
-        description: 'Finds generations that errored, came back empty, or were cut off or blocked',
-        evaluation_type: 'hog',
-        icon: 'x-circle',
-        category: 'quality',
-        output_type: 'boolean',
-        output_config: {},
-        source: getHogEvalExample('failed_output').source,
-    },
-    {
-        key: 'valid_json',
-        name: 'Valid JSON output',
-        description: "Finds generations whose output isn't valid JSON",
-        evaluation_type: 'hog',
-        icon: 'brackets',
-        category: 'quality',
-        output_type: 'boolean',
-        output_config: {},
-        source: getHogEvalExample('valid_json').source,
     },
     {
         key: 'contains_keyword',

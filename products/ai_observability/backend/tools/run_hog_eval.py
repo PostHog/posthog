@@ -38,9 +38,8 @@ Write new evaluations using these globals:
 - `evaluation_events` (array): the events under evaluation — one generation for a generation
   target, all events of the trace for a trace target, all events of every trace in the session
   for a session target. Each item has `uuid`, `event`, `timestamp`, serialized `input` and
-  `output`, readable `input_text` and `output_text`, `reply_text` (the model's reply alone,
-  without reasoning, tool calls, or role labels), and `properties` without large input, output,
-  and tool payloads.
+  `output`, readable `input_text` and `output_text`, and `properties` without large input,
+  output, and tool payloads.
 - `target` (object): the sampled unit's `type` ('generation', 'trace', or 'session'), `id`,
   `total_cost_usd`, and `total_latency_seconds`.
 

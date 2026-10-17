@@ -133,22 +133,6 @@ export const EVALUATION_TEMPLATE_EXAMPLES: Record<string, EvaluationTemplateExam
         reasoning: 'Called more than 5 times: search_docs (7 calls)',
         distribution: passFail(93),
     },
-    failed_output: {
-        messages: [user('Summarize this contract in five bullet points.'), assistant('')],
-        metrics: [{ label: 'Stop reason', value: 'max_tokens' }],
-        result: { ...NO_RESULT, result: false },
-        reasoning: 'Generation hit its token limit',
-        distribution: passFail(96),
-    },
-    valid_json: {
-        messages: [
-            user('Extract the name and email from this signature.'),
-            assistant('Sure! Here is the data: {"name": "Ana Silva", "email": "ana@example.com"}'),
-        ],
-        result: { ...NO_RESULT, result: false },
-        reasoning: 'Generation did not return valid JSON',
-        distribution: passFail(97),
-    },
     task_outcome: {
         messages: [
             user('Cancel my order 4417 and refund it to my card.'),

@@ -1,5 +1,4 @@
 import {
-    IconBrackets,
     IconBug,
     IconChatHelp,
     IconCheckCircle,
@@ -20,7 +19,6 @@ import {
     IconUndo,
     IconWarning,
     IconWrench,
-    IconXCircle,
 } from '@posthog/icons'
 
 import type { EvaluationTemplate } from '../templates'
@@ -44,11 +42,9 @@ const ICONS: Record<EvaluationTemplate['icon'], React.ComponentType<{ className?
     'thumbs-down': IconThumbsDown,
     'piggy-bank': IconPiggyBank,
     clock: IconClock,
-    'x-circle': IconXCircle,
     refresh: IconRefresh,
     flag: IconFlag,
     undo: IconUndo,
-    brackets: IconBrackets,
 }
 
 const CATEGORY_TONES: Record<EvaluationTemplate['category'], string> = {
