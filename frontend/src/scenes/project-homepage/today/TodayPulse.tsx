@@ -15,6 +15,7 @@ import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
 import { TodayPulseCard } from './TodayPulseCard'
 import { TodayPulseHoverCard } from './TodayPulseHoverCard'
+import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import { TodaySparkline, type TodayTone } from './TodaySparkline'
 
 const CHANGE_THRESHOLD = 3
@@ -101,17 +102,7 @@ export function TodayPulse({ metrics }: { metrics: HighlightMetricApi[] }): JSX.
                                     to={metric.url}
                                     className="TodayPulse__link"
                                     data-attr={isInsight ? 'today-pulse-insight' : 'today-pulse-key-metric'}
-                                    onClick={() => pulseMetricOpened(metric, position)}
-                                    onMouseDown={(event) => {
-                                        if (event.button === 0 && (event.metaKey || event.ctrlKey)) {
-                                            pulseMetricOpened(metric, position)
-                                        }
-                                    }}
-                                    onAuxClick={(event) => {
-                                        if (event.button === 1) {
-                                            pulseMetricOpened(metric, position)
-                                        }
-                                    }}
+                                    {...pulseOpenHandlers(() => pulseMetricOpened(metric, position))}
                                 >
                                     {content}
                                 </LinkPrimitive>

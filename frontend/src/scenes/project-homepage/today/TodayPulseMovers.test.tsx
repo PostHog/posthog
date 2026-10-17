@@ -7,7 +7,7 @@ import { TodayPulseMovers } from './TodayPulseMovers'
 describe('TodayPulseMovers', () => {
     afterEach(() => cleanup())
 
-    it('shows a negative series value as it is instead of a bar floored at zero', () => {
+    it('keeps the ranking it receives and shows a negative series value as it is', () => {
         render(
             <TodayPulseMovers
                 movers={[
@@ -20,5 +20,9 @@ describe('TodayPulseMovers', () => {
 
         expect(screen.getByText('v-50')).toBeInTheDocument()
         expect(screen.getByText('v120')).toBeInTheDocument()
+        expect(screen.getAllByRole('listitem').map((row) => row.textContent?.split(/[+−-]/)[0])).toEqual([
+            'Refunds',
+            'Orders',
+        ])
     })
 })

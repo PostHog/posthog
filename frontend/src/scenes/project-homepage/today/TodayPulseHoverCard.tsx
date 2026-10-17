@@ -52,7 +52,14 @@ export function TodayPulseHoverCard({
             >
                 {children}
             </PopoverTrigger>
-            <PopoverContent ref={popupRef} side="bottom" align="start" sideOffset={8} className="w-85 gap-0 p-0">
+            <PopoverContent
+                ref={popupRef}
+                side="bottom"
+                align="start"
+                sideOffset={8}
+                initialFocus={false}
+                className="w-85 gap-0 p-0"
+            >
                 {card}
             </PopoverContent>
         </Popover>

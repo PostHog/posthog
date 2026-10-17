@@ -20,15 +20,13 @@ export function TodayPulseMovers({
     const palette = useTodayTonePalette()
     const series = useMemo<Series<HighlightMoverApi>[]>(
         () =>
-            [...movers]
-                .sort((a, b) => b.value - a.value)
-                .map((mover) => ({
-                    key: mover.label,
-                    label: mover.label,
-                    data: [mover.value],
-                    color: palette.line,
-                    meta: mover,
-                })),
+            movers.map((mover) => ({
+                key: mover.label,
+                label: mover.label,
+                data: [mover.value],
+                color: palette.line,
+                meta: mover,
+            })),
         [movers, palette]
     )
     if (movers.some((mover) => mover.value < 0)) {

@@ -23,6 +23,7 @@ import type { HighlightMetricApi } from 'products/today/frontend/generated/api.s
 import { TodayChange } from './TodayChange'
 import { pulsePeak, pulsePeriodCaption, pulseWhy } from './todayPulseFacts'
 import { TodayPulseMovers } from './TodayPulseMovers'
+import { pulseOpenHandlers } from './todayPulseOpenHandlers'
 import type { TodayTone } from './TodaySparkline'
 
 const PERIOD_FORMATS: Record<HighlightMetricApi['interval'], string> = {
@@ -112,7 +113,7 @@ export function TodayPulseCard({
                             variant="link-muted"
                             className="-ms-2"
                             render={<LinkPrimitive to={metric.url} />}
-                            onClick={onOpen}
+                            {...pulseOpenHandlers(onOpen)}
                             data-attr="today-pulse-card-open"
                         >
                             {openLabel(metric)}
