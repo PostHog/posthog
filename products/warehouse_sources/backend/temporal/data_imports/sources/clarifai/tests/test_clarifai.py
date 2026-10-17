@@ -56,7 +56,7 @@ class TestClarifaiTransport:
             ("datasets", "datasets", {}),
             ("concepts", "concepts", {}),
             ("annotations", "annotations", {"list_all_annotations": ["true"]}),
-            ("evaluations", "eval_metrics", {}),
+            ("evaluations", "eval_metrics", {"show_failed_metrics": ["true"]}),
         ],
     )
     @pytest.mark.parametrize("resume_page", [None, 4])
@@ -131,7 +131,17 @@ class TestClarifaiTransport:
 
         script = route(
             {
-                f"{prefix}{parent}": [ok(parent, [{"id": "parent-1"}, {"id": "parent-2"}]), ok(parent, [])],
+                f"{prefix}{parent}": [
+                    ok(
+                        parent,
+                        [
+                            {"id": "parent-1"},
+                            {"id": "main-row", "user_id": "clarifai", "app_id": "main"},
+                            {"id": "parent-2", "user_id": "example-user", "app_id": "example-app"},
+                        ],
+                    ),
+                    ok(parent, []),
+                ],
                 f"{prefix}{parent}/parent-1/{child_suffix}": [ok(data_key, [child_row]), ok(data_key, [])],
                 f"{prefix}{parent}/parent-2/{child_suffix}": [
                     ok(data_key, [child_row]),

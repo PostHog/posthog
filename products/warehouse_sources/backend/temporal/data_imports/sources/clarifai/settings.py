@@ -38,7 +38,13 @@ CLARIFAI_ENDPOINTS: dict[str, ClarifaiEndpointConfig] = {
             data_selector="annotations",
             params={"list_all_annotations": "true"},
         ),
-        ClarifaiEndpointConfig(name="evaluations", path="evaluations", data_selector="eval_metrics"),
+        # Without this flag the API leaves out failed evaluation runs.
+        ClarifaiEndpointConfig(
+            name="evaluations",
+            path="evaluations",
+            data_selector="eval_metrics",
+            params={"show_failed_metrics": "true"},
+        ),
         # Dataset inputs carry no ID of their own, so the key combines the dataset ID and the input ID.
         ClarifaiEndpointConfig(
             name="dataset_inputs",

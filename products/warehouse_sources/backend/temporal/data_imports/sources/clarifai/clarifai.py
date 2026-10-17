@@ -174,6 +174,14 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
             ],
         }
 
+    def own_app_rows(self, row: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+        # Listings scoped to an app can also return Clarifai main models, whose children 404 under this app's path.
+        if row.get("user_id", self.config.user_id) != self.config.user_id:
+            return []
+        if row.get("app_id", self.config.app_id) != self.config.app_id:
+            return []
+        return row
+
     def source(
         self,
         endpoint: str,
@@ -204,6 +212,7 @@ class ClarifaiClient(ValidateDatabaseHostMixin):
                     db_incremental_field_last_value=None,
                     page_size_param="per_page",
                     parent_endpoint_extra={"data_selector": parent.data_selector},
+                    parent_data_map=self.own_app_rows,
                     child_endpoint_extra={"data_selector": config.data_selector},
                     resume_hook=save_fanout_state,
                     initial_paginator_state=resume.fanout_state if resume else None,
