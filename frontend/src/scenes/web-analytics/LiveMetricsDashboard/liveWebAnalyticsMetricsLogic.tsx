@@ -978,7 +978,11 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         },
     })),
     subscriptions(({ actions, cache }) => {
-        const reloadForFilterChange = (): void => {
+        const reloadForFilterChange = (_: unknown, oldValue: unknown): void => {
+            // Subscriptions also fire on mount, and the initial load already uses those values.
+            if (oldValue === undefined) {
+                return
+            }
             if (!cache.hasInitialized) {
                 cache.reloadQueuedDuringInit = true
                 return

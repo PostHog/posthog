@@ -289,6 +289,14 @@ describe('liveWebAnalyticsMetricsLogic', () => {
         await expectLogic(logic).toDispatchActions(['scheduleReload', 'loadInitialData'])
     })
 
+    it('runs the backfill once when the dashboard opens', async () => {
+        await expectLogic(logic).toDispatchActions(['setInitialData'])
+        // Past the reload debounce, so a queued second backfill would have started.
+        await expectLogic(logic).delay(1000)
+
+        expect(getLiveQueryNames().filter((name) => name === 'live_users_pageviews')).toHaveLength(1)
+    })
+
     it('does not run the expensive bot query while bot analysis is disabled', async () => {
         await expectLogic(logic).toDispatchActions(['setInitialData'])
 
