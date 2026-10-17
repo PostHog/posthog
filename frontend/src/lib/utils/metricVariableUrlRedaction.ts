@@ -1,52 +1,55 @@
 import type { BeforeSendFn } from 'posthog-js'
 
-const FILTER_PARAMS = ['filters_override', 'query_filters']
+// The value of a dashboard filter parameter in a URL, wherever the URL appears in the text.
+const FILTER_PARAM = /\b(filters_override|query_filters)=([^&#"'\s;]*)/g
+const MAX_DEPTH = 6
 
-/** Metric variables in a dashboard or insight URL keep only their names, so their queries, options and selected values
- * stay out of analytics. */
-export function redactMetricVariableUrl(url: string): string {
-    if (!url.includes('metricVariables')) {
-        return url
-    }
-    let parsed: URL
+function redactFilters(encoded: string): string {
     try {
-        parsed = new URL(url)
+        const filters = JSON.parse(decodeURIComponent(encoded.replace(/\+/g, ' ')))
+        if (!Array.isArray(filters?.metricVariables)) {
+            return encoded
+        }
+        filters.metricVariables = filters.metricVariables.map((variable: Record<string, unknown> | null) => ({
+            name: variable?.name,
+        }))
+        return encodeURIComponent(JSON.stringify(filters))
     } catch {
-        return url
+        return ''
     }
-    for (const param of FILTER_PARAMS) {
-        const raw = parsed.searchParams.get(param)
-        if (!raw?.includes('metricVariables')) {
-            continue
-        }
-        try {
-            const filters = JSON.parse(raw)
-            if (Array.isArray(filters?.metricVariables)) {
-                filters.metricVariables = filters.metricVariables.map((variable: Record<string, unknown> | null) => ({
-                    name: variable?.name,
-                }))
-                parsed.searchParams.set(param, JSON.stringify(filters))
-            }
-        } catch {
-            parsed.searchParams.delete(param)
-        }
-    }
-    return parsed.toString()
 }
 
-/** Every URL property, such as `$current_url` or `$session_entry_url`, so a new one in the SDK is covered too. */
-function redactProperties(properties: Record<string, any> | undefined): Record<string, any> | undefined {
-    const keys = Object.keys(properties ?? {}).filter(
-        (key) => typeof properties![key] === 'string' && properties![key].includes('metricVariables')
+/** Metric variables in a dashboard or insight URL keep only their names, so their queries, options and selected values
+ * stay out of analytics. The text can be a URL or hold one, such as an element chain. */
+export function redactMetricVariableUrl(text: string): string {
+    if (!text.includes('metricVariables')) {
+        return text
+    }
+    return text.replace(FILTER_PARAM, (match, param: string, value: string) =>
+        value.includes('metricVariables') ? `${param}=${redactFilters(value)}` : match
     )
-    if (!properties || !keys.length) {
+}
+
+/** Every property that holds a URL, such as `$current_url`, `$session_entry_url` or the `href` of an autocaptured
+ * element, so a new one in the SDK is covered too. */
+function redactValue(value: unknown, depth: number): unknown {
+    if (typeof value === 'string') {
+        return redactMetricVariableUrl(value)
+    }
+    if (depth >= MAX_DEPTH || !value || typeof value !== 'object') {
+        return value
+    }
+    if (Array.isArray(value)) {
+        return value.map((item) => redactValue(item, depth + 1))
+    }
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, redactValue(item, depth + 1)]))
+}
+
+function redactProperties(properties: Record<string, any> | undefined): Record<string, any> | undefined {
+    if (!properties || !JSON.stringify(properties).includes('metricVariables')) {
         return properties
     }
-    const redacted = { ...properties }
-    for (const key of keys) {
-        redacted[key] = redactMetricVariableUrl(redacted[key])
-    }
-    return redacted
+    return redactValue(properties, 0) as Record<string, any>
 }
 
 export const redactMetricVariableUrls: BeforeSendFn = (event) =>

@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -36,17 +37,48 @@ describe('metricVariableEditorLogic', () => {
         expect(mockOptions.mock.calls.map(([, body]) => body.query)).toEqual(['SELECT other'])
     })
 
-    it('sends no preview for a regex the editor rejects', async () => {
+    it('sends no preview for a query the editor rejects', async () => {
         mockOptions.mockResolvedValue({ results: ['a'] })
         const logic = metricVariableEditorLogic({
             dashboardId: 1,
-            variables: [{ name: 'job', source: 'sql', query: 'SELECT job', regex: '(' }],
+            variables: [{ name: 'job', source: 'promql', query: 'up' }],
             options: {},
         })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockOptions).not.toHaveBeenCalled()
+    })
+
+    it('previews a query that refers to another variable in the draft', async () => {
+        mockOptions.mockResolvedValue({ results: ['a'] })
+        const logic = metricVariableEditorLogic({
+            dashboardId: 1,
+            variables: [
+                { name: 'job', source: 'sql', query: 'SELECT $service' },
+                { name: 'service', source: 'custom', customValues: ['api'] },
+            ],
+            options: {},
+        })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadPreview()).toFinishAllListeners()
+
+        expect(mockOptions).toHaveBeenCalled()
+    })
+
+    it('shows a rejected preview without reporting it', async () => {
+        mockOptions.mockRejectedValue({ status: 400, detail: 'Bad query private@example.com' })
+        const captureException = jest.spyOn(posthog, 'captureException')
+        const logic = metricVariableEditorLogic({
+            dashboardId: 1,
+            variables: [{ name: 'job', source: 'sql', query: 'SELECT job' }],
+            options: {},
+        })
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadPreview()).toFinishAllListeners()
+
+        expect(logic.values.previewError).toEqual('Bad query private@example.com')
+        expect(captureException).not.toHaveBeenCalled()
     })
 
     it('sends a preview only after the one before it finishes', async () => {

@@ -22,7 +22,6 @@ import { metricsVariableOptionsCreate } from 'products/metrics/frontend/generate
 import {
     MAX_VALUE_LENGTH,
     VARIABLE_NAME,
-    compileVariableRegex,
     orderVariables,
     promqlReferencedNames,
     sqlReferencedNames,
@@ -68,6 +67,9 @@ export interface metricVariableEditorLogicActions {
     }
     schedulePreview: () => {
         value: true
+    }
+    setPreviewError: (error: string | null) => {
+        error: string | null
     }
     apply: (onSave: (variables: MetricsDashboardVariable[]) => void) => {
         onSave: (variables: MetricsDashboardVariable[]) => void
@@ -151,15 +153,6 @@ function withSourceSettings(variable: MetricsDashboardVariable, previousSource: 
     }
 }
 
-function regexError(regex: string | null | undefined): string | null {
-    try {
-        compileVariableRegex(regex)
-        return null
-    } catch (error) {
-        return `The regex is not valid: ${error instanceof Error ? error.message : String(error)}`
-    }
-}
-
 // The limits of the variable options API.
 const MAX_NAME_LENGTH = 128
 const MAX_QUERY_LENGTH = 10000
@@ -183,8 +176,6 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
     const errors: Record<string, MetricVariableError> = Object.create(null)
     const seen = new Set<string>()
     for (const variable of variables) {
-        const invalidRegex =
-            variable.source === 'promql' || variable.source === 'sql' ? regexError(variable.regex) : null
         if (variable.name.length > MAX_NAME_LENGTH) {
             errors[variable.name] = { field: 'name', message: `Use at most ${MAX_NAME_LENGTH} characters.` }
         } else if (variable.name.startsWith('__')) {
@@ -208,9 +199,7 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
             }
         } else if ((variable.query?.length ?? 0) > MAX_QUERY_LENGTH) {
             errors[variable.name] = { field: 'query', message: `Use at most ${MAX_QUERY_LENGTH} characters.` }
-        } else if (invalidRegex) {
-            errors[variable.name] = { field: 'regex', message: invalidRegex }
-        } else if ((variable.regex?.length ?? 0) > MAX_VALUE_LENGTH) {
+        } else if ((variable.source === 'promql' || variable.source === 'sql') && (variable.regex?.length ?? 0) > MAX_VALUE_LENGTH) {
             errors[variable.name] = { field: 'regex', message: `Use at most ${MAX_VALUE_LENGTH} characters.` }
         } else if ((variable.allValue?.length ?? 0) > MAX_VALUE_LENGTH) {
             errors[variable.name] = { field: 'allValue', message: `Use at most ${MAX_VALUE_LENGTH} characters.` }
@@ -261,6 +250,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
     actions({
         addVariable: true,
         schedulePreview: true,
+        setPreviewError: (error: string | null) => ({ error }),
         apply: (onSave: (variables: MetricsDashboardVariable[]) => void) => ({ onSave }),
         removeVariable: (index: number) => ({ index }),
         moveVariable: (index: number, offset: -1 | 1) => ({ index, offset }),
@@ -325,7 +315,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
             null as string | null,
             {
                 loadPreview: () => null,
-                loadPreviewSuccess: () => null,
+                setPreviewError: (_, { error }) => error,
                 loadPreviewFailure: (_, { error }) => error,
                 selectVariable: () => null,
                 removeVariable: () => null,
@@ -389,7 +379,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
             actions.loadPreview()
         },
     })),
-    loaders(({ values, props, cache }) => ({
+    loaders(({ actions, values, props, cache }) => ({
         preview: {
             loadPreview: async (_: void, breakpoint): Promise<string[] | null> => {
                 // A cancelled fetch leaves its query running on the server, so a preview waits for the one before it.
@@ -405,7 +395,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                     variable.source === 'custom' ||
                     !variable.query?.trim() ||
                     // The server would run the query before it rejects what the editor already rejects.
-                    ['query', 'regex'].includes(ownValue(variableErrors([variable]), variable.name)?.field ?? '')
+                    ['query', 'regex'].includes(ownValue(values.errors, variable.name)?.field ?? '')
                 ) {
                     return null
                 }
@@ -437,7 +427,10 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                     response = await request
                 } catch (error) {
                     breakpoint()
-                    throw error
+                    // A rejected query echoes its text, which can hold customer data, so it is shown and not reported.
+                    const detail = error && typeof error === 'object' && 'detail' in error ? error.detail : null
+                    actions.setPreviewError(typeof detail === 'string' ? detail : 'The values could not be loaded.')
+                    return null
                 }
                 breakpoint()
                 return response.results

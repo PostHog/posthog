@@ -27,7 +27,12 @@ describe('redactMetricVariableUrl', () => {
 
         const event = redactMetricVariableUrls({
             event: '$pageview',
-            properties: { $current_url: url, $session_entry_url: url },
+            properties: {
+                $current_url: url,
+                $session_entry_url: url,
+                $elements: [{ tag_name: 'a', attr__href: url.replace('https://us.posthog.com', '') }],
+                $elements_chain: `a:attr__href="${url}"`,
+            },
         } as any)
 
         expect(JSON.stringify(event)).not.toContain('private_value')

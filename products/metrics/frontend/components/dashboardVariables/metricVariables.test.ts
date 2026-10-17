@@ -113,21 +113,13 @@ describe('metricVariables', () => {
     })
 
     it.each([
-        ['a query variable', 'promql', '(', 'regex'],
-        ['a list, which does not use the regex', 'custom', '(', undefined],
         ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
-        ['a regex that repeats too much', 'promql', '(a{1000}){1000}', 'regex'],
-        ['a quoted regex that looks like it repeats', 'promql', '\\Q(a{1000}){1000}\\E', undefined],
-        ['nested counted repeats past the RE2 limit', 'promql', '(a{50}){50}', 'regex'],
-        ['two groups with the same name', 'promql', '(?P<part>api)(?P<part>web)', undefined],
-        ['a regex with the RE2 any-byte class', 'promql', '\\C+', undefined],
-        ['a regex with the any-byte class inside a class', 'promql', '[\\C]', 'regex'],
+        ['a list, which does not use the regex', 'custom', 'a'.repeat(1025), undefined],
         ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],
         ['an options function in capitals', 'promql', undefined, 'query', 'LABEL_VALUES(job)'],
         ['a query that refers to a missing variable', 'promql', undefined, 'query', 'label_values(up{a="$gone"}, b)'],
         ['a query with built-in and group references', 'promql', undefined, undefined, 'query_result(rate(up[$__range]))'],
-        ['a regex with small counted repeats', 'promql', '\\d{1,3}(\\.\\d{1,3}){3}', undefined],
-    ])('checks the regex of %s', (_name, source, regex, field, query = 'label_values(job)') => {
+    ])('checks %s', (_name, source, regex, field, query = 'label_values(job)') => {
         const variable = { name: 'v', source, query, customValues: ['a'], regex }
         expect(ownValue(variableErrors([variable as MetricsDashboardVariable]), 'v')?.field).toEqual(field)
     })
