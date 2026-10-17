@@ -278,7 +278,7 @@ const ApmTraceGetSchema = () => {
 }
 
 const apmTraceGet = (): ToolBase<ReturnType<typeof ApmTraceGetSchema>, WithPostHogUrl<Schemas._TracingTraceResponse>> =>
-    withUiApp('trace-span-list', {
+    withUiApp('trace-waterfall', {
         name: 'apm-trace-get',
         schema: ApmTraceGetSchema(),
         handler: async (context: Context, params: z.infer<ReturnType<typeof ApmTraceGetSchema>>) => {
@@ -298,7 +298,7 @@ const apmTraceGet = (): ToolBase<ReturnType<typeof ApmTraceGetSchema>, WithPostH
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
                 body,
             })
-            const filtered = pickResponseFields(result, ['results']) as typeof result
+            const filtered = pickResponseFields(result, ['results', 'hasMore']) as typeof result
             return await withPostHogUrl(context, filtered, `/tracing?trace=${params.trace_id}`)
         },
     })

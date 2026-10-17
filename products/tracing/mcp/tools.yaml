@@ -15,6 +15,10 @@ ui_apps:
         detail_args: '{ trace_id: item.trace_id }'
         item_name_field: name
         click_prop: onSpanClick
+    trace-waterfall:
+        type: detail
+        view_prop: data
+        description: Trace waterfall with a span tree, timing bars, and span details
 tools:
     apm-attribute-breakdown:
         operation: tracing_spans_attribute_breakdown_create
@@ -198,11 +202,12 @@ tools:
             this to inspect a specific trace in detail after discovering it via the query tool. Set excludeAttributes to
             true to drop the per-span attributes map (which can hold multi-KB values like db.statement) and keep the
             payload compact.
-        ui_app: trace-span-list
+        ui_app: trace-waterfall
         feature_flag: tracing
         response:
             include:
                 - results
+                - hasMore
     query-apm-spans:
         operation: tracing_spans_query_create
         enabled: true

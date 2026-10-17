@@ -46,7 +46,14 @@ import {
     type SurveyListData,
     type SurveyStatsData,
 } from 'products/surveys/mcp/apps'
-import { TraceSpanListView, TraceSpanView, type TraceSpanData, type TraceSpanListData } from 'products/tracing/mcp/apps'
+import {
+    TraceSpanListView,
+    TraceSpanView,
+    TraceWaterfallView,
+    type TraceSpanData,
+    type TraceSpanListData,
+    type TraceWaterfallData,
+} from 'products/tracing/mcp/apps'
 import {
     EmailTemplateView,
     WorkflowListView,
@@ -441,6 +448,7 @@ export const RENDER_DISPATCH: Partial<Record<UiAppKey, (props: RenderDispatchPro
     'survey-stats': ({ data }) => <SurveyStatsView data={data as SurveyStatsData} />,
     'trace-span': ({ data }) => <TraceSpanView data={data as TraceSpanData} />,
     'trace-span-list': ({ data, app }) => <TraceSpanListContent data={data as TraceSpanListData} app={app} />,
+    'trace-waterfall': ({ data }) => <TraceWaterfallView data={data as TraceWaterfallData} />,
     'vision-observation-list': ({ data, app }) => (
         <VisionObservationListContent data={data as VisionObservationListData} app={app} />
     ),
