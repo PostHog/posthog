@@ -211,6 +211,7 @@ def _envelope(metric: Metric, payload: dict, team: Team, prepared_query: dict, i
         "row_limit": row_limit,
         "posthog_url": _deep_link(team, prepared_query),
         "instructions": None,
+        "warnings": payload.get("warnings") or [],
     }
 
 
@@ -228,6 +229,7 @@ def _markdown_envelope(metric: Metric, is_drifted: bool) -> dict:
         "row_limit": None,
         "posthog_url": None,
         "instructions": (metric.definition or {}).get("markdown"),
+        "warnings": [],
     }
 
 

@@ -70,6 +70,11 @@ class MetricRunResponseSerializer(serializers.Serializer):
         allow_null=True,
         help_text="For a markdown (agent-calculated) metric, the steps to follow to compute it. Null for an executable metric.",
     )
+    warnings = serializers.ListField(
+        child=_FreeJSONField(),
+        help_text="Query warnings, such as a failed warehouse sync or rows hidden by access control. "
+        "Report them with the result. Empty for a markdown metric.",
+    )
 
 
 @extend_schema_serializer(component_name="DataCatalogMetricRunRequest")

@@ -30,6 +30,7 @@ from posthog.models import Team, User
 from posthog.models.organization import OrganizationMembership
 
 from products.alerts.backend.max_tools import UpsertAlertTool
+from products.data_catalog.backend.facade.models import Metric
 from products.surveys.backend.max_tools import CreateSurveyTool, EditSurveyTool, SurveyAnalysisTool
 
 from ee.hogai.chat_agent.mode_manager import ChatAgentModeManager
@@ -308,6 +309,39 @@ class TestAgentToolkit(BaseTest):
         self.assertIn("PostHog AI supports slash commands", system_prompt)
         self.assertIn("`/usage`", system_prompt)
         self.assertIn("Do not claim this command is fabricated", system_prompt)
+
+    @parameterized.expand(
+        [
+            ("approved", [], True),
+            ("proposed", [], False),
+            ("approved", ["restricted_source"], False),
+        ]
+    )
+    async def test_prompt_builder_lists_approved_catalog_metrics(self, status, referenced_table_names, should_contain):
+        await Metric.objects.unscoped().acreate(
+            team=self.team,
+            name="pro_users",
+            description="d",
+            status=status,
+            referenced_table_names=referenced_table_names,
+        )
+        database = MagicMock()
+        database._denied_tables = {"restricted_source"}
+        context_manager = AssistantContextManager(
+            team=self.team, user=self.user, config=RunnableConfig(configurable={})
+        )
+        prompt_builder = ChatAgentPromptBuilder(team=self.team, user=self.user, context_manager=context_manager)
+
+        with (
+            patch("posthog.hogql.database.database.Database.create_for", return_value=database),
+            patch.object(prompt_builder, "_get_billing_prompt", new=AsyncMock(return_value="")),
+            patch.object(prompt_builder, "_aget_core_memory_text", new=AsyncMock(return_value="")),
+            patch.object(context_manager, "get_group_names", new=AsyncMock(return_value=[])),
+        ):
+            messages = await prompt_builder.get_prompts(AssistantState(messages=[]), RunnableConfig(configurable={}))
+
+        system_prompt = "\n\n".join(str(message.content) for message in messages if isinstance(message, SystemMessage))
+        self.assertEqual("Approved metrics: pro_users." in system_prompt, should_contain)
 
 
 class TestChatAgentModeManagerPlanMode(BaseTest):
