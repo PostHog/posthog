@@ -312,6 +312,8 @@ export interface ActivityLogPaginatedResponse<T> extends PaginatedResponse<T> {
 export interface ApiMethodOptions {
     signal?: AbortSignal
     headers?: Record<string, any>
+    /** A poll the user did not ask for. If it fails without a response, the connection banner does not show. */
+    background?: boolean
 }
 
 export interface ApiUploadProgress {
@@ -6767,17 +6769,24 @@ const api = {
             authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
         }
 
-        return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
-                signal: options?.signal,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...tracingHeaders({ includeDistinctId: true }),
-                    ...oauthAuthHeaders(url),
-                    ...authHeaders,
-                },
-            })
-        })
+        return await handleFetch(
+            url,
+            'GET',
+            async () => {
+                return fetch(url, {
+                    signal: options?.signal,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...tracingHeaders({ includeDistinctId: true }),
+                        ...oauthAuthHeaders(url),
+                        ...authHeaders,
+                    },
+                })
+            },
+            false,
+            undefined,
+            options?.background
+        )
     },
 
     async _update<T = any, P = any>(
@@ -7234,12 +7243,22 @@ async function isStaleSessionResponse(response: Response): Promise<boolean> {
     }
 }
 
+// Polls that run on their own from app-wide UI. They often drop without a status while the app works,
+// so they must not raise the connection banner. The generated API client cannot pass `background`.
+const BACKGROUND_POLL_PATHNAMES: RegExp[] = [/\/wizard\/sessions\/latest\/?$/]
+
+function isBackgroundPoll(url: string): boolean {
+    const pathname = requestPathname(url)
+    return BACKGROUND_POLL_PATHNAMES.some((pattern) => pattern.test(pathname))
+}
+
 async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
     isRetry = false,
-    startedByUserAction = isUserActionInProgress()
+    startedByUserAction = isUserActionInProgress(),
+    background = isBackgroundPoll(url)
 ): Promise<Response> {
     const startTime = new Date().getTime()
 
@@ -7251,7 +7270,7 @@ async function handleFetch(
         error = e
     }
 
-    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error, startedByUserAction)
+    apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error, startedByUserAction, background)
 
     if (error || !response) {
         if (error && (error as any).name === 'AbortError') {
@@ -7290,13 +7309,13 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true, startedByUserAction)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction, background)
         }
     }
 
     if (response.status === 403 && !isRetry && (await isStaleSessionResponse(response))) {
         if (await awaitReauthentication()) {
-            return await handleFetch(url, method, fetcher, true, startedByUserAction)
+            return await handleFetch(url, method, fetcher, true, startedByUserAction, background)
         }
     }
 
