@@ -1312,10 +1312,10 @@ Today (3): `execution_history`, `executions`, `state_machines`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/stepfunctions/2016-11-23/service-2.json>
 
-- [ ] `State machine versions (ListStateMachineVersions, POST /)` — resolve stateMachineVersionArn on executions and compare outcomes across deployed versions (high)
-- [ ] `State machine aliases (ListStateMachineAliases and DescribeStateMachineAlias, POST /)` — resolve stateMachineAliasArn on executions and compare results across deployment aliases (high)
-- [ ] `Activities (ListActivities, POST /)` — resolve activity resource ARNs in execution history to worker activity names (high)
-- [ ] `Map Runs and child executions (ListMapRuns, DescribeMapRun and ListExecutions with mapRunArn, POST /)` — measure distributed processing progress, failed items, child execution outcomes, and redrive results (high)
+- [x] `State machine versions (ListStateMachineVersions, POST /)` — resolve stateMachineVersionArn on executions and compare outcomes across deployed versions (high)
+- [x] `State machine aliases (ListStateMachineAliases and DescribeStateMachineAlias, POST /)` — resolve stateMachineAliasArn on executions and compare results across deployment aliases (high)
+- [x] `Activities (ListActivities, POST /)` — resolve activity resource ARNs in execution history to worker activity names (high)
+- [x] `Map Runs and child executions (ListMapRuns, DescribeMapRun and ListExecutions with mapRunArn, POST /)` — measure distributed processing progress, failed items, child execution outcomes, and redrive results (high)
 
 Note: The official SDK model was compared with ListStateMachines, ListExecutions, and GetExecutionHistory in the source. Version and alias ARNs already appear in execution rows; activity resource ARNs appear in history events. Map Runs require requests for each parent execution, then describe and child execution calls. Standalone Express execution history is unavailable through these operations; task polling, writes, and existing object enrichment are excluded.
 
