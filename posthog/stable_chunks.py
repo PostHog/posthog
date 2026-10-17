@@ -132,7 +132,8 @@ def _count_fallback(request: HttpRequest) -> None:
     unmapped = request.GET.get(STABLE_CHUNKS_UNMAPPED_PARAM, "")
     is_unmapped = _STABLE_CHUNK_SPECIFIER.fullmatch(unmapped) is not None
     if is_unmapped:
-        logger.warning("stable_chunks_unmapped_specifier", specifier=unmapped, path=request.path)
+        # Never log the path: reset and invite links carry their credential in it.
+        logger.warning("stable_chunks_unmapped_specifier", specifier=unmapped)
     STABLE_CHUNKS_FALLBACK_COUNTER.labels(
         authenticated=str(request.user.is_authenticated).lower(),
         reason="unmapped_specifier" if is_unmapped else "load_failed",

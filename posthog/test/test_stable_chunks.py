@@ -12,6 +12,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from posthog.models import User
 from posthog.stable_chunks import (
@@ -138,6 +139,20 @@ class TestStableChunks(SimpleTestCase):
         assert stable_chunks_choice(request, None) is False
 
         assert REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) == before + 1
+
+    def test_an_unmapped_specifier_is_logged_without_the_page_path(self) -> None:
+        request = RequestFactory().get(
+            "/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token"
+            "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123"
+        )
+        request.user = AnonymousUser()
+
+        with capture_logs() as logs:
+            stable_chunks_choice(request, None)
+
+        assert [log for log in logs if log["event"] == "stable_chunks_unmapped_specifier"] == [
+            {"event": "stable_chunks_unmapped_specifier", "specifier": "@c/Abc123", "log_level": "warning"}
+        ]
 
     def test_a_failing_logged_out_flag_check_serves_the_hashed_build(self) -> None:
         request = RequestFactory().get("/")
