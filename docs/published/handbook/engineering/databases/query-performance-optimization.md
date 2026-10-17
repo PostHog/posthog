@@ -181,3 +181,7 @@ Need more granular access to queries than these dashboards provide? Take a look 
 ### How-to fix slow queries
 
 See [ClickHouse manual](https://posthog.com/handbook/engineering/clickhouse/) for tips and tricks.
+
+### Query scan structure findings
+
+Query scan can report repeated non-materialized CTE references, CROSS JOIN equality filters, and date arrays built during breakdown ranking. These are potential costs identified from the compiled tree. They do not estimate intermediate row counts or memory, and they do not offer automatic query edits. Explicit materialization and inner joins remove their corresponding structural findings. The existing query-scan flag controls when findings are collected and displayed.
