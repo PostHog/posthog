@@ -13,10 +13,12 @@ from django.utils import timezone
 import posthoganalytics
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
 
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team import Team
@@ -295,6 +297,10 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             exc: Exception | None = None
             try:
                 columns = EndpointVersion.extract_columns(self.query, self.endpoint.team_id)
+            except (ExposedHogQLError, ExposedCHQueryError):
+                # A user query error is not a code fault. Keep columns unset, so a later read can fill them
+                # (for example, after a missing table is created).
+                return []
             except Exception as e:
                 exc = e
             # Save before capture_exception (which can hang serializing large AST objects)
