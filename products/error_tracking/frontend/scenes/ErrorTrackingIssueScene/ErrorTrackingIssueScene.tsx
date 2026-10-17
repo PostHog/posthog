@@ -20,6 +20,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from 'lib/ui/quill'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -33,6 +34,7 @@ import { ReplayTabs } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 import { markScannerHandoffIntent } from 'products/replay_vision/frontend/replay_scanners/scannerHandoffIntent'
+import { messageAudienceAccessDisabledReason } from 'products/workflows/frontend/MessageAudience/messageAudience'
 
 import { PostHogSDKIssueBanner } from '../../components/Banners/PostHogSDKIssueBanner'
 import { miniBreakdownsLogic } from '../../components/Breakdowns/miniBreakdownsLogic'
@@ -53,6 +55,8 @@ import { StyleVariables } from '../../components/StyleVariables'
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { IssueEmailMenu } from './IssueEmailMenu'
+import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
@@ -189,7 +193,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     <Button
                                                                         variant="outline"
                                                                         size="icon"
-                                                                        aria-label="More recording options"
+                                                                        aria-label="More options"
                                                                     />
                                                                 }
                                                             >
@@ -206,6 +210,16 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                                     <IconSparkles className="text-ai" />
                                                                     Set up a scanner to watch these
                                                                 </DropdownMenuItem>
+                                                                {!messageAudienceAccessDisabledReason() && (
+                                                                    <>
+                                                                        <DropdownMenuSeparator className="@6xl/main-content:hidden" />
+                                                                        <IssueEmailMenuItems
+                                                                            issueId={issue.id}
+                                                                            issueName={issue.name}
+                                                                            className="@6xl/main-content:hidden"
+                                                                        />
+                                                                    </>
+                                                                )}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     </ButtonGroup>
@@ -219,6 +233,11 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                         <IconRewindPlay />
                                                     </Button>
                                                 )}
+                                                <IssueEmailMenu
+                                                    issueId={issue.id}
+                                                    issueName={issue.name}
+                                                    collapseWhenNarrow={!!issue.name}
+                                                />
                                                 <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                             </div>
                                         )
@@ -245,6 +264,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                                 disabled={issue.status != 'active'}
                                             />
                                         </ButtonGroup>
+                                        <IssueEmailMenu issueId={issue.id} issueName={issue.name} />
                                         <IssueStatusButton status={issue.status} onChange={updateStatus} />
                                         {!mobileDetailOpen && (
                                             <LemonButton
