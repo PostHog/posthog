@@ -11,6 +11,15 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
     SESSION_REPLAY_EVENTS_TABLE_MV_SQL,
 )
 
+EXCLUDE_LATER_COLUMNS = [
+    "is_deleted",
+    "ai_tags_fixed",
+    "ai_tags_freeform",
+    "ai_highlighted",
+    "surfacing_score",
+    "snapshot_mode_v2",
+]
+
 operations = [
     # looking at past migrations we have to drop materialized views and kafka tables first
     run_sql_with_exceptions(DROP_SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
@@ -30,5 +39,8 @@ operations = [
     ),
     # and then recreate the materialized views and kafka tables
     run_sql_with_exceptions(KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
-    run_sql_with_exceptions(SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False), node_roles=[NodeRole.DATA]),
+    run_sql_with_exceptions(
+        SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=False, exclude_columns=EXCLUDE_LATER_COLUMNS),
+        node_roles=[NodeRole.DATA],
+    ),
 ]
