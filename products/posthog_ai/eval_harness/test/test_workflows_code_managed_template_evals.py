@@ -31,6 +31,8 @@ REQUEST = "workflows-request-email-template-change"
         # The lock refuses the write, so only counting attempts shows the agent tried it.
         (LeftCodeManagedTemplateAlone(), [(PATCH, {"id": "code-1"}, "403 immutable", "failed")], 0.0),
         (LeftCodeManagedTemplateAlone(), [(PATCH, {"id": "gui-1"}, "ok")], 1.0),
+        # An upload by the key publishes HTML rebuilt from PostHog, which the file doesn't have.
+        (LeftCodeManagedTemplateAlone(), [("workflows-upload-email-template", {"key": "hedgebox-welcome"}, "ok")], 0.0),
         (LeftCodeManagedTemplateAlone(), [("workflows-get-email-template", {"id": "code-1"}, "ok")], 1.0),
         # The route refuses calls from inside PostHog Code, so a refused call is the wrong choice too.
         (
@@ -62,7 +64,12 @@ class TestCodeManagedTemplateSeeder(APIBaseTest):
             "source_path": "emails/welcome.html",
         }
         assert code_managed["change_prompt_context"]
-        assert f"- email_template {seed['code_managed_template_id']} (" in sidebar_prompt_on_code_managed_page(seed)
+        sidebar_prompt = sidebar_prompt_on_code_managed_page(seed)
+        assert f"- email_template {seed['code_managed_template_id']} (" in sidebar_prompt
+        assert (
+            f"key: {code_managed['key']}; source_repository: {code_managed['source_repository']}; "
+            f"source_path: {code_managed['source_path']}; source_ref: {code_managed['source_ref']}"
+        ) in sidebar_prompt
 
         make_the_button_green = self.client.patch(
             f"{templates}/{seed['gui_template_id']}/design/",

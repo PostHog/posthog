@@ -100,14 +100,16 @@ export function pickedTemplateContextItem(template: MessageTemplate): AttachedCo
     }
 }
 
-const CODE_MANAGED_DISMISS_GROUP = 'code-managed-email-template'
+// Per template: a dismissal is global and never resets, so closing one template's chip must not strip another's.
+function codeManagedDismissGroup(template: MessageTemplate): string {
+    return `code-managed-email-template:${template.id}`
+}
 
 // Static, like the items above: the key and the source come from an upload, so the instruction names the
 // email_template_source item instead of quoting them.
-const CODE_MANAGED_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
+const CODE_MANAGED_INSTRUCTIONS: AttachedContextItem = {
     type: 'instructions',
     hidden: true,
-    dismissGroup: CODE_MANAGED_DISMISS_GROUP,
     value:
         'The user has a PostHog email template open that is managed by code: its content comes from a file in a ' +
         'repository, and the email_template_source item names its key and file. Load the ' +
@@ -117,12 +119,6 @@ const CODE_MANAGED_INSTRUCTIONS_CONTEXT_ITEM: AttachedContextItem = {
         'workflows-request-email-template-change either, because it refuses calls from PostHog AI. Instead, tell ' +
         'the user to click "Edit with your agent" on this page, describe the change, and click "Run with PostHog ' +
         'Code", which opens a pull request, or copy the prompt into their own coding agent.',
-}
-
-const CODE_MANAGED_SKILL_CHIP_CONTEXT_ITEM: AttachedContextItem = {
-    ...SKILL_CHIP_CONTEXT_ITEM,
-    dismissGroup: CODE_MANAGED_DISMISS_GROUP,
-    dismissible: true,
 }
 
 function templateSourceSummary(template: MessageTemplate): string {
@@ -144,20 +140,21 @@ export function buildCodeManagedTemplateContext(template: MessageTemplate): Atta
     if (!isCodeManagedTemplate(template)) {
         return null
     }
+    const dismissGroup = codeManagedDismissGroup(template)
     return [
-        CODE_MANAGED_INSTRUCTIONS_CONTEXT_ITEM,
-        CODE_MANAGED_SKILL_CHIP_CONTEXT_ITEM,
+        { ...CODE_MANAGED_INSTRUCTIONS, dismissGroup },
+        { ...SKILL_CHIP_CONTEXT_ITEM, dismissGroup, dismissible: true },
         {
             type: 'email_template',
             key: template.id,
             label: template.name || 'Unnamed template',
-            dismissGroup: CODE_MANAGED_DISMISS_GROUP,
+            dismissGroup,
         },
         {
             type: 'email_template_source',
             hidden: true,
             value: templateSourceSummary(template),
-            dismissGroup: CODE_MANAGED_DISMISS_GROUP,
+            dismissGroup,
         },
     ]
 }

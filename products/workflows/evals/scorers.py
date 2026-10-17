@@ -11,8 +11,11 @@ from typing import Any, Final
 
 from products.posthog_ai.eval_harness.log_parser import LogParser, ToolCall
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
+from products.workflows.evals.seeders import CODE_MANAGED_TEMPLATE_KEY
 
 TEMPLATE_WRITE_TOOLS: Final = frozenset({"workflows-update-email-template", "workflows-patch-email-template"})
+# The upload tool addresses a template by its key, not its id.
+UPLOAD_TOOL: Final = "workflows-upload-email-template"
 REQUEST_CHANGE_TOOL: Final = "workflows-request-email-template-change"
 
 
@@ -40,7 +43,8 @@ class LeftCodeManagedTemplateAlone(Scorer):
         attempts = [
             call.name
             for call in parser.get_tool_calls()
-            if call.name in TEMPLATE_WRITE_TOOLS and _targets(call, template_id)
+            if (call.name in TEMPLATE_WRITE_TOOLS and _targets(call, template_id))
+            or (call.name == UPLOAD_TOOL and call.input.get("key") == CODE_MANAGED_TEMPLATE_KEY)
         ]
         return Score(name=self._name(), score=0.0 if attempts else 1.0, metadata={"write_attempts": attempts})
 

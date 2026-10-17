@@ -1,4 +1,7 @@
-import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/api/logics'
+import { readFileSync } from 'fs'
+import path from 'path'
+
+import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM, wrapWithPosthogContext } from 'products/posthog_ai/frontend/api/logics'
 import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import {
@@ -27,6 +30,18 @@ const CODE_MANAGED: MessageTemplate = {
     source_repository: 'github.com/example/app',
     source_path: 'emails/welcome.html',
     source_ref: '3f2c1ab9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3',
+}
+
+// The sandboxed eval sends this file as the sidebar's first message, so the eval tests what the page attaches.
+const EVAL_SIDEBAR_PROMPT = path.join(__dirname, '../../evals/fixtures/sidebar_on_code_managed_page.txt')
+const EVAL_CODE_MANAGED: MessageTemplate = {
+    ...CODE_MANAGED,
+    id: '{code_managed_template_id}',
+    name: 'Welcome to Hedgebox',
+    key: 'hedgebox-welcome',
+    source_repository: 'github.com/example/hedgebox-app',
+    source_path: 'emails/welcome.html',
+    source_ref: '4b1d0c9e8f7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c',
 }
 
 function sentContext(items: AttachedContextItem[] | null): { trusted: string; untrusted: string } {
@@ -97,6 +112,24 @@ describe('templateAgentContext', () => {
             )
 
             expect(untrusted).toContain('"managed_by: code; key: welcome; source_path: emails/welcome.html"')
+        })
+
+        // A dismissal is global and never resets, so closing one template's chip must not strip another's context.
+        it('gives each template its own dismiss group', () => {
+            const groups = (template: MessageTemplate): Set<string | undefined> =>
+                new Set(buildCodeManagedTemplateContext(template)?.map((item) => item.dismissGroup))
+
+            expect(groups(CODE_MANAGED)).toEqual(new Set(['code-managed-email-template:tpl-2']))
+            expect(groups({ ...CODE_MANAGED, id: 'tpl-3' })).toEqual(new Set(['code-managed-email-template:tpl-3']))
+        })
+
+        it('renders the first sidebar message the code-managed template eval sends', () => {
+            const sent = wrapWithPosthogContext('Make the button green.', [
+                AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
+                ...(buildCodeManagedTemplateContext(EVAL_CODE_MANAGED) ?? []),
+            ])
+
+            expect(sent).toEqual(readFileSync(EVAL_SIDEBAR_PROMPT, 'utf8'))
         })
 
         it.each([
