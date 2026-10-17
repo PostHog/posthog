@@ -2,12 +2,15 @@ import type { Layout } from 'react-grid-layout'
 
 import type { DashboardTile } from '~/types'
 
+import { DashboardGridCompaction, getDashboardGridCompactor } from './dashboardCustomization'
 import {
     getCollapsedTileGroupKeys,
     getDashboardSections,
+    getDropCell,
     getLayoutAfterSectionChange,
     getSectionLayouts,
     hasSectionLayoutChanged,
+    moveTileToSection,
     stackSectionLayouts,
 } from './dashboardTileSections'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
@@ -196,5 +199,82 @@ describe('dashboardTileSections', () => {
         },
     ])('getCollapsedTileGroupKeys finds $name', ({ tiles, groups, choices, expected }) => {
         expect(getCollapsedTileGroupKeys({ tiles, groups, choices })).toEqual(expected)
+    })
+
+    it.each([
+        { name: 'the column and row under the tile corner', left: 330, top: 196, expected: { x: 3, y: 2 } },
+        { name: 'the nearest cell when the corner sits between cells', left: 370, top: 230, expected: { x: 4, y: 2 } },
+        {
+            name: 'a cell inside the grid when the tile hangs off the left or top',
+            left: -200,
+            top: -90,
+            expected: { x: 0, y: 0 },
+        },
+        { name: 'a cell that keeps the whole tile inside the grid', left: 1180, top: 100, expected: { x: 6, y: 1 } },
+    ])('getDropCell finds $name', ({ left, top, expected }) => {
+        expect(
+            getDropCell({
+                tileRect: { left, top },
+                gridRect: { left: 10, top: 10, width: 1210 },
+                cols: 12,
+                rowHeight: 80,
+                margin: [10, 10],
+                tileWidth: 6,
+            })
+        ).toEqual(expected)
+    })
+
+    describe('moveTileToSection', () => {
+        const sections = getDashboardSections({
+            tiles: [tile(1), tile(2), tile(3, 'plans'), tile(4, 'plans')],
+            layout: [box(1, 0, 0), box(2, 6, 0), box(3, 0, 2), box(4, 6, 2)],
+            groups: undefined,
+        })
+        const sectionLayouts = sections.map(
+            (section) =>
+                getSectionLayouts({ sm: [box(1, 0, 0), box(2, 6, 0), box(3, 0, 2), box(4, 6, 2)] }, section.tiles).sm ??
+                []
+        )
+        const compactor = getDashboardGridCompactor(DashboardGridCompaction.Vertical)
+
+        it.each([
+            {
+                name: 'into a group at the drop cell, pushing the tile it lands on down',
+                tileId: 2,
+                targetIndex: 1,
+                cell: { x: 6, y: 0 },
+                expected: { groupKey: 'plans', layout: [box(1, 0, 0), box(3, 0, 2), box(2, 6, 2), box(4, 6, 4)] },
+            },
+            {
+                name: 'into a closed group at its bottom when there is no drop cell',
+                tileId: 1,
+                targetIndex: 1,
+                cell: null,
+                expected: { groupKey: 'plans', layout: [box(2, 6, 0), box(3, 0, 2), box(4, 6, 2), box(1, 0, 4)] },
+            },
+            {
+                name: 'out of a group into a new section at the end',
+                tileId: 3,
+                targetIndex: 2,
+                cell: null,
+                expected: { groupKey: null, layout: [box(1, 0, 0), box(2, 6, 0), box(4, 6, 2), box(3, 0, 4)] },
+            },
+        ])('moves a tile $name', ({ tileId, targetIndex, cell, expected }) => {
+            const moved = moveTileToSection({
+                sections,
+                sectionLayouts,
+                tileId,
+                targetIndex,
+                cell,
+                compactor,
+                cols: 12,
+            })
+            const byPosition = (layout: Layout): Layout =>
+                layout.map(({ i, x, y, w, h }) => ({ i, x, y, w, h })).sort((a, b) => a.y - b.y || a.x - b.x)
+            expect({ groupKey: moved.groupKey, layout: byPosition(moved.layout) }).toEqual({
+                groupKey: expected.groupKey,
+                layout: byPosition(expected.layout),
+            })
+        })
     })
 })
