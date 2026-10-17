@@ -586,7 +586,16 @@ def _parse_inbound_email(request: MailgunRequest, config: EmailChannel) -> Parse
     sender_name, sender_email = parseaddr(from_header)
     if not sender_email:
         sender_email = request.POST.get("sender", "")
-    sender_email = sender_email.strip().lower()[:400]
+    sender_email = sender_email.strip().lower()
+    if len(sender_email) > MAX_EMAIL_ADDRESS_LENGTH:
+        # A cut-off address is a wrong reply target, and the ticket column cannot hold the full one.
+        logger.warning(
+            "email_inbound_sender_too_long",
+            team_id=config.team_id,
+            config_id=str(config.id),
+            sender_length=len(sender_email),
+        )
+        return None
     if not sender_name:
         sender_name = sender_email.split("@")[0] if sender_email else "Unknown"
     relay_sender: EmailAddress | None = None
