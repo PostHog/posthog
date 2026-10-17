@@ -12,7 +12,7 @@ from .knowledge_source import KnowledgeSource
 
 class KnowledgeChunk(models.Model):
     """
-    A retrievable text chunk — the grain the AI agent queries with ILIKE.
+    A retrievable text chunk — the grain of full-text retrieval.
 
     `id` is deterministic: uuid5(document.stable_id, f"{heading_path}|{ordinal}"),
     set in logic.py before save. Re-parsing the same text yields the same
@@ -36,12 +36,12 @@ class KnowledgeChunk(models.Model):
     # without loading content into HogQL context.
     char_count = models.PositiveIntegerField()
     # `english`-config tsvector of `content`, backing full-text relevance search.
-    # Maintained in `logic._bulk_create_chunks` right after the rows are inserted
-    # (the single chunk-creation choke point) rather than by a DB trigger or a
+    # Computed in the INSERT by `logic._bulk_create_chunks` (the single
+    # chunk-creation choke point) rather than by a DB trigger or a
     # GeneratedField: the test schema is built from model state with migrations
     # disabled, so a migration-only trigger would not exist there, and a
     # GeneratedField can't use the STABLE two-arg `to_tsvector(text, text)`.
-    # Nullable so the INSERT can land before the vector is computed.
+    # Nullable because rows from before the column existed have no vector.
     content_search_vector = SearchVectorField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -52,7 +52,6 @@ class KnowledgeChunk(models.Model):
         indexes = [
             models.Index(fields=["team", "source"], name="bk_chunk_team_source"),
             models.Index(fields=["document", "ordinal"], name="bk_chunk_doc_ordinal"),
-            GinIndex(fields=["content"], opclasses=["gin_trgm_ops"], name="bk_chunk_content_trgm"),
             GinIndex(fields=["content_search_vector"], name="bk_chunk_content_tsv"),
         ]
         # One physical chunk per (document, heading_path, ordinal). Matches

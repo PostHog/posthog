@@ -307,7 +307,12 @@ def _bulk_create_chunks(
     team_id: int,
     chunks: list[_Chunk],
 ) -> None:
-    created = KnowledgeChunk.objects.bulk_create(
+    # Populate the FTS vector here (the single chunk-creation choke point) so it
+    # stays correct everywhere — including the test schema, which is built from
+    # model state with migrations disabled and so would never run a DB trigger.
+    # Postgres computes `to_tsvector('english', ...)` inside the INSERT, so no
+    # follow-up UPDATE leaves a dead tuple per chunk.
+    KnowledgeChunk.objects.bulk_create(
         [
             KnowledgeChunk(
                 id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
@@ -318,18 +323,11 @@ def _bulk_create_chunks(
                 ordinal=c.ordinal,
                 content=c.content,
                 char_count=len(c.content),
+                content_search_vector=SearchVector(Value(c.content), config="english"),
             )
             for c in chunks
         ]
     )
-    # Populate the FTS vector here (the single chunk-creation choke point) so it
-    # stays correct everywhere — including the test schema, which is built from
-    # model state with migrations disabled and so would never run a DB trigger.
-    # Computed in Postgres via `to_tsvector('english', content)`.
-    if created:
-        KnowledgeChunk.objects.filter(team_id=team_id, id__in=[c.id for c in created]).update(
-            content_search_vector=SearchVector("content", config="english")
-        )
 
 
 # --- Quota enforcement -------------------------------------------------------
