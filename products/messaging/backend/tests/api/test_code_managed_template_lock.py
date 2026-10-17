@@ -130,7 +130,8 @@ class TestCodeManagedTemplateLock(APIBaseTest):
         refusal = self._assert_refused(self._rename(uploaded["id"]))
 
         assert refusal["fix"] == (
-            f"When you can reach the repository, edit {expected_file} there, as the template's "
+            f"When the repository is in your workspace, or you run outside PostHog Code and can check it out, edit "
+            f"{expected_file} there, as the template's "
             "`change_prompt_context` describes. It also says how the change goes live. Inside PostHog Code, such as "
             "PostHog AI or the Slack bot, share the template's link instead: on its page, the person clicks Edit with "
             "your agent, then Run with PostHog Code. Otherwise, ask PostHog Code to open a pull request with the "

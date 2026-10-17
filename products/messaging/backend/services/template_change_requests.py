@@ -16,7 +16,7 @@ from products.messaging.backend.facade.contracts import (
     TemplateChangeRequested,
 )
 from products.messaging.backend.services import template_change_prompt
-from products.messaging.backend.services.template_change_prompt import PromptedTemplate
+from products.messaging.backend.services.template_change_prompt import PromptedTemplate, shaped_repository
 from products.messaging.backend.services.template_ownership import not_managed_by_code
 from products.tasks.backend.facade import (
     access as tasks_access,
@@ -110,13 +110,13 @@ def _require_posthog_code(team: Team, user: User, *, from_sandbox: bool) -> None
     if not decision.allowed:
         raise _posthog_code_not_available(
             why="This organization can't use PostHog Code.",
-            fix="Edit the template's file in its repository yourself, then upload it.",
+            fix="Edit the template's file in its repository, as its `change_prompt_context` describes.",
         )
     if tasks_usage.task_run_usage_limited(user, team.id):
         raise _posthog_code_not_available(
             why="This organization used up its PostHog Code credits.",
-            fix="Edit the template's file in its repository yourself, then upload it. PostHog Code is available again "
-            "when the credits renew.",
+            fix="Edit the template's file in its repository, as its `change_prompt_context` describes. PostHog Code is available again when the "
+            "credits renew.",
         )
 
 
@@ -131,11 +131,14 @@ def _github_repository(source_repository: str | None) -> str:
         )
     match = GITHUB_REPOSITORY.match(source_repository)
     if match is None:
+        shown = shaped_repository(source_repository)
         raise TemplateChangeRefused(
             code="template_repository_unsupported",
-            detail=f"PostHog Code can't change files in `{source_repository}`.",
+            detail=f"PostHog Code can't change files in `{shown}`."
+            if shown
+            else "PostHog Code can't change files in this template's repository.",
             why="PostHog Code opens pull requests only on GitHub repositories, stored as `github.com/<owner>/<name>`.",
-            fix="Edit the template's file in its repository yourself, then upload it.",
+            fix="Edit the template's file in its repository, as its `change_prompt_context` describes.",
         )
     return f"{match['owner']}/{match['name']}"
 

@@ -56,7 +56,8 @@ def check_write(template: OwnedTemplate, intent: TemplateWriteIntent) -> None:
     raise TemplateManagedByCode(
         detail="This template is managed by code, so it can't be changed in PostHog.",
         why="Its content comes from a file in a repository. The next upload of that file replaces changes made here.",
-        fix=f"When you can reach the repository, edit {_template_file(template)} there, as the template's "
+        fix="When the repository is in your workspace, or you run outside PostHog Code and can check it out, edit "
+        f"{_template_file(template)} there, as the template's "
         "`change_prompt_context` describes. It also says how the change goes live. Inside PostHog Code, such as "
         "PostHog AI or the Slack bot, share the template's link instead: on its page, the person clicks Edit with your "
         "agent, then Run with PostHog Code. Otherwise, ask PostHog Code to open a pull request with the change: call "
