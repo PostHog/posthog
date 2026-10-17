@@ -91,7 +91,7 @@ export interface contextPickerLogicActions {
     ) => {
         dismissGroup: string | undefined
         key: string
-        page: string
+        scope: string
     } // attachedContextLogic
     handleTaxonomicFilterChange: (
         value: number | string,

@@ -188,8 +188,9 @@ render **all** of `contextItems`; closing a picked chip removes it from the pick
 provider's chip dispatches `attachedContextLogic.dismissContext(key)`. Dismissal filters the key out of
 `contextItems` and **survives provider re-registration** (the scene bridge upserts on every scene read — a
 closed chip must not resurrect); re-picking the same item `undismissContext`s it. Dismissals of keys and
-groups are **scoped to the page** (URL path) they happened on, so another page that attaches the same key or
-reuses the group name keeps its chips.
+groups are **scoped** by `dismissScope`, which the host sets with `setDismissScope` (the app sets the active
+scene, in `maxGlobalLogic`): they hold across that scene's tabs and entities, and another scene that attaches
+the same key or reuses the group name keeps its chips.
 
 **Tool-stream events (`logics/toolStreamEventsLogic.ts`):** a global bus `runStreamLogic` publishes
 tool-call lifecycle events to — `phase: started/updated/completed/failed`, with `toolName` **resolved** via

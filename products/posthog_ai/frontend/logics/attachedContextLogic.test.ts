@@ -1,4 +1,3 @@
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
@@ -115,19 +114,19 @@ describe('attachedContextLogic', () => {
     it.each([
         { name: 'an ungrouped chip', chip: { type: 'skill', key: 'shared' } as AttachedContextItem },
         { name: 'a grouped chip', chip: { type: 'insight', key: 'a', dismissGroup: 'viewer' } as AttachedContextItem },
-    ])('dismissing $name hides it only on the page it was closed on', async ({ chip }) => {
-        const otherPageChip = { ...chip, key: chip.dismissGroup ? 'b' : chip.key }
-        router.actions.push('/page-one')
+    ])('dismissing $name hides it only in the scope it was closed in', async ({ chip }) => {
+        const otherScopeChip = { ...chip, key: chip.dismissGroup ? 'b' : chip.key }
+        logic.actions.setDismissScope('Workflow')
         logic.actions.registerContext('scene', [chip])
         logic.actions.dismissContext(attachedContextItemKey(chip), chip.dismissGroup)
 
         await expectLogic(logic, () => {
-            router.actions.push('/page-two')
-            logic.actions.registerContext('scene', [otherPageChip])
-        }).toMatchValues({ contextItems: [otherPageChip] })
+            logic.actions.setDismissScope('Insight')
+            logic.actions.registerContext('scene', [otherScopeChip])
+        }).toMatchValues({ contextItems: [otherScopeChip] })
 
         await expectLogic(logic, () => {
-            router.actions.push('/page-one')
+            logic.actions.setDismissScope('Workflow')
             logic.actions.registerContext('scene', [chip])
         }).toMatchValues({ contextItems: [] })
     })

@@ -5,11 +5,15 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { emptySceneParams } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { attachedContextLogic } from 'products/posthog_ai/frontend/logics/attachedContextLogic'
 import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
 
 import { TOOL_DEFINITIONS, ToolDefinition } from './max-constants'
@@ -58,6 +62,14 @@ describe('maxGlobalLogic', () => {
     it('mounts without mounting the task list', () => {
         expect(logic.isMounted()).toBe(true)
         expect(tasksLogic.findMounted()).toBeNull()
+    })
+
+    it.each([Scene.Insight, Scene.Dashboard])('scopes context chip dismissals to the %s scene', async (scene) => {
+        await expectLogic(logic, () => {
+            sceneLogic.actions.setScene(scene, undefined, emptySceneParams)
+        }).toFinishAllListeners()
+
+        expect(attachedContextLogic.values.dismissScope).toEqual(scene)
     })
 
     // Opening a conversation in the side panel must surface it in the side panel chat without
