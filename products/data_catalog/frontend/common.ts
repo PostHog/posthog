@@ -1,3 +1,5 @@
+import { ApiError } from 'lib/api'
+
 export const METRIC_NAME_REGEX = /^[A-Za-z][A-Za-z0-9_]*$/
 
 export const HOGQL_METRIC_DEFINITION_KIND = 'HogQLQuery'
@@ -58,4 +60,18 @@ export function validateMetricDescription(description: string): string | undefin
         return `Keep the description under ${METRIC_DESCRIPTION_MAX_LENGTH} characters. Say what the number is in one or two sentences.`
     }
     return undefined
+}
+
+/** The live metric holding the name that a create was sent with. */
+export interface ExistingMetric {
+    name: string
+    status: string
+}
+
+/** The metric that blocked a create because it holds the same name, or null for any other error. */
+export function existingMetricFromNameConflict(error: unknown): ExistingMetric | null {
+    if (!(error instanceof ApiError) || error.status !== 409 || error.code !== 'metric_name_taken') {
+        return null
+    }
+    return error.data?.extra?.existing_metric ?? null
 }

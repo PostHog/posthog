@@ -1944,6 +1944,50 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.metricPrefill).toBeNull()
         })
 
+        it('asks before it overwrites a taken name, and reopens the form with the typed values and query on dismiss', async () => {
+            const createBodies: Record<string, any>[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/data_catalog/metrics/': async ({ request }) => {
+                        const body = (await request.json()) as Record<string, any>
+                        createBodies.push(body)
+                        return body.overwrite
+                            ? [201, { name: body.name }]
+                            : [
+                                  409,
+                                  {
+                                      type: 'invalid_request',
+                                      code: 'metric_name_taken',
+                                      detail: 'A metric with this name already exists.',
+                                      extra: { existing_metric: { name: body.name, status: 'approved' } },
+                                  },
+                              ]
+                    },
+                },
+            })
+            const open = jest.spyOn(LemonDialog, 'open').mockImplementation(() => {})
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            mountEditor()
+            logic.actions.setQueryInput('SELECT 1;\nSELECT 2;\nSELECT 3')
+
+            logic.actions.saveAsMetricSubmit(PREFILL, 'SELECT 2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false])
+            const dialog = open.mock.calls.at(-1)?.[0]
+            dialog?.onAfterClose?.()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(openForm.mock.calls.at(-1)?.[0].initialValues).toMatchObject({ ...PREFILL, saveTarget: 1 })
+
+            dialog?.primaryButton?.onClick?.({} as any)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(createBodies.map((body) => body.overwrite)).toEqual([false, true])
+            expect(createBodies[1].definition.query).toEqual('SELECT 2')
+            expect(router.values.location.pathname).toContain(urls.dataCatalogMetric(PREFILL.name))
+            open.mockRestore()
+            openForm.mockRestore()
+        })
+
         it('refreshes the sidebar metric list after saving a metric', async () => {
             const savedMetrics: Record<string, any>[] = []
             useMocks({

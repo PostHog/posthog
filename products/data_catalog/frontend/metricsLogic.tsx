@@ -7,7 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { urls } from 'scenes/urls'
 
-import { metricCount } from './common'
+import { existingMetricFromNameConflict, metricCount } from './common'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsBulkApproveCreate,
@@ -18,6 +18,7 @@ import {
     dataCatalogMetricsRefreshFromInsightCreate,
 } from './generated/api'
 import type { DataCatalogMetricApi, DataCatalogMetricBulkSkipApi } from './generated/api.schemas'
+import { openOverwriteMetricDialog } from './openOverwriteMetricDialog'
 
 export type MetricStatusFilter = 'all' | 'proposed' | 'approved'
 
@@ -75,6 +76,11 @@ function apiErrorDetail(error: unknown): string | null {
     return error instanceof ApiError ? error.detail : null
 }
 
+/** Puts a created metric first, replacing the row it overwrote. */
+function withCreatedMetric(metrics: DataCatalogMetricApi[], created: DataCatalogMetricApi): DataCatalogMetricApi[] {
+    return [created, ...metrics.filter((metric) => metric.name !== created.name)]
+}
+
 function skippedMessage(skipped: DataCatalogMetricBulkSkipApi[]): string {
     const countByReason = new Map<string, number>()
     for (const skip of skipped) {
@@ -127,10 +133,18 @@ export interface metricsLogicActions {
     closeNewMetricModal: () => {
         value: true
     }
-    createMetric: () => {
-        value: true
+    createMetric: (
+        overwrite?: boolean,
+        form?: NewMetricForm
+    ) => {
+        form: NewMetricForm | undefined
+        overwrite: boolean
     }
-    createMetricFromInsight: (request: MetricFromInsightRequest) => {
+    createMetricFromInsight: (
+        request: MetricFromInsightRequest,
+        overwrite?: boolean
+    ) => {
+        overwrite: boolean
         request: MetricFromInsightRequest
     }
     deleteMetric: (name: string) => {
@@ -239,7 +253,8 @@ export const metricsLogic = kea<metricsLogicType>([
         setNewMetricForm: (form: Partial<NewMetricForm>) => ({ form }),
         setInsightSearch: (search: string) => ({ search }),
         loadSavedInsights: true,
-        createMetric: true,
+        // `form` is the submitted snapshot on an overwrite retry, so an edit made while the first request ran is not saved.
+        createMetric: (overwrite: boolean = false, form?: NewMetricForm) => ({ overwrite, form }),
         setCreatingMetric: (creating: boolean) => ({ creating }),
         approveMetric: (name: string) => ({ name }),
         refreshMetricFromInsight: (name: string) => ({ name }),
@@ -250,7 +265,10 @@ export const metricsLogic = kea<metricsLogicType>([
         setBulkActionInFlight: (bulkAction: BulkMetricAction | null) => ({ bulkAction }),
         openMetricFromInsightModal: true,
         closeMetricFromInsightModal: true,
-        createMetricFromInsight: (request: MetricFromInsightRequest) => ({ request }),
+        createMetricFromInsight: (request: MetricFromInsightRequest, overwrite: boolean = false) => ({
+            request,
+            overwrite,
+        }),
     }),
     lazyLoaders(() => ({
         allMetrics: [
@@ -387,11 +405,11 @@ export const metricsLogic = kea<metricsLogicType>([
                 urls.sqlEditor({ source: 'metric', metricPrefill: { name, display_name, description, unit } })
             )
         },
-        createMetric: async () => {
+        createMetric: async ({ overwrite, form: submittedForm }) => {
             if (values.isCreatingMetric) {
                 return
             }
-            const form = values.newMetricForm
+            const form = submittedForm ?? values.newMetricForm
             if (form.definitionType === 'sql') {
                 lemonToast.error('Create SQL metrics from the SQL editor.')
                 return
@@ -399,7 +417,8 @@ export const metricsLogic = kea<metricsLogicType>([
             actions.setCreatingMetric(true)
             try {
                 // A markdown metric is created as a stub; its definition is authored on the
-                // metric page, where the editor has room.
+                // metric page, where the editor has room. The null definition makes an overwrite
+                // drop the existing query, which the markdown editor cannot open.
                 const created = await dataCatalogMetricsCreate(projectId(), {
                     name: form.name,
                     display_name: form.display_name || undefined,
@@ -407,24 +426,30 @@ export const metricsLogic = kea<metricsLogicType>([
                     unit: form.unit || undefined,
                     ...(form.definitionType === 'insight'
                         ? { source_insight_short_id: form.sourceInsightShortId }
-                        : {}),
+                        : { definition: null }),
                     created_source: 'user',
+                    overwrite,
                 })
-                actions.loadMetricsSuccess([created, ...values.allMetrics])
+                actions.loadMetricsSuccess(withCreatedMetric(values.allMetrics, created))
                 actions.closeNewMetricModal()
-                lemonToast.success('Metric created')
+                lemonToast.success(overwrite ? 'Metric overwritten' : 'Metric created')
                 if (form.definitionType === 'markdown') {
                     router.actions.push(urls.dataCatalogMetric(created.name), { edit: 'definition' })
                 }
             } catch (error) {
-                lemonToast.error(
-                    apiErrorDetail(error) || 'Could not create the metric. Check the fields and try again.'
-                )
+                const existing = existingMetricFromNameConflict(error)
+                if (existing) {
+                    openOverwriteMetricDialog({ existing, onOverwrite: () => actions.createMetric(true, form) })
+                } else {
+                    lemonToast.error(
+                        apiErrorDetail(error) || 'Could not create the metric. Check the fields and try again.'
+                    )
+                }
             } finally {
                 actions.setCreatingMetric(false)
             }
         },
-        createMetricFromInsight: async ({ request }) => {
+        createMetricFromInsight: async ({ request, overwrite }) => {
             if (values.isCreatingMetric) {
                 return
             }
@@ -435,17 +460,28 @@ export const metricsLogic = kea<metricsLogicType>([
                     display_name: request.display_name || undefined,
                     description: request.description,
                     source_insight_short_id: request.source_insight_short_id,
+                    overwrite,
                 })
-                actions.loadMetricsSuccess([created, ...values.allMetrics])
+                actions.loadMetricsSuccess(withCreatedMetric(values.allMetrics, created))
                 actions.closeMetricFromInsightModal()
-                lemonToast.success('Metric created from insight', {
+                lemonToast.success(overwrite ? 'Metric overwritten from insight' : 'Metric created from insight', {
                     button: {
                         label: 'View metric',
                         action: () => router.actions.push(urls.dataCatalogMetric(created.name)),
                     },
                 })
             } catch (error) {
-                lemonToast.error(apiErrorDetail(error) || 'Could not create the metric from this insight. Try again.')
+                const existing = existingMetricFromNameConflict(error)
+                if (existing) {
+                    openOverwriteMetricDialog({
+                        existing,
+                        onOverwrite: () => actions.createMetricFromInsight(request, true),
+                    })
+                } else {
+                    lemonToast.error(
+                        apiErrorDetail(error) || 'Could not create the metric from this insight. Try again.'
+                    )
+                }
             } finally {
                 actions.setCreatingMetric(false)
             }
