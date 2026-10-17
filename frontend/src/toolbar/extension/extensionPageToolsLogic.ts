@@ -12,16 +12,23 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import type { UserApi } from '~/generated/core/api.schemas'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementsEventType } from '~/toolbar/types'
-import { CombinedFeatureFlagAndValueType, PropertyFilterType, PropertyOperator } from '~/types'
+import { urls } from '~/toolbar/urls'
+import { ActionType, CombinedFeatureFlagAndValueType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { ContentStatus, IDLE_CONTENT_STATUS, SelectedElement } from './contentBridge'
 import {
+    PageAccessError,
+    canRequestHostPermission,
     clearStoredSelectedElement,
+    dispatchInspectedElementEvent,
     getContentStatus,
     getStoredSelectedElement,
+    isDevtoolsPanel,
     onStoredSelectedElementChange,
+    requestHostPermission,
     runPageFlagOverrides,
     sendContentCommand,
 } from './extensionBrowser'
@@ -34,11 +41,31 @@ const HEATMAP_DATE_FROM = '-7d'
 // The content script matches rows in one pass, so the popup loads one page instead of the toolbar's pagination.
 const ELEMENT_STATS_LIMIT = 5000
 
+// The DevTools panel checks this many times, one second apart, for posthog-js on a newly loaded page.
+const PAGE_FLAG_RETRIES = 5
+const PAGE_FLAG_RETRY_MS = 1000
+
 // The floating toolbar loads the same list through toolbarApi.featureFlags.myFlags.
 const MY_FLAGS_PATH = '/api/projects/@current/feature_flags/my_flags/'
 
 // pinned: sent as the `tool` property of `toolbar extension page tool used`
-type PageToolKey = 'heatmap' | 'element-selection' | 'flag-override'
+type PageToolKey = 'heatmap' | 'element-selection' | 'inspected-element' | 'create-action' | 'flag-override'
+
+/** Why a page tool in the DevTools panel couldn't run. */
+export type PageToolError = 'no-page-access' | 'no-inspected-element'
+
+class NoInspectedElementError extends Error {}
+
+function pageToolError(errorObject: unknown): PageToolError | null {
+    if (errorObject instanceof PageAccessError) {
+        return 'no-page-access'
+    }
+    return errorObject instanceof NoInspectedElementError ? 'no-inspected-element' : null
+}
+
+function actionName({ text, selector }: SelectedElement['actionStep']): string {
+    return text ? `Clicked "${text}"` : `Clicked ${selector || 'element'}`
+}
 
 export type FlagValue = string | boolean
 
@@ -73,11 +100,13 @@ export interface extensionPageToolsLogicValues {
     heatmapError: boolean
     pageFlags: PageFlagOverrides | null
     pageFlagsLoading: boolean
+    pageToolError: PageToolError | null
     selectedElement: SelectedElement | null
     selectedElementForPage: SelectedElement | null
     tabId: number | null // extensionPopupLogic
     tabUrl: string | null | undefined // extensionPopupLogic
     uiHost: string // extensionPopupLogic
+    user: UserApi | null // extensionPopupLogic
     userFlags: CombinedFeatureFlagAndValueType[] | null
     userFlagsLoading: boolean
 }
@@ -103,6 +132,9 @@ export interface extensionPageToolsLogicActions {
         value: true
     }
     copySelector: () => {
+        value: true
+    }
+    createAction: () => {
         value: true
     }
     hideHeatmap: () => any
@@ -150,7 +182,28 @@ export interface extensionPageToolsLogicActions {
         pageFlags: PageFlagOverrides | null
         payload?: any
     }
+    requestPageAccess: () => {
+        value: true
+    }
+    selectInspectedElement: () => any
+    selectInspectedElementFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    selectInspectedElementSuccess: (
+        contentStatus: ContentStatus,
+        payload?: any
+    ) => {
+        contentStatus: ContentStatus
+        payload?: any
+    }
     loadUserFlags: () => any
+    openPostHogPath: (path: string) => {
+        path: string
+    }
     loadUserFlagsFailure: (
         error: string,
         errorObject?: any
@@ -191,6 +244,13 @@ export interface extensionPageToolsLogicActions {
             flagKey: string
             value: FlagValue | null
         }
+    }
+    setTab: (
+        tabId: number | null,
+        tabUrl: string | null
+    ) => {
+        tabId: number | null
+        tabUrl: string | null
     }
     setSelectedElement: (selectedElement: SelectedElement | null) => {
         selectedElement: SelectedElement | null
@@ -262,12 +322,15 @@ export type extensionPageToolsLogicType = MakeLogicType<
 export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
     path(['toolbar', 'extension', 'extensionPageToolsLogic']),
     connect(() => ({
-        values: [extensionPopupLogic, ['tabId', 'tabUrl', 'uiHost', 'dataAttributes']],
+        values: [extensionPopupLogic, ['tabId', 'tabUrl', 'uiHost', 'dataAttributes', 'user']],
+        actions: [extensionPopupLogic, ['setTab', 'openPostHogPath']],
     })),
     actions({
         setSelectedElement: (selectedElement: SelectedElement | null) => ({ selectedElement }),
         clearSelectedElement: true,
         copySelector: true,
+        createAction: true,
+        requestPageAccess: true,
         setFlagOverride: (flagKey: string, value: FlagValue | null) => ({ flagKey, value }),
         trackPageTool: (tool: PageToolKey, properties?: Record<string, unknown>) => ({ tool, properties }),
     }),
@@ -330,6 +393,19 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
                                 dataAttributes: values.dataAttributes,
                             })
                         ),
+                    selectInspectedElement: async () => {
+                        await command((tabId) =>
+                            sendContentCommand(tabId, {
+                                type: 'expect-inspected-element',
+                                dataAttributes: values.dataAttributes,
+                            })
+                        )
+                        if (!(await dispatchInspectedElementEvent())) {
+                            throw new NoInspectedElementError()
+                        }
+                        // The selection stops page selection mode, so the status from before the event is stale.
+                        return await command(getContentStatus)
+                    },
                 },
             ],
             userFlags: [
@@ -362,7 +438,26 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
         }
     }),
     reducers({
-        heatmapError: [false, { showHeatmap: () => false, showHeatmapFailure: () => true, hideHeatmap: () => false }],
+        heatmapError: [
+            false,
+            {
+                showHeatmap: () => false,
+                showHeatmapFailure: (_, { errorObject }) => !pageToolError(errorObject),
+                hideHeatmap: () => false,
+            },
+        ],
+        pageToolError: [
+            null as PageToolError | null,
+            {
+                setTab: () => null,
+                showHeatmap: () => null,
+                startElementSelection: () => null,
+                selectInspectedElement: () => null,
+                showHeatmapFailure: (_, { errorObject }) => pageToolError(errorObject),
+                startElementSelectionFailure: (_, { errorObject }) => pageToolError(errorObject),
+                selectInspectedElementFailure: (_, { errorObject }) => pageToolError(errorObject),
+            },
+        ],
     }),
     selectors({
         flagRows: [
@@ -381,7 +476,7 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
                 selectedElement && samePage(selectedElement.pageUrl, tabUrl) ? selectedElement : null,
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         trackPageTool: ({ tool, properties }) => {
             // pinned: analytics event name
             toolbarPosthogJS.capture('toolbar extension page tool used', { tool, ...properties })
@@ -391,8 +486,47 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
         },
         startElementSelectionSuccess: () => {
             actions.trackPageTool('element-selection')
-            // The user picks on the page, and a click there closes the popup anyway.
-            window.close()
+            if (!isDevtoolsPanel()) {
+                // The user picks on the page, and a click there closes the popup anyway.
+                window.close()
+            }
+        },
+        selectInspectedElementSuccess: () => {
+            actions.trackPageTool('inspected-element')
+        },
+        requestPageAccess: async () => {
+            // No await before this call: the prompt needs the click's user gesture.
+            const granted = values.tabUrl && canRequestHostPermission() && (await requestHostPermission(values.tabUrl))
+            if (granted) {
+                actions.loadContentStatus()
+            }
+        },
+        setTab: () => {
+            // A new document in the inspected tab has no content script and no flag overrides yet.
+            cache.pageFlagRetries = 0
+            actions.loadContentStatus()
+            actions.loadPageFlags()
+        },
+        loadPageFlagsSuccess: async ({ pageFlags }, breakpoint) => {
+            // DevTools reports the navigation before the page's posthog-js loads, so check again for a short time.
+            if (!isDevtoolsPanel() || pageFlags?.available || cache.pageFlagRetries >= PAGE_FLAG_RETRIES) {
+                return
+            }
+            cache.pageFlagRetries += 1
+            await breakpoint(PAGE_FLAG_RETRY_MS)
+            actions.loadPageFlags()
+        },
+        createAction: () => {
+            const selectedElement = values.selectedElementForPage
+            const teamId = values.user?.team.id
+            if (!selectedElement || !teamId) {
+                return
+            }
+            const { actionStep } = selectedElement
+            actions.trackPageTool('create-action')
+            // The new action page reads a partial action from the URL. It strips the fields a saved action has.
+            const draft = { name: actionName(actionStep), steps: [actionStep] } as ActionType
+            actions.openPostHogPath(`/project/${teamId}${urls.duplicateAction(draft)}`)
         },
         clearSelectedElement: () => {
             void clearStoredSelectedElement()
@@ -411,6 +545,7 @@ export const extensionPageToolsLogic = kea<extensionPageToolsLogicType>([
         },
     })),
     afterMount(({ actions, cache }) => {
+        cache.pageFlagRetries = 0
         actions.loadContentStatus()
         actions.loadUserFlags()
         actions.loadPageFlags()

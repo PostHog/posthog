@@ -2,6 +2,8 @@ import { combineUrl } from 'kea-router'
 
 import { toParams } from 'lib/utils/url'
 
+import type { ActionType } from '~/types'
+
 // The toolbar's own copy of the `urls` helpers it links to in the PostHog app. The app's
 // `scenes/urls.ts` spreads every product manifest into its `urls` object, which would pull the
 // entire product scene graph into the customer-facing toolbar bundle — so toolbar code imports
@@ -10,6 +12,10 @@ import { toParams } from 'lib/utils/url'
 export const urls = {
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    duplicateAction: (action: ActionType | null): string => {
+        const queryParams = action ? `?copy=${encodeURIComponent(JSON.stringify(action))}` : ''
+        return `/data-management/actions/new/${queryParams}`
+    },
     experiment: (
         id: string | number,
         formMode?: string | null,

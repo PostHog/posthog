@@ -348,3 +348,28 @@ Fired after a successful screenshot/media upload.
 | `source` | `'toolbar'` | Always `'toolbar'` |
 
 **File:** `screenshot-upload/screenshotUploadLogic.ts`
+
+## Browser extension
+
+Every extension event carries `extension_surface`: `'popup'` or `'devtools'`, the surface that sent it.
+
+### `toolbar extension popup state`
+
+Fired when the popup or the DevTools panel shows a new state.
+
+| Property             | Type                  | Description                                                     |
+| -------------------- | --------------------- | --------------------------------------------------------------- |
+| `state`              | `string`              | The state kind, for example `'ready'` or `'unauthorized-url'`   |
+| `unsupported_reason` | `string \| undefined` | Why the toolbar can't run on the page, for `'unsupported-page'` |
+
+**File:** `extension/extensionPopupLogic.ts`
+
+### `toolbar extension page tool used`
+
+Fired when the user runs a tool on the page from the extension.
+
+| Property | Type     | Description                                                                                        |
+| -------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `tool`   | `string` | `'heatmap'`, `'element-selection'`, `'inspected-element'`, `'create-action'`, or `'flag-override'` |
+
+**File:** `extension/extensionPageToolsLogic.ts`

@@ -5,7 +5,7 @@ import { CountedHTMLElement, ElementRect, ElementWithMetadata, ElementsEventType
 import { elementToActionStep, getRectForElement, trimElement } from '~/toolbar/utils'
 import { checkSelectorFragility } from '~/toolbar/utils/selectorQuality'
 
-import { ContentCommand, ContentStatus } from './contentBridge'
+import { ContentCommand, ContentStatus, INSPECTED_ELEMENT_EVENT } from './contentBridge'
 import { setStoredSelectedElement } from './extensionBrowser'
 
 const SELECTED_CONFIRMATION_MS = 2500
@@ -25,6 +25,7 @@ function rectForConnectedElement(element: HTMLElement | null): ElementRect | nul
 
 interface ContentLogicCache {
     selectionListeners?: { type: string; listener: (event: Event) => void }[]
+    inspectedElementListener?: (event: Event) => void
     onViewportChange?: () => void
     animationFrame?: number
 }
@@ -48,6 +49,9 @@ export interface extensionContentLogicValues {
 export interface extensionContentLogicActions {
     handleCommand: (command: ContentCommand) => {
         command: ContentCommand
+    }
+    expectInspectedElement: (dataAttributes: string[]) => {
+        dataAttributes: string[]
     }
     hideHeatmap: () => {
         value: true
@@ -107,6 +111,7 @@ export const extensionContentLogic = kea<extensionContentLogicType>([
         handleCommand: (command: ContentCommand) => ({ command }),
         startElementSelection: (dataAttributes: string[]) => ({ dataAttributes }),
         stopElementSelection: true,
+        expectInspectedElement: (dataAttributes: string[]) => ({ dataAttributes }),
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         selectElement: (element: HTMLElement) => ({ element }),
         setConfirmedElement: (element: HTMLElement | null) => ({ element }),
@@ -120,7 +125,13 @@ export const extensionContentLogic = kea<extensionContentLogicType>([
     }),
     reducers({
         selecting: [false, { startElementSelection: () => true, stopElementSelection: () => false }],
-        dataAttributes: [[] as string[], { startElementSelection: (_, { dataAttributes }) => dataAttributes }],
+        dataAttributes: [
+            [] as string[],
+            {
+                startElementSelection: (_, { dataAttributes }) => dataAttributes,
+                expectInspectedElement: (_, { dataAttributes }) => dataAttributes,
+            },
+        ],
         hoverElement: [
             null as HTMLElement | null,
             { setHoverElement: (_, { element }) => element, stopElementSelection: () => null },
@@ -167,6 +178,9 @@ export const extensionContentLogic = kea<extensionContentLogicType>([
                     return
                 case 'stop-element-selection':
                     actions.stopElementSelection()
+                    return
+                case 'expect-inspected-element':
+                    actions.expectInspectedElement(command.dataAttributes)
                     return
                 case 'show-heatmap':
                     actions.showHeatmap(command.elementStats, command.dataAttributes)
@@ -231,6 +245,29 @@ export const extensionContentLogic = kea<extensionContentLogicType>([
             }
             logicCache.selectionListeners = undefined
         },
+        expectInspectedElement: () => {
+            // The DevTools panel dispatches the event on $0 from the page's world right after this command.
+            // The listener takes one event, so a page script can't keep sending elements.
+            const logicCache = cache as ContentLogicCache
+            if (logicCache.inspectedElementListener) {
+                window.removeEventListener(INSPECTED_ELEMENT_EVENT, logicCache.inspectedElementListener, true)
+            }
+            const listener = (event: Event): void => {
+                window.removeEventListener(INSPECTED_ELEMENT_EVENT, listener, true)
+                logicCache.inspectedElementListener = undefined
+                // The user picked this exact element in DevTools, so it isn't trimmed to a clickable parent.
+                // Autocapture records HTML elements, so an SVG pick uses its closest HTML ancestor.
+                let element: EventTarget | null = event.composedPath()[0] ?? null
+                while (element instanceof Element && !(element instanceof HTMLElement)) {
+                    element = element.parentElement
+                }
+                if (element instanceof HTMLElement) {
+                    actions.selectElement(element)
+                }
+            }
+            window.addEventListener(INSPECTED_ELEMENT_EVENT, listener, true)
+            logicCache.inspectedElementListener = listener
+        },
         selectElement: async ({ element }, breakpoint) => {
             const actionStep = elementToActionStep(element, values.dataAttributes)
             actions.stopElementSelection()
@@ -263,6 +300,9 @@ export const extensionContentLogic = kea<extensionContentLogicType>([
     beforeUnmount(({ actions, cache }) => {
         const logicCache = cache as ContentLogicCache
         actions.stopElementSelection()
+        if (logicCache.inspectedElementListener) {
+            window.removeEventListener(INSPECTED_ELEMENT_EVENT, logicCache.inspectedElementListener, true)
+        }
         if (logicCache.onViewportChange) {
             window.removeEventListener('scroll', logicCache.onViewportChange, { capture: true })
             window.removeEventListener('resize', logicCache.onViewportChange)

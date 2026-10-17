@@ -8,10 +8,14 @@ export const CONTENT_MESSAGE_SOURCE = 'posthog-toolbar-extension'
 // pinned: extension storage key, the content script writes it and the popup reads it
 export const SELECTED_ELEMENT_STORAGE_KEY = 'posthogSelectedElement'
 
+// pinned: DOM event name, the DevTools panel dispatches it on $0 and the content script listens for it
+export const INSPECTED_ELEMENT_EVENT = 'posthog-toolbar-extension-inspected-element'
+
 export type ContentCommand =
     | { type: 'get-status' }
     | { type: 'start-element-selection'; dataAttributes: string[] }
     | { type: 'stop-element-selection' }
+    | { type: 'expect-inspected-element'; dataAttributes: string[] }
     | { type: 'show-heatmap'; elementStats: ElementsEventType[]; dataAttributes: string[] }
     | { type: 'hide-heatmap' }
 
@@ -19,6 +23,24 @@ export interface ContentMessage {
     source: typeof CONTENT_MESSAGE_SOURCE
     command: ContentCommand
 }
+
+/**
+ * DevTools pages can't call `tabs` or `scripting` in every browser, so the DevTools panel asks the background
+ * script to reach the content script for it.
+ */
+export type BackgroundRequest =
+    | { type: 'content-status'; tabId: number }
+    | { type: 'content-command'; tabId: number; command: ContentCommand }
+    | { type: 'has-host-permission'; uiHost: string }
+    | { type: 'open-tab'; url: string }
+
+export interface BackgroundMessage {
+    source: typeof CONTENT_MESSAGE_SOURCE
+    request: BackgroundRequest
+}
+
+/** `error` is set when the background script can't reach the page, usually because the extension has no access to the site. */
+export type BackgroundResponse = { result: ContentStatus | boolean } | { error: string }
 
 /** The content script answers every command with its state after the command. */
 export interface ContentStatus {
@@ -40,6 +62,7 @@ const COMMAND_TYPES: ContentCommand['type'][] = [
     'get-status',
     'start-element-selection',
     'stop-element-selection',
+    'expect-inspected-element',
     'show-heatmap',
     'hide-heatmap',
 ]
@@ -54,6 +77,26 @@ export function isContentMessage(message: unknown): message is ContentMessage {
         !!command &&
         typeof command === 'object' &&
         COMMAND_TYPES.includes(command.type)
+    )
+}
+
+const BACKGROUND_REQUEST_TYPES: BackgroundRequest['type'][] = [
+    'content-status',
+    'content-command',
+    'has-host-permission',
+    'open-tab',
+]
+
+export function isBackgroundMessage(message: unknown): message is BackgroundMessage {
+    if (!message || typeof message !== 'object') {
+        return false
+    }
+    const { source, request } = message as Partial<BackgroundMessage>
+    return (
+        source === CONTENT_MESSAGE_SOURCE &&
+        !!request &&
+        typeof request === 'object' &&
+        BACKGROUND_REQUEST_TYPES.includes(request.type)
     )
 }
 

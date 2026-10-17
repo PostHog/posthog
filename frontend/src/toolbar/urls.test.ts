@@ -10,6 +10,7 @@ describe('toolbar urls duplicate', () => {
     const samples: Record<keyof typeof toolbarUrls, unknown[][]> = {
         action: [[123], ['abc-def']],
         actions: [[]],
+        duplicateAction: [[null], [{ name: 'Sign up', steps: [{ event: '$autocapture', selector: 'button' }] }]],
         experiment: [[42], ['new'], [42, 'edit'], [7, null, { name: 'my experiment' }]],
         experiments: [[]],
         featureFlag: [[123], ['my-flag']],

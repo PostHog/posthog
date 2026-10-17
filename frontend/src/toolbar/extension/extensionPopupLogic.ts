@@ -16,6 +16,8 @@ import {
     getActiveTab,
     getStoredUiHost,
     hasHostPermission,
+    isDevtoolsPanel,
+    onInspectedPageNavigated,
     openTab,
     requestHostPermission,
     setStoredUiHost,
@@ -369,12 +371,14 @@ export const extensionPopupLogic = kea<extensionPopupLogicType>([
             })
         },
     }),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
         toolbarPosthogJS.opt_in_capturing()
+        toolbarPosthogJS.register({ extension_surface: isDevtoolsPanel() ? 'devtools' : 'popup' })
         void getStoredUiHost().then((stored) => actions.setUiHost(canonicalizeUiHost(stored) ?? DEFAULT_UI_HOST))
         void getActiveTab().then(
             (tab) => actions.setTab(tab?.id ?? null, tab?.url ?? null),
             () => actions.setTab(null, null)
         )
+        onInspectedPageNavigated((url) => actions.setTab(values.tabId, url))
     }),
 ])
