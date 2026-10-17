@@ -7788,7 +7788,7 @@
         "feature_flag": "llm-analytics-datasets"
     },
     "llma-dataset-list": {
-        "description": "List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to list archived datasets.",
+        "description": "List active datasets in the current project by default. Filter by search text, UUIDs, or tags, or set `archived` to list archived datasets. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List datasets",
@@ -8332,7 +8332,7 @@
         "feature_flag": "ai-observability-offline-evaluations"
     },
     "llma-offline-experiment-list": {
-        "description": "List stored offline experiment executions in the current project/environment. Filter by execution dates, suite, dataset revision, application/model/prompt versions, source, or upload status. Lists include all statuses by default; use statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results; continue with cursor and unchanged filters.",
+        "description": "List stored offline experiment executions in the current project/environment. Filter by execution dates, suite, dataset revision, application/model/prompt versions, source, tags, or upload status. Pass tags as a JSON array of names and tag_match as any (OR) or all (AND). Lists include all statuses by default; use statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results; continue with cursor and unchanged filters.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List offline experiments",
@@ -8391,6 +8391,21 @@
         },
         "feature_flag": "ai-observability-offline-evaluations"
     },
+    "llma-offline-experiment-update": {
+        "description": "Replace the tags on an offline experiment in the current project. Send an empty tags array to clear them. Tags are organizational metadata and do not change the experiment's results or upload lifecycle.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update offline experiment tags",
+        "title": "Update offline experiment tags",
+        "required_scopes": ["evaluation:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "ai-observability-offline-evaluations"
+    },
     "llma-offline-experiment-upload": {
         "description": "Persist externally computed scores and their shared items in one atomic request. Submit 1–1,000 results, keyed by item_id and exact scorer_version_id, with up to 1,000 item declarations. Reuse caller-generated item IDs and unchanged content for retries; a result is unique per item/scorer version. Existing items can be referenced without repeating their declaration or payload. This tool does not execute evaluators. Item payloads allow 1 MiB and result payloads 256 KiB; use small batches through MCP and the API for bulk uploads. Correct validation errors before retrying; never generate new IDs merely to retry an uncertain response.",
         "category": "AI observability",
@@ -8407,7 +8422,7 @@
         "feature_flag": "ai-observability-offline-evaluations"
     },
     "llma-offline-scorer-history": {
-        "description": "Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
+        "description": "Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version. Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite, dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their names match. Returns count, next_cursor, and results.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Read offline scorer history",
@@ -8730,7 +8745,7 @@
         }
     },
     "llma-score-definition-list": {
-        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description. Returns metadata plus the current config snapshot.",
+        "description": "List active scorers for the current project. By default only active rows are returned — pass `archived=true` to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over name/description, plus tags (a JSON array of names) with tag_match=any (OR) or all (AND). Returns metadata, tags, and the current config snapshot.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List scorers",

@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 97 enabled ops
+ * PostHog API - MCP 98 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -99,6 +99,8 @@ export const aiObservabilityOfflineExperimentsListQueryStatusesMax = 32
 
 export const aiObservabilityOfflineExperimentsListQuerySuiteKeyMax = 255
 
+export const aiObservabilityOfflineExperimentsListQueryTagMatchDefault = `any`
+
 export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object({
     application_version: zod
         .string()
@@ -189,6 +191,16 @@ export const AiObservabilityOfflineExperimentsListQueryParams = () => zod.object
         .max(aiObservabilityOfflineExperimentsListQuerySuiteKeyMax)
         .optional()
         .describe('Exact evaluation suite identifier.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(aiObservabilityOfflineExperimentsListQueryTagMatchDefault)
+        .describe('Match any selected tag (OR) or all selected tags (AND).\n\n\* `any` - Any\n\* `all` - All'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 export const AiObservabilityOfflineExperimentsCreateParams = () => zod.object({
@@ -298,6 +310,27 @@ export const AiObservabilityOfflineExperimentsRetrieveParams = () => zod.object(
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+export const AiObservabilityOfflineExperimentsPartialUpdateParams = () => zod.object({
+    id: zod.string().describe('Experiment UUID.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax = 255
+
+export const aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax = 100
+
+export const AiObservabilityOfflineExperimentsPartialUpdateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsItemMax))
+        .max(aiObservabilityOfflineExperimentsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
 })
 
 export const AiObservabilityOfflineExperimentsCompleteCreateParams = () => zod.object({
@@ -695,6 +728,8 @@ export const aiObservabilityOfflineScorersHistoryListQueryStatusesMax = 32
 
 export const aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax = 255
 
+export const aiObservabilityOfflineScorersHistoryListQueryTagMatchDefault = `any`
+
 export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.object({
     application_version: zod
         .string()
@@ -784,6 +819,16 @@ export const AiObservabilityOfflineScorersHistoryListQueryParams = () => zod.obj
         .max(aiObservabilityOfflineScorersHistoryListQuerySuiteKeyMax)
         .optional()
         .describe('Exact evaluation suite identifier.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(aiObservabilityOfflineScorersHistoryListQueryTagMatchDefault)
+        .describe('Match any selected tag (OR) or all selected tags (AND).\n\n\* `any` - Any\n\* `all` - All'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 /**
@@ -1013,6 +1058,8 @@ export const datasetsListQueryIdInMax = 100
 
 export const datasetsListQueryOrderByDefault = `-created_at`
 
+export const datasetsListQueryTagMatchDefault = `any`
+
 export const DatasetsListQueryParams = () => zod.object({
     archived: zod
         .boolean()
@@ -1034,6 +1081,18 @@ export const DatasetsListQueryParams = () => zod.object({
             'Field and direction used to order results.\n\n\* `created_at` - created_at\n\* `-created_at` - -created_at\n\* `updated_at` - updated_at\n\* `-updated_at` - -updated_at'
         ),
     search: zod.string().min(1).optional().describe('Search dataset names, descriptions, and metadata.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(datasetsListQueryTagMatchDefault)
+        .describe(
+            'Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.\n\n\* `any` - Any\n\* `all` - All'
+        ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 /**
@@ -1047,12 +1106,21 @@ export const DatasetsCreateParams = () => zod.object({
         ),
 })
 
+export const datasetsCreateBodyTagsItemMax = 255
+
+export const datasetsCreateBodyTagsMax = 100
+
 export const datasetsCreateBodyNameMax = 400
 
 export const datasetsCreateBodyDescriptionDefault = ``
 export const datasetsCreateBodyDescriptionMax = 10000
 
 export const DatasetsCreateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsCreateBodyTagsItemMax))
+        .max(datasetsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(datasetsCreateBodyNameMax).describe('Dataset name. Names are unique within a project.'),
     description: zod
         .string()
@@ -1089,11 +1157,20 @@ export const DatasetsPartialUpdateParams = () => zod.object({
         ),
 })
 
+export const datasetsPartialUpdateBodyTagsItemMax = 255
+
+export const datasetsPartialUpdateBodyTagsMax = 100
+
 export const datasetsPartialUpdateBodyNameMax = 400
 
 export const datasetsPartialUpdateBodyDescriptionMax = 10000
 
 export const DatasetsPartialUpdateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(datasetsPartialUpdateBodyTagsItemMax))
+        .max(datasetsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(datasetsPartialUpdateBodyNameMax)
@@ -2792,6 +2869,8 @@ export const LlmAnalyticsScoreDefinitionsListParams = () => zod.object({
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsListQueryTagMatchDefault = `any`
+
 export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     archived: zod.boolean().optional().describe('Filter by archived state.'),
     kind: zod.string().optional().describe('Filter by scorer kind.'),
@@ -2799,6 +2878,18 @@ export const LlmAnalyticsScoreDefinitionsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod.string().optional().describe('Sort by name, kind, created_at, updated_at, or current_version.'),
     search: zod.string().optional().describe('Search scorers by name or description.'),
+    tag_match: zod
+        .enum(['any', 'all'])
+        .default(llmAnalyticsScoreDefinitionsListQueryTagMatchDefault)
+        .describe(
+            'Match any selected tag (OR) or all selected tags (AND). Additional tags are allowed.\n\n\* `any` - Any\n\* `all` - All'
+        ),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.'
+        ),
 })
 
 export const LlmAnalyticsScoreDefinitionsCreateParams = () => zod.object({
@@ -2808,6 +2899,10 @@ export const LlmAnalyticsScoreDefinitionsCreateParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsCreateBodyTagsMax = 100
 
 export const llmAnalyticsScoreDefinitionsCreateBodyNameMax = 255
 
@@ -2819,6 +2914,11 @@ export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOneOptionsItemLabelM
 export const llmAnalyticsScoreDefinitionsCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsCreateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsCreateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod.string().max(llmAnalyticsScoreDefinitionsCreateBodyNameMax).describe('Human-readable scorer name.'),
     description: zod.string().nullish().describe('Optional human-readable description.'),
     kind: zod
@@ -2952,9 +3052,18 @@ export const LlmAnalyticsScoreDefinitionsPartialUpdateParams = () => zod.object(
         ),
 })
 
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax = 255
+
+export const llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax = 100
+
 export const llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax = 255
 
 export const LlmAnalyticsScoreDefinitionsPartialUpdateBody = () => zod.object({
+    tags: zod
+        .array(zod.string().max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsItemMax))
+        .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyTagsMax)
+        .optional()
+        .describe('Tag names. Replaces existing tags; send [] to remove all tags. Names are trimmed and lowercased.'),
     name: zod
         .string()
         .max(llmAnalyticsScoreDefinitionsPartialUpdateBodyNameMax)
