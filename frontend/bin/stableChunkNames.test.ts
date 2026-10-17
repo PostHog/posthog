@@ -213,18 +213,17 @@ describe('planStableChunks', () => {
             'dist/chunk-FFFF6666.js': { inputs: { 'src/lib/form.ts': {} }, imports: [] },
             'dist/chunk-GGGG7777.js': { inputs: { 'src/lib/chart.ts': {} }, imports: [] },
         }
-        const walkPlan = planStableChunks(
-            WALK_OUTPUTS,
-            () => 'export {}',
-            'dist/',
-            new Map([['dist/Login-CCCC3333.js', () => 'register(import.meta.resolve("@css/login"))']])
-        ).plan
+        const walkPlan = planStableChunks(WALK_OUTPUTS, () => 'export {}', 'dist/').plan
         const specifierOf = (outputPath: string): string => `@c/${walkPlan.get(outputPath)!.identity}`
         const walk = (loggedOutModules: string[]): string[] =>
             loggedOutSpecifiers(WALK_OUTPUTS, walkPlan, {
                 entry: 'src/index.tsx',
                 loggedOutModules: new Set(loggedOutModules),
                 signedInModules: new Set(['../products/insights/Insight']),
+                cssSpecifiersByOutput: new Map([
+                    ['dist/Login-CCCC3333.js', ['@css/login']],
+                    ['dist/Insight-DDDD4444.js', ['@css/insight']],
+                ]),
             })
 
         it('keeps what a logged-out page can load and drops the chunks of signed-in scenes', () => {

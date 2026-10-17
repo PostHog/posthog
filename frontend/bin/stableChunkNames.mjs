@@ -137,9 +137,6 @@ export function planStableChunks(outputs, readSource, distPrefix = 'dist/', prel
     return { plan, imports }
 }
 
-// A chunk prelude names each stylesheet it registers through import.meta.resolve (see stableCssPlan.mjs).
-const PRELUDE_SPECIFIER = /import\.meta\.resolve\("([^"]+)"\)/g
-
 /**
  * The import map specifiers a logged-out page can reach. The walk starts at the chunk of `entry`
  * and follows every import, except a dynamic import of a module in `signedInModules`. Modules are
@@ -147,7 +144,11 @@ const PRELUDE_SPECIFIER = /import\.meta\.resolve\("([^"]+)"\)/g
  *
  * `outputs` is the esbuild metafile's `outputs`, and `plan` is the plan from planStableChunks.
  */
-export function loggedOutSpecifiers(outputs, plan, { entry, loggedOutModules, signedInModules }) {
+export function loggedOutSpecifiers(
+    outputs,
+    plan,
+    { entry, loggedOutModules, signedInModules, cssSpecifiersByOutput }
+) {
     const moduleOf = (output) => (output.entryPoint ? moduleKey(output.entryPoint) : null)
     const start = Object.keys(outputs).find(
         (outputPath) => outputPath.endsWith('.js') && moduleOf(outputs[outputPath]) === moduleKey(entry)
@@ -180,9 +181,8 @@ export function loggedOutSpecifiers(outputs, plan, { entry, loggedOutModules, si
 
     const specifiers = new Set()
     for (const outputPath of reached) {
-        const { identity, prelude } = plan.get(outputPath)
-        specifiers.add(`${SPECIFIER_PREFIX}${identity}`)
-        for (const [, specifier] of (prelude ?? '').matchAll(PRELUDE_SPECIFIER)) {
+        specifiers.add(`${SPECIFIER_PREFIX}${plan.get(outputPath).identity}`)
+        for (const specifier of cssSpecifiersByOutput.get(outputPath) ?? []) {
             specifiers.add(specifier)
         }
     }

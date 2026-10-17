@@ -11,6 +11,7 @@ pages render exactly as before.
 """
 
 import os
+import re
 import json
 from collections.abc import Mapping
 from functools import lru_cache
@@ -29,6 +30,7 @@ from posthog.exceptions_capture import capture_exception
 logger = structlog.get_logger(__name__)
 
 STABLE_CHUNKS_PARAM = "stable_chunks"
+STABLE_CHUNKS_UNMAPPED_PARAM = "stable_chunks_unmapped"
 STABLE_CHUNKS_COOKIE = "ph_stable_chunks"
 STABLE_CHUNKS_FLAG = "stable-chunk-names"
 _COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
@@ -39,8 +41,9 @@ LOGGED_OUT_FLAG_DISTINCT_ID = "stable-chunks-logged-out"
 STABLE_CHUNKS_FALLBACK_COUNTER = Counter(
     "posthog_stable_chunks_fallback",
     "App shell requests that reload on the hashed build because the stable entry failed to load.",
-    labelnames=["authenticated"],
+    labelnames=["authenticated", "reason"],
 )
+_STABLE_CHUNK_SPECIFIER = re.compile(r"@c/[A-Za-z0-9]+")
 
 
 @frozen
@@ -125,6 +128,17 @@ def _resolve_stable_chunks() -> Optional[StableChunks]:
     )
 
 
+def _count_fallback(request: HttpRequest) -> None:
+    unmapped = request.GET.get(STABLE_CHUNKS_UNMAPPED_PARAM, "")
+    is_unmapped = _STABLE_CHUNK_SPECIFIER.fullmatch(unmapped) is not None
+    if is_unmapped:
+        logger.warning("stable_chunks_unmapped_specifier", specifier=unmapped, path=request.path)
+    STABLE_CHUNKS_FALLBACK_COUNTER.labels(
+        authenticated=str(request.user.is_authenticated).lower(),
+        reason="unmapped_specifier" if is_unmapped else "load_failed",
+    ).inc()
+
+
 def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[str, Any]]) -> bool:
     """
     The query param wins, then the cookie, then the flag. For a logged-in user, `feature_flags` are
@@ -134,7 +148,7 @@ def stable_chunks_choice(request: HttpRequest, feature_flags: Optional[Mapping[s
     param = request.GET.get(STABLE_CHUNKS_PARAM)
     if param is not None:
         if param == "fallback":
-            STABLE_CHUNKS_FALLBACK_COUNTER.labels(authenticated=str(request.user.is_authenticated).lower()).inc()
+            _count_fallback(request)
         return param == "1"
 
     cookie = request.COOKIES.get(STABLE_CHUNKS_COOKIE)

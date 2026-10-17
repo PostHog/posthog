@@ -103,7 +103,7 @@ class TestStableChunks(SimpleTestCase):
             request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
         bootstrapped_flags = feature_flags if authenticated else None
         locally_evaluated_flags = {} if authenticated else (feature_flags or {})
-        fallback_labels = {"authenticated": str(authenticated).lower()}
+        fallback_labels = {"authenticated": str(authenticated).lower(), "reason": "load_failed"}
         fallbacks_before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
 
         with patch(
@@ -117,6 +117,27 @@ class TestStableChunks(SimpleTestCase):
             assert call.kwargs["send_feature_flag_events"] is False
         fallbacks_after = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
         assert fallbacks_after - fallbacks_before == (1 if query == "?stable_chunks=fallback" else 0)
+
+    @parameterized.expand(
+        [
+            ("a chunk that failed to load", "?stable_chunks=fallback", "load_failed"),
+            (
+                "a chunk missing from the import map",
+                "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
+                "unmapped_specifier",
+            ),
+            ("a value that is not a specifier", "?stable_chunks=fallback&stable_chunks_unmapped=<b>", "load_failed"),
+        ]
+    )
+    def test_a_fallback_counts_why_it_reloaded(self, _name: str, query: str, reason: str) -> None:
+        request = RequestFactory().get(f"/{query}")
+        request.user = AnonymousUser()
+        labels = {"authenticated": "false", "reason": reason}
+        before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) or 0
+
+        assert stable_chunks_choice(request, None) is False
+
+        assert REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) == before + 1
 
     def test_a_failing_logged_out_flag_check_serves_the_hashed_build(self) -> None:
         request = RequestFactory().get("/")

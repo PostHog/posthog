@@ -15,7 +15,7 @@
 const markedChunkLoadErrors = new WeakSet<object>()
 
 // Chrome, Firefox and Safari quote the specifier with ", “ or ' in their unresolved-specifier messages.
-const UNMAPPED_STABLE_CHUNK_SPECIFIER = /["“']@c\/[A-Za-z0-9]+["”']/
+const UNMAPPED_STABLE_CHUNK_SPECIFIER = /["“'](@c\/[A-Za-z0-9]+)["”']/
 
 export function markAsChunkLoadError(error: unknown): void {
     if (!error || typeof error !== 'object') {
@@ -46,6 +46,14 @@ export function isGenericNetworkTypeError(error: unknown): boolean {
     )
 }
 
+export function unmappedStableChunkSpecifier(error: unknown): string | null {
+    const info = getErrorInfo(error)
+    if (info?.name !== 'TypeError') {
+        return null
+    }
+    return UNMAPPED_STABLE_CHUNK_SPECIFIER.exec(info.message)?.[1] ?? null
+}
+
 export function isChunkLoadError(error: unknown): boolean {
     const info = getErrorInfo(error)
     if (!info) {
@@ -58,6 +66,6 @@ export function isChunkLoadError(error: unknown): boolean {
         info.message.includes('Failed to fetch dynamically imported module') ||
         info.message.includes('Importing a module script failed') ||
         (isTypeError && info.message.includes('error loading dynamically imported module')) ||
-        (isTypeError && UNMAPPED_STABLE_CHUNK_SPECIFIER.test(info.message))
+        unmappedStableChunkSpecifier(error) !== null
     )
 }

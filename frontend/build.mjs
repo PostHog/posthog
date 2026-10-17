@@ -152,7 +152,15 @@ await buildInParallel(
                             [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
                         ),
                         eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
-                        loggedOut: loggedOutImportMapScope(),
+                        loggedOut: {
+                            ...loggedOutImportMapScope(),
+                            cssSpecifiersByOutput: new Map(
+                                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                                    file,
+                                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
+                                ])
+                            ),
+                        },
                     })
                     removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
                 }
