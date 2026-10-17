@@ -3,9 +3,12 @@ import datetime as dt
 import dataclasses
 
 import pytest
+from unittest import mock
 
 from products.batch_exports.backend.temporal.backfill_batch_export import (
+    BACKFILL_SCHEDULE_MAX_ATTEMPTS_WITHOUT_PROGRESS,
     BackfillScheduleInputs,
+    BackfillScheduleNoProgressError,
     HeartbeatDetailsParseError,
     backfill_schedule,
 )
@@ -78,3 +81,38 @@ async def test_backfill_schedule_activity_fails_with_corrupted_details(
 
     with pytest.raises(HeartbeatDetailsParseError):
         await activity_environment.run(backfill_schedule, inputs)
+
+
+@pytest.mark.parametrize(
+    "attempt,heartbeat_details,expected_error",
+    [
+        (BACKFILL_SCHEDULE_MAX_ATTEMPTS_WITHOUT_PROGRESS - 1, (), ConnectionError),
+        (BACKFILL_SCHEDULE_MAX_ATTEMPTS_WITHOUT_PROGRESS, (), BackfillScheduleNoProgressError),
+        (
+            BACKFILL_SCHEDULE_MAX_ATTEMPTS_WITHOUT_PROGRESS,
+            ("schedule-id", "workflow-id", "2023-01-01T01:00:00+00:00"),
+            ConnectionError,
+        ),
+    ],
+)
+async def test_backfill_schedule_activity_fails_without_progress_after_max_attempts(
+    activity_environment, attempt, heartbeat_details, expected_error
+):
+    inputs = BackfillScheduleInputs(
+        schedule_id="schedule-id",
+        start_at="2023-01-01T00:00:00+00:00",
+        end_at="2023-01-01T05:00:00+00:00",
+        start_delay=0.1,
+        frequency_seconds=3600,
+        backfill_id=str(uuid.uuid4()),
+    )
+    activity_environment.info = dataclasses.replace(
+        activity_environment.info, attempt=attempt, heartbeat_details=heartbeat_details
+    )
+
+    with mock.patch(
+        "products.batch_exports.backend.temporal.backfill_batch_export.connect",
+        side_effect=ConnectionError("namespace rate limit exceeded"),
+    ):
+        with pytest.raises(expected_error, match="namespace rate limit exceeded"):
+            await activity_environment.run(backfill_schedule, inputs)
