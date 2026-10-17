@@ -35,6 +35,7 @@ from posthog.utils import (
     HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS,
     HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS,
     HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS,
+    DateOutOfRangeError,
     DayRange,
     PotentialSecurityProblemException,
     _build_flag_provider,
@@ -429,6 +430,18 @@ class TestRelativeDateParse(SimpleTestCase):
             relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
             "2019-11-01",
         )
+
+    @parameterized.expand(
+        [
+            ("days", "-100000000d", False),
+            ("weeks", "-100000000w", False),
+            ("years", "-100000000y", False),
+            ("months_increase", "100000000m", True),
+        ]
+    )
+    def test_out_of_range_offset_raises_validation_error(self, _name, input, increase):
+        with self.assertRaises(DateOutOfRangeError):
+            relative_date_parse(input, ZoneInfo("UTC"), increase=increase)
 
     @time_machine.travel("2020-01-31", tick=False)
     def test_year(self):
