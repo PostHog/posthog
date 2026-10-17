@@ -28,7 +28,7 @@ import type { TeamPublicType, TeamType } from '../../types'
 import { SURVEY_CREATED_SOURCE } from './constants'
 import { surveysSdkLogic } from './surveysSdkLogic'
 import type { TeamSdkVersions } from './surveyVersionRequirements'
-import { captureMaxAISurveyCreationException } from './utils'
+import { MaxAISurveyCreationToolOutput, captureMaxAISurveyCreationException } from './utils'
 
 export enum SurveysTabs {
     Active = 'active',
@@ -221,13 +221,7 @@ export interface surveysLogicActions {
         }
     }
     handleMaxSurveyCreated: (
-        toolOutput: {
-            error?: string
-            error_message?: string
-            survey_id?: string
-            survey_name?: string
-            survey_type?: string
-        },
+        toolOutput: MaxAISurveyCreationToolOutput,
         source: SURVEY_CREATED_SOURCE
     ) => {
         source: SURVEY_CREATED_SOURCE
@@ -748,7 +742,8 @@ export const surveysLogic = kea<surveysLogicType>([
             })
 
             if (toolOutput?.error || !toolOutput?.survey_id) {
-                captureMaxAISurveyCreationException(toolOutput.error, source)
+                captureMaxAISurveyCreationException(toolOutput, source)
+                lemonToast.error("We couldn't create the survey. Try again, or create it with the survey wizard.")
                 return
             }
 
