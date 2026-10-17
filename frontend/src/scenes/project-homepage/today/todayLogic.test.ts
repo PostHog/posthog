@@ -32,7 +32,7 @@ describe('todayLogic', () => {
         reportResponse = null
         useMocks({
             get: {
-                '/api/projects/:team_id/signals/reports/for_you/': ({ request }) => {
+                '/api/projects/:team_id/signals/reports/': ({ request }) => {
                     listParams = new URL(request.url).searchParams
                     return listResponse
                 },
@@ -284,8 +284,9 @@ describe('todayLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ reports, moreReportCount: 7 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
+            view: 'for_you',
+            sort: 'priority',
             limit: String(TOP_REPORT_COUNT),
-            include_unowned: 'false',
         })
     })
 
@@ -305,10 +306,11 @@ describe('todayLogic', () => {
             .toDispatchActions(['loadMoreReportsSuccess'])
             .toMatchValues({ loadedMoreReports: first, canLoadMoreReports: true, moreReportsInInbox: 0 })
         expect(Object.fromEntries(listParams!.entries())).toEqual({
+            view: 'for_you',
+            sort: 'priority',
             limit: String(MORE_REPORTS_PAGE_SIZE),
             offset: '0',
             exclude: 'a',
-            include_unowned: 'false',
         })
 
         const second = page('q', 3)

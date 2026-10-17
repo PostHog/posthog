@@ -3299,13 +3299,6 @@ export interface SignalReportBulkStateResponseApi {
     not_found_count: number
 }
 
-export interface SignalReportsForYouResponseApi {
-    /** One page of the open, actionable reports that matter most to the current user, in the inbox priority order: priority, then status, then most recently updated. They are reports waiting for their input, reports they claimed, reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
-    results: SignalReportListApi[]
-    /** How many open, actionable reports are for the current user, on every page together, without the `exclude` ids. Counted over the same set as `results`, so it follows `include_unowned` too. */
-    count: number
-}
-
 /**
  * * `passing` - Passing
  * * `failing` - Failing
@@ -7874,6 +7867,11 @@ export type SignalsReportsListParams = {
      */
     created_after?: string
     /**
+     * Report ids to leave out of `results` and `count`, for example the reports a client already shows, as repeated parameters or comma-separated. The other reports keep their order. At most 100.
+     * @maxItems 100
+     */
+    exclude?: string[]
+    /**
      * Filter reports by whether an implementation pull request is attached. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with count_only=true to return only the filtered total.
      */
     has_implementation_pr?: boolean
@@ -7958,7 +7956,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
+     * Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. for_you holds the open, actionable reports that wait for the requesting user's input, that they claimed, or that name them as a suggested reviewer. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }
@@ -8054,29 +8052,6 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
         /** Member's email address. */
         email: string
     }
-}
-
-export type SignalsReportsForYouRetrieveParams = {
-    /**
-     * Report ids to leave out of `results` and `count`, for example the reports a briefing already shows, as repeated parameters or comma-separated. The other reports keep their order.
-     * @maxItems 20
-     */
-    exclude?: string[]
-    /**
-     * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, so a surface that only shows a person's own work passes false. Defaults to true.
-     */
-    include_unowned?: boolean
-    /**
-     * How many of the top reports to return, 1 to 20. Defaults to 5.
-     * @minimum 1
-     * @maximum 20
-     */
-    limit?: number
-    /**
-     * How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same query are slices of one ranked list. Defaults to 0.
-     * @minimum 0
-     */
-    offset?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {

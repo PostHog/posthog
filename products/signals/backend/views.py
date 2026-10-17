@@ -118,7 +118,7 @@ from products.signals.backend.billing import (
     refund_ineligibility_reason,
     report_pr_is_merged,
 )
-from products.signals.backend.briefing_reports import open_report_counts, reports_for_person
+from products.signals.backend.briefing_reports import reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note
 from products.signals.backend.enums import ReportPriority
 from products.signals.backend.facade.api import emit_signal
@@ -229,8 +229,6 @@ from products.signals.backend.serializers import (
     SignalReportPriorityUpdateSerializer,
     SignalReportRefundSerializer,
     SignalReportSerializer,
-    SignalReportsForYouQuerySerializer,
-    SignalReportsForYouResponseSerializer,
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
     SignalReportSuggestedReviewersArtefactSerializer,
@@ -1201,6 +1199,7 @@ class SignalReportViewSet(
     _INBOX_VIEWS = frozenset(
         {
             "actionable",
+            "for_you",
             "needs_input",
             "needs_decision",
             "monitoring",
@@ -1264,7 +1263,7 @@ class SignalReportViewSet(
         return Response(ReportReadStateResponseSerializer({"states": states}).data)
 
     def get_serializer_class(self) -> type[serializers.BaseSerializer]:
-        if self.action in {"list", "for_you"}:
+        if self.action == "list":
             return SignalReportListSerializer
         return SignalReportSerializer
 
@@ -1394,7 +1393,7 @@ class SignalReportViewSet(
     }
 
     # Actions that work on many reports at once, so per-row annotations are wasted work there.
-    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state", "for_you"})
+    _MULTI_REPORT_ACTIONS = frozenset({"list", "bulk_state"})
 
     # Actions allowed to resolve a suppressed report by ID even without an explicit
     # `status` filter. These are the read/reopen paths the inbox's Dismissed tab needs:
@@ -1790,6 +1789,9 @@ class SignalReportViewSet(
                 latest_actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
                 latest_already_addressed=False,
             ).exclude(self._implementation_pr_report_filter())
+        if inbox_view == "for_you":
+            for_person = reports_for_person(self.team_id, cast(User, self.request.user))
+            return queryset.filter(id__in=for_person.values("id"))
         if inbox_view == "needs_input":
             return queryset.filter(
                 status=SignalReport.Status.PENDING_INPUT,
@@ -2048,7 +2050,7 @@ class SignalReportViewSet(
 
     def filter_queryset(self, queryset):
         queryset = super().filter_queryset(queryset)
-        if self.action not in {"list", "for_you"}:
+        if self.action != "list":
             # A by-ID lookup has nothing to order. More importantly, keeping list ordering here
             # forces every detail request to compute status/priority/reviewer annotations that
             # cannot affect which primary-key row is returned.
@@ -2077,9 +2079,6 @@ class SignalReportViewSet(
 
     @cached_property
     def _inbox_ranker(self) -> InboxRanker | None:
-        if self.action == "for_you":
-            # The recommended sort experiment covers the web inbox only, so `for_you` uses its control order.
-            return "priority"
         params = self.request.query_params
         if params.get("ordering") is not None or params.get("sort") != "recommended":
             return None
@@ -2446,9 +2445,11 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=(
-                    "Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, "
-                    "held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and "
-                    "implementation-PR filters. needs_decision also includes failed reports without a judgment. "
+                    "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
+                    "dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+                    "actionability, and implementation-PR filters. for_you holds the open, actionable reports that "
+                    "wait for the requesting user's input, that they claimed, or that name them as a suggested "
+                    "reviewer. needs_decision also includes failed reports without a judgment. "
                     "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
                     "dismissed, merged, or whose pull request closed without merging; held_back holds the ones the "
                     "safety or actionability judge suppressed before anyone saw them. Each row's suppression_source "
@@ -2565,6 +2566,7 @@ class SignalReportViewSet(
     def list(self, request: ValidatedRequest, *args, **kwargs):
         count_only: bool = request.validated_query_data["count_only"]
         include_source_metadata: bool = request.validated_query_data["include_source_metadata"]
+        excluded = request.validated_query_data["exclude"]
         if count_only:
             # A count orders nothing, so it must not record a flag exposure for the ranker.
             self._inbox_ranker = None
@@ -2588,6 +2590,8 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.queryset"):
             queryset = self.filter_queryset(self.get_queryset())
+            if excluded:
+                queryset = queryset.exclude(id__in=excluded)
             if count_only:
                 total_count = queryset.count()
             else:
@@ -2680,35 +2684,6 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.serialize"):
             return serializer.data
-
-    @validated_request(
-        query_serializer=SignalReportsForYouQuerySerializer,
-        responses={200: OpenApiResponse(response=SignalReportsForYouResponseSerializer)},
-        summary="List the reports that matter most to the current user",
-        description=(
-            "One page of the open, actionable reports for the current user, and how many there are in "
-            "total, in the inbox priority order: priority, then status, then most recently updated. Uses the "
-            "same ranking and count as the Today briefing, so this is the short list to show someone who asks what needs them. Pass `exclude` to leave out reports already "
-            "on screen and `offset` to get the next page. Pass `include_unowned=false` to leave out the "
-            "P0 reports nobody owns, which belong to the project rather than to this person."
-        ),
-    )
-    @action(detail=False, methods=["get"], url_path="for_you", required_scopes=["task:read"])
-    def for_you(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        user = cast(User, request.user)
-        query = request.validated_query_data
-        excluded = [str(report_id) for report_id in query["exclude"]]
-        for_person = reports_for_person(self.team_id, user, include_unowned=query["include_unowned"])
-        queryset = (
-            self.filter_queryset(self.get_queryset()).filter(id__in=for_person.values("id")).exclude(id__in=excluded)
-        )
-        offset = query["offset"]
-        reports = list(queryset[offset : offset + query["limit"]])
-        counts = open_report_counts(
-            team_id=self.team_id, user=user, exclude_report_ids=excluded, include_unowned=query["include_unowned"]
-        )
-        rows = self._render_report_rows(reports, include_source_metadata=True)
-        return Response({"results": rows, "count": counts.for_person})
 
     @extend_schema(
         summary="List the org members who can be suggested as reviewers",
