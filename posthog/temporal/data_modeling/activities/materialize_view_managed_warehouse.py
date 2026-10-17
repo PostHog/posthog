@@ -342,7 +342,7 @@ async def _materialize_view_managed_warehouse(
                 error_code=e.feature_code,
                 duration_seconds=round(duration, 2),
             )
-        elif inputs.use_trino and is_trino_user_error(e):
+        elif is_trino_user_error(e):
             # A column or table that Trino cannot resolve is an expected shadow outcome, so it is not an exception to track.
             error_name = getattr(e, "error_name", None) or "UNKNOWN"
             get_managed_warehouse_trino_user_error_metric(error_name).add(1)
