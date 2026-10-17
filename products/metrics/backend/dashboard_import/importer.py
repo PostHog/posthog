@@ -255,7 +255,7 @@ class PanelResolver:
                         name=panel.title,
                         description=panel.description,
                         query=insight_query(
-                            queries[key],
+                            self._templated(panel, queries[key]),
                             panel.display,
                             catalog=self._catalog,
                             validator=self._validator,
@@ -280,6 +280,17 @@ class PanelResolver:
         return PanelQuery(
             language="promql", promql=combine_targets([(target.ref_id, target.expr) for target in panel.targets])
         )
+
+    @staticmethod
+    def _templated(panel: PanelSpec, query: PanelQuery) -> PanelQuery:
+        """The checked query, with the references to live dashboard variables put back.
+
+        The check runs with the saved variable values, because a query with `$name` in it cannot run.
+        """
+        if query.language != "promql" or not any(target.templated_expr for target in panel.targets):
+            return query
+        promql = combine_targets([(target.ref_id, target.templated_expr or target.expr) for target in panel.targets])
+        return query.model_copy(update={"promql": promql})
 
 
 def _query_metric_names(queries: Iterable[PanelQuery]) -> list[str]:
@@ -631,6 +642,9 @@ class DashboardImporter:
                     tiles=tuple(_new_tile(tile) for tile in tiles),
                     idempotency_key=idempotency_key,
                     date_from=state.date_from,
+                    filters={"metricVariables": state.spec.metric_variables}
+                    if state.spec and state.spec.metric_variables
+                    else None,
                 ),
             )
         except DashboardCreationDenied as error:
