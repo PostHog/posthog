@@ -141,6 +141,23 @@ describe('Shortcut', () => {
         expect(onClick).toHaveBeenCalledTimes(1)
     })
 
+    test.each([{ ctrlKey: false }, { ctrlKey: true }])('ignores a keydown without a key: %j', ({ ctrlKey }) => {
+        const onError = jest.fn()
+        window.addEventListener('error', onError)
+        render(
+            <Shortcut name="TestKeyless" keybind={[['x']]} intent="Test keyless event" interaction="click">
+                <LemonButton>Keyless shortcut</LemonButton>
+            </Shortcut>
+        )
+
+        const event = new KeyboardEvent('keydown', { ctrlKey, bubbles: true, cancelable: true })
+        Object.defineProperty(event, 'key', { value: undefined })
+        fireEvent(document.body, event)
+        window.removeEventListener('error', onError)
+
+        expect(onError).not.toHaveBeenCalled()
+    })
+
     // AccessControlAction injects disabledReason through Shortcut, which must forward it to the child.
     test.each([
         [AccessControlLevel.Viewer, false],
