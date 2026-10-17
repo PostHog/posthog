@@ -97,6 +97,23 @@ class TestAnnotationActivityLogging(ActivityLogTestHelper):
         self.assertEqual(context["dashboard_name"], dashboard.name)
         self.assertIsNone(context.get("dashboard_item_id"))
 
+    def test_annotation_dashboard_change_activity_logging(self):
+        first = Dashboard.objects.create(team=self.team, name="First dashboard", created_by=self.user)
+        second = Dashboard.objects.create(team=self.team, name="Second dashboard", created_by=self.user)
+        annotation = self.create_annotation(
+            content="Dashboard annotation", scope=Annotation.Scope.DASHBOARD.value, dashboard_id=first.id
+        )
+
+        self.update_annotation(annotation["id"], {"dashboard_id": second.id})
+
+        log = ActivityLog.objects.get(
+            team_id=self.team.id, scope="Annotation", item_id=str(annotation["id"]), activity="updated"
+        )
+        detail = cast(dict[str, Any], log.detail)
+        dashboard_change = next(c for c in detail["changes"] if c["field"] == "dashboard")
+        self.assertEqual(dashboard_change["before"], {"id": first.id, "name": "First dashboard"})
+        self.assertEqual(dashboard_change["after"], {"id": second.id, "name": "Second dashboard"})
+
     def test_annotation_insight_scope_context(self):
         """Test annotation with insight scope includes correct context."""
         # Create an insight first
