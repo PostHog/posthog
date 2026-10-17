@@ -50,6 +50,7 @@ export class StateManager {
      * cache must not, because other sessions on the same credential read it. A
      * pinned request without a session still persists the keys the pin leaves open.
      * A project pin also fixes the org, because the project owns it.
+     * A session that never sent a pin also updates the token selection, which new sessions start from.
      */
     async setActiveContext(updates: { orgId?: string; projectId?: string }): Promise<void> {
         const pinned = this._pinned
@@ -67,7 +68,7 @@ export class StateManager {
             pinned.projectId = updates.projectId
         }
         this._pinnedOrgProject = undefined
-        if (!pinned.sessionScoped) {
+        if (!pinned.sessionScoped || (!pinned.pin.organizationId && !pinned.pin.projectId)) {
             await this._cache.setMany({
                 ...(updates.orgId && !pinned.pin.organizationId && !pinned.pin.projectId
                     ? { orgId: updates.orgId }

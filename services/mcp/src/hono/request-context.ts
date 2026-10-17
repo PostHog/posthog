@@ -76,18 +76,18 @@ export class RequestContext {
      * State scoped to the MCP protocol session rather than the token, holding the
      * session's in-session context switches and last-applied request pin. The
      * token cache can't hold these: it is shared by every concurrent session on
-     * the same credential. Undefined when the request carries no session id.
+     * the same credential. Without a session id the conversation id keys it, and without either it is undefined.
      *
      * The key includes the credential: a caller chooses its session id, so a
      * request must never restore context that another credential saved.
      */
     get sessionScopedCache(): RedisCache<SessionScopedState> | undefined {
-        const mcpSessionId = this.requestContext.mcpSessionId
-        if (!mcpSessionId) {
+        const scopeId = this.requestContext.mcpSessionId ?? this.requestContext.mcpConversationId
+        if (!scopeId) {
             return undefined
         }
         if (!this.sessionScopedCacheInstance) {
-            this.sessionScopedCacheInstance = this.sessionCacheFor(`${this.props.userHash ?? ''}\0${mcpSessionId}`)
+            this.sessionScopedCacheInstance = this.sessionCacheFor(`${this.props.userHash ?? ''}\0${scopeId}`)
         }
         return this.sessionScopedCacheInstance
     }
@@ -230,7 +230,6 @@ export class RequestContext {
     async getContext(): Promise<Context> {
         const api = await this.api()
         const stateManager = new StateManager(this.tokenCache, api, this.pinnedContext)
-        const sessionScopedCache = this.sessionScopedCache
         const partialContext: Omit<Context, 'trackEvent'> = {
             api,
             cache: this.tokenCache,
@@ -238,16 +237,13 @@ export class RequestContext {
             stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
-            ...(sessionScopedCache
-                ? {
-                      setSessionActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
-                          await sessionScopedCache.setMany({
-                              ...(updates.orgId ? { activeOrgId: updates.orgId } : {}),
-                              ...(updates.projectId ? { activeProjectId: updates.projectId } : {}),
-                          })
-                      },
-                  }
-                : {}),
+            // Reads the store at switch time, because the SDK mints a new conversation's id after state resolves.
+            setSessionActiveContext: async (updates: { orgId?: string; projectId?: string }) => {
+                await this.sessionScopedCache?.setMany({
+                    ...(updates.orgId ? { activeOrgId: updates.orgId } : {}),
+                    ...(updates.projectId ? { activeProjectId: updates.projectId } : {}),
+                })
+            },
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)

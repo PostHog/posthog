@@ -79,6 +79,8 @@ The Hono runtime keeps per-user session state (active project/organization, regi
 - **Deterministic**: Same token always produces the same hash/prefix
 - **Secure**: Tokens can't be reversed from the hash
 
+A `switch-project` or `switch-organization` is also recorded per MCP session, or per echoed `conversation_id` for a sessionless client, so concurrent agents on one token each keep their own active project.
+
 ### Wide Logging Pattern
 
 Instead of scattered log statements, we accumulate data into a single log object and emit once at the end:
