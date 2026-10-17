@@ -48,6 +48,12 @@ class TestSyncSavedQueryToDag(BaseTest):
             ),
             ("ticket_summary", "SELECT id, tags.names, assignee.role_name FROM system.support_tickets"),
             ("customer_tasks", "SELECT id, name, account_id FROM system.customer_tasks"),
+            (
+                "source_sync_jobs",
+                "SELECT j.id, j.status, s.name, src.source_type FROM system.source_sync_jobs AS j "
+                "JOIN system.source_schemas AS s ON s.id = j.schema_id "
+                "JOIN system.data_warehouse_sources AS src ON src.id = j.pipeline_id",
+            ),
         ]
     )
     def test_saved_query_resolution_requires_explicit_data_modeling_system_allowlist(
