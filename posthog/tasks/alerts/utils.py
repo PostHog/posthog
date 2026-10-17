@@ -288,9 +288,9 @@ def send_notifications_for_breaches(
     return deliveries
 
 
-def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> None:
+def send_test_alert_email(alert: AlertConfiguration, recipients: Collection[str], idempotency_key: str) -> bool:
     insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
-    send_alert_email(
+    return send_alert_email(
         recipients=recipients,
         campaign_key=f"alert-test-notification-{idempotency_key}",
         subject=f"Test alert: {alert.name} for {alert.team.name}",

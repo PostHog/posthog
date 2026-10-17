@@ -1239,7 +1239,7 @@ class TestEvaluateAlert:
             alert_id=str(alert_with_user.id), alert_check_id=result.alert_check_id
         )
         with patch(
-            "posthog.tasks.alerts.utils.send_alert_email", side_effect=[RuntimeError("Mail is unavailable"), None]
+            "posthog.tasks.alerts.utils.send_alert_email", side_effect=[RuntimeError("Mail is unavailable"), True]
         ) as mock_email:
             with pytest.raises(RuntimeError, match="Mail is unavailable"):
                 await env.run(notify_alert, notify_inputs)

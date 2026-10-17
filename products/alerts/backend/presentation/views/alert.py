@@ -1692,8 +1692,10 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         email_delivery_unavailable = bool(email_targets) and not is_email_available()
         if email_targets:
             try:
-                send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4()))
-                successful_email_count = len(email_targets)
+                if send_test_alert_email(alert, recipients=email_targets, idempotency_key=str(uuid.uuid4())):
+                    successful_email_count = len(email_targets)
+                else:
+                    failed_delivery_channels.append("email")
             except Exception as error:
                 capture_exception(
                     error,
