@@ -12,12 +12,13 @@ from django.db.models import QuerySet
 import posthoganalytics
 
 from posthog.event_usage import AnalyticsProps, groups
+from posthog.models import Team, User
 
 from products.access_control.backend.facade.api import valid_role_member_user_ids
 
 from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import EMBEDDING_TABLES
-from ..logic import external_references, github_external_references, rules
+from ..logic import activity, external_references, github_external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -191,6 +192,24 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
         status=issue.status,
         severity=issue.severity,
     )
+
+
+def list_new_unassigned_issue_activity(team: Team, user: User, *, limit: int) -> list[contracts.NewIssueActivity]:
+    return activity.new_unassigned_issue_activity(team, user, limit=limit)
+
+
+def count_weekly_exceptions(team: Team, user: User) -> int:
+    return activity.weekly_exception_count(team, user)
+
+
+def count_weekly_active_users(team: Team, user: User) -> int:
+    return activity.weekly_active_users(team, user)
+
+
+def list_quiet_issues_assigned_to(
+    team: Team, user: User, *, quiet_days: int, limit: int
+) -> list[contracts.ErrorTrackingIssueBasics]:
+    return activity.quiet_issues_assigned_to(team, user, quiet_days=quiet_days, limit=limit)
 
 
 def resolve_fingerprints(team_id: int, issue_ids: list[str]) -> list[str]:

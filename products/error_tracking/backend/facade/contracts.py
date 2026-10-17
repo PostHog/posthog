@@ -305,6 +305,17 @@ class ErrorTrackingIssueBasics:
 
 
 @dataclass(frozen=True)
+class NewIssueActivity:
+    id: UUID
+    name: str | None
+    description: str | None
+    first_seen: datetime
+    users: int
+    occurrences: int
+    client_share: float
+
+
+@dataclass(frozen=True)
 class ErrorTrackingRecommendation:
     id: UUID
     type: str
