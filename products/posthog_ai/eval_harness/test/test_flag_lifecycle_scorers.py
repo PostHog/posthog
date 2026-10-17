@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from typing import Any
 
 from parameterized import parameterized
@@ -10,12 +11,14 @@ from products.feature_flags.evals.scorers import (
     AttemptedTool,
     AvoidedTool,
     CalledExpectedTool,
+    CitesRuntimeScoping,
     CreatedFlagWithTags,
     FinalMessageJudge,
     FinalMessageNames,
     GenericUpdateOmitsFields,
     GenericUpdateSetsFields,
     PreservedUnrelatedConfig,
+    StoppedOnUnverifiedIdentity,
     UpdatedRolloutTo,
 )
 from products.feature_flags.evals.seeders import (
@@ -257,25 +260,48 @@ def test_called_expected_tool_grades_the_seeded_flag(
     assert score.score == expected_score
 
 
-# Four judges are registered across the two suites and each case opts in to some of them.
-# If the spec check stopped short-circuiting, every case would be graded by questions
-# written about a different case. `FinalMessageJudge` deliberately scores a missing final
-# message 0.0 rather than None, because a run that said nothing did not answer the user.
+def _refusal_judge() -> FinalMessageJudge:
+    return FinalMessageJudge(name="refused_without_blaming", question="q")
+
+
+# Judges are registered across several suites and each case opts in to some of them. If
+# the spec check stopped short-circuiting, every case would be graded by questions written
+# about a different case. Both judges deliberately score a missing final message 0.0 rather
+# than None, because a run that said nothing did not answer the user.
 @parameterized.expand(
     [
-        ("case_did_not_opt_in", "anything", {}, None),
-        ("run_left_no_final_message", "", {"refused_without_blaming": {"required": True}}, 0.0),
+        ("final_message_judge_case_did_not_opt_in", _refusal_judge, "anything", False, None),
+        ("final_message_judge_run_left_no_message", _refusal_judge, "", True, 0.0),
+        # The gate judges decide which of two stops the authorization suite grades, and
+        # they reach the same two branches through `declared_only` instead.
+        ("gate_judge_case_did_not_opt_in", StoppedOnUnverifiedIdentity, "anything", False, None),
+        ("gate_judge_run_left_no_message", StoppedOnUnverifiedIdentity, "", True, 0.0),
     ]
 )
-def test_final_message_judge_short_circuits(
-    _name: str, last_message: str, expected: dict[str, Any], expected_score: float | None
+def test_declared_only_judges_short_circuit(
+    _name: str,
+    make_judge: Callable[[], Any],
+    last_message: str,
+    opted_in: bool,
+    expected_score: float | None,
 ) -> None:
-    prepared = FinalMessageJudge(name="refused_without_blaming", question="q")._prepare(
-        {"last_message": last_message}, expected
-    )
+    judge = make_judge()
+    expected = {judge._name(): {"required": True}} if opted_in else {}
+
+    prepared = judge._prepare({"last_message": last_message}, expected)
 
     assert isinstance(prepared, Score)
     assert prepared.score == expected_score
+
+
+def test_a_judge_without_declared_only_grades_a_case_that_declared_nothing() -> None:
+    # The other side of the switch. If the skip went unconditional, both gate judges would
+    # return None on every case, those rows would drop out of the aggregate rather than
+    # fail, and the suite would report a clean run with nothing graded.
+    prepared = CitesRuntimeScoping()._prepare({"last_message": "the flag is client-scoped"}, {})
+
+    assert not isinstance(prepared, Score)
+    assert prepared["output"]["last_message"] == "the flag is client-scoped"
 
 
 @parameterized.expand(
