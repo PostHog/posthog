@@ -353,6 +353,8 @@ The group can include a RESEARCHED CAUSE. This means that an engineer already in
 - Accept the new signal only when the researched fix also resolves it.
 - Reject the new signal when it needs a different fix, even when it is in the same feature, on the same page, or in the same product area.
 - A shared page, a shared HTTP status (such as a 404), or a shared error message is not a shared cause.
+- Judge every problem that the new signal reports, not only the one that matches the group. A session recording or a ticket often reports the group's symptom next to a different problem, such as a blank panel, a broken layout, or a slow load. Accept only when the researched cause explains each of these problems. If one problem needs its own investigation, reject the signal so that it gets its own report.
+- When the research concluded that the group's symptom is expected or harmless, that conclusion does not cover a different problem seen in the same session.
 
 Respond with valid JSON only:
 {"pr_title": "...", "specific_enough": true/false, "reason": "..."}"""

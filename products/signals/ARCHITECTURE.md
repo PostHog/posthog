@@ -1225,7 +1225,7 @@ The validator ensures the returned `signal_id` and `query_index` are valid for t
 
 A second grouping-time LLM check used before broadening an existing report too aggressively.
 
-After a research pass completes on a report, the check also receives the report's summary as the researched cause. A new signal joins only when the fix that the research describes also resolves it. A shared page, HTTP status, or product area is not enough. The check can rename a report only before its first research pass. After that pass, the research owns the title, so the title and the summary continue to describe the same cause.
+After a research pass completes on a report, the check also receives the report's summary as the researched cause. A new signal joins only when the fix that the research describes also resolves it. A shared page, HTTP status, or product area is not enough. The check judges every problem that the signal reports. A replay finding often reports the researched symptom next to a different problem, and that finding joins only when the researched cause explains both. `eval/experiments/2026-10-researched-cause-gate/` holds the cases for this rule. The check can rename a report only before its first research pass. After that pass, the research owns the title, so the title and the summary continue to describe the same cause.
 
 ### Safety filter (`backend/temporal/safety_filter.py`)
 
