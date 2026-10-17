@@ -2029,6 +2029,15 @@ class TestPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk)
         self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
 
+    @parameterized.expand(
+        [
+            ("substring", "substring(event, 2)", "substring(events.event, 2)"),
+            ("substringUTF8", "substringUTF8(event, 2)", "substringUTF8(events.event, 2)"),
+        ]
+    )
+    def test_substring_length_is_optional(self, _name: str, expr: str, expected: str) -> None:
+        self.assertEqual(self._expr(expr), expected)
+
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
         self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
