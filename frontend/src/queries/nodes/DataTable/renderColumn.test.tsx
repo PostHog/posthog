@@ -86,6 +86,10 @@ describe('renderColumn', () => {
         await userEvent.click(screen.getByText('the-distinct-id'))
 
         expect(await screen.findByText('No profile associated with this ID')).toBeInTheDocument()
+
+        // The popover covers the events table, so a visible popover hides the result of the click.
+        await userEvent.click(screen.getByText('View events'))
+        await waitFor(() => expect(screen.queryByText('No profile associated with this ID')).toBeNull())
     })
 
     it.each([

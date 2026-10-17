@@ -8,12 +8,12 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { getDistinctIdEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { urls } from 'scenes/urls'
 
-import { ActivityTab, PropertyDefinitionType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, PropertyDefinitionType } from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket/ComposeTicketButton'
 
@@ -43,14 +43,7 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
 
     // NOTE: This can happen if the Person was deleted or the events associated with the distinct_id had person processing disabled
     if (!person) {
-        const eventsQuery = getDefaultEventsSceneQuery([
-            {
-                type: PropertyFilterType.EventMetadata,
-                key: 'distinct_id',
-                value: props.distinctId,
-                operator: PropertyOperator.Exact,
-            },
-        ])
+        const eventsQuery = getDistinctIdEventsSceneQuery(props.distinctId)
         const eventsUrl = combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
         return (
             <div className="p-2 max-w-160">
@@ -65,6 +58,7 @@ function PersonPreviewInner(props: PersonPreviewProps): JSX.Element | null {
                         type="secondary"
                         size="small"
                         to={eventsUrl}
+                        onClick={() => props.onClose?.()}
                         tooltip={`View events matching distinct_id=${props.distinctId}`}
                     >
                         View events
