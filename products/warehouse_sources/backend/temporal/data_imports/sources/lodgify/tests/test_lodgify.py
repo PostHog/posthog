@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
+import time_machine
 
 from requests import HTTPError
 
@@ -103,6 +104,186 @@ def test_room_fanout(resume: bool) -> None:
         "properties/20/rooms",
         "properties/30/rooms",
     ]
+
+
+@pytest.mark.parametrize(
+    "calendars,expected_rows",
+    [
+        ([], []),
+        ([{"user_id": 5, "property_id": 10, "room_type_id": 11, "periods": None}], []),
+        (
+            [
+                {
+                    "user_id": 5,
+                    "property_id": 10,
+                    "room_type_id": 11,
+                    "periods": [
+                        {"start": "2026-03-01", "end": "2026-03-04", "available": 1, "bookings": []},
+                        {"start": "2026-03-05", "end": "2026-03-07", "available": 0, "bookings": [{"id": 7}]},
+                    ],
+                },
+                {"user_id": 5, "property_id": 20, "room_type_id": 21, "periods": []},
+            ],
+            [
+                {
+                    "user_id": 5,
+                    "property_id": 10,
+                    "room_type_id": 11,
+                    "start": "2026-03-01",
+                    "end": "2026-03-04",
+                    "available": 1,
+                    "bookings": [],
+                },
+                {
+                    "user_id": 5,
+                    "property_id": 10,
+                    "room_type_id": 11,
+                    "start": "2026-03-05",
+                    "end": "2026-03-07",
+                    "available": 0,
+                    "bookings": [{"id": 7}],
+                },
+            ],
+        ),
+    ],
+)
+@time_machine.travel(datetime(2026, 3, 1, 23, 30, tzinfo=UTC), tick=False)
+def test_availability_rows(calendars: list[dict], expected_rows: list[dict]) -> None:
+    result = driver().run(
+        "availability",
+        [ScriptedResponse(json=calendars)],
+        should_use_incremental_field=True,
+        db_incremental_field_last_value="2026-01-01T00:00:00Z",
+    )
+
+    assert result.raised is None
+    assert result.rows == expected_rows
+    assert result.paths == ["/v2/availability"]
+    assert result.queries == [
+        {"start": ("2026-03-01",), "end": ("2027-03-01",), "includeDetails": ("true",)},
+    ]
+
+
+@pytest.mark.parametrize("resume", [False, True])
+@time_machine.travel(datetime(2026, 3, 1, tzinfo=UTC), tick=False)
+def test_rates_calendar_fanout(resume: bool) -> None:
+    state = LodgifyResumeConfig(
+        paginator_state={
+            "completed": ["rates/calendar?HouseId=10&RoomTypeId=11"],
+            "current": None,
+            "child_state": None,
+        }
+    )
+    result = driver().run(
+        "rates_calendar",
+        [
+            ScriptedResponse(
+                json=[
+                    {"property_id": 10, "room_type_id": 11, "periods": []},
+                    {"property_id": 20, "room_type_id": 21, "periods": None},
+                    {"property_id": 30, "room_type_id": 31, "periods": []},
+                ]
+            ),
+            *(
+                []
+                if resume
+                else [ScriptedResponse(json={"calendar_items": [{"date": "2026-03-01", "is_default": True}]})]
+            ),
+            ScriptedResponse(
+                json={
+                    "calendar_items": [
+                        {"date": None, "is_default": True, "prices": []},
+                        {"date": "2026-03-02", "is_default": False, "prices": [{"min_stay": 2}]},
+                    ],
+                    "rate_settings": {"currency_code": "EUR"},
+                }
+            ),
+            ScriptedResponse(json={"calendar_items": None}),
+        ],
+        resume_state=state if resume else None,
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        *([] if resume else [{"date": "2026-03-01", "is_default": True, "property_id": 10, "room_type_id": 11}]),
+        {"date": "2026-03-02", "is_default": False, "prices": [{"min_stay": 2}], "property_id": 20, "room_type_id": 21},
+    ]
+    assert result.response is not None
+    assert result.response.primary_keys == ["property_id", "room_type_id", "date"]
+    assert result.paths == ["/v2/availability"] + ["/v2/rates/calendar"] * (2 if resume else 3)
+    assert result.params("HouseId") == [None, *([] if resume else ["10"]), "20", "30"]
+    assert result.params("RoomTypeId") == [None, *([] if resume else ["11"]), "21", "31"]
+    assert set(result.params("StartDate")[1:]) == {"2026-03-01"}
+    assert set(result.params("EndDate")[1:]) == {"2027-03-01"}
+    assert result.saved_states[-1].paginator_state["completed"] == [
+        "rates/calendar?HouseId=10&RoomTypeId=11",
+        "rates/calendar?HouseId=20&RoomTypeId=21",
+        "rates/calendar?HouseId=30&RoomTypeId=31",
+    ]
+
+
+@pytest.mark.parametrize(
+    "incremental,watermark,expected",
+    [
+        (False, "2026-01-01T00:00:00Z", None),
+        (True, None, None),
+        (True, "2026-01-01T00:00:00Z", "2026-01-01T00:00:00+00:00"),
+    ],
+)
+def test_external_bookings_fanout(incremental: bool, watermark: str | None, expected: str | None) -> None:
+    result = driver().run(
+        "external_bookings",
+        [
+            ScriptedResponse(
+                json={
+                    "items": [
+                        {"id": 100, "updated_at": "2026-02-01T10:00:00Z"},
+                        {"id": 200, "updated_at": "2026-02-02T10:00:00Z"},
+                    ]
+                }
+            ),
+            ScriptedResponse(
+                json={
+                    "external_bookings": [
+                        {"created_at": "2026-01-30T08:00:00Z", "content": "channel booking A"},
+                        {"created_at": "2026-01-31T08:00:00Z", "content": "channel booking B"},
+                    ]
+                }
+            ),
+            ScriptedResponse(json={"external_bookings": []}),
+            ScriptedResponse(json={"items": [{"id": 300, "updated_at": "2026-02-03T10:00:00Z"}]}),
+            ScriptedResponse(json={"external_bookings": None}),
+            ScriptedResponse(json={"items": []}),
+        ],
+        should_use_incremental_field=incremental,
+        db_incremental_field_last_value=watermark,
+    )
+
+    assert result.raised is None
+    assert result.rows == [
+        {
+            "created_at": datetime(2026, 1, 30, 8, tzinfo=UTC),
+            "content": "channel booking A",
+            "booking_id": 100,
+            "booking_updated_at": datetime(2026, 2, 1, 10, tzinfo=UTC),
+        },
+        {
+            "created_at": datetime(2026, 1, 31, 8, tzinfo=UTC),
+            "content": "channel booking B",
+            "booking_id": 100,
+            "booking_updated_at": datetime(2026, 2, 1, 10, tzinfo=UTC),
+        },
+    ]
+    assert result.paths == [
+        "/v2/reservations/bookings",
+        "/v2/reservations/bookings/100/externalBookings",
+        "/v2/reservations/bookings/200/externalBookings",
+        "/v2/reservations/bookings",
+        "/v2/reservations/bookings/300/externalBookings",
+        "/v2/reservations/bookings",
+    ]
+    assert result.params("updatedSince") == [expected, None, None, expected, None, expected]
+    assert result.params("page") == ["1", None, None, "2", None, "3"]
 
 
 @pytest.mark.parametrize(

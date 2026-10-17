@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 from requests import HTTPError
@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.lodgify.settings import (
     AUTH_ERROR,
     BASE_URL,
+    CALENDAR_WINDOW_DAYS,
     ENDPOINTS,
     PAGE_SIZE,
     PATHS,
@@ -89,6 +90,28 @@ def list_resource(endpoint: str, watermark: datetime | str | None = None) -> End
     }
 
 
+def calendar_window(today: date) -> tuple[str, str]:
+    return today.isoformat(), (today + timedelta(days=CALENDAR_WINDOW_DAYS)).isoformat()
+
+
+def availability_resource(start: str, end: str) -> EndpointResource:
+    return {
+        "name": "availability",
+        "endpoint": {
+            "path": PATHS["availability"],
+            "params": {"start": start, "end": end, "includeDetails": "true"},
+            "paginator": "single_page",
+            "data_selector": "$",
+            "data_selector_required": True,
+        },
+    }
+
+
+def flatten_availability_periods(calendar: dict[str, Any]) -> list[dict[str, Any]]:
+    keys = {key: calendar.get(key) for key in ("user_id", "property_id", "room_type_id")}
+    return [{**keys, **period} for period in calendar.get("periods") or []]
+
+
 def lodgify_source(
     api_key: str,
     endpoint: str,
@@ -120,7 +143,66 @@ def lodgify_source(
         },
         "resources": [],
     }
-    if endpoint == "rooms":
+    if endpoint == "availability":
+        config["resources"] = [availability_resource(*calendar_window(datetime.now(UTC).date()))]
+        resource = rest_api_resource(
+            config, team_id, job_id, None, resume_hook=save_checkpoint, initial_paginator_state=initial_state
+        )
+        resource.add_map(flatten_availability_periods)
+    elif endpoint == "rates_calendar":
+        start, end = calendar_window(datetime.now(UTC).date())
+        # The availability calendar lists every property and room type pair in one request.
+        config["resources"] = [
+            availability_resource(start, end),
+            {
+                "name": "rates_calendar",
+                "include_from_parent": ["property_id", "room_type_id"],
+                "endpoint": {
+                    "path": PATHS["rates_calendar"],
+                    "params": {
+                        "HouseId": {"type": "resolve", "resource": "availability", "field": "property_id"},
+                        "RoomTypeId": {"type": "resolve", "resource": "availability", "field": "room_type_id"},
+                        "StartDate": start,
+                        "EndDate": end,
+                    },
+                    "paginator": "single_page",
+                    "data_selector": "calendar_items",
+                    "data_selector_required": True,
+                },
+            },
+        ]
+        resources = rest_api_resources(
+            config, team_id, job_id, None, resume_hook=save_checkpoint, initial_paginator_state=initial_state
+        )
+        resource = next(resource for resource in resources if resource.name == "rates_calendar")
+        resource.add_map(
+            rename_parent_fields("availability", {"property_id": "property_id", "room_type_id": "room_type_id"})
+        )
+        # The primary key needs a day, and the API marks the date as nullable.
+        resource.add_filter(lambda row: row.get("date") is not None)
+    elif endpoint == "external_bookings":
+        watermark = db_incremental_field_last_value if should_use_incremental_field else None
+        config["resources"] = [
+            list_resource("bookings", watermark),
+            {
+                "name": "external_bookings",
+                "include_from_parent": ["id", "updated_at"],
+                "endpoint": {
+                    "path": PATHS["external_bookings"],
+                    "params": {"id": {"type": "resolve", "resource": "bookings", "field": "id"}},
+                    "paginator": "single_page",
+                    "data_selector": "external_bookings",
+                    "data_selector_required": True,
+                },
+                "columns": {"created_at": {"data_type": "timestamp"}, "booking_updated_at": {"data_type": "timestamp"}},
+            },
+        ]
+        resources = rest_api_resources(
+            config, team_id, job_id, None, resume_hook=save_checkpoint, initial_paginator_state=initial_state
+        )
+        resource = next(resource for resource in resources if resource.name == "external_bookings")
+        resource.add_map(rename_parent_fields("bookings", {"id": "booking_id", "updated_at": "booking_updated_at"}))
+    elif endpoint == "rooms":
         config["resources"] = [
             list_resource("properties"),
             {
