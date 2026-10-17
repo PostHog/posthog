@@ -6,7 +6,6 @@ Check both server and client behavior.
 
 - The server is the authority for view, edit, create, delete, move, copy, and refresh actions.
 - `Dashboard.restriction_level` controls collaboration restrictions.
-- Collaborator access is an EE sub-route under `dashboards/<id>/collaborators`.
 - Dashboard sharing uses the core `SharingConfigurationViewSet` under `dashboards/<id>/sharing`.
 - Public and embedded callers must not gain mutation rights through an endpoint that the UI hides.
 - A related insight or widget can have stricter access than its dashboard. Preserve its access checks and safe error response.
@@ -44,11 +43,10 @@ When a dashboard becomes shared, check existing tiles before you publish the sta
 
 ## Minimum test matrix
 
-| Actor or surface       | Read                                      | Mutate                                | Refresh                         |
-| ---------------------- | ----------------------------------------- | ------------------------------------- | ------------------------------- |
-| Project viewer         | Allowed only when resource access permits | Denied                                | Only if the endpoint permits it |
-| Project editor         | Allowed                                   | Allowed within dashboard restrictions | Allowed                         |
-| Dashboard collaborator | Follow assigned privilege                 | Follow assigned privilege             | Follow assigned privilege       |
-| Public shared viewer   | Safe read-only payload                    | Denied                                | Denied                          |
-| Embedded viewer        | Follow host and resource access           | Denied unless explicitly supported    | Must stay bounded               |
-| Export renderer        | Render-safe payload                       | Denied                                | Denied                          |
+| Actor or surface     | Read                                      | Mutate                                | Refresh                         |
+| -------------------- | ----------------------------------------- | ------------------------------------- | ------------------------------- |
+| Project viewer       | Allowed only when resource access permits | Denied                                | Only if the endpoint permits it |
+| Project editor       | Allowed                                   | Allowed within dashboard restrictions | Allowed                         |
+| Public shared viewer | Safe read-only payload                    | Denied                                | Denied                          |
+| Embedded viewer      | Follow host and resource access           | Denied unless explicitly supported    | Must stay bounded               |
+| Export renderer      | Render-safe payload                       | Denied                                | Denied                          |
