@@ -329,12 +329,6 @@ export function MenuFilterCombobox({
     // exposes them, not only via the outer dropdown menu.
     const categoryOptions = useMemo<{ value: DrillCategory; label: string }[]>(() => {
         const opts: { value: DrillCategory; label: string }[] = [{ value: 'all', label: 'All' }]
-        if (recentEntries && recentEntries.length > 0) {
-            opts.push({ value: 'recent', label: 'Recent' })
-        }
-        if (pinnedEntries && pinnedEntries.length > 0) {
-            opts.push({ value: 'pinned', label: 'Pinned' })
-        }
         for (const g of visibleChipGroups) {
             // Collapsed groups feed the "all" rows but aren't navigable categories.
             if (COLLAPSED_TO_CONTAINS_ROW.has(g.type)) {
@@ -343,7 +337,7 @@ export function MenuFilterCombobox({
             opts.push({ value: g.type, label: g.name })
         }
         return opts
-    }, [recentEntries, pinnedEntries, visibleChipGroups])
+    }, [visibleChipGroups])
 
     // Resolve which groups feed the visible list, based on the active chip
     // (or the drill scope when chips are hidden).
@@ -805,6 +799,9 @@ export function MenuFilterCombobox({
                 title: `${hiddenEventSearched} isn't available here`,
                 body: <HiddenEventExplanation />,
             }
+        }
+        if (singleGroup?.shouldSearch?.(searchQuery) === false && singleGroup.searchQueryHint) {
+            return { title: singleGroup.name, body: singleGroup.searchQueryHint }
         }
         const categoryLabel = singleGroup?.name ?? null
         if (trimmedLen > 0) {

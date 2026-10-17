@@ -1589,9 +1589,15 @@ describe('TaxonomicFilter', () => {
             })
 
             await userEvent.click(await screen.findByTestId('taxonomic-category-dropdown-trigger-pill'))
+            for (const group of ['recent_filters', 'pinned_filters']) {
+                expect(screen.queryByTestId(`taxonomic-category-dropdown-item-${group}`)).not.toBeInTheDocument()
+            }
             await userEvent.click(await screen.findByTestId('taxonomic-category-rail-toggle'))
 
             expect(await screen.findByText('Categories')).toBeInTheDocument()
+            for (const group of ['recent_filters', 'pinned_filters']) {
+                expect(screen.queryByTestId(`taxonomic-tab-${group}`)).not.toBeInTheDocument()
+            }
             await waitFor(() => {
                 expect(screen.queryByTestId('taxonomic-category-rail-toggle')).not.toBeInTheDocument()
             })
@@ -1811,6 +1817,19 @@ describe('TaxonomicFilter', () => {
         expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
     })
 
+    it.each([
+        [TaxonomicFilterGroupType.EmailAddresses, 'Search for an email address or domain.'],
+        [TaxonomicFilterGroupType.PageviewUrls, 'Search for a URL, domain, or path.'],
+        [TaxonomicFilterGroupType.PageviewEvents, 'Search for a URL, domain, or path.'],
+    ])('explains a skipped value search in %s', async (groupType, hint) => {
+        featureFlagLogicModule.featureFlagLogic.mount()
+        featureFlagLogicModule.featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_VALUE_SEARCH_GATING]: true,
+        })
+        renderFilter({ taxonomicGroupTypes: [groupType], searchQuery: 'sample' })
+        expect(await screen.findByText(hint)).toBeInTheDocument()
+    })
+
     describe('excludedOperators', () => {
         const seedRecents = (): void => {
             const recentLogic = recentTaxonomicFiltersLogic.build()
@@ -1878,13 +1897,13 @@ describe('TaxonomicFilter', () => {
             {
                 name: 'hides cohort recents whose operator is denylisted but keeps other recents',
                 excludedOperators: { [TaxonomicFilterGroupType.Cohorts]: [PropertyOperator.NotIn] },
-                expectInRecent: ['User in Power Users', 'Browser = Chrome'],
+                expectInRecent: ['User in Power Users'],
                 expectNotInRecent: ['User not in Trial Users'],
             },
             {
                 name: 'keeps every recent when no operators are denylisted',
                 excludedOperators: undefined,
-                expectInRecent: ['User in Power Users', 'User not in Trial Users', 'Browser = Chrome'],
+                expectInRecent: ['User in Power Users', 'User not in Trial Users'],
                 expectNotInRecent: [],
             },
         ])('$name', async ({ excludedOperators, expectInRecent, expectNotInRecent }) => {
@@ -1903,12 +1922,14 @@ describe('TaxonomicFilter', () => {
             )
 
             await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toBeInTheDocument()
             })
-            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+            await userEvent.click(screen.getByTestId('taxonomic-tab-suggested_filters'))
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'Users')
 
             const recentRowText = (): string =>
-                Array.from(document.querySelectorAll('[data-attr^="prop-filter-recent_filters-"]'))
+                Array.from(document.querySelectorAll('[data-attr^="prop-filter-suggested_filters-"]'))
                     .map((el) => el.textContent ?? '')
                     .join('||')
 
@@ -1922,6 +1943,9 @@ describe('TaxonomicFilter', () => {
             for (const forbidden of expectNotInRecent) {
                 expect(allText).not.toContain(forbidden)
             }
+            await userEvent.clear(screen.getByTestId('taxonomic-filter-searchfield'))
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'Chrome')
+            await waitFor(() => expect(recentRowText()).toContain('Browser = Chrome'))
         })
     })
 
