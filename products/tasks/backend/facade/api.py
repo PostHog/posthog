@@ -227,6 +227,7 @@ class _AutoArchiveUnchanged:
 _AUTO_ARCHIVE_UNCHANGED = _AutoArchiveUnchanged()
 
 __all__ = [
+    "is_current_task_run_actor",
     "mint_private_gateway_token",
     "revoke_private_gateway_token",
     "SandboxNetworkAccessLevel",
@@ -12361,3 +12362,14 @@ def accept_github_pull_request_review(delivery: WebhookDelivery) -> None:
     from products.tasks.backend.webhooks import handle_pull_request_review_event  # noqa: PLC0415
 
     handle_pull_request_review_event(dict(delivery.payload))
+
+
+def is_current_task_run_actor(team_id: int, run_id: UUID, user_id: int) -> bool:
+    from products.tasks.backend.logic.services.run_actor import (  # noqa: PLC0415
+        get_task_run_actor_user,
+        user_has_current_team_access,
+    )
+
+    run = TaskRun.objects.select_related("task__created_by", "team__organization").get(id=run_id, team_id=team_id)
+    actor = get_task_run_actor_user(run.task, run.state, allow_task_creator_fallback=False)
+    return actor is not None and actor.id == user_id and user_has_current_team_access(actor, run.team)
