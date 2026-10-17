@@ -18,6 +18,7 @@ import pyarrow as pa
 import deltalake
 import pyarrow.parquet as pq
 from temporalio.exceptions import ApplicationError
+from trino.exceptions import TrinoUserError
 
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
@@ -167,6 +168,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             (None, False),
             (ValueError("Trino compilation failed"), False),
             (TrinoLoweringError("TRINO_TABLE_LOCATOR_MISSING", "table"), False),
+            (TrinoUserError({"errorName": "COLUMN_NOT_FOUND", "errorType": "USER_ERROR"}), False),
             (None, True),
         ],
     )
@@ -237,7 +239,7 @@ class TestMaterializeViewManagedWarehouseActivity:
             reconcile_aliases.assert_not_awaited()
             assert result.error == str(compile_error)
             assert ajob.status == DataModelingJobStatus.FAILED
-            assert capture.called is not isinstance(compile_error, TrinoLoweringError)
+            assert capture.called is not isinstance(compile_error, TrinoLoweringError | TrinoUserError)
         else:
             reconcile_aliases.assert_awaited_once_with(ateam.pk, str(asaved_query.id))
             assert result.row_count == 12
