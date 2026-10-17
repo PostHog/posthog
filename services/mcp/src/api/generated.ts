@@ -18070,22 +18070,11 @@ export namespace Schemas {
          */
       threshold_value?: string | null;
       /**
-         * Minimum current value before the alert can fire.
-         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-         */
-      minimum_value?: string;
-      /**
          * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
          * @minimum 1
          * @maximum 90
          */
       baseline_window_days?: number;
-      /**
-         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-         * @minimum 0
-         * @maximum 72
-         */
-      evaluation_delay_hours?: number;
       /** Current lifecycle state of this alert.
        *
        * * `not_firing` - Not firing
@@ -18094,12 +18083,6 @@ export namespace Schemas {
        * * `snoozed` - Snoozed
        * * `broken` - Broken */
       readonly state: BillingAlertConfigurationStateEnum;
-      /**
-         * Minimum hours between repeated firing notifications.
-         * @minimum 0
-         * @maximum 720
-         */
-      cooldown_hours?: number;
       /**
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
@@ -79280,22 +79263,11 @@ export namespace Schemas {
          */
       threshold_value?: string | null;
       /**
-         * Minimum current value before the alert can fire.
-         * @pattern ^-?\d{0,14}(?:\.\d{0,6})?$
-         */
-      minimum_value?: string;
-      /**
          * Reserved for future increase-over-baseline rules. Not used by absolute value alerts.
          * @minimum 1
          * @maximum 90
          */
       baseline_window_days?: number;
-      /**
-         * Hours after a UTC billing date ends before it becomes eligible for evaluation.
-         * @minimum 0
-         * @maximum 72
-         */
-      evaluation_delay_hours?: number;
       /** Current lifecycle state of this alert.
        *
        * * `not_firing` - Not firing
@@ -79304,12 +79276,6 @@ export namespace Schemas {
        * * `snoozed` - Snoozed
        * * `broken` - Broken */
       readonly state?: BillingAlertConfigurationStateEnum;
-      /**
-         * Minimum hours between repeated firing notifications.
-         * @minimum 0
-         * @maximum 720
-         */
-      cooldown_hours?: number;
       /**
          * ISO 8601 timestamp until which evaluation and notifications are snoozed, or null to resume.
          * @nullable
