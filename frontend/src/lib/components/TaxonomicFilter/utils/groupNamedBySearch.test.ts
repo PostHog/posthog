@@ -18,6 +18,26 @@ describe('groupNamedBySearch', () => {
         { searchQuery: 'feature flags', offered: propertyPicker, expected: TaxonomicFilterGroupType.EventFeatureFlags },
         { searchQuery: 'persons', offered: personPicker, expected: TaxonomicFilterGroupType.Persons },
         { searchQuery: 'cohort', offered: personPicker, expected: TaxonomicFilterGroupType.CohortsWithAllUsers },
+        {
+            searchQuery: 'person',
+            offered: [TaxonomicFilterGroupType.Persons, TaxonomicFilterGroupType.PersonProperties],
+            expected: TaxonomicFilterGroupType.PersonProperties,
+        },
+        {
+            searchQuery: 'cohort',
+            offered: [TaxonomicFilterGroupType.CohortsWithAllUsers, TaxonomicFilterGroupType.Cohorts],
+            expected: TaxonomicFilterGroupType.Cohorts,
+        },
+        {
+            searchQuery: 'flags',
+            offered: [TaxonomicFilterGroupType.FeatureFlags, TaxonomicFilterGroupType.EventFeatureFlags],
+            expected: TaxonomicFilterGroupType.EventFeatureFlags,
+        },
+        {
+            searchQuery: 'flag',
+            offered: [TaxonomicFilterGroupType.FeatureFlags],
+            expected: TaxonomicFilterGroupType.FeatureFlags,
+        },
         { searchQuery: 'session', offered: propertyPicker, expected: null },
         { searchQuery: 'person_id', offered: propertyPicker, expected: null },
         { searchQuery: 'email', offered: propertyPicker, expected: null },
