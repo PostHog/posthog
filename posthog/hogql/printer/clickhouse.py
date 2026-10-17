@@ -1,4 +1,5 @@
 import re
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import TYPE_CHECKING, ClassVar, Optional, cast
 from uuid import UUID
@@ -1218,7 +1219,9 @@ class ClickHousePrinter(BasePrinter):
             type=ast.BooleanType(),
         )
 
-    def _print_select_columns(self, columns):
+    def _prepare_select_columns(self, columns: Iterable[ast.Expr]) -> list[tuple[ast.Expr, str | None]]:
+        columns = list(columns)
+
         def _alias_from_column_type(column: ast.Expr) -> str | None:
             column_type = getattr(column, "type", None)
             if isinstance(column_type, ast.FieldAliasType):
@@ -1236,7 +1239,7 @@ class ClickHousePrinter(BasePrinter):
                 if not found_aliases.get(alias.alias, None) or not alias.hidden:
                     found_aliases[alias.alias] = alias
 
-        columns_sql = []
+        prepared_columns: list[tuple[ast.Expr, str | None]] = []
         used_aliases: set[str] = set()
         for column in columns:
             printed_alias: str | None = None
@@ -1271,11 +1274,20 @@ class ClickHousePrinter(BasePrinter):
                     printed_alias = column_alias
                 else:
                     printed_alias = None
-            columns_sql.append(self.visit(column))
+            prepared_columns.append((column, printed_alias))
             if printed_alias is not None:
                 used_aliases.add(printed_alias)
 
-        return columns_sql
+        return prepared_columns
+
+    def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
+        return [self.visit(column) for column, _ in self._prepare_select_columns(columns)]
+
+    def select_column_names(self, query: ast.SelectQuery) -> list[str]:
+        return [
+            column.alias if isinstance(column, ast.Alias) and not column.hidden else self.visit(column)
+            for column, _ in self._prepare_select_columns(query.select)
+        ]
 
     def _get_extra_select_clauses(
         self,
