@@ -1131,6 +1131,8 @@ export interface SurveyRatingQuestionSchemaApi {
     lowerBoundLabel?: string
     /** Label for the highest rating (e.g., 'Excellent') */
     upperBoundLabel?: string
+    /** When true, the survey submits the rating when the respondent selects it, and hides the submit button. */
+    skipSubmitButton?: boolean
     branching?: SurveyBranchingSchemaApi | null
 }
 
@@ -1171,6 +1173,8 @@ export interface SurveySingleChoiceQuestionSchemaApi {
     shuffleOptions?: boolean
     /** Whether the final option should be an open-text choice (for example, 'Other'). */
     hasOpenChoice?: boolean
+    /** When true, the survey submits the choice when the respondent selects it, and hides the submit button. Has no effect when hasOpenChoice is true. */
+    skipSubmitButton?: boolean
     branching?: SurveyBranchingSchemaApi | null
 }
 
