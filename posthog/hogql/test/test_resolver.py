@@ -90,6 +90,25 @@ class TestResolver(BaseTest):
             "Type already resolved for SelectQuery (SelectQueryType). Can't run again.",
         )
 
+    @parameterized.expand(
+        [
+            (
+                "table_column",
+                "SELECT event.organization FROM events",
+                'Can not access property "organization" on field "event" of type: StringDatabaseField',
+            ),
+            (
+                "subquery_column",
+                "SELECT s.event.organization FROM (SELECT event FROM events) AS s",
+                'Can not access property "organization" on field "event".',
+            ),
+        ]
+    )
+    def test_property_access_on_non_json_field_is_a_query_error(self, _name: str, query: str, message: str):
+        with self.assertRaises(QueryError) as ctx:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        assert str(ctx.exception) == message
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_events_table_alias(self):
         expr = self._select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")

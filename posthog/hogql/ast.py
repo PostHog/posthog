@@ -678,7 +678,7 @@ class ExpressionFieldType(Type):
         return UnknownType()
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class FieldType(Type):
     name: str
     table_type: TableOrSelectType
@@ -725,7 +725,7 @@ class FieldType(Type):
             constant_type = self.resolve_constant_type(context)
             if isinstance(constant_type, (StringJSONType, StringArrayType)):
                 return PropertyType(chain=[name], field_type=self)
-            raise ResolutionError(f'Can not access property "{name}" on field "{self.name}".')
+            raise QueryError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertyType(chain=[name], field_type=self)
         if isinstance(database_field, StringArrayDatabaseField):
@@ -733,7 +733,7 @@ class FieldType(Type):
         if isinstance(database_field, StructDatabaseField):
             return PropertyType(chain=[name], field_type=self)
 
-        raise ResolutionError(
+        raise QueryError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
