@@ -444,7 +444,12 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         cooldown_key = f"proxy_records:diagnose:cooldown:{record.id}:{request.user.id}"
         if not cache.add(cooldown_key, "1", timeout=DIAGNOSE_COOLDOWN_SECONDS):
             return Response(
-                {"detail": "A diagnostic was just run for this proxy. Please wait a few seconds before trying again."},
+                {
+                    "detail": (
+                        "A diagnostic was just run for this proxy. "
+                        f"Please wait about {DIAGNOSE_COOLDOWN_SECONDS} seconds before trying again."
+                    )
+                },
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
