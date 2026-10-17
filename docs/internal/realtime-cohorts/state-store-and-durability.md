@@ -75,9 +75,7 @@ If the lost write would have been the person's first row, reconcile never sees t
 While a partition's worker runs, it is the only writer of its key range.
 Merges, cascades, sweeps, garbage collection, backfill and reconcile all run on that worker, so reads always see the worker's own previous writes.
 Partition wipes and the boot redrive of the transfer outbox run from outside the worker.
-A revoke wipes a slice after its worker exits, and a partition that moves in after boot is wiped just before its worker spawns.
-The boot redrive is meant to run before workers exist, but nothing enforces that, so a worker can already be running while it clears outbox rows.
-[Processor runtime](processor-runtime.md#startup) describes the gap.
+Both run before the first poll, and workers spawn only after them, as [processor runtime](processor-runtime.md#startup) describes.
 The processor needs no locks and no RocksDB snapshots.
 
 ## The durability invariant
@@ -143,9 +141,10 @@ With durable restore on, the processor also:
 Nothing is dispatched to a worker, from the events consumer or a follower, until these boot steps end.
 [Processor runtime](processor-runtime.md#startup) lists them in order.
 
-When a partition is revoked, its worker drains and exits, and its slice is deleted with its coverage record.
-State never moves between pods, which is why the processor runs as a single pod.
-[Processor runtime](processor-runtime.md#rebalance-and-the-single-pod-constraint) explains that constraint.
+A pod owns its partitions for as long as it runs, so no slice changes owner while the pod runs.
+State never moves between pods, which is why one pod that owns every partition is the supported deployment.
+The store records the split of the partitions it was written under and refuses to open under another.
+[Processor runtime](processor-runtime.md#ownership-and-the-single-pod-deployment) explains that constraint.
 
 ### Choosing a checkpoint
 
@@ -207,7 +206,7 @@ An input whose gate turned on after the capture has no position, so it resumes f
 An input that is no longer enabled is ignored.
 
 The check holds at boot, but the consumer still has to read past the oldest retained segment before retention deletes it.
-A consumer whose position falls below the low watermark resets to `latest` for the events topic and `earliest` for the followers, without a trace.
+A consumer whose position falls below the low watermark resets to `earliest` without a trace, so the events that retention deleted are lost.
 So keep `CHECKPOINT_IMPORT_WINDOW_HOURS` below the events topic's retention by more than a restore's catch-up time.
 A pod down longer than the window then lists no candidate and creates its store behind the coverage fence, which is the safe direction.
 The window bounds only the listing: a restore already published resumes at any age, and the checks before and after the download, and when the restore finishes, still catch a position that expired.
@@ -287,7 +286,7 @@ It lives in `cf_person_records` under a 3-byte key, `[partition][0xFE]`, which n
 | The store is created: none on disk, a wipe at start, a wipe on schema mismatch, or nothing to restore | The open stamps `cf_meta[slice_coverage]`, with no records. Each slice begins when its partition is assigned                      |
 | A store with the stamp reopens                                                                        | Each slice resumes its own record                                                                                                 |
 | A store without the stamp reopens                                                                     | It predates coverage records. The open writes `complete` for every partition and the stamp in one batch, so it adopts once        |
-| A revoke, the boot deletion of an unowned partition, or a move-in wipe                                | `delete_partition` deletes the record with the slice, and the next worker begins the slice anew from its assignment               |
+| The boot deletion of an unowned partition                                                             | `delete_partition` deletes the record with the slice, and the next worker begins the slice anew from its assignment               |
 | A checkpoint restore                                                                                  | The record and the stamp travel inside the checkpoint. A slice the restore cannot replay is reset with its record and begins anew |
 
 A reconcile certifies its partition only when the slice holds the run's history: the slice is complete, or it began at or before the run's boundary.
@@ -354,8 +353,8 @@ A lint rule denies direct calls to most store I/O methods, and the synchronous s
   With checkpoints enabled, the boot deletes it and restores.
 - A store directory that holds `restore.json` is a checkpoint restore in progress, not a live store.
   An image from before that marker ignores it and reopens the store at the broker's old offsets, so do not roll back while a restore is pending.
-- Static group membership keeps a restart from causing a revoke.
-  A second group member, or a pod that loses its session or stops polling, still causes one.
-  Each revoke deletes the whole slice, including merge transfers not yet sent, whose merge offsets may already be committed.
+- Changing `COHORT_POD_COUNT` makes every store written under another split refuse to open, because each records the split it was written under.
+  [Ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) lists what to wipe.
+  Wiping a store deletes every slice, including merge transfers not yet sent, whose merge offsets may already be committed.
 - Person records grow with every person seen on a team with person-property conditions, including those that match nothing, unless a time-to-live is configured.
 - The person record time-to-live is judged against event time, so importing old events can write records that are already eligible for expiry.

@@ -7,7 +7,7 @@ use rdkafka::error::{KafkaError, KafkaResult};
 use rdkafka::types::RDKafkaErrorCode;
 
 use super::manifest::OffsetManifest;
-use crate::partitions::{InputGroups, InputTopic, ResumeOffset};
+use crate::partitions::{InputGroups, InputTopic, PartitionOwnership, ResumeOffset};
 
 /// Watermarks of the enabled inputs.
 pub trait ReplayWindow {
@@ -143,10 +143,15 @@ impl RestorePlan {
         })
     }
 
-    /// Where `topic` resumes on every slice the plan keeps.
-    pub fn positions(&self, topic: &InputTopic) -> BTreeMap<u16, ResumeOffset> {
+    /// Where `topic` resumes on every slice the plan keeps that `ownership` owns.
+    pub fn positions(
+        &self,
+        topic: &InputTopic,
+        ownership: &PartitionOwnership,
+    ) -> BTreeMap<u16, ResumeOffset> {
         self.0
             .iter()
+            .filter(|&(&partition, _)| ownership.owns(partition))
             .filter_map(|(&partition, slice)| match slice {
                 SliceRestore::Resume(positions) => Some((partition, *positions.get(topic)?)),
                 SliceRestore::Reset(_) => None,
@@ -158,6 +163,8 @@ impl RestorePlan {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::num::NonZeroU16;
+
     use crate::partitions::InputPositions;
     use crate::store::durability::lineage::PodOrdinal;
 
@@ -293,9 +300,20 @@ mod tests {
         );
         assert!(plan.resumes_any());
         assert_eq!(
-            plan.positions(&InputTopic::new(EVENTS)),
+            plan.positions(&InputTopic::new(EVENTS), &PartitionOwnership::single(5)),
             BTreeMap::from([(0, offset(10)), (4, offset(10))]),
         );
+        let pod_of_eight = |ordinal| {
+            PartitionOwnership::new(NonZeroU16::new(8).unwrap(), PodOrdinal::from(ordinal), 8)
+                .unwrap()
+        };
+        for (ordinal, kept) in [(0, 0), (4, 4)] {
+            assert_eq!(
+                plan.positions(&InputTopic::new(MERGES), &pod_of_eight(ordinal)),
+                BTreeMap::from([(kept, offset(5))]),
+                "pod {ordinal} positions only its own kept slice",
+            );
+        }
     }
 
     #[test]
@@ -313,7 +331,9 @@ mod tests {
                 SliceRestore::Resume(BTreeMap::from([(InputTopic::new(EVENTS), offset(10))])),
             )]),
         );
-        assert!(plan.positions(&InputTopic::new(SEEDS)).is_empty());
+        assert!(plan
+            .positions(&InputTopic::new(SEEDS), &PartitionOwnership::single(1))
+            .is_empty());
     }
 
     #[test]

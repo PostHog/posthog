@@ -1,10 +1,10 @@
 //! The `cohort_stream_seed_events` follower consumer — the backfill day-tile input.
 //!
-//! Assignment arrives via the events group's rebalance mirror. Four admission gates share one
-//! holdover + pause mechanism: the apply fence (a tile dispatches only once its partition's live
-//! watermark clears `s_chunk + margin`), a full seed lane, live-priority (the partition's live
-//! watermark age crossed the pause threshold — live traffic always wins), and pod-wide disk
-//! pressure. An un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
+//! It is assigned the partitions this pod owns, like the events consumer. Four admission gates
+//! share one holdover + pause mechanism: the apply fence (a tile dispatches only once its
+//! partition's live watermark clears `s_chunk + margin`), a full seed lane, live-priority (the
+//! partition's live watermark age crossed the pause threshold — live traffic always wins), and
+//! pod-wide disk pressure. An un-dispatched tile was never `mark_dispatched`ed, so its offset cannot commit.
 //! The live-lag gate remains an admission backstop because an admitted seed run still uses the
 //! worker and its CPU and I/O even though separate lanes keep queued seeds behind live traffic.
 //! Consume-side skips ride the seed lane so their offsets mark in order; they never close the
