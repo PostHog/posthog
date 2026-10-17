@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -1383,15 +1384,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return
                 }
 
+                // Unchanged configuration triggers capability checks that can block rename/disable after flag-off.
+                const evaluationData = isNew
+                    ? values.evaluation
+                    : Object.fromEntries(
+                          Object.entries(values.evaluation).filter(
+                              ([field, value]) =>
+                                  !objectsEqual(value, values.originalEvaluation?.[field as keyof EvaluationConfig])
+                          )
+                      )
                 const response = (isNew
                     ? await evaluationsCreate(
                           teamId.toString(),
-                          values.evaluation as Parameters<typeof evaluationsCreate>[1]
+                          evaluationData as Parameters<typeof evaluationsCreate>[1]
                       )
                     : await evaluationsPartialUpdate(
                           teamId.toString(),
                           props.evaluationId,
-                          values.evaluation as Parameters<typeof evaluationsPartialUpdate>[2]
+                          evaluationData as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
                 actions.saveEvaluationSuccess(response)
                 // The list and the self-driving table read from llmEvaluationsLogic, which only

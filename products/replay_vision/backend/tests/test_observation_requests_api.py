@@ -26,7 +26,10 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner, 
 from products.replay_vision.backend.observation_requests import (
     _SWEEP_CURSOR_KEY,
     MAX_SESSION_END_WAIT,
+    RequestSession,
+    RequestSessionState,
     _complete_page,
+    _unanswered_reason,
     complete_settled_requests,
     recording_viewer_access,
     request_progress,
@@ -307,6 +310,58 @@ class TestRequestProgress(APIBaseTest):
 
         self.assertEqual([s.state for s in progress.sessions], [state])
         self.assertEqual(progress.settled, settled)
+
+
+class TestUnansweredReason:
+    @parameterized.expand(
+        [
+            ("answered", RequestSessionState.SUCCEEDED, "started", "", []),
+            (
+                "credits_used_up",
+                RequestSessionState.SKIPPED,
+                "skipped_quota",
+                None,
+                [
+                    "Your organization's Replay Vision credits for this period are used up, so the session wasn't scanned."
+                ],
+            ),
+            (
+                "too_short_keeps_the_measurement",
+                RequestSessionState.INELIGIBLE,
+                "started",
+                "too_short:Only 3.2s long; min is 5s",
+                ["The session was too short to analyze. Only 3.2s long; min is 5s."],
+            ),
+            (
+                "too_large_drops_raw_error_text",
+                RequestSessionState.INELIGIBLE,
+                "started",
+                "too_large:RECORDING_TOO_LARGE blocks=412",
+                ["This recording is too large to render as a video, so there was nothing to watch."],
+            ),
+            (
+                "failed_scan",
+                RequestSessionState.FAILED,
+                "started",
+                "provider_rejected:400 from provider",
+                ["The AI provider wouldn't analyze this recording's video."],
+            ),
+            ("never_started", RequestSessionState.FAILED, "failed", None, ["The scan failed to start."]),
+            ("lost", RequestSessionState.LOST, "started", "", ["The scan ran out of time before it finished."]),
+        ]
+    )
+    def test_names_why_the_step_got_no_answer(
+        self,
+        _name: str,
+        state: RequestSessionState,
+        scan_outcome: str,
+        error_reason: str | None,
+        expected: list[str],
+    ) -> None:
+        observation = None if error_reason is None else ReplayObservation(error_reason=error_reason)
+        session = RequestSession(session_id="s1", scan_outcome=scan_outcome, state=state, observation=observation)
+
+        assert _unanswered_reason(session) == expected
 
 
 class TestCompleteSettledRequests(APIBaseTest):

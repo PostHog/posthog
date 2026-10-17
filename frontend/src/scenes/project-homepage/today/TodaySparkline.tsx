@@ -7,6 +7,7 @@ import {
     type LineChartConfig,
     type Series,
     type TooltipContext,
+    TooltipSurface,
 } from '@posthog/quill-charts'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -84,10 +85,10 @@ export function TodaySparkline({
                 return null
             }
             return (
-                <div className="rounded-md border border-border bg-background px-2 py-1 shadow-sm">
-                    <div className="text-xs text-muted-foreground">{context.label}</div>
-                    <div className="text-xs font-medium tabular-nums text-foreground">{formatValue(value)}</div>
-                </div>
+                <TooltipSurface>
+                    <div className="opacity-70">{context.label}</div>
+                    <div className="font-medium tabular-nums">{formatValue(value)}</div>
+                </TooltipSurface>
             )
         },
         [formatValue]

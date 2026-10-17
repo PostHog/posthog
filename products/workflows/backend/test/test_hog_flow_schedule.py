@@ -12,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -204,6 +205,46 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["schedules"] == []
+
+    @parameterized.expand(
+        [
+            ("moving the start", {"starts_at": "2030-01-02T09:00:00Z"}, "changed"),
+            ("changing the repeat rule", {"rrule": "FREQ=WEEKLY;INTERVAL=1;BYDAY=TU"}, "changed"),
+            ("changing only the variables", {"variables": {"key": "value"}}, None),
+        ]
+    )
+    def test_update_schedule_logs_changes_to_the_send_times(self, _name, payload, expected_action):
+        workflow = self._create_batch_workflow()
+        schedule_id = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA).json()["id"]
+        logged_before = ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"]).count()
+
+        response = self.client.patch(self._schedule_detail_url(workflow["id"], schedule_id), payload)
+
+        assert response.status_code == status.HTTP_200_OK
+        entries = list(ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"]).order_by("created_at"))
+        new_changes = [(entry.detail or {})["changes"][0] for entry in entries[logged_before:]]
+        if expected_action is None:
+            assert new_changes == []
+        else:
+            assert [(change["field"], change["action"]) for change in new_changes] == [("schedule", expected_action)]
+            assert new_changes[0]["before"]["starts_at"] == "2030-01-01T09:00:00+00:00"
+            assert new_changes[0]["after"] == {
+                "rrule": payload.get("rrule", SCHEDULE_DATA["rrule"]),
+                "starts_at": payload.get("starts_at", SCHEDULE_DATA["starts_at"]).replace("Z", "+00:00"),
+                "timezone": "UTC",
+            }
+
+    def test_creating_and_deleting_a_schedule_logs_both(self):
+        workflow = self._create_batch_workflow()
+        schedule_id = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA).json()["id"]
+        self.client.delete(self._schedule_detail_url(workflow["id"], schedule_id))
+
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=workflow["id"], activity="updated")
+        changes = [(entry.detail or {})["changes"][0] for entry in entries.order_by("created_at")]
+        assert [(change["field"], change["action"]) for change in changes] == [
+            ("schedule", "created"),
+            ("schedule", "deleted"),
+        ]
 
     def test_delete_schedule(self):
         workflow = self._create_batch_workflow()

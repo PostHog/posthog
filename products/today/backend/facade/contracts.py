@@ -1,10 +1,13 @@
 """Contract types for today: what the product returns to its API, MCP tools and other products."""
 
+from collections.abc import Callable
 from dataclasses import field
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from pydantic.dataclasses import dataclass
+
+from posthog.dataclasses import frozen
 
 from .enums import (
     CitedSource,
@@ -18,6 +21,11 @@ from .enums import (
     ImpactNumberKey,
     KeyClauseRole,
 )
+
+if TYPE_CHECKING:
+    from posthog.models import Team, User
+
+T = TypeVar("T")
 
 
 @dataclass(frozen=True)
@@ -191,3 +199,79 @@ class Highlights:
     refresh_at: datetime
     pulse: list[HighlightMetric]
     items: list[HighlightItem]
+
+
+class DailyValueNotReady(Exception):
+    """A source raises this when a value it needs is still being computed. Today retries the source soon."""
+
+
+@frozen
+class HighlightCandidate:
+    """One fact a source offers to "For you today". Today ranks every candidate and shows the best few."""
+
+    key: str
+    label: HighlightLabel
+    # Today shows at most two items of one family, so a product cannot fill the list alone.
+    family: str
+    importance: float
+    relevance: float
+    title: str
+    detail: str
+    url: str | None = None
+    series: list[float] | None = None
+    # Items of different families that share a ref are about the same object, so Today shows one of them.
+    ref: str | None = None
+    # Today sets this to the name of the source that found the item.
+    source: str = ""
+
+
+@frozen
+class HighlightDetection:
+    """A notable move in a series, as `highlight_helpers.detect` reports it."""
+
+    kind: str
+    strength: float
+    direction: int
+    pct: float | None = None
+    now: float | None = None
+    usual: float | None = None
+    weekday: str | None = None
+    same_weekday: bool = False
+
+
+@frozen
+class HighlightFindings:
+    items: tuple[HighlightCandidate, ...] = ()
+    pulse: tuple[HighlightMetric, ...] = ()
+
+
+class HighlightContext(Protocol):
+    """What Today gives a source's `find`: the viewer, their local day, and Today's cache and error guard."""
+
+    team: "Team"
+    user: "User"
+    today: date
+
+    def allows(self, *required: str) -> bool: ...
+
+    # Caches one value per team, property restrictions and day, so every viewer with the same
+    # restrictions shares it. Never compute a per-viewer value here. Prefix `name` with the source name.
+    def daily(self, name: str, compute: Callable[[], T]) -> T: ...
+
+    def guard(self, name: str, provider: Callable[[], T], default: T) -> T: ...
+
+
+@frozen
+class HighlightSource:
+    """A product's contribution to "For you today".
+
+    A product declares its sources in `HIGHLIGHT_SOURCES` in `backend/facade/today_highlights.py`.
+    Today finds that module by name, so a new source changes no file in Today.
+    """
+
+    # Unique across products. Today keys stored results and the frontend icon by it.
+    name: str
+    find: Callable[[HighlightContext], HighlightFindings]
+    # Today skips the source when the viewer's API scopes or access controls do not cover these.
+    scopes: tuple[str, ...] = ()
+    pulse_order: int = 0
