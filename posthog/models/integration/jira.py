@@ -18,10 +18,56 @@ logger = structlog.get_logger(__name__)
 
 OPENING_FENCE = re.compile(r"(?P<fence>`{3,})(?P<language>[^`]*)")
 CLOSING_FENCE = re.compile(r"(?P<fence>`{3,})[ \t]*")
+URL = re.compile(r"https?://[^\s<>\"']+")
+# Punctuation that usually ends the sentence around a URL rather than belonging to it.
+URL_TRAILING_PUNCTUATION = ".,;:!?"
+
+
+def trim_url(url: str) -> str:
+    """Drops trailing sentence punctuation, and a closing parenthesis that has no opening one in the URL.
+
+    The descriptions are user input of any length, so the parentheses are counted once and the URL is cut once,
+    keeping this linear like the fence handling.
+    """
+    unmatched_closing = url.count(")") - url.count("(")
+    end = len(url)
+    while end:
+        last = url[end - 1]
+        if last in URL_TRAILING_PUNCTUATION:
+            end -= 1
+        elif last == ")" and unmatched_closing > 0:
+            unmatched_closing -= 1
+            end -= 1
+        else:
+            break
+    return url[:end]
+
+
+def text_to_adf_nodes(text: str) -> list[dict[str, Any]]:
+    """Splits text into ADF text nodes, giving each URL a link mark.
+
+    Jira only turns URLs into links when someone types them in its editor, so a URL sent through the API as plain
+    text stays plain text and can't be clicked.
+    """
+    nodes: list[dict[str, Any]] = []
+    position = 0
+    for match in URL.finditer(text):
+        url = trim_url(match.group())
+        if not url:
+            continue
+        start = match.start()
+        if start > position:
+            nodes.append({"type": "text", "text": text[position:start]})
+        nodes.append({"type": "text", "text": url, "marks": [{"type": "link", "attrs": {"href": url}}]})
+        position = start + len(url)
+    if position < len(text):
+        nodes.append({"type": "text", "text": text[position:]})
+    return nodes
 
 
 def description_to_adf(description: str) -> dict[str, Any]:
-    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise.
+    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise. URLs outside
+    code blocks become links.
 
     The fences follow CommonMark, so Jira shows the same blocks that GitHub would: a closing fence is at least as
     long as its opening fence, and a fence without a closing line runs to the end. Each line is read once, so a
@@ -38,7 +84,7 @@ def description_to_adf(description: str) -> dict[str, Any]:
         text_lines.clear()
         # Jira rejects an empty text node.
         if text.strip():
-            content.append({"type": "paragraph", "content": [{"type": "text", "text": text}]})
+            content.append({"type": "paragraph", "content": text_to_adf_nodes(text)})
 
     def add_code_block(language: str) -> None:
         code_block: dict[str, Any] = {"type": "codeBlock", "content": []}
