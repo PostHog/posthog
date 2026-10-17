@@ -761,7 +761,7 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
                 }
 
                 // Hack to get bools to render in the data grid
-                if (type && type.indexOf('Bool') !== -1) {
+                if (cleanClickhouseType(type) === 'Bool') {
                     return {
                         ...baseColumn,
                         renderCell: (props: any) => {

@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { IMAGE_QUERY, IMAGE_RESULTS } from '~/queries/nodes/HogQLX/image.fixtures'
 import { BIConfig, BIField } from '~/queries/schema/schema-business-intelligence'
 import {
     DatabaseSchemaMaterializedViewTable,
@@ -206,6 +207,40 @@ export default meta
 
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
+
+export const CustomerImages: Story = {
+    tags: ['hogqlx-images'],
+    parameters: {
+        pageUrl: urls.sqlEditor({ query: IMAGE_QUERY }),
+        testOptions: { waitForSelector: 'img[alt="Custom SVG"]', viewport: { width: 1600, height: 900 } },
+        msw: {
+            mocks: {
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': IMAGE_RESULTS,
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const editor = sqlEditorLogic({ tabId: 'default' })
+        await waitFor(() => {
+            expect(editor.values.queryInput).toBe(IMAGE_QUERY)
+            expect(dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })).toBeDefined()
+        })
+        const runButton = canvasElement.querySelector('[data-attr="sql-editor-run-button"]')
+        expect(runButton).not.toBeNull()
+        await userEvent.click(runButton!)
+        await waitFor(() => {
+            const image = canvasElement.querySelector('img[alt="Custom SVG"]')
+            expect(image).not.toBeNull()
+            expect(image!.getBoundingClientRect().height).toBeLessThanOrEqual(24)
+            const labels = canvasElement.querySelectorAll('[data-attr="hogqlx-brand-mark-label"]')
+            expect(Array.from(labels, (label) => label.textContent)).toEqual(['true', 'false'])
+        })
+        const dataLogic = dataNodeLogic.findMounted({ key: editor.values.dataLogicKey })!
+        dataLogic.actions.setElapsedTime(180)
+    },
+}
 
 export const HostedTrino: Story = {
     parameters: {
