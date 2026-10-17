@@ -73,3 +73,21 @@ def test_import_leaves_a_team_the_report_does_not_cover(team, tmp_path):
     )
 
     assert ActionSelectorMatchChange.objects.for_team(other.id).count() == 1
+
+
+def test_import_skips_a_team_deleted_after_the_audit(team, tmp_path):
+    deleted_team_id = team.id + 1000
+    action = Action.objects.create(team=team, name="checkout", steps_json=[{"selector": ".btn"}])
+    call_command(
+        "import_selector_match_changes",
+        report=_report(
+            tmp_path / "report.json",
+            {
+                team.id: [_flagged_row(team.id, action.id, ".btn")],
+                deleted_team_id: [_flagged_row(deleted_team_id, action.id, ".btn")],
+            },
+        ),
+        live_run=True,
+    )
+
+    assert ActionSelectorMatchChange.objects.for_team(team.id).count() == 1
