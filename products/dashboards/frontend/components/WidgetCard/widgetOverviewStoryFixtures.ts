@@ -549,6 +549,17 @@ export function getWidgetOverviewDemoState(catalogKey: DashboardWidgetCatalogKey
                     totalCount: 12,
                 },
             }
+        case 'canvas_app':
+            // A live canvas needs a signed artifact from the canvas origin, which a story cannot serve, so
+            // the overview shows the tile's unconfigured state.
+            return {
+                title: defaultTitle,
+                description: catalogEntry.description,
+                showDescription: true,
+                config: defaultConfig,
+                loading: false,
+                result: { canvas: null, needsConfiguration: true },
+            }
         default: {
             const exhaustiveCheck: never = catalogKey
             return exhaustiveCheck
