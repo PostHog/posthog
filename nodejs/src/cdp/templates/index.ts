@@ -8,6 +8,10 @@ import { template as clickupTemplate } from './_destinations/clickup/clickup.tem
 import { template as closeTemplate } from './_destinations/close/close.template'
 import { allComingSoonTemplates } from './_destinations/coming-soon/coming-soon-destinations.template'
 import { template as emailTemplate } from './_destinations/email/email.template'
+import { template as githubAddLabelsTemplate } from './_destinations/github/github-add-labels.template'
+import { template as githubCreateCommentTemplate } from './_destinations/github/github-create-comment.template'
+import { template as githubFindCommentTemplate } from './_destinations/github/github-find-comment.template'
+import { template as githubRemoveLabelTemplate } from './_destinations/github/github-remove-label.template'
 import { template as githubTemplate } from './_destinations/github/github.template'
 import { template as gitlabTemplate } from './_destinations/gitlab/gitlab.template'
 import { template as googleTagManagerTemplate } from './_destinations/google-tag-manager/google-tag-manager.template'
@@ -129,6 +133,10 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     unifyTemplate,
     closeTemplate,
     retainTemplate,
+    githubFindCommentTemplate,
+    githubCreateCommentTemplate,
+    githubAddLabelsTemplate,
+    githubRemoveLabelTemplate,
 ]
 
 export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
