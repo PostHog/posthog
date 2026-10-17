@@ -163,6 +163,34 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         assert set(response.columns).issubset({"date", "total"})
         assert response.results[0][1] == [1, 1, 1, 1, 0, 0, 0]
 
+    @override_settings(IN_UNIT_TESTING=True)
+    def test_trends_data_warehouse_series_on_same_table_keep_own_timestamp_field(self):
+        # Each series buckets by its own `timestamp_field`, so the last series must not remap the first.
+        table_name = self.setup_data_warehouse_with_decoy_timestamp()
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="2023-01-01"),
+            series=[
+                DataWarehouseNode(
+                    id=table_name,
+                    table_name=table_name,
+                    id_field="id",
+                    distinct_id_field="id",
+                    timestamp_field=timestamp_field,
+                )
+                for timestamp_field in ("event_time", "timestamp")
+            ],
+        )
+
+        with time_machine.travel("2023-01-07", tick=False):
+            response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
+
+        assert [series["data"] for series in response.results] == [
+            [1, 1, 1, 1, 0, 0, 0],
+            [0, 0, 0, 4, 0, 0, 0],
+        ]
+
     def setup_data_warehouse_with_decoy_distinct_id(self):
         # Table whose real actor identifier lives in `user_id`, but which also has a column literally
         # named `distinct_id` (a decoy, e.g. a source-system id). With `aggregate_users_by_distinct_id`,
