@@ -218,4 +218,24 @@ describe('insightDataChecksLogic', () => {
         expect(dataChecks).toHaveBeenCalledTimes(1)
         overriddenLogic.unmount()
     })
+
+    it('cancels a running check when the insight unmounts, so it frees the chart queue', async () => {
+        let signal: AbortSignal | undefined
+        let markSent: () => void = () => {}
+        const sent = new Promise<void>((resolve) => {
+            markSent = resolve
+        })
+        dataChecks.mockImplementation(async ({ request }: { request: Request }) => {
+            signal = request.signal
+            markSent()
+            return await new Promise(() => {})
+        })
+        turnTheFlagOn()
+        await sent
+
+        logic.unmount()
+
+        expect(signal?.aborted).toBe(true)
+        logic.mount()
+    })
 })
