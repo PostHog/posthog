@@ -3,21 +3,31 @@ import type { InsightDataCheckApi } from 'products/product_analytics/frontend/ge
 import { dataCheckFixPrompt } from './dataCheckFixPrompt'
 import type { DataCheckPromptContext } from './dataCheckFixPrompt'
 
-const context: DataCheckPromptContext = { insightUrl: null, events: ['signed up'], eventsChecked: 1000, sampled: false }
+const context: DataCheckPromptContext = {
+    insightUrl: null,
+    events: ['signed up'],
+    eventsChecked: 1000,
+    filtersTestAccounts: true,
+}
 const internalUsers: InsightDataCheckApi = {
     key: 'internal_users',
     level: 'problem',
-    name: 'Internal and test users',
-    result: '30% of these events came from internal and test users',
-    fix: "The internal and test users filter does not remove all of them. Change the filter so that it also removes your team's emails.",
-    action: 'open_filter_settings',
+    skip_reason: null,
+    method: 'counted',
     events: 300,
     share: 0.3,
+    scaled: false,
+    action: 'open_filter_settings',
+    top_events: ['signed up'],
+    top_hosts: [],
+    top_bots: [],
 }
 
 describe('dataCheckFixPrompt', () => {
-    it("passes on the server's fix when the filter exists and misses the team", () => {
-        expect(dataCheckFixPrompt(internalUsers, context)).toContain(internalUsers.fix)
+    it('asks for a change to the filter when the filter misses the team', () => {
+        expect(dataCheckFixPrompt(internalUsers, context)).toContain(
+            "Change the internal and test users filter so that it removes your team's emails."
+        )
     })
 
     it('keeps an event name from adding lines or tags of its own', () => {

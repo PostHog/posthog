@@ -18,8 +18,7 @@ const props = { dashboardItemId: '123' as InsightShortId }
 const checksOf = (status: string): Record<string, unknown> => ({
     status,
     checks: [],
-    events_checked: 10,
-    sample_rate: 1,
+    coverage: null,
 })
 
 describe('insightDataChecksLogic', () => {

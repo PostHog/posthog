@@ -64,6 +64,7 @@ export interface insightDataChecksLogicValues {
     checks: InsightDataCheckApi[]
     dataChecksRun: DataChecksRun | null
     dataChecksRunLoading: boolean
+    filtersTestAccounts: boolean
     findings: InsightDataCheckApi[]
     promptContext: DataCheckPromptContext | null
     requestedQuery: DataChecksQuery | null
@@ -333,6 +334,10 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             (dataChecksRun: DataChecksRun | null, status: InsightDataChecksStatus): InsightDataChecksApi | null =>
                 dataChecksRun?.ok && status !== 'checking' ? dataChecksRun.result : null,
         ],
+        filtersTestAccounts: [
+            (s) => [s.result],
+            (result: InsightDataChecksApi | null): boolean => result?.coverage?.filters_test_accounts ?? false,
+        ],
         checks: [
             (s) => [s.result],
             (result: InsightDataChecksApi | null): InsightDataCheckApi[] => result?.checks ?? [],
@@ -361,8 +366,8 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                             ? urls.absolute(urls.currentProject(urls.insightView(insight.short_id)))
                             : null,
                     events: names.every((name): name is string => !!name) ? [...new Set(names)] : 'all',
-                    eventsChecked: result.events_checked,
-                    sampled: result.sample_rate < 1,
+                    eventsChecked: result.coverage?.events_checked ?? null,
+                    filtersTestAccounts: result.coverage?.filters_test_accounts ?? false,
                 }
             },
         ],

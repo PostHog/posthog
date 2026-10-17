@@ -17,7 +17,7 @@ const props = { dashboardItemId: '123' as InsightShortId }
 
 describe('InsightDataChecks', () => {
     it('keeps its result while the page hides it, and lets go of it when the page goes', async () => {
-        const dataChecks = jest.fn(() => [200, { status: 'passed', checks: [], events_checked: 10, sample_rate: 1 }])
+        const dataChecks = jest.fn(() => [200, { status: 'passed', checks: [], coverage: null }])
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend': [],
