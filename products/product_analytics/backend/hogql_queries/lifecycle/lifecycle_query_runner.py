@@ -338,17 +338,27 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
     @cached_property
     def event_filter(self) -> ast.Expr:
         event_filters: list[ast.Expr] = []
-        if not self.is_data_warehouse_series or self.data_warehouse_series.table_name == FLAG_EVALUATIONS_HOGQL_TABLE:
+        if not self.is_data_warehouse_series:
             # Personless (anonymous) events are excluded: lifecycle classifies a user's activity
             # across periods, which requires a person profile. This makes lifecycle counts lower
             # than unique-user trends for projects with anonymous traffic.
-            # The flag calls table stores each event's properties. Other warehouse tables have no
-            # $process_person_profile.
             event_filters.append(
                 ast.CompareOperation(
                     left=ast.Field(chain=["properties", "$process_person_profile"]),
                     right=ast.Constant(value="false"),
                     op=ast.CompareOperationOp.NotEq,
+                )
+            )
+        elif self.data_warehouse_series.table_name == FLAG_EVALUATIONS_HOGQL_TABLE:
+            # Ingestion sets person_mode to 'full' exactly when it does not set $process_person_profile
+            # to false, so this filter keeps the same rows as the events filter. The flag calls table
+            # does not materialize $process_person_profile, so the property filter would parse the
+            # properties JSON of every row. Other warehouse tables have no person mode.
+            event_filters.append(
+                ast.CompareOperation(
+                    left=ast.Field(chain=["person_mode"]),
+                    right=ast.Constant(value="full"),
+                    op=ast.CompareOperationOp.Eq,
                 )
             )
         with self.timings.measure("date_range"):
