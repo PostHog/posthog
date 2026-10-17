@@ -264,6 +264,31 @@ class MetricThresholdConfig(BaseModel):
         return self
 
 
+DEFAULT_MONITORING_INTERVAL_MINUTES = 24 * 60
+
+
+def monitoring_interval_minutes(run_interval_minutes: int | None) -> int:
+    return max(MIN_CHECK_INTERVAL_MINUTES, run_interval_minutes or DEFAULT_MONITORING_INTERVAL_MINUTES)
+
+
+def monitoring_comparison(config: MetricThresholdConfig, elapsed: timedelta) -> CheckComparison:
+    if config.monitoring is None or elapsed.total_seconds() <= 0:
+        raise ValueError("A Monitoring measurement needs its definition and a positive elapsed period.")
+    if config.monitoring.threshold_scaling == "fixed":
+        return config.comparison.model_copy(deep=True)
+    factor = elapsed.total_seconds() / (config.monitoring.reference_period_minutes * 60)
+    if config.comparison.operator == "between":
+        assert config.comparison.bounds is not None
+        return CheckComparison(
+            operator="between",
+            bounds=CheckThresholdBounds(
+                lower=config.comparison.bounds.lower * factor, upper=config.comparison.bounds.upper * factor
+            ),
+        )
+    assert config.comparison.value is not None
+    return CheckComparison(operator=config.comparison.operator, value=config.comparison.value * factor)
+
+
 class AgentCheckConfig(BaseModel):
     """A check a scout run answers: re-probe the report's claim and record one verdict.
 
@@ -375,9 +400,13 @@ def validate_metric_check_for_write(config: MetricThresholdConfig) -> None:
     if config.monitoring is not None:
         if config.baseline_value is not None and config.monitoring.baseline_period_minutes is None:
             raise CheckConfigValidationError("A Monitoring baseline needs its measured baseline_period_minutes.")
+        source = config.query["source"]
+        series = source["series"]
+        if any(item.get("math") in {"weekly_active", "monthly_active"} for item in series):
+            raise CheckConfigValidationError(
+                "Monitoring targets cannot use rolling weekly or monthly active users. Use a distinct user count instead."
+            )
         if config.monitoring.threshold_scaling == "linear":
-            source = config.query["source"]
-            series = source["series"]
             if (
                 len(series) != 1
                 or any((source.get("trendsFilter") or {}).get(key) for key in ("formula", "formulas", "formulaNodes"))

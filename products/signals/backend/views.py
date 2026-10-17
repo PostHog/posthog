@@ -1357,7 +1357,14 @@ class SignalReportViewSet(
         # so the main query doesn't LEFT JOIN + GROUP BY the full artefact table
         artefact_count_subquery = Subquery(
             SignalReportArtefact.objects.filter(report_id=OuterRef("id"))
-            .exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)
+            .exclude(
+                type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES
+                | (
+                    {SignalReportArtefact.ArtefactType.CHECK_OBSERVATION}
+                    if not self._report_monitoring_enabled
+                    else set()
+                )
+            )
             .values("report_id")
             .annotate(count=Count("*"))
             .values("count"),
@@ -2657,7 +2664,9 @@ class SignalReportViewSet(
         # page, rather than a correlated subquery the sort makes Postgres run for every report in
         # the team. The serializer reads both off the instance, as it does for the other actions.
         with tracer.start_as_current_span("signals.reports.list.fetch_artefact_fields"):
-            artefact_counts = SignalReportArtefact.counts_by_report(report_ids)
+            artefact_counts = SignalReportArtefact.counts_by_report(
+                report_ids, monitoring_enabled=self._report_monitoring_enabled
+            )
             live_channel_ids = SignalReportArtefact.live_channel_ids_by_report(report_ids)
             for report in reports:
                 report.__dict__.update(
@@ -5474,6 +5483,8 @@ class SignalReportArtefactViewSet(
             report_id=self._validated_report_id(),
             team=self.team,
         ).exclude(report__status=SignalReport.Status.DELETED)
+        if not organization_report_monitoring_enabled(self.organization.id):
+            queryset = queryset.exclude(type=SignalReportArtefact.ArtefactType.CHECK_OBSERVATION)
         # Scoring rows are staff-only on every artefact route, not only in the log.
         if not self.request.user.is_staff:
             queryset = queryset.exclude(type__in=SignalReportArtefact.SYSTEM_SCORING_ARTEFACT_TYPES)

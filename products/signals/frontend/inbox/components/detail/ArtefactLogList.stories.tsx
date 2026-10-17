@@ -371,3 +371,49 @@ export const RankingScoreNarrow: Story = {
         ),
     ],
 }
+
+export const MonitoringObservations: Story = {
+    parameters: { mockDate: '2026-10-04T12:00:00Z', featureFlags: ['signals-report-monitoring'] },
+    args: {
+        artefacts: [
+            {
+                id: 'observation-two',
+                type: 'check_observation',
+                created_at: '2026-10-04T12:00:00Z',
+                content: {
+                    check_id: 'example-check',
+                    title: 'Checkout errors stay low',
+                    monitoring_started_at: '2026-10-01T12:00:00Z',
+                    measured_at: '2026-10-04T12:00:00Z',
+                    observed_value: 35,
+                    comparison: { operator: 'lte', value: 30 },
+                    matches: false,
+                    explanation:
+                        'Interim measurement: Checkout errors stay low (35.0) is more than upper threshold (30.0)',
+                },
+            },
+            {
+                id: 'observation-one',
+                type: 'check_observation',
+                created_at: '2026-10-02T12:00:00Z',
+                content: {
+                    check_id: 'example-check',
+                    title: 'Checkout errors stay low',
+                    monitoring_started_at: '2026-10-01T12:00:00Z',
+                    measured_at: '2026-10-02T12:00:00Z',
+                    observed_value: 8,
+                    comparison: { operator: 'lte', value: 10 },
+                    matches: true,
+                    explanation: 'Interim measurement: Checkout errors stay low (8.0) is at most 10.0, as expected',
+                },
+            },
+        ],
+    },
+    decorators: [
+        (Story) => (
+            <div className="max-w-[32rem]">
+                <Story />
+            </div>
+        ),
+    ],
+}
