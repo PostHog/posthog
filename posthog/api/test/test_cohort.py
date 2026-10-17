@@ -4586,32 +4586,44 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Missing required keys for person filter: value")
 
+    @parameterized.expand(
+        [
+            (
+                "missing_event_type",
+                {"key": "$pageview", "type": "behavioral", "value": "performed_event"},
+                "Missing required keys for behavioral filter: event_type",
+            ),
+            (
+                "sequence_missing_seq_event_type",
+                {
+                    "key": "$pageview",
+                    "type": "behavioral",
+                    "value": "performed_event_sequence",
+                    "event_type": "events",
+                    "time_value": 30,
+                    "time_interval": "day",
+                    "seq_event": "signed_up",
+                    "seq_time_value": 1,
+                    "seq_time_interval": "day",
+                },
+                "Invalid behavioral filter: Missing required attr seq_event_type for property type behavioral::performed_event_sequence",
+            ),
+        ]
+    )
     @patch("posthog.api.cohort.report_user_action")
-    def test_cohort_property_validation_behavioral_filter(self, patch_capture):
+    def test_cohort_property_validation_behavioral_filter(
+        self, _name, behavioral_filter, expected_detail, patch_capture
+    ):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
                 "name": "cohort behavioral",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "type": "behavioral",
-                                "value": "performed_event",
-                                # Missing event_type
-                            }
-                        ],
-                    }
-                },
+                "filters": {"properties": {"type": "OR", "values": [behavioral_filter]}},
             },
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json()["detail"],
-            "Missing required keys for behavioral filter: event_type",
-        )
+        self.assertEqual(response.json()["detail"], expected_detail)
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="cohort behavioral").exists())
 
     @parameterized.expand(
         [

@@ -77,7 +77,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.filters.utils import earliest_timestamp_func
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property
+from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS, Property, PropertyValidationError
 from posthog.models.property.relative_date import determine_parsed_date_for_property_matching
 from posthog.models.team.team import DEPRECATED_ATTRS, Team
 from posthog.models.utils import UUIDT
@@ -556,6 +556,19 @@ def _calculate_realtime_support(group: CohortFilterGroup) -> bool:
                 # Filter doesn't support bytecode generation
                 return False
     return True
+
+
+def _validate_behavioral_leaves(group: dict) -> None:
+    """The cohort calculation drops a behavioral leaf that fails Property() validation, so a leaf
+    saved in that state silently removes its condition from every recalculation."""
+    for value in group.get("values", []):
+        if "values" in value:
+            _validate_behavioral_leaves(value)
+        elif value.get("type") == "behavioral":
+            try:
+                Property(**value)
+            except PropertyValidationError as exc:
+                raise ValidationError(detail=f"Invalid behavioral filter: {exc}")
 
 
 class CohortFilters(BaseModel, extra="forbid"):
@@ -1437,6 +1450,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             # pydantic → drf error shape
             raise ValidationError(detail=self._cohort_error_message(exc))
 
+        _validate_behavioral_leaves(raw["properties"])
         self._validate_feature_flag_constraints(raw, cohort_will_be_static)  # keep your side-rules
         return raw
 
