@@ -106,9 +106,9 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
         """
         with self.timings.measure("get_usage_metrics"):
             return list(
-                GroupUsageMetric.objects.filter(team=self.team).only(
-                    "id", "name", "format", "interval", "display", "filters", "math", "math_property"
-                )
+                GroupUsageMetric.objects.filter(team=self.team)
+                .only("id", "name", "format", "interval", "display", "filters", "math", "math_property")
+                .order_by("id")
             )
 
     @staticmethod
@@ -202,6 +202,8 @@ class UsageMetricsQueryRunner(AnalyticsQueryRunner[UsageMetricsQueryResponse]):
             where=ast.And(exprs=where_exprs),
             group_by=[ast.Field(chain=["day"])],
             order_by=[ast.OrderExpr(expr=ast.Field(chain=["day"]), order="ASC")],
+            # Without an explicit limit, the executor caps rows at the default limit and drops the latest days.
+            limit=ast.Constant(value=len(self._date_range(prev_date_from.date(), date_to.date()))),
         )
 
     @staticmethod
