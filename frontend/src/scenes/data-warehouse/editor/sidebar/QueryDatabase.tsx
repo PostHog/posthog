@@ -982,52 +982,55 @@ export const QueryDatabase = ({
 
                     return (
                         <DropdownMenuGroup>
-                            <div className="flex gap-px">
-                                {!isEmbeddedMode && item.record.type !== 'endpoint' ? (
-                                    <>
-                                        <DropdownMenuItem asChild>
-                                            <Link
-                                                to={urls.sqlEditor({ view_id: item.record.view?.id })}
-                                                onClick={(e) => e.stopPropagation()}
-                                                disabledReason={editViewAccessDisabledReason}
-                                                buttonProps={{
-                                                    menuItem: true,
-                                                    className: 'flex-1 rounded-r-none',
-                                                }}
-                                            >
-                                                {editLabel}
-                                            </Link>
+                            {/* Managed views have no saved query to open, so they get no edit action. */}
+                            {item.record.type !== 'managed-view' ? (
+                                <div className="flex gap-px">
+                                    {!isEmbeddedMode && item.record.type !== 'endpoint' ? (
+                                        <>
+                                            <DropdownMenuItem asChild>
+                                                <Link
+                                                    to={urls.sqlEditor({ view_id: item.record.view?.id })}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    disabledReason={editViewAccessDisabledReason}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                        className: 'flex-1 rounded-r-none',
+                                                    }}
+                                                >
+                                                    {editLabel}
+                                                </Link>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem asChild>
+                                                <Link
+                                                    to={urls.sqlEditor({ view_id: item.record.view?.id })}
+                                                    target="_blank"
+                                                    targetBlankIcon={false}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                    disabledReason={editViewAccessDisabledReason}
+                                                    tooltip={editLabel}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                        iconOnly: true,
+                                                        className: 'px-2 rounded-l-none',
+                                                    }}
+                                                >
+                                                    <IconExternal />
+                                                </Link>
+                                            </DropdownMenuItem>
+                                        </>
+                                    ) : (
+                                        <DropdownMenuItem
+                                            asChild
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                openItemEditor(item, true)
+                                            }}
+                                        >
+                                            <ButtonPrimitive menuItem>{editLabel}</ButtonPrimitive>
                                         </DropdownMenuItem>
-                                        <DropdownMenuItem asChild>
-                                            <Link
-                                                to={urls.sqlEditor({ view_id: item.record.view?.id })}
-                                                target="_blank"
-                                                targetBlankIcon={false}
-                                                onClick={(e) => e.stopPropagation()}
-                                                disabledReason={editViewAccessDisabledReason}
-                                                tooltip={editLabel}
-                                                buttonProps={{
-                                                    menuItem: true,
-                                                    iconOnly: true,
-                                                    className: 'px-2 rounded-l-none',
-                                                }}
-                                            >
-                                                <IconExternal />
-                                            </Link>
-                                        </DropdownMenuItem>
-                                    </>
-                                ) : (
-                                    <DropdownMenuItem
-                                        asChild
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            openItemEditor(item, true)
-                                        }}
-                                    >
-                                        <ButtonPrimitive menuItem>{editLabel}</ButtonPrimitive>
-                                    </DropdownMenuItem>
-                                )}
-                            </div>
+                                    )}
+                                </div>
+                            ) : null}
                             <DropdownMenuItem
                                 asChild
                                 onClick={(e) => {

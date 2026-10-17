@@ -4083,23 +4083,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setViewLoading(true)
                     actions.setViewQueryLoading(true)
 
-                    if (values.dataWarehouseSavedQueries.length === 0) {
-                        await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
-                    }
-
-                    const summary = values.dataWarehouseSavedQueries.find((n) => n.id === viewId)
-                    if (!summary) {
-                        lemonToast.error('View not found')
-                        actions.setViewLoading(false)
-                        actions.setViewQueryLoading(false)
-                        return
-                    }
-
+                    // Fetch by id rather than check the cached list: the list endpoint leaves out
+                    // endpoint-origin views, but retrieve returns them.
                     let view: DataWarehouseSavedQuery
                     try {
                         view = await api.dataWarehouseSavedQueries.get(viewId)
-                    } catch {
-                        lemonToast.error('Failed to load view details')
+                    } catch (e) {
+                        lemonToast.error(
+                            e instanceof ApiError && e.status === 404 ? 'View not found' : 'Failed to load view details'
+                        )
                         actions.setViewLoading(false)
                         actions.setViewQueryLoading(false)
                         return

@@ -2291,6 +2291,24 @@ describe('sqlEditorLogic', () => {
             }
         )
 
+        it('opens a view that the saved query list leaves out', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/warehouse_saved_queries/': { results: [] },
+                    '/api/environments/:team_id/warehouse_saved_queries/': { results: [] },
+                },
+            })
+            logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { open_view: MOCK_VIEW.id })
+
+            await expectLogic(logic)
+                .toDispatchActions(['setViewLoading', 'createTab', 'updateTab'])
+                .toMatchValues({ editingView: partial({ id: MOCK_VIEW.id }) })
+                .toFinishAllListeners()
+        })
+
         it('preserves view details when a metadata list refresh updates the active tab', async () => {
             logic = sqlEditorLogic({ tabId: TAB_ID, monaco: createMockMonaco(), editor: createMockEditor() })
             logic.mount()
