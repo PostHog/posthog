@@ -6,6 +6,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.errors import NonReportableError
 
 from products.tasks.backend.facade.compute_quota import ComputeBillingLimitExceeded
 
@@ -283,7 +284,7 @@ class GitHubAuthenticationError(ProcessTaskFatalError):
     pass
 
 
-class CredentialUnavailableError(ProcessTaskFatalError):
+class CredentialUnavailableError(ProcessTaskFatalError, NonReportableError):
     """A sandbox credential can never be resolved again for this run — the backing
     integration row was deleted mid-run or the user must re-authorize.
 
@@ -295,7 +296,7 @@ class CredentialUnavailableError(ProcessTaskFatalError):
         ProcessTaskError.__init__(self, message, context, cause, capture=False, non_retryable=True)
 
 
-class GatewayTokenUnavailableError(ProcessTaskFatalError):
+class GatewayTokenUnavailableError(ProcessTaskFatalError, NonReportableError):
     """No Go token for a posthog_code run, for a reason a retry won't change. Expected customer
     state, so not captured."""
 
