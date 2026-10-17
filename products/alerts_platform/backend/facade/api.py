@@ -7,13 +7,14 @@ so every write and every scheduling rule has one home.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import datetime
 from uuid import UUID
 
 from products.alerts_platform.backend.facade.contracts import (
     HandbackRefusal,
     PlatformAlertCheckInput,
+    PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
     PlatformAlertHistory,
@@ -24,7 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads
+from products.alerts_platform.backend.logic import platform_lifecycle, platform_reads, platform_writes
 
 
 def due_checks(
@@ -129,4 +130,21 @@ def history_by_legacy_id(
     """
     return platform_reads.history_by_legacy_id(
         team_id=team_id, legacy_configuration_ids=legacy_configuration_ids, since=since, until=until
+    )
+
+
+def update_configuration(
+    *,
+    team_id: int,
+    source_kinds: Sequence[str],
+    configuration_id: UUID,
+    change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
+) -> PlatformAlertConfigurationView | None:
+    """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
+
+    Raises `PlatformAlertNotEditable` for a configuration its source owns, and
+    `InvalidPlatformAlertEdit` for an edit its source kind rejects.
+    """
+    return platform_writes.update_configuration(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, change=change
     )

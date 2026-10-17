@@ -84,15 +84,16 @@ from products.logs.backend.alert_state_machine import (
     evaluate_alert_check,
 )
 from products.logs.backend.facade.api import (
+    ALLOWED_WINDOW_MINUTES,
     close_incident_before_delete,
     close_incident_on_commit,
     follow_logs_alert,
+    has_any_filter,
     logs_state_of_platform,
     next_allowed_check_at,
 )
 from products.logs.backend.models import MAX_EVALUATION_PERIODS, LogsAlertConfiguration, LogsAlertEvent
 
-ALLOWED_WINDOW_MINUTES = {5, 10, 15, 30, 60}
 MAX_ALERTS_PER_TEAM = 20
 # Comma-separated team IDs that bypass MAX_ALERTS_PER_TEAM. Configured via
 # argocd for internal dogfood projects whose observability needs exceed the
@@ -865,10 +866,7 @@ def _validate_filters(filters: dict) -> None:
     """
     if not isinstance(filters, dict):
         raise ValidationError({"filters": "Must be a JSON object."})
-    has_severity = bool(filters.get("severityLevels"))
-    has_services = bool(filters.get("serviceNames"))
-    has_filter_group = bool(filters.get("filterGroup"))
-    if not (has_severity or has_services or has_filter_group):
+    if not has_any_filter(filters):
         raise ValidationError(
             {"filters": "At least one filter is required (severityLevels, serviceNames, or filterGroup)."}
         )
