@@ -200,6 +200,7 @@ export interface RoleLookupResponseApi {
  * * `tiktok-ads` - Tiktok Ads
  * * `twilio` - Twilio
  * * `vercel` - Vercel
+ * * `xero` - Xero
  * * `youtube-analytics` - Youtube Analytics
  */
 export type IntegrationKindEnumApi = (typeof IntegrationKindEnumApi)[keyof typeof IntegrationKindEnumApi]
@@ -254,6 +255,7 @@ export const IntegrationKindEnumApi = {
     TiktokAds: 'tiktok-ads',
     Twilio: 'twilio',
     Vercel: 'vercel',
+    Xero: 'xero',
     YoutubeAnalytics: 'youtube-analytics',
 } as const
 
@@ -644,6 +646,7 @@ export interface IntegrationAccessRequestApi {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `xero` - Xero
      * * `youtube-analytics` - Youtube Analytics */
     kind: IntegrationKindEnumApi
     /**
@@ -810,6 +813,7 @@ export type IntegrationsListParams = {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `xero` - Xero
      * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind
@@ -875,6 +879,7 @@ export const IntegrationsListKind = {
     Twilio: 'twilio',
     TwitterAds: 'twitter-ads',
     Vercel: 'vercel',
+    Xero: 'xero',
     YoutubeAnalytics: 'youtube-analytics',
 } as const
 

@@ -1821,3 +1821,109 @@ class TestAppleAdsIntegrationModel(BaseTest):
         ]
         assert integration.sensitive_config["access_token"] == "at_2"
         assert integration.errors == ""
+
+
+@override_settings(XERO_APP_CLIENT_ID="xero-client-id", XERO_APP_CLIENT_SECRET="xero-client-secret")
+class TestXeroIntegrationModel(BaseTest):
+    def _token_response(self) -> dict:
+        return {
+            "access_token": _make_resend_jwt({"authentication_event_id": "event-2"}),
+            "refresh_token": "rt_1",
+            "expires_in": 1800,
+            "token_type": "Bearer",
+            "id_token": _make_resend_jwt({"xero_userid": "user-123", "email": "books@example.com"}),
+        }
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_keeps_only_the_organisations_this_consent_granted(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = self._token_response()
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"tenantId": "org-a", "tenantName": "Company A", "tenantType": "ORGANISATION", "authEventId": "event-1"},
+            {"tenantId": "org-b", "tenantName": "Company B", "tenantType": "ORGANISATION", "authEventId": "event-2"},
+            {"tenantId": "pm-1", "tenantName": "Practice", "tenantType": "PRACTICEMANAGER", "authEventId": "event-2"},
+        ]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "xero", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+        )
+
+        call = mock_post.call_args
+        assert call.args[0] == "https://identity.xero.com/connect/token"
+        assert (call.kwargs["auth"].username, call.kwargs["auth"].password) == ("xero-client-id", "xero-client-secret")
+        assert "client_secret" not in call.kwargs["data"]
+        assert call.kwargs["allow_redirects"] is False
+        assert integration.integration_id == "user-123"
+        assert integration.config["xero_tenants"] == [{"tenantId": "org-b", "tenantName": "Company B"}]
+        assert integration.display_name == "Company B (books@example.com)"
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_reconnect_updates_the_same_integration_and_keeps_its_organisations(self, mock_post, mock_get):
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="xero",
+            integration_id="user-123",
+            config={"xero_tenants": [{"tenantId": "org-a", "tenantName": "Company A"}]},
+            sensitive_config={"access_token": "old", "refresh_token": "old"},
+        )
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = self._token_response()
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"tenantId": "org-a", "tenantName": "Company A", "tenantType": "ORGANISATION", "authEventId": "event-1"},
+            {"tenantId": "org-c", "tenantName": "Company C", "tenantType": "ORGANISATION", "authEventId": "event-2"},
+            {"tenantId": "org-d", "tenantName": "Company D", "tenantType": "ORGANISATION", "authEventId": "event-9"},
+        ]
+
+        integration = OauthIntegration.integration_from_oauth_response(
+            "xero", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+        )
+
+        assert integration.id == existing.id
+        assert integration.config["xero_tenants"] == [
+            {"tenantId": "org-a", "tenantName": "Company A"},
+            {"tenantId": "org-c", "tenantName": "Company C"},
+        ]
+        assert integration.sensitive_config["refresh_token"] == "rt_1"
+
+    @patch("posthog.models.integration.oauth.requests.get")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_token_exchange_without_a_chosen_organisation_is_refused(self, mock_post, mock_get):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = self._token_response()
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.json.return_value = [
+            {"tenantId": "org-a", "tenantName": "Company A", "tenantType": "ORGANISATION", "authEventId": "event-1"}
+        ]
+
+        with pytest.raises(ValidationError, match="choose an organisation"):
+            OauthIntegration.integration_from_oauth_response(
+                "xero", self.team.id, self.user, {"code": "code", "state": "token=state_token"}
+            )
+
+        assert not Integration.objects.filter(team=self.team, kind="xero").exists()
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_uses_basic_auth_and_stores_the_rotated_refresh_token(self, mock_post, _mock_reload):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "at_2", "refresh_token": "rt_2", "expires_in": 1800}
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="xero",
+            integration_id="user-123",
+            config={"expires_in": 1800, "refreshed_at": int(time.time()) - 3600},
+            sensitive_config={"refresh_token": "rt_1", "access_token": "at_1"},
+        )
+
+        OauthIntegration(integration).refresh_access_token()
+
+        call = mock_post.call_args
+        assert call.kwargs["data"] == {"refresh_token": "rt_1", "grant_type": "refresh_token"}
+        assert (call.kwargs["auth"].username, call.kwargs["auth"].password) == ("xero-client-id", "xero-client-secret")
+        stored = Integration.objects.get(id=integration.id)
+        assert (stored.sensitive_config["access_token"], stored.sensitive_config["refresh_token"]) == ("at_2", "rt_2")

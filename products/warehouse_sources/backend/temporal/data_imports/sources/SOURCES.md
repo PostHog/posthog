@@ -925,6 +925,7 @@ the row lists both.
 | writesonic                       | HTTP                        | requests                                                        | ✅                          |
 | wufoo                            | HTTP                        | requests                                                        | ✅                          |
 | xendit                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| xero                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | xmatters                         | HTTP                        | requests                                                        | ✅                          |
 | xsolla                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | ynab                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1540,7 +1541,6 @@ doesn't conflict with concurrent PRs.
 - workramp
 - wps_office
 - wufoo
-- xero
 - yahoo_finance
 - yandex_metrica
 - younium

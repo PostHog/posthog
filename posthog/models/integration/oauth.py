@@ -316,6 +316,23 @@ def posthog_connect_base_url(region: str | None) -> str:
     return base_url
 
 
+def _xero_organisations_for_auth_event(access_token: str, auth_event_id: str) -> list[dict[str, str]]:
+    """The organisations connected in one Xero consent, as `{tenantId, tenantName}`."""
+    response = requests.get(
+        "https://api.xero.com/connections",
+        headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+        timeout=10,
+        allow_redirects=False,
+    )
+    if response.status_code != 200:
+        raise ValidationError("Could not read the organisations from Xero. Connect again.")
+    return [
+        {"tenantId": connection["tenantId"], "tenantName": connection.get("tenantName") or connection["tenantId"]}
+        for connection in response.json()
+        if connection.get("authEventId") == auth_event_id and connection.get("tenantType") == "ORGANISATION"
+    ]
+
+
 class OauthIntegration:
     supported_kinds = [
         "slack",
@@ -344,6 +361,7 @@ class OauthIntegration:
         "pinterest-ads",
         "stripe",
         "resend",
+        "xero",
         "youtube-analytics",
     ]
     integration: model.Integration
@@ -572,6 +590,24 @@ class OauthIntegration:
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
+            )
+        elif kind == "xero":
+            if not settings.XERO_APP_CLIENT_ID or not settings.XERO_APP_CLIENT_SECRET:
+                raise NotImplementedError("Xero app not configured")
+
+            # Xero apps registered after 2 March 2026 can only request the granular accounting scopes.
+            return OauthConfig(
+                authorize_url="https://login.xero.com/identity/connect/authorize",
+                token_url="https://identity.xero.com/connect/token",
+                client_id=settings.XERO_APP_CLIENT_ID,
+                client_secret=settings.XERO_APP_CLIENT_SECRET,
+                scope=(
+                    "offline_access openid profile email accounting.invoices.read accounting.payments.read "
+                    "accounting.banktransactions.read accounting.manualjournals.read accounting.contacts.read "
+                    "accounting.settings.read"
+                ),
+                id_path="xero_userid",
+                name_path="display_name",
             )
         elif kind == "youtube-analytics":
             if not settings.YOUTUBE_ANALYTICS_APP_CLIENT_ID or not settings.YOUTUBE_ANALYTICS_APP_CLIENT_SECRET:
@@ -1013,6 +1049,18 @@ class OauthIntegration:
                 },
                 timeout=10,
             )
+        elif kind == "xero":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+                timeout=10,
+                allow_redirects=False,
+            )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
             res = requests.post(
@@ -1256,6 +1304,31 @@ class OauthIntegration:
             config["apple_ads_org_ids"] = org_ids
             grant_token = config.get("refresh_token") or config["access_token"]
             integration_id = f"grant:{hashlib.sha256(grant_token.encode()).hexdigest()}"
+
+        # One Xero grant reaches every organisation the user connected, so it is keyed by the user.
+        # The integration keeps only organisations granted in this project's own consents, because a
+        # Xero token also reaches those the user connected from other projects. A reconnect adds to it.
+        if kind == "xero" and not integration_id:
+            id_claims = common._decode_jwt_payload(config["id_token"]) if config.get("id_token") else None
+            token_claims = common._decode_jwt_payload(config["access_token"])
+            auth_event_id = (token_claims or {}).get("authentication_event_id")
+            if not id_claims or not id_claims.get("xero_userid") or not auth_event_id:
+                raise ValidationError("Xero did not return the expected account details. Connect again.")
+            existing = model.Integration.objects.filter(
+                team_id=team_id, kind=kind, integration_id=id_claims["xero_userid"]
+            ).first()
+            previous_tenants = existing.config.get("xero_tenants") if existing else None
+            tenants = {tenant["tenantId"]: tenant for tenant in previous_tenants or []}
+            for organisation in _xero_organisations_for_auth_event(config["access_token"], auth_event_id):
+                tenants[organisation["tenantId"]] = organisation
+            if not tenants:
+                raise ValidationError("No Xero organisation was selected. Connect again and choose an organisation.")
+            email = id_claims.get("email") or id_claims["xero_userid"]
+            config["xero_userid"] = id_claims["xero_userid"]
+            config["email"] = email
+            config["xero_tenants"] = list(tenants.values())
+            config["display_name"] = f"{', '.join(tenant['tenantName'] for tenant in tenants.values())} ({email})"
+            integration_id = id_claims["xero_userid"]
 
         # LinkedIn id_token is a JWT, extract user ID and email from it
         # This avoids calling /v2/userinfo which has intermittent REVOKED_ACCESS_TOKEN errors
@@ -1504,6 +1577,14 @@ class OauthIntegration:
                 auth=HTTPBasicAuth(client_id, client_secret),
                 data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
                 timeout=10,
+            )
+        elif kind == "xero":
+            return requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(client_id, client_secret),
+                data={"refresh_token": refresh_token, "grant_type": "refresh_token"},
+                timeout=10,
+                allow_redirects=False,
             )
         elif kind == "tiktok-ads":
             # Refresh against the Business API app we authorized against, using its app_id/secret and

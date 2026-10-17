@@ -16231,6 +16231,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `xero` - Xero
      * * `youtube-analytics` - Youtube Analytics
      */
     export type IntegrationKindEnum =
@@ -16283,6 +16284,7 @@ export namespace Schemas {
         | "tiktok-ads"
         | "twilio"
         | "vercel"
+        | "xero"
         | "youtube-analytics";
     /**
      * Standard Integration serializer.

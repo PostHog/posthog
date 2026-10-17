@@ -60968,6 +60968,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `xero` - Xero
      * * `youtube-analytics` - Youtube Analytics
      */
     export type IntegrationKindEnum = typeof IntegrationKindEnum[keyof typeof IntegrationKindEnum];
@@ -61023,6 +61024,7 @@ export namespace Schemas {
       TiktokAds: 'tiktok-ads',
       Twilio: 'twilio',
       Vercel: 'vercel',
+      Xero: 'xero',
       YoutubeAnalytics: 'youtube-analytics',
     } as const;
 
@@ -61078,6 +61080,7 @@ export namespace Schemas {
        * * `tiktok-ads` - Tiktok Ads
        * * `twilio` - Twilio
        * * `vercel` - Vercel
+       * * `xero` - Xero
        * * `youtube-analytics` - Youtube Analytics */
       kind: IntegrationKindEnum;
       /**
@@ -127402,6 +127405,7 @@ export namespace Schemas {
      * * `tiktok-ads` - Tiktok Ads
      * * `twilio` - Twilio
      * * `vercel` - Vercel
+     * * `xero` - Xero
      * * `youtube-analytics` - Youtube Analytics
      */
     kind?: IntegrationsListKind;
@@ -127468,6 +127472,7 @@ export namespace Schemas {
       Twilio: 'twilio',
       TwitterAds: 'twitter-ads',
       Vercel: 'vercel',
+      Xero: 'xero',
       YoutubeAnalytics: 'youtube-analytics',
     } as const;
 

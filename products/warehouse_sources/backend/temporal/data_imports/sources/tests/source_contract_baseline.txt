@@ -796,6 +796,7 @@ Wrike not-checkable:no-request
 Writesonic fail:rate-limit-budget,safe-point,stall-budget
 Wufoo fail:stall-budget
 Xendit fail:stall-budget
+Xero not-checkable:database
 Xmatters fail:stall-budget
 Xsolla fail:stall-budget
 Ynab fail:stall-budget

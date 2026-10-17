@@ -43,11 +43,9 @@ class TestIntegrationsTasks(APIBaseTest):
             # Both 3 and 4 should be refreshed
             assert refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]
 
-    def test_refresh_integrations_excludes_resend(self) -> None:
-        # Resend's refresh token is single-use and rotates on every refresh; the periodic sweep is
-        # unlocked and would race the row-locked sync-path refresh, double-spending the token and
-        # revoking the grant. An expired Resend row must never be enqueued here.
-        self.create_integration("resend", config={"refreshed_at": time.time() - 3600})
+    @parameterized.expand([("resend",), ("xero",)])
+    def test_refresh_integrations_excludes_rotating_token_kinds(self, kind: str) -> None:
+        self.create_integration(kind, config={"refreshed_at": time.time() - 3600})
         eligible = self.create_integration("slack", config={"refreshed_at": time.time() - 3600})
 
         with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
@@ -55,10 +53,9 @@ class TestIntegrationsTasks(APIBaseTest):
 
         assert refresh_integration_mock.call_args_list == [((eligible.id,),)]
 
-    def test_refresh_integration_skips_resend(self) -> None:
-        # Defense in depth for a task enqueued before the sweep exclusion shipped: even if a Resend
-        # id reaches refresh_integration, it must not spend the rotating token via the unlocked path.
-        integration = self.create_integration("resend", config={"refreshed_at": time.time() - 3600})
+    @parameterized.expand([("resend",), ("xero",)])
+    def test_refresh_integration_skips_rotating_token_kinds(self, kind: str) -> None:
+        integration = self.create_integration(kind, config={"refreshed_at": time.time() - 3600})
 
         with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
             refresh_integration(integration.id)

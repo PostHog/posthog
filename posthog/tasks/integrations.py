@@ -19,22 +19,21 @@ from products.workflows.backend.facade.api import delete_ses_identity
 
 GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
 
+SYNC_PATH_LOCKED_REFRESH_KINDS = ("resend", "xero")
+
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
 @skip_team_scope_audit
 def refresh_integrations() -> int:
     from posthog.models.integration import Integration, OauthIntegration
 
-    # Resend is excluded: its refresh token is single-use and rotates on every refresh, with
-    # reuse-detection that revokes the whole grant if a rotated token is spent twice. Resend
-    # refreshes are minted on demand under a Postgres row lock by the sync path
-    # (resolve_resend_oauth_token). This unlocked periodic sweep would race that path and
-    # double-spend the rotating token, so it must not refresh Resend.
+    # Rotating-token kinds are excluded: their refresh tokens are single-use, and the sync path
+    # refreshes them under a row lock. This unlocked sweep would race it and double-spend the token.
     # The Meta kinds are excluded because their grants carry no refresh token: a long-lived token is
     # re-exchanged on use by `MetaGraphIntegration.refresh_access_token` rather than by this sweep.
     oauth_integrations = defer_repository_cache_fields(
         Integration.objects.filter(kind__in=OauthIntegration.supported_kinds)
-        .exclude(kind__in=["meta-ads", "instagram", "resend"])
+        .exclude(kind__in=["meta-ads", "instagram", *SYNC_PATH_LOCKED_REFRESH_KINDS])
         .all()
     )
 
@@ -90,10 +89,8 @@ def refresh_integration(id: int) -> int:
     # Re-check freshness against the just-loaded row before minting. Under an INTEGRATIONS queue
     # backlog several duplicate refreshes can pile up for the same row; the first mints a fresh token
     # and this keeps the rest from re-minting one that's already valid.
-    # Resend is deliberately not refreshed here (see refresh_integrations): its rotating single-use
-    # refresh token must only ever be spent under the sync path's row lock. Skip it even if an
-    # in-flight task from before this guard was deployed still targets a Resend row.
-    if integration.kind == "resend":
+    # Rotating-token kinds are not refreshed here either (see refresh_integrations).
+    if integration.kind in SYNC_PATH_LOCKED_REFRESH_KINDS:
         return 0
 
     if integration.kind in OauthIntegration.supported_kinds:
