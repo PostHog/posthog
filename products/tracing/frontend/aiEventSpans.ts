@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import type { _TracingTraceAiEventApi } from './generated/api.schemas'
 import type { Span } from './types'
@@ -13,6 +14,12 @@ const SPAN_KIND_CLIENT = 3
 
 export function isAiEventSpan(span: Span): boolean {
     return span.span_id.startsWith(AI_SPAN_ID_PREFIX)
+}
+
+/** The AI observability page for an AI row's event, or null for a real span. */
+export function aiObservabilityUrl(span: Span): string | null {
+    const aiTraceId = span.attributes['ai.trace_id']
+    return isAiEventSpan(span) && aiTraceId ? urls.aiObservabilityTrace(aiTraceId, { event: span.uuid }) : null
 }
 
 interface Interval {
