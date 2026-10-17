@@ -167,7 +167,8 @@ Then, for each candidate that clears the bar:
 - **Remember / Park** a below-bar candidate via the watch lifecycle below.
 - **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already covers it.
 
-Sibling courtesy: broken upstream capture (an event that stopped firing) belongs to the error-tracking scout; a configured alert that's firing-but-missed to the insight-alerts scout; a viewed insight's own anomaly to the anomaly-detection scout. Your unique angle is always the structural _coverage gap_, not the anomaly on top of it.
+Sibling courtesy: broken upstream capture (an event that stopped firing) belongs to the error-tracking scout; a configured alert that's firing-but-missed to the insight-alerts scout; a viewed insight's own anomaly to the anomaly-detection scout. Data that is not captured at all (a code path with no event, a property or person link missing on an event) belongs to the tracking-gaps scout.
+Your unique angle is always the structural _coverage gap_, not the anomaly on top of it.
 
 ### Park, then author — the watch lifecycle
 
