@@ -29,6 +29,7 @@ import { resolveGatewayTools } from '@/lib/gateway-tools'
 import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-keys'
 import { getPostHogClient } from '@/lib/posthog'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { errorTrackingAnalyticsProperties } from '@/tools/errorTracking/analytics'
 import {
     createExecTool,
     describeApiValidationError,
@@ -85,6 +86,8 @@ interface ExecMetricState {
     /** Which kind of skill lookup missed, when the dispatcher rewrote a 404. */
     skillLookupMissKind: SkillLookupMissKind | undefined
     resultEmpty: boolean
+    /** Value-free request controls of the inner call, parsed with the tool's own schema. */
+    innerInputMeta: Record<string, unknown>
 }
 
 /**
@@ -419,6 +422,7 @@ export class ToolExecutor {
         // it would let a deleted skill agents keep requesting read as a popular one.
         // The exec path stamps the same properties from its command string.
         const skillShape = skillAnalyticsProperties(tool.name, validation.data)
+        const requestShape = errorTrackingAnalyticsProperties(tool.name, validation.data)
 
         try {
             const isContextSwitch = tool.name === 'switch-project' || tool.name === 'switch-organization'
@@ -475,6 +479,7 @@ export class ToolExecutor {
                 {
                     ...inputShape,
                     ...skillShape,
+                    ...requestShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...toolResultAnalyticsProperties(response),
@@ -527,6 +532,7 @@ export class ToolExecutor {
                 state,
                 {
                     ...inputShape,
+                    ...requestShape,
                     ...errorAnalyticsProperties(classification, error),
                     ...(lookupMiss ? skillLookupMissProperties(lookupMiss.kind) : {}),
                 },
@@ -582,6 +588,7 @@ export class ToolExecutor {
             innerFailure: undefined,
             skillLookupMissKind: undefined,
             resultEmpty: false,
+            innerInputMeta: {},
         }
         const resolved = this.resolveExecTool(state, execMetrics, analyticsMeta)
 
@@ -681,6 +688,7 @@ export class ToolExecutor {
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                     ...execMetrics.commandMeta,
+                    ...execMetrics.innerInputMeta,
                     ...(execMetrics.resultEmpty ? { mcp_result_empty: true } : {}),
                     ...toolResultAnalyticsProperties(response),
                 },
@@ -708,6 +716,7 @@ export class ToolExecutor {
                     ...execInputShape,
                     ...errorAnalyticsProperties(classification, error),
                     ...execMetrics.commandMeta,
+                    ...execMetrics.innerInputMeta,
                 },
                 analyticsMeta,
                 this.servedToolDescription(metricTool)
@@ -784,6 +793,7 @@ export class ToolExecutor {
             }
             execMetrics.skillLookupMissKind = properties.skill_lookup_miss_kind
             execMetrics.resultEmpty = properties.result_empty === true
+            execMetrics.innerInputMeta = errorTrackingAnalyticsProperties(toolName, properties.input)
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
             // Mirror the native path: schema rejections never start a handler, so

@@ -1067,6 +1067,23 @@ describe('ToolExecutor metrics', () => {
                 expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
             })
 
+            it('records issues list page size and volume buckets from the parsed command', async () => {
+                const context = {
+                    ...contextThatServes(),
+                    api: mockApi({ request: vi.fn().mockResolvedValue({ results: [], hasMore: false }) }),
+                }
+
+                await executor.handleToolCall(
+                    {
+                        name: 'exec',
+                        arguments: { command: 'call query-error-tracking-issues-list {"volumeResolution":24}' },
+                    },
+                    execStateWith(context)
+                )
+
+                expect(lastExtras()).toMatchObject({ error_tracking_limit: 10, error_tracking_volume_resolution: 24 })
+            })
+
             it('records the skill in direct tools mode too', async () => {
                 const tools = catalog
                     .getPreBuiltEntries()

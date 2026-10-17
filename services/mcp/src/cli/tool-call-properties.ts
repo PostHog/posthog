@@ -1,6 +1,7 @@
 import { MCPToolResultError } from '@/lib/errors'
 import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { errorTrackingAnalyticsProperties } from '@/tools/errorTracking/analytics'
 import type { ExecInnerCallProperties } from '@/tools/exec'
 import { getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
@@ -10,7 +11,8 @@ import type { Context } from '@/tools/types'
  * messages and inputs can carry caller-supplied content and API response
  * bodies, which must never reach usage analytics. Mirrors the hosted server,
  * whose tool-call events carry only the error flag — plus a bounded
- * classification so failures stay diagnosable. Category and clipped
+ * classification so failures stay diagnosable, and bounded request controls
+ * parsed by the tool's own schema (see `errorTrackingAnalyticsProperties`). Category and clipped
  * description come from the tool catalog (never the caller), matching the
  * hosted server's stamps so per-tool analytics see one schema.
  */
@@ -26,6 +28,7 @@ export function buildToolCallProperties(
         $mcp_duration_ms: properties.duration_ms,
         $mcp_is_error: !properties.success,
         output_format: properties.output_format,
+        ...errorTrackingAnalyticsProperties(toolName, properties.input),
         ...(category ? { $mcp_tool_category: category } : {}),
         ...(description ? { $mcp_tool_description: description } : {}),
         ...(properties.success ? {} : { error_class: errorClass(properties), $mcp_error_type: errorType(properties) }),
