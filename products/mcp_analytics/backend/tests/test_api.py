@@ -239,10 +239,13 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         session_id = str(uuid7())
         now = datetime.now(tz=UTC)
         started_at = now - timedelta(minutes=30)
-        self._seed_session(session_id, ["docs_search"], session_start=started_at, session_end=started_at)
+        self._seed_session(
+            session_id, ["docs_search"], distinct_id="docs_user", session_start=started_at, session_end=started_at
+        )
         self._seed_session(
             session_id,
             ["query_run", "query_run"],
+            distinct_id="query_user",
             session_start=now - timedelta(minutes=10),
             session_end=now - timedelta(minutes=9),
         )
@@ -252,7 +255,12 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
 
         assert session.tool_calls == 2
         assert session.tools_used == ["query_run"]
+        assert session.distinct_id == "query_user"
+        assert session.distinct_id_count == 1
         assert session.session_start < now - timedelta(minutes=20)
+
+        unfiltered = api.list_mcp_sessions(self.team, limit=50, offset=0).results[0]
+        assert unfiltered.distinct_id_count == 2
 
     def test_lists_sessions_in_newest_first_order(self) -> None:
         session_a = str(uuid7())
