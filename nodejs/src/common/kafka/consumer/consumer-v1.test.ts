@@ -256,6 +256,28 @@ describe('consumer', () => {
             ])
         })
 
+        it('should not store offsets once a background task fails, and should stop the consumer loop', async () => {
+            const loopFailure = expect(consumer['consumerLoop']).rejects.toThrow('produce failed')
+
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            const p2 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+
+            // The later batch finishes first, then the earlier batch fails
+            p2.resolve()
+            await delay(1)
+            p1.reject(new Error('produce failed'))
+            await delay(1)
+
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            expect(consumer['backgroundTask']).toEqual([])
+
+            consumeCallback(null, [])
+            await loopFailure
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+        })
+
         it('should handle background work that finishes out of order', async () => {
             // First of all call the callback with background work - and check that
             const p1 = triggerablePromise()
