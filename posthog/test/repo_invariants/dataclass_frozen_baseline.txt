@@ -1426,7 +1426,6 @@
 3 products/batch_exports/backend/temporal/pipeline/internal_stage.py
 3 products/conversations/backend/temporal/zendesk_import/workflows.py
 3 products/data_modeling/backend/logic/gitsync/config_parser.py
-3 products/data_modeling/backend/management/commands/consolidate_dags.py
 3 products/data_warehouse/backend/logic/external_data_source/webhooks.py
 3 products/experiments/stats/shared/statistics.py
 3 products/marketing_analytics/backend/services/data_source_health.py
