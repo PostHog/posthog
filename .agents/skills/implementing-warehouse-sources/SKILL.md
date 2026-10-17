@@ -468,8 +468,8 @@ When a fix makes an entry wrong, regenerate the baseline and commit it:
 
 ```bash
 SOURCE_CONTRACT_WRITE_BASELINE=1 pytest products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_source_contract.py -p no:xdist
-python posthog/test/repo_invariants/test_warehouse_source_static_contract.py
-python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
+PYTHONPATH=. python posthog/test/repo_invariants/test_warehouse_source_static_contract.py
+PYTHONPATH=. python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py
 ```
 
 ### Webhook source pattern

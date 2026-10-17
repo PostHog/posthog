@@ -14,15 +14,18 @@ import ast
 import sys
 import warnings
 from collections.abc import Callable
+from datetime import date
 from pathlib import Path
 
 import pytest
+
+from posthog.test.repo_invariants.ratchet import enforce_baseline
 
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_DIR = Path(__file__).parent
 SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
 SKIPPED_DIRS = {"common", "tests", "test", "__pycache__", "generated_configs"}
-REGENERATE = "python posthog/test/repo_invariants/test_warehouse_source_test_shapes.py"
+REGENERATE = "PYTHONPATH=. python posthog/test/repo_invariants/test_warehouse_source_test_shapes.py"
 
 PRIVATE_SHARED_NAME = re.compile(r"sources\.common\.[A-Za-z0-9_.]+\._[a-z][A-Za-z0-9_]*$")
 MOCK_BUILDERS = {"MagicMock", "Mock", "NonCallableMagicMock", "create_autospec"}
@@ -101,6 +104,12 @@ CHECKS: dict[str, tuple[Check, tuple[str, ...], str, str]] = {
     ),
 }
 
+BLOCKING_FROM: dict[str, date] = {
+    "mocked_resume_manager": date.fromisoformat("2026-10-09"),
+    "patched_session": date.fromisoformat("2026-10-09"),
+    "private_shared_patch": date.fromisoformat("2026-10-09"),
+}
+
 
 def collect(check: Check, words: tuple[str, ...]) -> list[str]:
     found: list[str] = []
@@ -159,12 +168,17 @@ def test_source_test_files_match_the_baseline(check: str) -> None:
     added = [line for line in scanned if line not in recorded]
     removed = [line for line in recorded if line not in scanned]
     report = "\n".join([*(f"  + {line}" for line in added), *(f"  - {line}" for line in removed)])
-    raise AssertionError(
-        f"{file_name} no longer matches the repo.\n"
-        f"{explanation}Use `SourceDriver` for an extraction. Use `scripted_network` for a call outside one. "
-        f"Both are in `{TESTING_PATH}`. Do not add the line to the baseline: the list may only get shorter.\n"
-        f"A '-' line means a test file was fixed. The file must record that too. Run: {REGENERATE}\n"
-        f"{report}"
+    enforce_baseline(
+        added=added,
+        removed=removed,
+        blocking_from=BLOCKING_FROM[check],
+        message=(
+            f"{file_name} no longer matches the repo.\n"
+            f"{explanation}Use `SourceDriver` for an extraction. Use `scripted_network` for a call outside one. "
+            f"Both are in `{TESTING_PATH}`. Do not add the line to the baseline: the list may only get shorter.\n"
+            f"A '-' line means a test file was fixed. The file must record that too. Run: {REGENERATE}\n"
+            f"{report}"
+        ),
     )
 
 
