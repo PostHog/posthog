@@ -2945,12 +2945,14 @@ def _babysit_thread(
     author: str = "reviewer",
     body: str = "fix this",
     is_bot: bool = False,
+    comment_count: int = 1,
 ):
     return {
         "id": thread_id,
         "isResolved": is_resolved,
         "path": "posthog/api.py",
         "comments": {
+            "totalCount": comment_count,
             "nodes": [
                 {
                     "id": f"{thread_id}-C1",
@@ -2959,7 +2961,7 @@ def _babysit_thread(
                     "author": {"login": author, "__typename": "Bot" if is_bot else "User"},
                     "authorAssociation": "MEMBER",
                 }
-            ]
+            ],
         },
     }
 
@@ -3013,7 +3015,7 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
                     _babysit_feedback("M3"),
                 ]
             },
-            reviews={"nodes": [_babysit_feedback("R1", author="posthog-bot"), _babysit_feedback("R2")]},
+            reviews={"nodes": [_babysit_feedback("R1", author="posthog-bot", is_bot=True), _babysit_feedback("R2")]},
         )
 
         with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
@@ -3021,6 +3023,35 @@ class TestGitHubIntegrationPullRequestBabysitSnapshot(BaseTest):
 
         assert [thread["id"] for thread in result["unresolved_threads"]] == ["T2"]
         assert [comment["id"] for comment in result["comments"]] == ["M3", "R2"]
+
+    def test_human_pr_author_review_is_kept_but_their_comments_and_replies_are_not(self):
+        payload = self._payload(
+            author={"login": "octocat"},
+            reviewThreads={
+                "nodes": [
+                    _babysit_thread("T1", author="octocat"),
+                    _babysit_thread("T2", author="octocat", comment_count=2),
+                    _babysit_thread("T3", author="review-hog", is_bot=True),
+                ]
+            },
+            comments={"nodes": [_babysit_feedback("M1", author="octocat", body="pushed a fix")]},
+            reviews={
+                "nodes": [
+                    _babysit_feedback("R1", author="octocat", body="please split this"),
+                    _babysit_feedback("R2", author="review-hog", body="rename this", is_bot=True),
+                ]
+            },
+        )
+
+        with patch.object(GitHubIntegration, "_gh_graphql", return_value=payload):
+            result = self._github().get_pull_request_babysit_snapshot(BABYSIT_PR_URL)
+
+        assert {thread["id"]: thread["pr_author_feedback"] for thread in result["unresolved_threads"]} == {
+            "T1": True,
+            "T2": False,
+            "T3": False,
+        }
+        assert [comment["id"] for comment in result["comments"]] == ["R1", "R2"]
 
     def test_bot_comments_are_dropped_and_bot_reviews_are_kept(self):
         """A merge-queue bot comments once per submission, each with a fresh id, so every one

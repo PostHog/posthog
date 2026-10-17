@@ -2417,6 +2417,7 @@ class GitHubIntegrationBase:
             nodes {
               id isResolved path
               comments(last: 1) {
+                totalCount
                 nodes { id url body author { login __typename } authorAssociation }
               }
             }
@@ -2497,6 +2498,17 @@ class GitHubIntegrationBase:
         # nothing about whether an author is automated.
         return ((node.get("author") or {}).get("__typename")) == "Bot"
 
+    @classmethod
+    def _is_human_pr_author(cls, node: dict[str, Any], author_login: str | None) -> bool:
+        # A PR opened with the user's GitHub identity has the human reviewer as its author, and the
+        # agent pushes and comments with that same login. The agent only replies to review threads
+        # and never submits a review body, so a new thread or a review body from them is human feedback.
+        return (
+            bool(author_login)
+            and (node.get("author") or {}).get("login") == author_login
+            and not cls._is_bot_author(node)
+        )
+
     def get_pull_request_babysit_snapshot(self, pr_url: str) -> dict[str, Any]:
         """Fetch the per-item PR state the babysit loop dispatches on: every unresolved
         review thread with its latest comment, top-level comments and review bodies,
@@ -2520,10 +2532,19 @@ class GitHubIntegrationBase:
         for node in ((pr.get("reviewThreads") or {}).get("nodes")) or []:
             if not isinstance(node, dict) or node.get("isResolved") is not False:
                 continue
-            comment_nodes = ((node.get("comments") or {}).get("nodes")) or []
-            item = self._feedback_item(comment_nodes[-1] if comment_nodes else {})
+            comments = node.get("comments") or {}
+            comment_nodes = comments.get("nodes") or []
+            last_comment = comment_nodes[-1] if comment_nodes else {}
+            item = self._feedback_item(last_comment)
             unresolved_threads.append(
-                {**item, "id": node.get("id"), "path": node.get("path"), "last_comment_id": item["id"] or ""}
+                {
+                    **item,
+                    "id": node.get("id"),
+                    "path": node.get("path"),
+                    "last_comment_id": item["id"] or "",
+                    "pr_author_feedback": comments.get("totalCount") == 1
+                    and self._is_human_pr_author(last_comment, author_login),
+                }
             )
 
         feedback: list[dict[str, Any]] = []
@@ -2532,7 +2553,11 @@ class GitHubIntegrationBase:
                 if not isinstance(node, dict):
                     continue
                 item = self._feedback_item(node)
-                if not (item["id"] and item["body"].strip() and item["author"] != author_login):
+                if not (item["id"] and item["body"].strip()):
+                    continue
+                if item["author"] == author_login and not (
+                    connection == "reviews" and self._is_human_pr_author(node, author_login)
+                ):
                     continue
                 # A bot review is code feedback. A bot comment is merge-queue and CI chatter,
                 # and waking on it makes the agent push the PR out of the queue (#96393).
