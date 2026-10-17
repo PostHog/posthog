@@ -1,4 +1,4 @@
-import type { Experiment } from '~/types'
+import type { Experiment, FeatureFlagBasicType } from '~/types'
 
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import {
@@ -12,6 +12,12 @@ import {
 } from 'products/replay_vision/frontend/replay_scanners/types'
 
 const SCANNER_NAME_MAX_LENGTH = 255
+
+/** A scanner finds sessions by matching exposures to persons' recordings, and a flag that
+ * aggregates by group exposes groups, so no scanner can watch its experiment. */
+export function flagAggregatesByGroup(flag: Pick<FeatureFlagBasicType, 'filters'> | null | undefined): boolean {
+    return flag?.filters?.aggregation_group_type_index != null
+}
 
 /**
  * An experiment scanner on the experiment the wizard just created. That experiment is a draft, so

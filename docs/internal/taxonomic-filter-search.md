@@ -7,7 +7,10 @@ The classic picker shows its active category in the search input. A person can d
 The rail starts undocked. `taxonomic filter category rail toggled` records whether it is docked. `taxonomic filter closed` records the final `categoryRailDocked` state so reports can show which people keep the rail docked.
 
 A category shows results for the current query only. It clears its earlier rows when the current query cannot fetch, such as a query below the category minimum length or a request that failed.
-In the classic picker, a failed search with no usable matches shows an error and a retry action.
+A failed search with no usable matches shows an error in the classic picker and the rebuilt menu.
+The rebuilt menu offers "Try again" to retry the failed result source.
+Pressing Enter or Space on the headless panel's "Try again" button retries without selecting the failed query.
+Retrying a server search does not reload the cached first page.
 A failed search does not offer an uncaptured event name, and it does not change the selected form value.
 When a caller allows custom event names, a successful empty search offers "Use event name".
 Pressing Enter in the search input selects that custom event name.

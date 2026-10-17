@@ -35,7 +35,7 @@ let linear_issue_id := issue_response.body.data.issueCreate.issue.identifier;
 
 let attachment_url := inputs.posthog_issue_url;
 if (empty(attachment_url)) {
-  attachment_url := f'{project.url}/error_tracking/{inputs.posthog_issue_id}';
+  attachment_url := f'{project.url}/error-tracking/{inputs.posthog_issue_id}';
 }
 let attachment_mutation := f'mutation AttachmentCreate \\{ attachmentCreate(input: \\{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }) \\{ success } }';
 

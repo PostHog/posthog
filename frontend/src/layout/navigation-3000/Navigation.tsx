@@ -140,7 +140,7 @@ export function Navigation({
                 <main
                     className={
                         mode === 'zen'
-                            ? 'p-4'
+                            ? '@container/main-content p-4'
                             : mode === 'embedded'
                               ? '@container/main-content min-h-screen p-4'
                               : mode === 'minimal' && sceneConfig?.layout !== 'plain'
@@ -176,19 +176,10 @@ export function Navigation({
                 style={
                     {
                         ...theme?.mainStyle,
-                        '--scene-layout-rect-right': mainContentRect?.right + 'px',
-                        '--scene-layout-rect-width': mainContentRect?.width + 'px',
-                        '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                        '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
-                            ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
-                            : '0px',
                         '--scene-layout-background': sceneConfig?.canvasBackground
                             ? 'var(--color-bg-surface-primary)'
                             : 'var(--color-bg-primary)',
                         '--side-panel-width': sidePanelWidth + 'px',
-                        // Live navbar width from the resizer drives both the grid's left column
-                        // (via --left-nav-width below) and the nav element itself, which reads
-                        // --project-navbar-width. Collapsed/mobile fall back to the base default.
                         '--project-navbar-width':
                             !mobileLayout && !isLayoutNavCollapsed ? `${navbarWidth}px` : undefined,
                         '--today-rail-width': todayRail ? `${TODAY_RAIL_WIDTH}px` : undefined,
@@ -211,7 +202,7 @@ export function Navigation({
 
                     <div
                         className={cn(
-                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative',
+                            '@container/main-content-container main-content-container flex overflow-hidden border-primary relative [--left-nav-width:initial] [--project-navbar-width:initial]',
                             todayRail
                                 ? todayFramed && [
                                       'TodayAppLayout__content',
@@ -224,6 +215,16 @@ export function Navigation({
                                   ]
                         )}
                         {...(todayDrawerOpen ? { inert: '' } : {})}
+                        style={
+                            {
+                                '--scene-layout-rect-right': mainContentRect?.right + 'px',
+                                '--scene-layout-rect-width': mainContentRect?.width + 'px',
+                                '--scene-layout-rect-height': mainContentRect?.height + 'px',
+                                '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
+                                    ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
+                                    : '0px',
+                            } as React.CSSProperties
+                        }
                     >
                         {todayFramed && (
                             // The frame edge uses quill's border token so it matches the sidebar seam, and that token exists only inside a quill scope.
@@ -252,7 +253,10 @@ export function Navigation({
                                 {/* The attribute rides a spread with the empty-string form: React 18's
                                     types lack `inert`, and its runtime serializes `inert={false}` to a
                                     string, which is still inert (presence-based attribute). */}
-                                <div className="contents" {...(sceneTakeoverActive ? { inert: '' } : {})}>
+                                <div
+                                    className="contents [--side-panel-width:initial]"
+                                    {...(sceneTakeoverActive ? { inert: '' } : {})}
+                                >
                                     {!sceneMenuBarEnabled && !sceneConfig?.hideProjectNotice && (
                                         <div
                                             className={cn({

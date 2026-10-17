@@ -36,7 +36,7 @@ import type { ExperimentMetricUnion } from '../../../queries/schema/schema-gener
 import type { FeatureFlagType } from '../../../types'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { experimentScannerBody } from '../replayVisionScanner'
+import { experimentScannerBody, flagAggregatesByGroup } from '../replayVisionScanner'
 import {
     type ExperimentWritePayload,
     getExperimentVariants,
@@ -501,7 +501,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                     let replayScannerId: string | null = null
                     let replayScannerCreationFailed = false
-                    if (values.createReplayVisionScanner) {
+                    // The wizard shows the option off for a group flag, but the option can still be on
+                    // when the flag was linked after it was ticked.
+                    if (values.createReplayVisionScanner && !flagAggregatesByGroup(response.feature_flag)) {
                         try {
                             const replayScanner = await visionScannersCreate(
                                 String(values.currentProjectId),
@@ -537,7 +539,7 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 action: () =>
                                     router.actions.push(
                                         combineUrl(
-                                            urls.replayVisionScannerTemplate('new'),
+                                            urls.replayVisionScannerDetails('new'),
                                             experimentScannerParams({
                                                 experimentId: response.id as number,
                                                 variantKey: null,

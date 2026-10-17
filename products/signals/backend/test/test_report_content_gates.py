@@ -7,7 +7,6 @@ from django.test import SimpleTestCase, override_settings
 import posthoganalytics
 from parameterized import parameterized
 
-from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_content_gates import (
     organization_report_metrics_enabled,
     organization_report_monitoring_enabled,
@@ -85,9 +84,3 @@ class TestReportContentGates(SimpleTestCase):
 
         team_lookup.assert_not_called()
         evaluate.assert_not_called()
-
-    def test_the_monitoring_status_has_no_transition_yet(self) -> None:
-        report = SignalReport(team_id=7, status=SignalReport.Status.READY)
-
-        with self.assertRaises(InvalidStatusTransition):
-            report.transition_to(SignalReport.Status.MONITORING)

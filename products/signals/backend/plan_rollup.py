@@ -9,6 +9,9 @@ every way a step can close reaches it: a merged pull request, a manual resolve i
 bulk state change, and an MCP state write. Plenty of steps close without a pull request at all.
 """
 
+from collections.abc import Callable
+from functools import cache
+
 from django.db import transaction
 
 import structlog
@@ -22,6 +25,8 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportPullRequest,
 )
+from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.typed_report_links import incoming_links, outgoing_links
 
 logger = structlog.get_logger(__name__)
@@ -69,7 +74,9 @@ def _own_work_in_flight(team_id: int, report_id: str) -> bool:
     return any(pr.state in _LIVE_PR_STATES for pr in prs)
 
 
-def _rolled_up_status(*, team_id: int, parent: SignalReport) -> SignalReport.Status | None:
+def _rolled_up_status(
+    *, team_id: int, parent: SignalReport, get_monitoring_enabled: Callable[[], bool] | None = None
+) -> SignalReport.Status | None:
     """The status the plan's steps put it in, or None while they disagree or work remains.
 
     Every step resolved (or resolved and archived together, with at least one resolved) resolves
@@ -94,6 +101,14 @@ def _rolled_up_status(*, team_id: int, parent: SignalReport) -> SignalReport.Sta
     )
     if not statuses:
         return None
+    monitoring_enabled = False
+    if SignalReport.Status.MONITORING in statuses:
+        monitoring_enabled = (
+            get_monitoring_enabled() if get_monitoring_enabled is not None else team_report_monitoring_enabled(team_id)
+        )
+    statuses = [
+        effective_report_status(status, team_id=team_id, monitoring_enabled=monitoring_enabled) for status in statuses
+    ]
     if any(status not in _CLOSED_STATUSES for status in statuses):
         return None
     if any(status == SignalReport.Status.RESOLVED for status in statuses):
@@ -101,15 +116,26 @@ def _rolled_up_status(*, team_id: int, parent: SignalReport) -> SignalReport.Sta
     return SignalReport.Status.SUPPRESSED
 
 
-def _close_parent(*, parent: SignalReport, target: SignalReport.Status) -> bool:
+def _close_parent(
+    *, parent: SignalReport, target: SignalReport.Status, get_monitoring_enabled: Callable[[], bool] | None = None
+) -> bool:
     """Apply the rolled-up status to the plan. True when the status actually moved.
 
     Archiving a resolved plan is refused for the same reason `_apply_pr_report_state` refuses it:
     a resolve is a person's verdict, and a later archived step must not undo it.
     """
-    if parent.status == target:
+    parent_status = effective_report_status(
+        parent.status,
+        team_id=parent.team_id,
+        monitoring_enabled=get_monitoring_enabled()
+        if parent.status == SignalReport.Status.MONITORING and get_monitoring_enabled is not None
+        else None,
+    )
+    if parent_status == SignalReport.Status.MONITORING:
         return False
-    if target == SignalReport.Status.SUPPRESSED and parent.status == SignalReport.Status.RESOLVED:
+    if parent_status == target:
+        return False
+    if target == SignalReport.Status.SUPPRESSED and parent_status == SignalReport.Status.RESOLVED:
         return False
     try:
         updated_fields = parent.transition_to(target)
@@ -142,6 +168,11 @@ def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool =
     Returns the ids of the reports whose status moved, newest ancestor last, which is what the
     tests assert on.
     """
+
+    @cache
+    def monitoring_enabled() -> bool:
+        return team_report_monitoring_enabled(team_id)
+
     frontier = [
         edge.target_id for edge in outgoing_links(team_id=team_id, report_id=report_id, kinds=(ReportLinkKind.PART_OF,))
     ]
@@ -165,7 +196,7 @@ def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool =
                     continue
                 if _own_work_in_flight(team_id, parent_id):
                     continue
-                target = _rolled_up_status(team_id=team_id, parent=parent)
+                target = _rolled_up_status(team_id=team_id, parent=parent, get_monitoring_enabled=monitoring_enabled)
                 if target is None:
                     # Undecided now, not undecided forever: a step of this plan may be a plan that
                     # closes later in this same walk. A step can be `part_of` both its plan and
@@ -174,9 +205,16 @@ def roll_up_plan_parents(*, team_id: int, report_id: str, include_report: bool =
                     # level bound still bounds the walk.
                     visited.discard(parent_id)
                     continue
-                if _close_parent(parent=parent, target=target):
+                if _close_parent(parent=parent, target=target, get_monitoring_enabled=monitoring_enabled):
                     closed.append(parent_id)
-                if parent.status not in _CLOSED_STATUSES:
+                parent_status = effective_report_status(
+                    parent.status,
+                    team_id=team_id,
+                    monitoring_enabled=monitoring_enabled()
+                    if parent.status == SignalReport.Status.MONITORING
+                    else None,
+                )
+                if parent_status not in _CLOSED_STATUSES:
                     continue
             next_frontier.extend(
                 edge.target_id

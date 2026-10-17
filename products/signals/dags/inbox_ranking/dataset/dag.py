@@ -14,8 +14,7 @@ Nine assets on one daily partition, each writing Parquet under the configured S3
 
 The first four are report grain and feed one table. inbox_signal_embeddings is signal grain and is
 read on its own, joined to the others by report_id at training time. inbox_report_title_embeddings
-is a report-grain leaf: nothing joins it, and the training side pairs it to inbox_report_embeddings
-by report_id when it measures one rendering against the other. inbox_report_reviewers is a
+is a report-grain leaf: nothing joins it, and no model family trains on it. inbox_report_reviewers is a
 (report, reviewer) leaf with its own schema version: nothing joins it, and the training side pairs
 it to the report tables by report_id. inbox_user_report_interactions is a (report, person) grain
 leaf with its own schema version, so nothing joins it either. inbox_project_vectors is a
@@ -155,7 +154,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 9
+FEATURE_SCHEMA_VERSION = 10
 # Apart from FEATURE_SCHEMA_VERSION on purpose: the labels refresh sensor rewrites every labels
 # partition whose stamp is older than that one, and a user-grain change must not set it off.
 USER_INTERACTIONS_SCHEMA_VERSION = 1

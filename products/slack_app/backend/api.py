@@ -35,26 +35,14 @@ from posthog.models.integration import (
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
-from posthog.temporal.ai.slack_app import (
-    PostHogCodeSlackMentionCommandWorkflowInputs,
-    PostHogCodeSlackMentionWorkflowInputs,
-    SlackAppMentionWorkflowInputs,
-    derive_mention_workflow_id,
-)
-from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
-from posthog.temporal.ai.slack_app.posthog_code_slack_mention_command import PostHogCodeSlackMentionCommandWorkflow
-from posthog.temporal.ai.slack_app.slack_app_fork import SlackAppForkThreadWorkflow
-from posthog.temporal.ai.slack_app.slack_app_mention import (
-    SlackAppMentionWorkflow,
-    derive_slack_app_mention_workflow_id,
-)
-from posthog.temporal.ai.slack_app.types import SlackAppForkThreadInputs
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
+from products.commands.backend.facade import api as commands_api
 from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
@@ -107,9 +95,11 @@ from products.slack_app.backend.services.slack_messages import (
     TURN_FEEDBACK_ACTION_ID,
     SlackThreadMessage,
     app_home_url,
+    decode_slack_entities,
     parse_slack_file_refs,
     post_slack_ephemeral,
     post_slack_thread_reply,
+    unwrap_slack_links,
 )
 from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOPES
 from products.slack_app.backend.services.slack_settings import (
@@ -127,6 +117,7 @@ from products.slack_app.backend.services.slack_user_info import (
 from products.slack_app.backend.services.slack_user_oauth import (
     build_invite_url,
     find_linked_posthog_user,
+    linked_posthog_user_ids,
     post_link_invite_message,
 )
 from products.slack_app.backend.services.slack_welcome_messages import (
@@ -141,6 +132,22 @@ from products.slack_app.backend.slack_link_unfurl import (
     parse_posthog_resource_link,
 )
 from products.slack_app.backend.slack_workflow_events import emit_slack_message_event, is_triggering_message
+from products.slack_app.backend.temporal import (
+    PostHogCodeSlackMentionCommandWorkflowInputs,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMentionWorkflowInputs,
+    derive_mention_workflow_id,
+)
+from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
+    PostHogCodeSlackMentionCommandWorkflow,
+)
+from products.slack_app.backend.temporal.slack_app_fork import SlackAppForkThreadWorkflow
+from products.slack_app.backend.temporal.slack_app_mention import (
+    SlackAppMentionWorkflow,
+    derive_slack_app_mention_workflow_id,
+)
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
+from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
 
@@ -202,7 +209,11 @@ UNTAGGED_FOLLOWUP_ACTION_DISMISS = "posthog_code_untagged_followup_dismiss"
 UNTAGGED_FOLLOWUP_CONTEXT_KIND = "untagged_followup"
 
 _MAX_GITHUB_REPOS = 500
-REPO_LIST_CACHE_TTL_SECONDS = 300
+# The installation webhook marks snapshots stale without saving rows, so it does not clear this key.
+# This TTL is the longest time a repo access change can take to reach Slack.
+REPO_LIST_CACHE_TTL_SECONDS = 60 * 60
+# Mentions do not wait for this refresh, so the interval only sets how often Slack lists GitHub.
+REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS = 6 * 60 * 60
 PENDING_REPO_PICKER_TTL_SECONDS = PICKER_TOKEN_MAX_AGE_SECONDS
 
 
@@ -1077,7 +1088,7 @@ def _post_repo_picker_message(
     try:
         _get_full_repo_names(integration, user_id=user_id)
     except Exception:
-        logger.warning("repo_list_prewarm_failed", user_id=user_id, exc_info=True)
+        logger.warning("slack_app_repo_list_prewarm_failed", user_id=user_id, exc_info=True)
 
 
 def _extract_explicit_repo(text: str, all_repos: list[str]) -> str | None:
@@ -1097,6 +1108,24 @@ def _extract_explicit_repo_from_thread(thread_messages: list[SlackThreadMessage]
     return extract_repo_from_scopes(
         [_strip_bot_mentions(message.text) for message in reversed(thread_messages)], all_repos
     )
+
+
+def _schedule_user_repo_cache_refresh(user_integration_id: str) -> None:
+    # The task module imports this module, so a module-level import here would be circular.
+    from products.slack_app.backend.tasks import refresh_user_github_repository_cache  # noqa: PLC0415
+
+    try:
+        refresh_user_github_repository_cache.delay(user_integration_id=user_integration_id)
+    except Exception:
+        # The stale snapshot still answers this mention, and the next mention schedules the refresh again.
+        logger.warning("slack_app_github_repo_cache_refresh_dispatch_failed", user_integration_id=user_integration_id)
+
+
+def _repo_snapshot_needs_refresh(record: UserIntegration) -> bool:
+    updated_at = record.repository_cache_updated_at
+    if updated_at is None:
+        return True
+    return (timezone.now() - updated_at).total_seconds() >= REPO_SNAPSHOT_REFRESH_INTERVAL_SECONDS
 
 
 def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> list[str]:
@@ -1120,12 +1149,19 @@ def _get_full_repo_names(integration: Integration, *, user_id: int | None) -> li
 
     for record in user_records:
         github = UserGitHubIntegration(record, source="slack_app_repo_selection", priority=Priority.NORMAL)
-        repo_entries = github.list_all_cached_repositories(max_repos=_MAX_GITHUB_REPOS)
+        # A live listing of a large install takes seconds while the person waits in Slack, so a
+        # snapshot with repos is served as it is and refreshed in the background.
+        has_cached_repos = bool(record.repository_cache)
+        if has_cached_repos and _repo_snapshot_needs_refresh(record):
+            _schedule_user_repo_cache_refresh(str(record.id))
+        repo_entries = github.list_all_cached_repositories(
+            max_repos=_MAX_GITHUB_REPOS, allow_refresh=not has_cached_repos
+        )
         for repo in repo_entries:
             all_repos.add(repo["full_name"])
             if len(all_repos) >= _MAX_GITHUB_REPOS:
                 logger.warning(
-                    "github_repo_list_capped",
+                    "slack_app_github_repo_list_capped",
                     user_id=user_id,
                     team_id=integration.team_id,
                     cap=_MAX_GITHUB_REPOS,
@@ -1254,7 +1290,7 @@ def _resolve_pending_repo_picker_from_followup(event: dict[str, Any], integratio
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.repo_selected, selected_repo))
     except Exception as e:
         logger.warning(
             "slack_app_pending_picker_signal_failed",
@@ -2875,6 +2911,16 @@ def route_posthog_code_event_to_relevant_region(
         # Recognised but not run: unrecognised, ``@PostHog project 452770`` becomes a task about
         # its own syntax. Only a message addressed to the app can be a command.
         if untagged_followup_mapping is None:
+            command_probe = resolution.resolved_or_first()
+            if command_probe is not None and _hand_off_command(
+                event,
+                workspace_result.candidates,
+                slack_team_id,
+                probe=command_probe,
+                posthog_user=posthog_user,
+                is_ext_shared_channel=is_ext_shared_channel,
+            ):
+                return ROUTE_HANDLED_LOCALLY
             mention_command = parse_rules_command(event.get("text", ""))
             if mention_command is not None:
                 # The redirect reply is static, but its analytics event attributes to whichever
@@ -3167,6 +3213,94 @@ def _redirect_mention_command(
         mention_command_redirect(command),
     )
     return ROUTE_HANDLED_LOCALLY
+
+
+def _connected_organization_ids(candidates: list[Integration]) -> tuple[str, ...]:
+    team_ids = {candidate.team_id for candidate in candidates}
+    organization_ids = Team.objects.filter(id__in=team_ids).values_list("organization_id", flat=True).distinct()
+    return tuple(str(organization_id) for organization_id in organization_ids)
+
+
+def _hand_off_command(
+    event: dict[str, Any],
+    candidates: list[Integration],
+    slack_team_id: str,
+    *,
+    probe: Integration,
+    posthog_user: User,
+    is_ext_shared_channel: bool,
+) -> bool:
+    """Hand a mention such as ``@PostHog review --deep <PR URL>`` to the commands product.
+
+    Commands decides whether it is a command, runs it without the agent and answers in the thread.
+    False leaves the mention to the agent: free text, a mistyped command, or an organization outside
+    the commands rollout.
+    """
+    text = event.get("text")
+    channel = event.get("channel")
+    slack_user_id = event.get("user")
+    message_ts = event.get("ts")
+    if event.get("type") != "app_mention" or not (
+        isinstance(text, str)
+        and isinstance(channel, str)
+        and isinstance(slack_user_id, str)
+        and isinstance(message_ts, str)
+    ):
+        return False
+    # Nearly every mention is free text for the agent, and this keeps their path free of queries.
+    if not commands_api.may_hold_command(text):
+        return False
+    # The answer is visible in the thread, which would announce PostHog in a shared channel that has
+    # not approved it yet. The agent path has the approval gate for that.
+    if is_ext_shared_channel and not _channel_is_approved(slack_team_id, channel):
+        return False
+    # A command is addressed to the app: a message that opens with someone else's mention is not.
+    bot_user_id = get_cached_bot_user_id(SlackIntegration(probe), probe)
+    bot_mention = f"<@{bot_user_id}>"
+    text = text.strip()
+    if bot_user_id is None or not text.startswith(bot_mention):
+        return False
+    thread_ts_value = event.get("thread_ts")
+    thread_ts = thread_ts_value if isinstance(thread_ts_value, str) else message_ts
+    # A broken command lookup must not cost the person their agent run. That includes the linked
+    # accounts, whose lookup the user resolver also survives by falling back to the email match.
+    try:
+        # The account the resolver picked comes first. Every other linked account joins, so the
+        # project the command runs in picks the account rather than the order of linking.
+        user_ids = (
+            posthog_user.id,
+            *linked_posthog_user_ids(slack_user_id=slack_user_id, slack_team_id=slack_team_id),
+        )
+        mention = commands_api.SlackMention(
+            text=decode_slack_entities(unwrap_slack_links(text.removeprefix(bot_mention).strip())),
+            slack_team_id=slack_team_id,
+            slack_user_id=slack_user_id,
+            channel=channel,
+            thread_ts=thread_ts,
+            message_ts=message_ts,
+            integration_id=probe.id,
+            integration_team_id=probe.team_id,
+            user_ids=tuple(dict.fromkeys(user_ids)),
+            organization_ids=_connected_organization_ids(candidates),
+        )
+        verb = commands_api.accept_slack_mention(mention)
+    except Exception:
+        logger.warning("slack_app_command_failed", slack_team_id=slack_team_id, exc_info=True)
+        return False
+    if verb is None:
+        return False
+    # The command is the request a bare mention in this thread waited for, so a later "thanks"
+    # must not start an agent run.
+    bare_mention.clear_awaited_request(slack_team_id, channel, thread_ts)
+    capture_slack_event(
+        probe,
+        "slack app command used",
+        slack_user_id=slack_user_id,
+        posthog_user=posthog_user,
+        action=f"command_{verb}",
+        source="mention",
+    )
+    return True
 
 
 def _start_command_workflow(
@@ -4223,9 +4357,9 @@ def _start_mention_workflow(
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
-        PostHogCodeSlackMentionWorkflow,
+        SlackAppMentionProcessingWorkflow,
         workflow_inputs,
-        id_prefix="posthog-code-mention",
+        id_prefix="slack-app-mention-processing",
         slack_team_id=slack_team_id,
         event=event,
         event_id=event_id,
@@ -4409,11 +4543,13 @@ def _link_shared_url_region(event: dict[str, Any]) -> str | None:
 
 
 def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
-    """Team ids named by ``/project/:id`` in the event's unfurlable links."""
+    """Team ids named by ``/project/:id`` or ``/api/projects/:id`` in the event's unfurlable links."""
     team_ids: set[int] = set()
     for url in _link_shared_resource_urls(event):
         parts = [part for part in urlparse(url).path.split("/") if part]
-        if len(parts) >= 2 and parts[0] == "project":
+        if parts[:2] == ["api", "projects"]:
+            parts = parts[1:]
+        if len(parts) >= 2 and parts[0] in ("project", "projects"):
             try:
                 team_ids.add(int(parts[1]))
             except ValueError:
@@ -4739,7 +4875,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.repo_selected, selected_repo))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.repo_selected, selected_repo))
         if context and pending_picker_user_id:
             _clear_pending_repo_picker(
                 integration_id=context["integration_id"],
@@ -4797,7 +4933,7 @@ def _handle_no_repo_needed_submit(payload: dict) -> HttpResponse:
     try:
         client = sync_connect()
         handle = client.get_workflow_handle(workflow_id)
-        asyncio.run(handle.signal(PostHogCodeSlackMentionWorkflow.no_repo_needed))
+        asyncio.run(handle.signal(SlackAppMentionProcessingWorkflow.no_repo_needed))
         if pending_picker_user_id:
             _clear_pending_repo_picker(
                 integration_id=context["integration_id"],

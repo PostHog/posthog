@@ -59,7 +59,7 @@ class PlausibleSource(ResumableSource[PlausibleSourceConfig, PlausibleResumeConf
         pub=("plausible_analytics", "plausible"),
         rubygems=("plausible_api", "bridgetown-plausible"),
         swiftpm=("github.com/nickoneill/plausibleswift", "github.com/brightdigit/aviaryinsights"),
-        competes_with=(ProductKey.WEB_ANALYTICS,),
+        alternative_to=(ProductKey.WEB_ANALYTICS,),
     )
 
     supported_versions = ("v2",)
