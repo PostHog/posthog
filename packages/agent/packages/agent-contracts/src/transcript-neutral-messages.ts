@@ -1,3 +1,5 @@
+import { readParentToolCallId } from "./tool-meta";
+
 /**
  * Whether a line on the ACP wire may close a streamed assistant message.
  *
@@ -43,6 +45,24 @@ function canonicalMethod(method: string): string {
   return method.startsWith("__posthog/") ? method.slice(1) : method;
 }
 
+/**
+ * A background sub-agent can call tools while the agent streams its answer, so
+ * a sub-agent's update does not close the agent's message. Its message chunks
+ * are excluded, because the writer reads them before it asks about boundaries.
+ */
+function isSubagentUpdate(params: unknown): boolean {
+  const update = (
+    params as { update?: { sessionUpdate?: unknown; _meta?: unknown } }
+  )?.update;
+  if (
+    update?.sessionUpdate === "agent_message_chunk" ||
+    update?.sessionUpdate === "agent_message"
+  ) {
+    return false;
+  }
+  return readParentToolCallId(update?._meta) !== undefined;
+}
+
 export class TranscriptBoundaries {
   /**
    * Ids of `_posthog/` calls still awaiting an answer. Each side of the wire
@@ -52,10 +72,21 @@ export class TranscriptBoundaries {
    */
   private neutralCallIds = new Set<unknown>();
 
-  isNeutral(message: { id?: unknown; method?: unknown }): boolean {
+  isNeutral(message: {
+    id?: unknown;
+    method?: unknown;
+    params?: unknown;
+  }): boolean {
     const isCall = message.id !== undefined;
     if (typeof message.method !== "string") {
       return isCall && this.neutralCallIds.delete(message.id);
+    }
+    if (
+      !isCall &&
+      message.method === "session/update" &&
+      isSubagentUpdate(message.params)
+    ) {
+      return true;
     }
     const method = canonicalMethod(message.method);
     const isPosthogMethod = method.startsWith("_posthog/");

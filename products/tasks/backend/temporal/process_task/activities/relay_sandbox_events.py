@@ -875,8 +875,20 @@ def _is_active_agent_update(event_data: dict) -> bool:
     return update.get("sessionUpdate") in _GENERATION_SESSION_UPDATE_SUBTYPES
 
 
+def _is_subagent_update(update: dict[str, Any]) -> bool:
+    """True for an update from a sub-agent, which names its parent tool call in ``_meta``."""
+    meta = update.get("_meta")
+    if not isinstance(meta, dict):
+        return False
+    for channel in (meta.get("posthog"), meta.get("claudeCode")):
+        parent = channel.get("parentToolCallId") if isinstance(channel, dict) else None
+        if isinstance(parent, str) and parent:
+            return True
+    return False
+
+
 def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
-    """The Slack plan payload for an ACP tool call (``{"phase", "activity"}``) or todo list (``{"plan"}``).
+    """The Slack plan payload for an ACP tool call (``{"phase", "activity", "nested"}``) or todo list (``{"plan"}``).
 
     It carries no tool name or arguments, only the call's description written for people. An id is
     marked seen only once its command is known, so a call that arrives without input retries.
@@ -899,10 +911,15 @@ def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any]
         return None
     seen.add(tool_call_id)
     phase = phase_for_tool_call(tool_call)
-    # A hidden tool still ends the narrative burst before it, so it is signaled without a phase.
+    # A background sub-agent can call tools while the agent writes its answer, so its calls are
+    # marked nested and do not end the narrative burst. A hidden tool of the agent itself still
+    # ends the burst before it, so it is signaled without a phase.
+    nested = _is_subagent_update(update)
     if phase is None:
-        return {"phase": None}
+        return None if nested else {"phase": None}
     payload: dict[str, Any] = {"phase": phase.key}
+    if nested:
+        payload["nested"] = True
     if tool_call.description:
         payload["activity"] = tool_call.description
     return payload

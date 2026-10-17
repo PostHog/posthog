@@ -133,6 +133,29 @@ class TestSlackAgentDesignSignalEmitter:
 
         assert signals == [("agent_status_update", expected)]
 
+    @parameterized.expand(
+        [
+            (
+                "visible_call",
+                "mcp__posthog__exec",
+                {"command": 'call execute-sql {"query": "SELECT 1 FROM events"}'},
+                [("agent_status_update", {"phase": "posthog:Execute SQL query", "nested": True})],
+            ),
+            ("hidden_call", "Sleep", {}, []),
+        ]
+    )
+    def test_subagent_call_does_not_end_the_answer(
+        self, _name: str, tool_name: str, raw_input: dict[str, Any], expected: list[tuple[str, Any]]
+    ) -> None:
+        emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
+        emitter.process(_text_chunk("The answer is"))
+        call = _tool_call("call-3", tool_name, "")
+        update = call["notification"]["params"]["update"]
+        update["rawInput"] = raw_input
+        update["_meta"]["claudeCode"]["parentToolCallId"] = "call-agent"
+
+        assert emitter.process(call) == expected
+
     def test_agent_todo_list_reaches_the_relay(self) -> None:
         emitter = SlackAgentDesignSignalEmitter(SLACK_CTX)
         emitter.process(_text_chunk("thinking"))
