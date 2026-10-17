@@ -142,9 +142,9 @@ Nothing is dispatched to a worker, from the events consumer or a follower, until
 [Processor runtime](processor-runtime.md#startup) lists them in order.
 
 A pod owns its partitions for as long as it runs, so no slice changes owner while the pod runs.
-State never moves between pods, which is why one pod that owns every partition is the supported deployment.
-The store records the split of the partitions it was written under, and refuses to open under a split that the recorded one does not cover.
-[Processor runtime](processor-runtime.md#ownership-and-the-single-pod-deployment) explains that constraint.
+State moves between pods only in a reshard, which raises the pod count.
+The store records the split of the partitions it was written under, and opens only under a split that the recorded one covers.
+[Processor runtime](processor-runtime.md#ownership-and-the-single-pod-deployment) explains that constraint and the reshard.
 
 ### Choosing a checkpoint
 
@@ -241,7 +241,9 @@ Checkpoints require durable restore, a bucket, and an absolute checkpoint direct
 - **One lineage per pod.**
   A pod's checkpoints live under `cohort_stream_state/<ordinal>`, locally and in object storage, where the ordinal is the number that ends the StatefulSet pod name in `POD_NAME`.
   Ordinal 0 keeps the single pod's original layout.
-  Two pods never read or write each other's checkpoints.
+  A pod writes only its own lineage.
+  A reshard child reads its parent's lineage only to take its partitions over.
+  Its first upload is full, so its lineage never names objects in its parent's lineage.
 - **Positions from the broker.**
   Each checkpoint carries `offsets.json`: for every owned slice, the committed offset of every enabled input's consumer group, or the low watermark where the group has none, so idle partitions are recorded too.
   The positions are read after a write-ahead-log flush and before the checkpoint.
@@ -355,7 +357,8 @@ A lint rule denies direct calls to most store I/O methods, and the synchronous s
   With checkpoints enabled, the boot deletes it and restores.
 - A store directory that holds `restore.json` is a checkpoint restore in progress, not a live store.
   An image from before that marker ignores it and reopens the store at the broker's old offsets, so do not roll back while a restore is pending.
-- Changing `COHORT_POD_COUNT` makes every store whose split does not cover its pod's new one refuse to open, because each records the split it was written under.
+- Changing `COHORT_POD_COUNT` without `COHORT_RESHARD_FROM_POD_COUNT` holds every boot in the ownership fence.
+  Lowering it also makes every store refuse to open, because each records the split it was written under.
   [Ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) lists what to wipe.
   Wiping a store deletes every slice, including merge transfers not yet sent, whose merge offsets may already be committed.
 - Person records grow with every person seen on a team with person-property conditions, including those that match nothing, unless a time-to-live is configured.

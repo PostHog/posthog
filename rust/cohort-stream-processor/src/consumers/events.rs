@@ -1064,9 +1064,10 @@ impl CohortStreamEventsConsumer {
     /// so without the commit a crash right after would reopen the restored store at the broker's
     /// old, higher offsets and skip the events between.
     ///
-    /// Nothing folds while this host's clock reads before the checkpoint's capture. Every output
-    /// version the checkpoint's source pod emitted lies before it, so a fold then cannot emit a
-    /// lower one.
+    /// Nothing folds while this host's clock reads before the checkpoint's capture, so no fold
+    /// emits a version below the outputs that made the restored state. The source pod can emit
+    /// more after the capture, and only the wall clocks of the two hosts order those outputs before
+    /// this pod's.
     fn rewind(
         &self,
         resume: ResumePoints,
