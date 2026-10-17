@@ -1,4 +1,5 @@
 from dataclasses import field
+from datetime import UTC, datetime
 
 from posthog.dataclasses import frozen
 
@@ -32,6 +33,9 @@ EVENT_PRODUCT_TYPES = frozenset(
         "wirelessController",
     }
 )
+
+# The official Meraki SDK stops an event log walk at this date, which is older than any Meraki event.
+EVENT_LOG_FLOOR = datetime(2014, 1, 1, tzinfo=UTC)
 
 # Devices can upload events after the previous sync read past them.
 EVENTS_LOOKBACK_SECONDS = 60 * 60

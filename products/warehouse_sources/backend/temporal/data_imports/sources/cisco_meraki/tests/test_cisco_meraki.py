@@ -353,8 +353,8 @@ def _event(occurred_at: str) -> dict[str, Any]:
 @pytest.mark.parametrize(
     ("watermark", "expected_pages"),
     [
-        (None, [None, "2026-01-02T00:00:00Z", "2025-12-31T00:00:00Z"]),
-        (datetime(2026, 1, 1, tzinfo=UTC), [None, "2026-01-02T00:00:00Z"]),
+        (None, [None, "2026-01-02T00:00:00Z", "2026-01-01T06:00:00Z", "2025-12-31T00:00:00Z"]),
+        (datetime(2026, 1, 1, tzinfo=UTC), [None, "2026-01-02T00:00:00Z", "2026-01-01T06:00:00Z"]),
     ],
 )
 def test_network_events_walk_back_per_product_type(
@@ -364,6 +364,7 @@ def test_network_events_walk_back_per_product_type(
         prev_url = f"{API_URL}/networks/N_1/events?productType=appliance&perPage=1000&endingBefore={older_than}"
         return ScriptedResponse(json={"events": events}, headers={"Link": f'<{prev_url}>; rel="prev"'})
 
+    appliance_path = "/api/v1/networks/N_1/events?productType=appliance"
     result = make_driver().run(
         "network_events",
         network_api(
@@ -372,15 +373,14 @@ def test_network_events_walk_back_per_product_type(
                     json=[{"id": "N_1", "productTypes": ["appliance", "sensor", "wireless"]}]
                 ),
                 ("/api/v1/networks/N_1/events?productType=wireless", None): ScriptedResponse(json={"events": []}),
-                ("/api/v1/networks/N_1/events?productType=appliance", None): page(
+                (appliance_path, None): page(
                     [_event("2026-01-03T00:00:00Z"), _event("2026-01-02T00:00:00Z")], "2026-01-02T00:00:00Z"
                 ),
-                ("/api/v1/networks/N_1/events?productType=appliance", "2026-01-02T00:00:00Z"): page(
-                    [_event("2026-01-01T12:00:00Z"), _event("2025-12-31T00:00:00Z")], "2025-12-31T00:00:00Z"
+                (appliance_path, "2026-01-02T00:00:00Z"): page([], "2026-01-01T06:00:00Z"),
+                (appliance_path, "2026-01-01T06:00:00Z"): page(
+                    [_event("2026-01-01T05:00:00Z"), _event("2025-12-31T00:00:00Z")], "2025-12-31T00:00:00Z"
                 ),
-                ("/api/v1/networks/N_1/events?productType=appliance", "2025-12-31T00:00:00Z"): page(
-                    [], "2025-12-30T00:00:00Z"
-                ),
+                (appliance_path, "2025-12-31T00:00:00Z"): page([], "2013-12-31T00:00:00Z"),
             }
         ),
         incremental_field="occurredAt" if watermark else None,

@@ -3,7 +3,7 @@ import json
 import hashlib
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from requests import HTTPError, PreparedRequest, Response, Session
 
@@ -12,6 +12,7 @@ from posthog.dataclasses import frozen
 from products.warehouse_sources.backend.temporal.data_imports.sources.cisco_meraki.settings import (
     AUTH_ERROR,
     ENDPOINTS,
+    EVENT_LOG_FLOOR,
     EVENT_PRODUCT_TYPES,
     NOT_FOUND_ERROR,
     ORGANIZATION_ERROR,
@@ -143,28 +144,40 @@ def validate_credentials(
 class _EventLogPaginator(HeaderLinkPaginator):
     """Walks a network event log from the newest page to older pages, which is the order Meraki pages it in.
 
-    An incremental sync stops after the first page that reaches past the watermark, because every older page
-    was read by an earlier sync.
+    Meraki pages the log by time window, so an empty page can still link to older events. The walk stops when a
+    page reaches past the watermark, or when the older page starts before the watermark or the log floor.
     """
 
     def __init__(self, stop_before: datetime | None) -> None:
         super().__init__(links_next_key="prev")
-        self._stop_before = stop_before
+        self._stop_before = stop_before or EVENT_LOG_FLOOR
 
     def update_state(self, response: Response, data: list[Any] | None = None) -> None:
-        if not data or self._reaches_watermark(data):
+        if data and self._reaches_watermark(data):
+            self._has_next_page = False
+            return
+        prev_link = response.links.get("prev")
+        ending_before = _ending_before(prev_link.get("url")) if prev_link else None
+        if ending_before is None and not data:
+            # An empty page whose older link carries no time cannot show that the walk moves toward the floor.
+            self._has_next_page = False
+            return
+        if ending_before is not None and ending_before < self._stop_before:
             self._has_next_page = False
             return
         super().update_state(response, data)
 
     def _reaches_watermark(self, events: list[Any]) -> bool:
-        if self._stop_before is None:
-            return False
         for event in events:
             occurred_at = parse_datetime_value(event.get("occurredAt")) if isinstance(event, dict) else None
             if occurred_at is not None and occurred_at < self._stop_before:
                 return True
         return False
+
+
+def _ending_before(url: str | None) -> datetime | None:
+    values = parse_qs(urlsplit(url).query).get("endingBefore") if url else None
+    return parse_datetime_value(values[0]) if values else None
 
 
 def _network_product_types(network: dict[str, Any]) -> list[dict[str, Any]]:
