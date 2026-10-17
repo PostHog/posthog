@@ -83,6 +83,17 @@ def test_substitutes_promql(_name: str, expr: str, variable: Variable, expected:
     assert (substitution.text, substitution.unresolved) == (expected, ())
 
 
+@parameterized.expand(
+    [
+        ("label_replace_replacement", 'label_replace(up, "dst", "$name", "src", "(?P<name>.*)")', ()),
+        ("label_join_separator", 'label_join(up, "dst", "$separator", "job", "env")', ("separator",)),
+        ("matcher", 'up{job="$job"}', ("job",)),
+    ]
+)
+def test_only_label_replace_replacements_keep_undefined_names(_name: str, expr: str, unresolved: tuple[str]) -> None:
+    assert substitute_promql(expr, {}).unresolved == unresolved
+
+
 def test_promql_reports_unresolved_variables_and_keeps_the_named_ones() -> None:
     substitution = substitute_promql('up{env="$env", job="$job", zone="$zone"}', {"env": ONE}, keep={"zone"})
     assert (substitution.text, substitution.unresolved) == ('up{env="pro\\"d", job="$job", zone="$zone"}', ("job",))
