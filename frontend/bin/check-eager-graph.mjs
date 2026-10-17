@@ -178,6 +178,17 @@ const ROOTS = [
         ],
     },
     {
+        root: 'src/scenes/web-analytics/WebAnalyticsScene.tsx',
+        label: 'web analytics scene',
+        // 2026-10-17: 9.85 MiB (3651 files), stable CSS included. ~10% headroom.
+        budgetBytes: 11_360_000,
+        forbidden: [
+            // Only the live tab renders this dashboard. Its world map holds about 1 MiB of country shapes.
+            'src/scenes/web-analytics/LiveMetricsDashboard/LiveWebAnalyticsMetrics.tsx',
+            'products/product_analytics/frontend/insights/trends/WorldMap/countryVectors.tsx',
+        ],
+    },
+    {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
         label: 'replay detail scene',
         // 2026-10-17: 8.61 MiB (3264 files), stable CSS included. ~10% headroom.
