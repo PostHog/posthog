@@ -19,6 +19,13 @@ class TestChatwootSource:
         # both must force re-entering the token.
         assert self.source.connection_host_fields == ["host", "account_id"]
 
+    def test_retryable_errors_match_upstream_error_raise(self):
+        observed_error = (
+            "Chatwoot API error (retryable): status=521, url=https://chat.example.com/api/v1/accounts/7/teams"
+        )
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+        assert any(key in observed_error for key in self.source.get_retry_exhausted_errors())
+
     def test_get_schemas_filtered_by_names(self):
         schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts"])
         assert [schema.name for schema in schemas] == ["contacts"]
