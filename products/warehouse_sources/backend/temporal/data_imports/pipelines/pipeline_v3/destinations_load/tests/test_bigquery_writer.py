@@ -362,3 +362,32 @@ class TestIncremental:
                 "WHEN MATCHED THEN UPDATE SET T.`name` = S.`name` "
                 "WHEN NOT MATCHED THEN INSERT (`id`, `name`) VALUES (S.`id`, S.`name`)"
             )
+
+    async def test_a_column_sent_as_text_merges_into_its_int64_column(self) -> None:
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": [1700000000]}), 0)
+        await _deliver(
+            writer,
+            ctx,
+            pa.RecordBatch.from_pydict({"id": [1, 2], "delivered_at": ["1700000500", None]}),
+            1,
+            is_final=True,
+        )
+
+        table = client.get_table("proj.dataset.charges")
+        assert table.types["delivered_at"] == "INTEGER"
+        assert sorted((row["id"], row["delivered_at"]) for row in table.rows) == [(1, 1700000500), (2, None)]
+
+    async def test_text_that_cannot_convert_to_the_int64_column_is_a_configuration_error(self) -> None:
+        # A retry sends the same values, so a retryable error would fail until someone changes the table.
+        client = FakeBigQueryClient()
+        ctx = _ctx(sync_type="incremental", primary_keys=("id",))
+        writer = LocalBigQueryWriter(ctx, client)
+
+        await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": [1700000000]}), 0)
+
+        with pytest.raises(DestinationConfigurationError, match="delivered_at"):
+            await _deliver(writer, ctx, pa.RecordBatch.from_pydict({"id": [1], "delivered_at": ["soon"]}), 1)
