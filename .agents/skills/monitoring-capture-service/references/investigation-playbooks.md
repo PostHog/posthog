@@ -108,7 +108,8 @@ Multiple layers of rate limiting can affect capture. Check in this order:
 3. **Global rate limiter** (per-token+distinct_id, Redis-backed)
    - `global_rate_limiter_*` metrics for direct limiter decisions.
    - `capture_events_rerouted_overflow{reason="rate_limited"}` rate — proxy signal from the overflow path.
-   - Config: `GLOBAL_RATE_LIMIT_ENABLED`, `GLOBAL_RATE_LIMIT_TOKEN_DISTINCTID_THRESHOLD`
+   - Config: `GLOBAL_RATE_LIMIT_ENABLED`, `GLOBAL_RATE_LIMIT_TOKEN_DISTINCTID_THRESHOLD`,
+     `GLOBAL_RATE_LIMIT_REDIS_SHARDS` (`2` spreads keys across two Redis clusters)
 
 4. **Overflow routing** (the combined effect)
    - `capture_events_rerouted_overflow` by `reason`:
@@ -130,6 +131,7 @@ First, identify **which** Redis instance is affected:
 | `capture_event_restrictions_stale` = 1                            | Primary or event restrictions Redis    |
 | `capture_billing_limits_loaded_tokens` = 0 for a `cache_key`      | Primary Redis                          |
 | `capture_events_rerouted_overflow{reason="rate_limited"}` anomaly | GRL Redis                              |
+| `global_rate_limiter_read_failing_seconds` > 0                    | GRL Redis shard named by `redis_idx`   |
 | `ratelimit_service_*` errors                                      | Contour rate limit Redis (not capture) |
 
 Then check infrastructure health:
@@ -139,7 +141,8 @@ Then check infrastructure health:
    `CurrConnections`, `Evictions`, `ReplicationLag`.
    Cluster IDs:
    - Primary: `posthog-solo` (prod-us) or `posthog-prod-redis-encripted` (prod-eu; sic — typo in actual name)
-   - GRL: `capture-globalratelimit-prod-redis`
+   - GRL: `capture-globalratelimit-prod-redis` (with `GLOBAL_RATE_LIMIT_REDIS_SHARDS=2`, also check the
+     cluster behind `GLOBAL_RATE_LIMIT_REDIS_SHARD_1_URL`)
    - Rate limit: `ratelimit-prod-redis`
 
 2. **prometheus-redis-exporter** — search VictoriaMetrics for Redis exporter metrics
