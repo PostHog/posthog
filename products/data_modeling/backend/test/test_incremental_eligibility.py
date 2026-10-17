@@ -1,5 +1,7 @@
 from typing import ClassVar, Optional
 
+from posthog.test.base import BaseTest
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -7,8 +9,13 @@ from parameterized import parameterized
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import IntegerDatabaseField, SavedQuery, TableNode
 
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
-from products.data_modeling.backend.logic.incremental_eligibility import check_incremental_eligibility
+from products.data_modeling.backend.logic.incremental_eligibility import (
+    check_incremental_eligibility,
+    eligibility_database,
+)
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 DAY_KEY = IncrementalConfig(incremental_key="day", unique_key=("day",))
 DAY_EVENT_KEY = IncrementalConfig(incremental_key="day", unique_key=("day", "event"))
@@ -110,6 +117,12 @@ class TestIncrementalEligibility(SimpleTestCase):
                 "must be one of the GROUP BY columns",
             ),
             ("top_level_limit", f"{GROUPED} LIMIT 10", DAY_KEY, "LIMIT cannot be incremental"),
+            (
+                "limit_on_a_top_level_union",
+                f"({GROUPED} UNION ALL {GROUPED}) LIMIT 10",
+                DAY_KEY,
+                "LIMIT cannot be incremental",
+            ),
             ("top_level_order_by", f"{GROUPED} ORDER BY day", DAY_KEY, "ORDER BY"),
             (
                 "distinct_without_grouping",
@@ -278,6 +291,39 @@ class TestIncrementalEligibility(SimpleTestCase):
         assert len(result.blockers) == 1, result.blockers
 
 
+class TestMaterializedUpstreamView(BaseTest):
+    def test_a_blocked_shape_behind_a_materialized_saved_query_still_blocks(self) -> None:
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        backing_table = DataWarehouseTable.objects.create(
+            name="upstream_view_backing",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/upstream_view/*",
+            columns={
+                "day": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime64(6, 'UTC')", "schema_valid": True},
+                "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+            },
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="upstream_view",
+            query={"query": "SELECT toStartOfDay(timestamp) AS day, event FROM events LIMIT 10"},
+            columns={"day": "DateTime64(6, 'UTC')", "event": "String"},
+            table=backing_table,
+            is_materialized=True,
+        )
+
+        result = check_incremental_eligibility(
+            "SELECT day, event FROM upstream_view",
+            IncrementalConfig(incremental_key="day", unique_key=("day", "event")),
+            database=eligibility_database(self.team.id, self.user),
+        )
+
+        assert not result.eligible
+        assert any("LIMIT" in blocker for blocker in result.blockers), result.blockers
+
+
 class TestStarExpansion:
     database: ClassVar[Database]
 
@@ -301,7 +347,10 @@ class TestStarExpansion:
         assert "*" not in result.key_candidates
 
     def test_expanded_candidates_still_intersect_union_branches(self) -> None:
-        result = self._check("SELECT * FROM (SELECT 1 AS a, 2 AS b) UNION ALL SELECT 3 AS a, 4 AS c")
+        result = self._check(
+            "SELECT * FROM (SELECT toDate('2026-01-01') AS a, toDate('2026-01-02') AS b) "
+            "UNION ALL SELECT toDate('2026-01-03') AS a, toDate('2026-01-04') AS c"
+        )
 
         assert result.key_candidates == ["a"]
 
@@ -338,6 +387,8 @@ class TestStarExpansion:
             ("string", "SELECT timestamp, event FROM events", "event"),
             ("uuid", "SELECT timestamp, uuid FROM events", "uuid"),
             ("json", "SELECT timestamp, properties FROM events", "properties"),
+            ("integer", "SELECT timestamp, toInt64(length(event)) AS n FROM events", "n"),
+            ("float", "SELECT timestamp, toFloat64(length(event)) AS f FROM events", "f"),
         ]
     )
     def test_columns_that_cannot_track_new_rows_are_not_key_candidates(
@@ -435,6 +486,18 @@ class TestStarExpansion:
         [
             ("limit", "SELECT id AS team_id_, 1 AS has_views FROM events LIMIT 50000", "LIMIT"),
             (
+                "limit_on_a_union",
+                "(SELECT id AS team_id_, 1 AS has_views FROM events "
+                "UNION ALL SELECT id AS team_id_, 2 AS has_views FROM events) LIMIT 10",
+                "LIMIT",
+            ),
+            (
+                "offset_on_a_union",
+                "(SELECT id AS team_id_, 1 AS has_views FROM events "
+                "UNION ALL SELECT id AS team_id_, 2 AS has_views FROM events) LIMIT 10 OFFSET 5",
+                "OFFSET",
+            ),
+            (
                 "having",
                 "SELECT toStartOfDay(timestamp) AS team_id_, count() AS has_views FROM events "
                 "GROUP BY team_id_ HAVING count() > 0",
@@ -473,3 +536,63 @@ class TestStarExpansion:
 
         assert not result.eligible
         assert any(expected in blocker for blocker in result.blockers), result.blockers
+
+    def test_an_unresolved_query_is_blocked_without_blaming_the_key_type(self) -> None:
+        result = self._check(
+            "SELECT timestamp, uuid FROM no_such_table",
+            IncrementalConfig(incremental_key="timestamp", unique_key=("uuid",)),
+        )
+
+        assert not result.eligible
+        assert any("could not be resolved" in blocker for blocker in result.blockers), result.blockers
+        assert not any("toDateTime()" in blocker for blocker in result.blockers), result.blockers
+
+    @parameterized.expand(
+        [
+            ("year", "toStartOfYear(timestamp)"),
+            ("quarter", "toStartOfQuarter(timestamp)"),
+            ("five_minutes", "toStartOfFiveMinutes(timestamp)"),
+        ]
+    )
+    def test_time_bucketing_functions_without_a_hogql_return_type_are_valid_keys(
+        self, _name: str, expression: str
+    ) -> None:
+        result = self._check(
+            f"SELECT {expression} AS bucket, count() AS c FROM events GROUP BY bucket",
+            IncrementalConfig(incremental_key="bucket", unique_key=("bucket",)),
+        )
+
+        assert result.eligible, result.blockers
+        assert "bucket" in result.key_candidates
+
+    @parameterized.expand(
+        [
+            (
+                "grouped_by_an_integer",
+                "SELECT toInt64(length(event)) AS n, count() AS c FROM events GROUP BY n",
+                IncrementalConfig(incremental_key="n", unique_key=("n",)),
+            ),
+            (
+                "grouped_by_a_string",
+                "SELECT event, count() AS c FROM events GROUP BY event",
+                IncrementalConfig(incremental_key="event", unique_key=("event",)),
+            ),
+            (
+                "row_level_integer_expression",
+                "SELECT coalesce(toInt64(length(event)), 0) AS new_id, uuid FROM events",
+                IncrementalConfig(incremental_key="new_id", unique_key=("uuid",)),
+            ),
+            (
+                "union_with_a_non_time_branch",
+                "SELECT toDate(timestamp) AS k, uuid FROM events UNION ALL SELECT event AS other, uuid FROM events",
+                IncrementalConfig(incremental_key="k", unique_key=("uuid",)),
+            ),
+        ]
+    )
+    def test_a_configured_key_that_is_not_a_date_or_datetime_is_blocked(
+        self, _name: str, query: str, config: IncrementalConfig
+    ) -> None:
+        result = self._check(query, config)
+
+        assert not result.eligible
+        assert any("date or datetime" in blocker for blocker in result.blockers), result.blockers
