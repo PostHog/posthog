@@ -13,6 +13,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { PopoverProps } from 'lib/lemon-ui/Popover'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
+import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     NotebookSelectButtonLogicProps,
@@ -327,6 +328,11 @@ export function NotebookSelectButton({ children, onNotebookOpened, ...props }: N
             data-attr={nodeLogic ? 'notebooks-add-button-in-a-notebook' : 'notebooks-add-button'}
             sideIcon={null}
             {...props}
+            disabledReason={
+                productHasEffectiveNoneAccess(AccessControlResourceType.Notebook)
+                    ? "You don't have access to notebooks"
+                    : props.disabledReason
+            }
             active={showPopover}
             onClick={() => {
                 props.onClick?.()

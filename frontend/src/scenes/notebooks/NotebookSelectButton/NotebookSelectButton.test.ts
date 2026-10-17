@@ -3,7 +3,9 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
+import { NotebookNodeType } from '../types'
 import { isSessionSummaryTitle, stripSessionSummaryPrefix } from './NotebookSelectButton'
 import { notebookSelectButtonLogic } from './notebookSelectButtonLogic'
 
@@ -57,5 +59,31 @@ describe('notebookSelectButtonLogic filters', () => {
         // There will be two calls (one per listener), assert last call has both params
         const lastCallArgs = listMock.mock.calls.at(-1)?.[0] as Record<string, any>
         expect(lastCallArgs).toEqual(expect.objectContaining({ search: 'problem', created_by: 'USER-UUID-1234' }))
+    })
+
+    test('skips notebook requests when notebook access is none', async () => {
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        try {
+            window.POSTHOG_APP_CONTEXT = {
+                ...priorAppContext,
+                effective_resource_access_control: {
+                    ...priorAppContext?.effective_resource_access_control,
+                    [AccessControlResourceType.Notebook]: AccessControlLevel.None,
+                },
+            } as AppContext
+            const resourceLogic = notebookSelectButtonLogic({
+                resource: { type: NotebookNodeType.Person, attrs: { id: 'person-1' } },
+            })
+            resourceLogic.mount()
+            resourceLogic.actions.loadNotebooksContainingResource()
+            resourceLogic.actions.loadAllNotebooks()
+
+            await expectLogic(resourceLogic).delay(150).toFinishAllListeners()
+
+            expect(listMock).not.toHaveBeenCalled()
+            resourceLogic.unmount()
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+        }
     })
 })
