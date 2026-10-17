@@ -61,6 +61,10 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
     backoff_attempt = models.IntegerField(default=0)
     backoff_until = models.DateTimeField(null=True, blank=True)
+    # Worker-owned. The worker sets it to the chunk it is sending (part key and offsets) before
+    # it sends, and clears it after the sink accepts the chunk. A value on a row that no worker
+    # holds means a worker stopped mid-commit, so the chunk may or may not have reached the sink.
+    pending_commit = models.JSONField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_batchimport"
@@ -118,7 +122,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         """
         if self.status != BatchImport.Status.PAUSED:
             raise ValueError(f"Only paused imports can be resumed (status: {self.status})")
-        self._flip_to_running("Resumed by admin")
+        self.save(update_fields=self.reset_for_resume("Resumed by admin"))
 
     def resume_with_inflight_part_reset(self) -> str:
         """Resume a paused import whose in-flight part has a poisoned byte offset.
@@ -150,10 +154,21 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         # Redacted: url_list part keys are full source URLs whose query string /
         # userinfo can carry credentials, and status_message is broadly visible.
         redacted_key = str(redact_part_key(inflight.get("key")))
-        self._flip_to_running(f"Resumed by admin with part {redacted_key} reset to offset 0")
+        self.save(
+            update_fields=[
+                *self.reset_for_resume(f"Resumed by admin with part {redacted_key} reset to offset 0"),
+                "state",
+            ]
+        )
         return redacted_key
 
-    def _flip_to_running(self, status_message: str) -> None:
+    def reset_for_resume(self, status_message: str) -> list[str]:
+        """Set the fields every resume path resets, and return their names for `save(update_fields=...)`.
+
+        Clears the lease so a worker can claim the row at once, instead of after the old lease
+        expires. Clears `pending_commit` because a resume accepts the saved offsets as they are,
+        and a worker that claims a row with a pending commit pauses it for review.
+        """
         self.status = BatchImport.Status.RUNNING
         self.status_message = status_message
         self.display_status_message = None
@@ -161,19 +176,18 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
         self.leased_until = None
         self.backoff_attempt = 0
         self.backoff_until = None
-        self.save(
-            update_fields=[
-                "state",
-                "status",
-                "status_message",
-                "display_status_message",
-                "lease_id",
-                "leased_until",
-                "backoff_attempt",
-                "backoff_until",
-                "updated_at",
-            ]
-        )
+        self.pending_commit = None
+        return [
+            "status",
+            "status_message",
+            "display_status_message",
+            "lease_id",
+            "leased_until",
+            "backoff_attempt",
+            "backoff_until",
+            "pending_commit",
+            "updated_at",
+        ]
 
 
 # Mostly used for manual job creation
