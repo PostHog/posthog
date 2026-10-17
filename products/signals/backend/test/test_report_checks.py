@@ -18,6 +18,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory, force_authenticate
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, PropertyDefinition, Team
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -1446,6 +1447,7 @@ class TestReportCheckAPI(APIBaseTest):
             _MEASURE, return_value=MetricMeasurement(value=0.0, measured_at=timezone.now(), series=None)
         ) as measure:
             run_due_report_checks()
+        assert measure.call_args.kwargs["ch_user"] == ClickHouseUser.SIGNALS
         measured_query = measure.call_args.args[0]
         assert {key: value for key, value in measured_query["source"].items() if key != "dateRange"} == {
             key: value for key, value in _PAGEVIEWS["source"].items() if key != "dateRange"
