@@ -588,7 +588,7 @@ class ObservationStatsSerializer(serializers.Serializer):
     labels = ObservationLabelStatsSerializer(help_text="Team label (thumbs up/down) aggregates over the filtered set.")
     available_tags = serializers.ListField(
         child=serializers.CharField(),
-        help_text="All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set.",
+        help_text="All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set, ignoring the `tags` filter.",
     )
     monitor = MonitorStatsSerializer(
         allow_null=True,
@@ -1112,8 +1112,18 @@ class ReplayObservationViewSet(
             recent_days = int(recent_days_raw) if recent_days_raw is not None else 14
         except (TypeError, ValueError):
             recent_days = 14
-        payload = compute_observation_stats(scanner, queryset, recent_days=recent_days)
+        payload = compute_observation_stats(
+            scanner,
+            queryset,
+            recent_days=recent_days,
+            tag_options_queryset=self._queryset_without_tag_filter() if request.query_params.get("tags") else None,
+        )
         return Response(payload)
+
+    def _queryset_without_tag_filter(self) -> QuerySet[ReplayObservation]:
+        params = self.request.query_params.copy()
+        params.pop("tags", None)
+        return ReplayObservationFilter(params, queryset=self.get_queryset(), request=self.request, team=self.team).qs
 
     @extend_schema(
         request=None,
