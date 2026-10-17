@@ -5,6 +5,8 @@ from posthog.models.utils import UUIDTModel
 
 from products.messaging.backend.facade.contracts import TemplateManagedBy
 
+KEY_CONSTRAINT = "unique_message_template_key_per_team"
+
 
 class MessageTemplate(UUIDTModel):
     """
@@ -65,7 +67,7 @@ class MessageTemplate(UUIDTModel):
             models.UniqueConstraint(
                 fields=["team", "key"],
                 condition=models.Q(key__isnull=False, deleted=False),
-                name="unique_message_template_key_per_team",
+                name=KEY_CONSTRAINT,
             ),
         ]
 

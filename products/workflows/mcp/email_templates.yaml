@@ -186,6 +186,7 @@ tools:
             keeps its id, workflow and sender.
         exclude_params:
             - content.email.html
+            - managed_by
         response:
             exclude:
                 - content

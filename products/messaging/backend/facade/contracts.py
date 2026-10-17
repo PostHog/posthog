@@ -118,22 +118,14 @@ class TemplateWriteIntent:
     action: str
     payload: Mapping[str, Any]
 
-
-class TemplateManagedByCode(Exception):
-    """The template is managed by code, so it refuses this write. `detail`, `why` and `fix` are written for the
-    caller."""
-
-    code = "immutable"
-
-    def __init__(self, *, detail: str, why: str, fix: str) -> None:
-        super().__init__(detail)
-        self.detail = detail
-        self.why = why
-        self.fix = fix
+    def patches_only(self, field: str) -> bool:
+        """A PATCH whose only field is `field`. Matched on the whole body, so a form spread into a PATCH never
+        matches."""
+        return self.action == "partial_update" and set(self.payload.keys()) == {field}
 
 
-class TemplateKeyRefused(Exception):
-    """The template can't take this key. `code` is stable for API clients; `detail`, `why` and `fix` are written for
+class TemplateWriteRefused(Exception):
+    """The template refuses this write. `code` is stable for API clients; `detail`, `why` and `fix` are written for
     the caller."""
 
     def __init__(self, *, code: str, detail: str, why: str, fix: str) -> None:
@@ -142,6 +134,17 @@ class TemplateKeyRefused(Exception):
         self.detail = detail
         self.why = why
         self.fix = fix
+
+
+class TemplateManagedByCode(TemplateWriteRefused):
+    """The template is managed by code, so it refuses every write but an upload, a send or a release."""
+
+    def __init__(self, *, detail: str, why: str, fix: str) -> None:
+        super().__init__(code="immutable", detail=detail, why=why, fix=fix)
+
+
+class TemplateKeyRefused(TemplateWriteRefused):
+    """The template can't take this key."""
 
 
 @frozen

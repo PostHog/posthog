@@ -1,17 +1,15 @@
 """Give a template made in PostHog a key, so the next upload under that key takes it over. A key is set once."""
 
-from typing import Final, Protocol
+from typing import Protocol
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
 
 from products.messaging.backend.facade.contracts import TemplateKeyRefused, TemplateWriteIntent
 from products.messaging.backend.models import MessageTemplate
+from products.messaging.backend.models.message_template import KEY_CONSTRAINT
 from products.messaging.backend.services.template_ownership import check_write
 from products.messaging.backend.services.template_saves import WorkflowEditorCheck, lock_template
-from products.messaging.backend.services.template_uploads import KEY_CONSTRAINT
-
-ADOPTION_ACTION: Final = "partial_update"
 
 
 class KeyedTemplate(Protocol):
@@ -21,7 +19,7 @@ class KeyedTemplate(Protocol):
 
 def is_adoption(intent: TemplateWriteIntent) -> bool:
     """A PATCH whose only field is `key`."""
-    return intent.action == ADOPTION_ACTION and set(intent.payload.keys()) == {"key"}
+    return intent.patches_only("key")
 
 
 def check_key_unchanged(template: KeyedTemplate, intent: TemplateWriteIntent) -> None:

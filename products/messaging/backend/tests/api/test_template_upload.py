@@ -29,9 +29,9 @@ GREETING = {"name": "Welcome", "subject": "Grüße", "preheader": "Vorschau", "h
 GREETING_HASH = "v1:ff5293725c21e0f9b71918af66cf7b6e17b2021f250fe915f8426946b378c88d"
 
 
-@patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
+@patch("products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.capture")
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")
@@ -120,6 +120,22 @@ class TestTemplateUpload(APIBaseTest):
         assert response.json()["content_hash"] == WELCOME_HASH
         assert response.json()["source"] == {**WELCOME["source"], "ref": "9e8d7c6"}
         assert self._workflow(first["transactional_hog_flow_id"])["version"] == 1
+
+    def test_an_upload_repairs_a_stored_hash_that_does_not_describe_the_content(self, post, _flag, _capture):
+        post.return_value = MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})
+        first = self._upload(WELCOME)
+        # A save that skipped the hash, such as one from a server still running the code before this feature.
+        MessageTemplate.objects.filter(id=first["id"]).update(content_hash=GREETING_HASH)
+
+        repaired = self._upload(WELCOME)
+        sent = self.psak.post(
+            f"/api/projects/{self.team.id}/messaging/send/email/",
+            {"template": {"key": "welcome", "hash": WELCOME_HASH}, "to": "user@example.com"},
+            format="json",
+        )
+
+        assert (repaired["result"], repaired["content_hash"]) == ("updated", WELCOME_HASH)
+        assert sent.status_code == status.HTTP_202_ACCEPTED, sent.json()
 
     @patch("products.messaging.backend.services.transactional_email.reload_hog_flows_on_workers")
     def test_a_changed_upload_is_what_the_next_send_delivers(self, _reload, post: MagicMock, _flag, _capture):

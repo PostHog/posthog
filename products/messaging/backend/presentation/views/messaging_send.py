@@ -12,7 +12,7 @@ from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.contracts import ContentHashState, QueuedEmail, TemplateReference
 from products.messaging.backend.facade.templates import MessageTemplateMissing, find_template_to_send
-from products.messaging.backend.presentation.views.message_templates import (
+from products.messaging.backend.presentation.views.transactional_email_api import (
     TRANSACTIONAL_EMAIL_THROTTLES,
     SendTransactionalEmailResponseSerializer,
     SendTransactionalEmailSerializer,
@@ -27,6 +27,7 @@ from products.messaging.backend.presentation.views.message_templates import (
 class TemplateReferenceSerializer(serializers.Serializer):
     key = serializers.CharField(
         required=False,
+        trim_whitespace=False,
         help_text="Key of the template, as uploaded with `PUT /api/projects/@current/messaging_templates/by_key/{key}/`. "
         "Give either `key` or `id`.",
     )

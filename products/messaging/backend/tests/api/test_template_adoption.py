@@ -83,6 +83,7 @@ class TestTemplateAdoption(APIBaseTest):
             ("twice", "welcome", {"key": "welcome"}, "key_already_set", "welcome"),
             ("taken_key", None, {"key": "taken"}, "key_in_use", None),
             ("invalid_key", None, {"key": "wel come"}, "invalid_template_key", None),
+            ("trailing_newline", None, {"key": "welcome\n"}, "invalid_template_key", None),
             ("null_key", None, {"key": None}, "invalid_template_key", None),
             ("key_with_other_fields", None, {"key": "welcome", "name": "Renamed"}, "invalid_request", None),
             (

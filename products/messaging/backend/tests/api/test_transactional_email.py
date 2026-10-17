@@ -19,14 +19,16 @@ from posthog.models.utils import generate_random_token_secret
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.presentation.views.message_templates import TransactionalEmailBurstThrottle
+from products.messaging.backend.presentation.views.transactional_email_api import TransactionalEmailBurstThrottle
 from products.messaging.backend.services.transactional_email import make_transactional
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 
+PASSWORD_RESET_HASH = "v1:973d41bbe3fdca5c52bb951cd4b5fd7159ae630b56c8f3997cbb31afd1ea76fd"
 
-@patch("products.messaging.backend.presentation.views.message_templates.posthoganalytics.capture")
+
+@patch("products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.capture")
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")
@@ -241,6 +243,13 @@ class TestTransactionalEmail(APIBaseTest):
             (
                 "invalid_key",
                 {"key": "password reset"},
+                status.HTTP_400_BAD_REQUEST,
+                "invalid_template_key",
+                "template__key",
+            ),
+            (
+                "key_with_trailing_newline",
+                {"key": "password-reset\n"},
                 status.HTTP_400_BAD_REQUEST,
                 "invalid_template_key",
                 "template__key",
@@ -489,7 +498,7 @@ class TestTransactionalEmail(APIBaseTest):
 
 @pytest.mark.ee
 @patch(
-    "products.messaging.backend.presentation.views.message_templates.posthoganalytics.feature_enabled",
+    "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.feature_enabled",
     return_value=True,
 )
 @patch("posthog.plugins.plugin_server_api.internal_requests.post")
@@ -553,6 +562,37 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("unchanged_content", False, {"content_hash": PASSWORD_RESET_HASH}),
+            (
+                "superseded_content",
+                True,
+                {"content_hash": "v1:" + "0" * 64, "superseded_content_hashes": [PASSWORD_RESET_HASH]},
+            ),
+        ]
+    )
+    def test_a_member_denied_the_workflow_cannot_upload_to_it(
+        self, mock_post, _flag, _name, if_not_superseded, stored_hashes
+    ):
+        MessageTemplate.objects.filter(id=self.template.id).update(managed_by="code", **stored_hashes)
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/messaging_templates/by_key/password-reset/",
+            {
+                "name": "Password reset",
+                "subject": "Reset your password",
+                "html": "<p>Reset</p>",
+                "source": {"repository": "github.com/example/other"},
+                "if_not_superseded": if_not_superseded,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        self.template.refresh_from_db()
+        assert self.template.source_repository is None
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):

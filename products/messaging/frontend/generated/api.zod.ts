@@ -595,6 +595,13 @@ export const MessagingTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Give a template that has no key one, so code can take it over: the next upload under this key updates this template and keeps its id, workflow and sender. Send it as the only field of the PATCH. Letters, digits, hyphens (-) and underscores (_). Set once: a template that has a key keeps it.'
         ),
+    managed_by: zod
+        .enum(['gui'])
+        .describe('\* `gui` - GUI')
+        .optional()
+        .describe(
+            'Send `gui` as the only field to stop managing a template in code, so it can be edited in PostHog. It keeps its key, so the next upload under that key manages it in code again.\n\n\* `gui` - GUI'
+        ),
 })
 
 /**

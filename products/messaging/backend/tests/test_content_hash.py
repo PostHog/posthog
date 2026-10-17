@@ -25,13 +25,8 @@ class TestEmailContentHash(SimpleTestCase):
                     "html": "<p>Hi {{ variables.first_name }}</p>",
                     "text": "\r\n\r",
                 },
-                email_content_hash(
-                    {
-                        "subject": "Welcome, {{ variables.first_name }}",
-                        "html": "<p>Hi {{ variables.first_name }}</p>",
-                        "text": "\n\n",
-                    }
-                ),
+                # The digest of the same email with "\n\n" as its text, computed with Node's crypto module.
+                "v1:8112876ee1b2dd7327f571b04b546ed057bfff5a904d9f0ae507b6a449ab6453",
             ),
         ]
     )

@@ -16,12 +16,12 @@ from products.messaging.backend.facade.contracts import (
     TemplateUploadResult,
 )
 from products.messaging.backend.models import MessageTemplate
+from products.messaging.backend.models.message_template import KEY_CONSTRAINT
 from products.messaging.backend.services.content_hash import HASHED_FIELDS, email_content_hash, sent_hash_state
 from products.messaging.backend.services.message_templates import record_content_hash
 from products.messaging.backend.services.template_saves import WorkflowEditorCheck, save_locked_template
 from products.messaging.backend.services.transactional_email import is_transactional, make_transactional
 
-KEY_CONSTRAINT = "unique_message_template_key_per_team"
 SOURCE_PARTS = ("repository", "path", "ref")
 
 WorkflowCreateCheck = Callable[[], None]
@@ -72,6 +72,8 @@ def _upload(
     if template is None:
         require_workflow_create()
         return Uploaded(result=TemplateUploadResult.CREATED, template=_create(team_id, upload, user_id=user_id))
+    if template.transactional_hog_flow_id:
+        require_workflow_editor(template.transactional_hog_flow_id)
     if upload.if_not_superseded and _is_superseded(template, upload):
         return Uploaded(result=TemplateUploadResult.SUPERSEDED, template=template)
     if _is_unchanged(template, upload):
@@ -138,6 +140,8 @@ def _is_unchanged(template: MessageTemplate, upload: TemplateUpload) -> bool:
     return (
         template.name == upload.name
         and all((email.get(field) or "") == uploaded[field] for field in HASHED_FIELDS)
+        # A save that skipped the hash leaves a stale one, which this upload then repairs.
+        and template.content_hash == email_content_hash(uploaded)
         and template.managed_by == TemplateManagedBy.CODE
         and is_transactional(template)
     )

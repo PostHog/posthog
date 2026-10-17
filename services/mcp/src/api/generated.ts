@@ -67365,6 +67365,16 @@ export namespace Schemas {
       readonly content_hash: string | null;
     }
 
+    /**
+     * * `gui` - GUI
+     */
+    export type MessageTemplateUpdateManagedByEnum = typeof MessageTemplateUpdateManagedByEnum[keyof typeof MessageTemplateUpdateManagedByEnum];
+
+
+    export const MessageTemplateUpdateManagedByEnum = {
+      Gui: 'gui',
+    } as const;
+
     export interface MessagingError {
       /** Human-readable description of what went wrong. */
       error: string;
@@ -83307,11 +83317,10 @@ export namespace Schemas {
          * @maxLength 400
          */
       key?: string;
-      /** Who owns the content. `code` when it was uploaded from a repository: PostHog then refuses edits, and the template changes through its next upload. To edit it in PostHog, send a PATCH whose only field is `managed_by` set to `gui`. `gui` or null when it is edited in PostHog.
+      /** Send `gui` as the only field to stop managing a template in code, so it can be edited in PostHog. It keeps its key, so the next upload under that key manages it in code again.
        *
-       * * `gui` - GUI
-       * * `code` - Code */
-      readonly managed_by?: TemplateManagedByEnum | null;
+       * * `gui` - GUI */
+      managed_by?: MessageTemplateUpdateManagedByEnum;
       /**
          * Repository the template was last uploaded from, such as `github.com/example/app`.
          * @nullable

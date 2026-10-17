@@ -11,7 +11,6 @@ from products.messaging.backend.facade.contracts import TemplateManagedBy, Templ
 
 # Operating a template does not change its content, so the file has no opinion on these.
 ALLOWED_ACTIONS: Final = frozenset({"upload", "send", "make_transactional"})
-RELEASE_ACTION: Final = "partial_update"
 
 
 class OwnedTemplate(Protocol):
@@ -26,14 +25,8 @@ class OwnedTemplate(Protocol):
 
 
 def is_release(intent: TemplateWriteIntent) -> bool:
-    """A PATCH whose only field is `managed_by: gui`. Matched on the whole body, so a form spread into a PATCH never
-    releases a template by accident."""
-    payload = intent.payload
-    return (
-        intent.action == RELEASE_ACTION
-        and set(payload.keys()) == {"managed_by"}
-        and payload.get("managed_by") == TemplateManagedBy.GUI
-    )
+    """A PATCH whose only field is `managed_by: gui`."""
+    return intent.patches_only("managed_by") and intent.payload["managed_by"] == TemplateManagedBy.GUI
 
 
 def check_write(template: OwnedTemplate, intent: TemplateWriteIntent) -> None:
