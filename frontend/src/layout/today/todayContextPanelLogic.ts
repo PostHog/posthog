@@ -163,9 +163,10 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         docked: [(s) => [s.sidePanelOpen], (sidePanelOpen: boolean): boolean => sidePanelOpen],
         panelTabs: [
             (s) => [s.enabledTabs],
+            // PostHog AI goes last, and only where the scene offers it. Canvas scenes bring their own chat.
             (enabledTabs: SidePanelTab[]): SidePanelTab[] => [
                 ...enabledTabs.filter((tab) => tab !== SidePanelTab.Max && !TABS_LEFT_OUT.includes(tab)),
-                SidePanelTab.Max,
+                ...(enabledTabs.includes(SidePanelTab.Max) ? [SidePanelTab.Max] : []),
             ],
         ],
         /** A tab the scene no longer offers falls back to PostHog AI, like the docked panel closing on navigation. */
