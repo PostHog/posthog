@@ -32,16 +32,14 @@ export function SupportActivationButton({
             type="primary"
             to={urls.supportSettings()}
             onClick={() => {
-                sessionStorage.setItem(
-                    'support_activation_source',
-                    JSON.stringify({ source, widget_type: widgetType, widget_id: widgetId, dashboard_id: dashboardId })
-                )
-                posthog.capture('support activation started', {
-                    source,
+                const activation = {
+                    entry_point: source,
                     widget_type: widgetType,
                     widget_id: widgetId,
                     dashboard_id: dashboardId,
-                })
+                }
+                sessionStorage.setItem('support_activation_source', JSON.stringify(activation))
+                posthog.capture('support activation started', { ...activation, source: 'web' })
                 onClick?.()
             }}
         >

@@ -668,7 +668,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
         conversations_settings.report_conversations_settings_changes(
-            cast(User, self.context["request"].user),
+            self.context["request"],
             before_update.get("conversations_settings"),
             after_update.get("conversations_settings"),
             updated_team,

@@ -1,4 +1,3 @@
-from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 
@@ -50,6 +49,7 @@ from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
 
 from products.conversations.backend import reply_dedupe
+from products.conversations.backend.signals import attribute_support_message_saves
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -529,9 +529,11 @@ class CommentSerializer(serializers.ModelSerializer):
             mentioned_user_ids=mentions,
         )
 
-        # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
-        persist_ctx = transaction.atomic() if validated_data["scope"] == "conversations_ticket" else nullcontext()
-        with persist_ctx:
+        if validated_data["scope"] == "conversations_ticket":
+            # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+            with transaction.atomic(), attribute_support_message_saves(self.context["request"]):
+                comment = super().create(validated_data)
+        else:
             comment = super().create(validated_data)
 
         if mentions:

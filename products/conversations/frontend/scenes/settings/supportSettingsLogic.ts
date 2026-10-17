@@ -2061,9 +2061,9 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 actions.setSlackBotDisplayNameValue(null)
             }
             if (payload?.conversations_enabled) {
-                const storedSource = sessionStorage.getItem('support_activation_source')
-                const source = storedSource ? JSON.parse(storedSource) : { source: 'support_settings' }
-                posthog.capture('support activation completed', source)
+                const storedActivation = sessionStorage.getItem('support_activation_source')
+                const activation = storedActivation ? JSON.parse(storedActivation) : { entry_point: 'support_settings' }
+                posthog.capture('support activation completed', { ...activation, source: 'web' })
                 sessionStorage.removeItem('support_activation_source')
             }
         },

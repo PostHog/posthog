@@ -1,5 +1,8 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from email.utils import make_msgid
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.db import transaction
 from django.db.models import F
@@ -9,7 +12,13 @@ from django.dispatch import receiver
 
 import structlog
 
-from posthog.event_usage import report_team_action, report_user_action
+from posthog.event_usage import (
+    AnalyticsProps,
+    EventSource,
+    get_request_analytics_properties,
+    report_team_action,
+    report_user_action,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
@@ -29,7 +38,40 @@ from .tasks.slack import wake_delivery_part
 from .tasks.teams import post_reply_to_teams, post_reply_to_teams_via_graph
 from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+
 logger = structlog.get_logger(__name__)
+
+# post_save has no request, so API writes set this to give reply and note events their source.
+_support_message_analytics_props: ContextVar[AnalyticsProps | None] = ContextVar(
+    "support_message_analytics_props", default=None
+)
+
+# A teammate replying inside the customer's own thread works in that tool, not in PostHog.
+_CHANNEL_REPLY_SOURCES = {
+    "from_slack": EventSource.SLACK,
+    "from_teams": EventSource.TEAMS,
+    "from_email": EventSource.EMAIL,
+}
+
+
+@contextmanager
+def attribute_support_message_saves(request: "Request") -> Iterator[None]:
+    token = _support_message_analytics_props.set(get_request_analytics_properties(request))
+    try:
+        yield
+    finally:
+        _support_message_analytics_props.reset(token)
+
+
+def _channel_reply_analytics_props(item_context: dict | None) -> AnalyticsProps | None:
+    if not isinstance(item_context, dict):
+        return None
+    for flag, source in _CHANNEL_REPLY_SOURCES.items():
+        if item_context.get(flag):
+            return {"source": source}
+    return None
 
 
 def _is_private_message(item_context: dict | None) -> bool:
@@ -151,6 +193,7 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
     content = instance.content
     item_context = instance.item_context
     created_by_id = _get_comment_created_by_id(instance)
+    analytics_props = _support_message_analytics_props.get() or _channel_reply_analytics_props(item_context)
 
     def do_update():
         author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
@@ -169,6 +212,14 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 ticket = Ticket.objects.select_related("team").get(id=item_id, team_id=team_id)
                 author = User.objects.filter(id=created_by_id).first()
                 capture_private_message_sent(ticket, comment_id, author=author)
+                if author:
+                    report_user_action(
+                        author,
+                        "support note created",
+                        {"channel_source": ticket.channel_source},
+                        team=ticket.team,
+                        analytics_props=analytics_props,
+                    )
             except Ticket.DoesNotExist:
                 pass
             except Exception as e:
@@ -226,7 +277,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
             props = {"channel_source": ticket.channel_source}
             if is_team_message:
                 if author:
-                    report_user_action(author, "support message sent", props, team=ticket.team)
+                    report_user_action(
+                        author, "support message sent", props, team=ticket.team, analytics_props=analytics_props
+                    )
                 else:
                     report_team_action(ticket.team, "support message sent", props)
             else:

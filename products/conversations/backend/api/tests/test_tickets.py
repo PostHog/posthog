@@ -17,7 +17,7 @@ from posthog.test.base import (
     materialized,
     snapshot_clickhouse_queries,
 )
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.db import close_old_connections, connection, transaction
 from django.db.utils import IntegrityError
@@ -3312,6 +3312,92 @@ class TestTicketReplyAPI(APIBaseTest):
         assert replayed.json()["id"] == created.json()["id"]
         assert replayed.json()["author_type"] == "support"
         assert Comment.objects.filter(scope="conversations_ticket", item_id=str(self.ticket.id)).count() == 1
+
+
+def _captured_sources(mock_capture: MagicMock, event: str) -> list[str | None]:
+    return [
+        call.kwargs["properties"].get("source")
+        for call in mock_capture.call_args_list
+        if call.kwargs.get("event") == event
+    ]
+
+
+class TestSupportEventSource(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.conversations_enabled = True
+        self.team.save()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="test-session",
+            distinct_id="user-1",
+            status=Status.OPEN,
+        )
+        # Reply dedupe reservations live in fakeredis, which is a single process-wide store.
+        get_client().flushall()
+
+    @parameterized.expand(
+        [
+            ("reply_via_comments_endpoint", "comments", False, "support message sent"),
+            ("reply_via_reply_endpoint", "reply", False, "support message sent"),
+            ("note_via_reply_endpoint", "reply", True, "support note created"),
+        ]
+    )
+    def test_reply_events_carry_request_source(self, _name, endpoint, is_private, event):
+        if endpoint == "comments":
+            url = f"/api/projects/{self.team.id}/comments"
+            body = {
+                "content": "On it now",
+                "scope": "conversations_ticket",
+                "item_id": str(self.ticket.id),
+                "item_context": {"author_type": "support", "is_private": is_private},
+            }
+        else:
+            url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/reply/"
+            body = {"message": "On it now", "is_private": is_private}
+
+        # Deferred like production, so the callback runs after the attribution context exits.
+        with patch("posthoganalytics.capture") as mock_capture, self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(url, body, format="json", HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert _captured_sources(mock_capture, event) == ["mcp"]
+
+    @parameterized.expand(
+        [
+            ("slack_thread", "from_slack", "slack"),
+            ("teams_thread", "from_teams", "teams"),
+            ("email_thread", "from_email", "email"),
+        ]
+    )
+    def test_reply_typed_in_customer_thread_reports_that_tool(self, _name, channel_flag, expected_source):
+        with patch("posthoganalytics.capture") as mock_capture, self.captureOnCommitCallbacks(execute=True):
+            Comment.objects.create(
+                team=self.team,
+                scope="conversations_ticket",
+                item_id=str(self.ticket.id),
+                content="On it now",
+                created_by=self.user,
+                item_context={"author_type": "support", "is_private": False, channel_flag: True},
+            )
+
+        assert _captured_sources(mock_capture, "support message sent") == [expected_source]
+
+    @parameterized.expand(
+        [
+            ("tickets_list", "", "support tickets listed"),
+            ("ticket_messages", "{ticket_id}/messages/", "support ticket messages viewed"),
+        ]
+    )
+    def test_reads_report_non_web_surfaces_only(self, _name, path, event):
+        url = f"/api/projects/{self.team.id}/conversations/tickets/" + path.format(ticket_id=self.ticket.id)
+
+        with patch("posthoganalytics.capture") as mock_capture:
+            assert self.client.get(url).status_code == status.HTTP_200_OK
+            assert self.client.get(url, HTTP_X_POSTHOG_CLIENT="mcp").status_code == status.HTTP_200_OK
+
+        assert _captured_sources(mock_capture, event) == ["mcp"]
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

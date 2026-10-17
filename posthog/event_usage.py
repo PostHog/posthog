@@ -350,6 +350,9 @@ class EventSource(StrEnum):
     DESKTOP = "desktop"
     MOBILE = "mobile"
     SLACK = "slack"
+    # A Support teammate replying inside the customer's own Teams or email thread. Slack threads reuse SLACK.
+    TEAMS = "teams"
+    EMAIL = "email"
     TERRAFORM = "terraform"
     MCP = "mcp"
     WIZARD = "wizard"
