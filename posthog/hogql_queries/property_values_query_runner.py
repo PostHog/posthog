@@ -179,42 +179,53 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
-        # Person values cached before the HogQL port were computed without property
-        # masking; the version marker keeps them from being served.
-        payload["property_values_version"] = 2
+        # The version marker keeps values cached by an older person query from being
+        # served: before the HogQL port they had no property masking, and before
+        # version 3 they included values from old person versions.
+        payload["property_values_version"] = 3
         return payload
 
     def _person_query(self) -> ast.SelectQuery:
         # `persons` resolves every person to its latest version first, far too slow
-        # for autocomplete, so this samples raw rows instead. Deletion hiding is
-        # best-effort: a deletion row only hides values it carries itself.
+        # for autocomplete, so this samples raw rows instead. Only the sampled persons
+        # get resolved to their latest version, so a value that the persons list cannot
+        # match (an old version, or a deleted person) is not suggested.
         if self.query.search_value:
-            inner_where = parse_expr(
+            value_where = parse_expr(
                 "value ILIKE {pattern}",
                 {"pattern": ast.Constant(value=self._ilike_pattern(self.query.search_value))},
             )
         else:
-            inner_where = parse_expr("isNotNull(value) AND value != ''")
+            value_where = parse_expr("isNotNull(value) AND value != ''")
         return cast(
             ast.SelectQuery,
             parse_select(
                 """
-                SELECT value, uniq(id) - uniqIf(id, is_deleted != 0) AS c
+                SELECT value, count() AS c
                 FROM (
-                    SELECT toString({property_expr}) AS value, is_deleted, id
+                    SELECT argMax(toString({property_expr}), version) AS value
                     FROM raw_persons
-                    WHERE {inner_where}
-                    ORDER BY id DESC
-                    LIMIT 100000
+                    WHERE id IN (
+                        SELECT id
+                        FROM (
+                            SELECT id, toString({property_expr}) AS value
+                            FROM raw_persons
+                            WHERE {value_where}
+                            ORDER BY id DESC
+                            LIMIT 100000
+                        )
+                    )
+                    GROUP BY id
+                    HAVING argMax(is_deleted, version) = 0
                 )
+                WHERE {value_where}
                 GROUP BY value
-                HAVING c > 0
                 ORDER BY c DESC
                 LIMIT 20
                 """,
                 placeholders={
                     "property_expr": ast.Field(chain=["properties", self.query.property_key]),
-                    "inner_where": inner_where,
+                    "value_where": value_where,
                 },
             ),
         )
