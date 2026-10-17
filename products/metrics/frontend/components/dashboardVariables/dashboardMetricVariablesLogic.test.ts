@@ -190,6 +190,50 @@ describe('dashboardMetricVariablesLogic', () => {
         expect(logic.values.loadingNames).toEqual([])
     })
 
+    it('publishes a reconciled selection after another change takes over the load', async () => {
+        const zone = deferred()
+        mockOptions.mockImplementation(async (_team, body) => {
+            if (body.query === 'SELECT zone WHERE route = $route') {
+                return zone.promise
+            }
+            return { results: body.variables?.some((other) => other.values.includes('worker')) ? ['/b'] : ['/a'] }
+        })
+        const chain: MetricsDashboardVariable[] = [
+            ...variables,
+            { name: 'zone', source: 'sql', query: 'SELECT zone WHERE route = $route', current: { values: ['eu'] } },
+            { name: 'env', source: 'textbox', current: { values: ['prod'] } },
+        ]
+        const onSelectionsChange = jest.fn((next: MetricsDashboardVariable[]) => {
+            dashboardMetricVariablesLogic({ dashboardId: 1, variables: next, onSelectionsChange })
+        })
+        const logic = dashboardMetricVariablesLogic({ dashboardId: 1, variables: chain, onSelectionsChange })
+        logic.mount()
+        zone.resolve(['eu'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        const zoneAgain = deferred()
+        mockOptions.mockImplementation(async (_team, body) => {
+            if (body.query === 'SELECT zone WHERE route = $route') {
+                return zoneAgain.promise
+            }
+            return { results: body.variables?.some((other) => other.values.includes('worker')) ? ['/b'] : ['/a'] }
+        })
+        logic.actions.select('service', { values: ['worker'] })
+        await flush()
+        logic.actions.select('env', { values: ['dev'] })
+        await flush()
+        zoneAgain.resolve(['eu'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        const last = onSelectionsChange.mock.calls.at(-1)?.[0] as MetricsDashboardVariable[]
+        expect(last.map((variable) => variable.current)).toEqual([
+            { values: ['worker'] },
+            { values: ['/b'] },
+            { values: ['eu'] },
+            { values: ['dev'] },
+        ])
+    })
+
     it('runs at most four option requests at once', async () => {
         const many: MetricsDashboardVariable[] = Array.from({ length: 6 }, (_, index) => ({
             name: `v${index}`,
