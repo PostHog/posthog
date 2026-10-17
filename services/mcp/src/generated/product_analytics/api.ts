@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 11 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -356,6 +356,24 @@ export const InsightsActivityRetrieveQueryParams = () => zod.object({
 })
 
 /**
+ * Run the data checks on a saved insight, found by its numeric id or its `short_id`. The checks read the query the insight stores, and work the same way as the checks on a query that is not saved. The `status` is `unsupported` for an insight that still stores legacy `filters` and no query. Nothing is stored.
+ */
+export const InsightsDataChecksRetrieveParams = () => zod.object({
+    id: zod
+        .union([zod.number(), zod.string()])
+        .describe('Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const InsightsDataChecksRetrieveQueryParams = () => zod.object({
+    format: zod.enum(['csv', 'json']).optional(),
+})
+
+/**
  * Project-wide audit trail across all insights — who created, edited, deleted, or restored insights, what changed (with before/after diffs), and when. Useful for surfacing what people (or agents) have been working on recently.
  */
 export const InsightsAllActivityRetrieveParams = () => zod.object({
@@ -371,6 +389,23 @@ export const InsightsAllActivityRetrieveQueryParams = () => zod.object({
     limit: zod.number().optional().describe('Page size. Defaults to 10.'),
     page: zod.number().optional().describe('1-indexed page number. Defaults to 1.'),
 })
+
+/**
+ * Check the events behind an insight for the common ways they mislead: internal and test users, local development traffic, bots and crawlers, and events sent twice. Works for trends, funnels, stickiness and lifecycle insights whose series are events. The checks apply the insight's own filters, and read the newest days of its date range, up to 7. The bot and duplicate checks read a sample of those days. For a token, the internal users check matches the emails of the organization's members only with the `organization_member:read` scope, and its verified domains only with `organization:read`. Nothing is stored. This route runs the query it is sent, so it needs query access as well as insight access. To check a saved insight by its id, send a GET request to `insights/{id}/data_checks/`.
+ */
+export const InsightsDataChecksCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const InsightsDataChecksCreateQueryParams = () => zod.object({
+    format: zod.enum(['csv', 'json']).optional(),
+})
+
+export const InsightsDataChecksCreateBody = () => zod.looseObject({})
 
 /**
  * Returns insights ranked by view count over the last N days (default 7), highest first. Each result includes the same metadata as the standard insights list, plus a `view_count` and up to 3 recent `viewers`. Useful for surfacing the most-used insights in a project.
