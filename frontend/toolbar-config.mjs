@@ -245,3 +245,93 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
         },
     })
 }
+
+// The browser extension ships one popup bundle in a folder per browser. Only the manifest differs:
+//
+//   dist/toolbar-extension/<browser>/manifest.json
+//   dist/toolbar-extension/<browser>/popup.html, popup.js, popup.css, assets/, icons/
+//
+// Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
+const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
+
+const TOOLBAR_EXTENSION_VERSION = '0.1.0'
+
+const TOOLBAR_EXTENSION_BUILD_DIR = 'toolbar-extension-build'
+
+const TOOLBAR_EXTENSION_ICONS = {
+    16: 'icons/favicon-16x16.png',
+    32: 'icons/favicon-32x32.png',
+    192: 'icons/android-chrome-192x192.png',
+}
+
+export function getToolbarExtensionBuildConfig(dirname) {
+    return {
+        name: 'Toolbar extension',
+        entryPoints: { popup: 'src/toolbar/extension/popup.tsx' },
+        format: 'esm',
+        // Keeps lazily imported code (such as hedgehog mode, reached through lemon-ui) out of popup.js.
+        splitting: true,
+        chunkNames: 'chunks/[name]-[hash]',
+        outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
+        // popup.html names its files directly, so they carry no hash.
+        entryNames: '[name]',
+        // Extension pages resolve assets against their own folder, so URLs stay relative.
+        publicPath: undefined,
+        loader: { ...commonConfig.loader, '.svg': 'dataurl' },
+        define: {
+            ...commonConfig.define,
+            __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(''),
+        },
+        extraPlugins: [createToolbarModulePlugin(dirname)],
+    }
+}
+
+/**
+ * Grants only what the popup reads: the active tab URL after the user opens the popup (`activeTab`),
+ * the saved PostHog host (`storage`), and the PostHog session on Cloud. A self-hosted origin is asked
+ * for at runtime through `optional_host_permissions`.
+ */
+function buildToolbarExtensionManifest(browser) {
+    const manifest = {
+        manifest_version: 3,
+        name: 'PostHog toolbar',
+        description: 'Open PostHog toolbar tools for the page you are on.',
+        version: TOOLBAR_EXTENSION_VERSION,
+        icons: TOOLBAR_EXTENSION_ICONS,
+        action: {
+            default_title: 'PostHog toolbar',
+            default_popup: 'popup.html',
+            default_icon: TOOLBAR_EXTENSION_ICONS,
+        },
+        permissions: ['activeTab', 'storage'],
+        host_permissions: ['https://us.posthog.com/*', 'https://eu.posthog.com/*'],
+        optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
+    }
+    if (browser === 'firefox') {
+        // Firefox needs an add-on ID for MV3 storage, and 128 is the first release with
+        // optional_host_permissions.
+        manifest.browser_specific_settings = { gecko: { id: 'toolbar@posthog.com', strict_min_version: '128.0' } }
+    } else {
+        manifest.minimum_chrome_version = '116'
+    }
+    return manifest
+}
+
+/** Copies the shared popup build into each browser folder and writes that browser's manifest. */
+export function finalizeToolbarExtensionBuild(dirname) {
+    const buildDir = path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR)
+    for (const browser of TOOLBAR_EXTENSION_BROWSERS) {
+        const outDir = path.resolve(dirname, 'dist', 'toolbar-extension', browser)
+        fs.rmSync(outDir, { recursive: true, force: true })
+        fs.cpSync(buildDir, outDir, { recursive: true })
+        fs.copyFileSync(path.resolve(dirname, 'src/toolbar/extension/popup.html'), path.resolve(outDir, 'popup.html'))
+        for (const icon of Object.values(TOOLBAR_EXTENSION_ICONS)) {
+            fs.mkdirSync(path.dirname(path.resolve(outDir, icon)), { recursive: true })
+            fs.copyFileSync(path.resolve(dirname, 'public', icon), path.resolve(outDir, icon))
+        }
+        fs.writeFileSync(
+            path.resolve(outDir, 'manifest.json'),
+            JSON.stringify(buildToolbarExtensionManifest(browser), null, 4) + '\n'
+        )
+    }
+}
