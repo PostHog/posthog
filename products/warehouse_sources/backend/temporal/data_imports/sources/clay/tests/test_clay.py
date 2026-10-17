@@ -1,6 +1,7 @@
 from typing import Optional
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.clay.clay import (
     REQUEST_TIMEOUT_SECONDS,
@@ -99,6 +100,22 @@ class TestClaySourceBehavior:
 
         assert result.raised is None
         assert [request.json().get("cursor") for request in result.requests] == ["resumed"]
+
+    @time_machine.travel("2026-03-04T05:06:07Z", tick=False)
+    def test_credit_balances_reads_balance_endpoint_and_stamps_snapshot_time(self) -> None:
+        result = self._driver().run(
+            "credit_balances",
+            [ScriptedResponse(json={"balance": 1250.5, "action_execution_balance": 300})],
+        )
+
+        assert result.raised is None
+        assert [(request.method, request.path) for request in result.requests] == [
+            ("GET", "/public/v0/credits/balance")
+        ]
+        assert result.requests[0].headers["clay-api-key"] == "clay_test_key"
+        assert result.rows == [
+            {"balance": 1250.5, "action_execution_balance": 300, "retrieved_at": "2026-03-04T05:06:07+00:00"}
+        ]
 
 
 @pytest.mark.parametrize(
