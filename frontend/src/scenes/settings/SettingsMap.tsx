@@ -156,6 +156,7 @@ import {
 } from './environment/SessionRecordingSettings'
 import { SurveyDefaultAppearance, SurveyEnableToggle } from './environment/SurveySettings'
 import { TaskDefaultsSettings } from './environment/TaskDefaultsSettings'
+import { TaskTurnNotificationSettings } from './environment/TaskTurnNotificationSettings'
 import { TeamAccessControl } from './environment/TeamAccessControl'
 import { TeamAuthorizedURLs, TeamBusinessModel, TeamTimezone, TeamVariables } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
@@ -382,6 +383,14 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'See the latest PostHog AI features and control whether the changelog appears in the main UI.',
                 component: <MaxChangelogSettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+            {
+                id: 'task-turn-notifications',
+                title: 'Task notifications',
+                description:
+                    'Play a sound or show a browser notification when an agent finishes its turn on a task and you are in another tab or window. These settings apply to this browser only.',
+                component: <TaskTurnNotificationSettings />,
                 hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
             },
         ],

@@ -5041,7 +5041,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 }
                 if (method === '_posthog/turn_complete') {
                     if (!isReplay) {
-                        actions.emitTurnCompleteEvent({ streamKey: props.streamKey })
+                        actions.emitTurnCompleteEvent({
+                            streamKey: props.streamKey,
+                            taskId: (cache.activeRun as { taskId: string } | undefined)?.taskId,
+                        })
                     }
                     actions.markTurnComplete(isReplay)
                     return
