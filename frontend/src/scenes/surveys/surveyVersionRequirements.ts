@@ -379,15 +379,45 @@ export function meetsVersionRequirement(version: string | null | undefined, minV
 
 export type TeamSdkVersions = Partial<Record<SurveySdkType, string | null>>
 
+// From these versions, the SDK never shows a survey with a URL or CSS selector condition, because only a browser can evaluate them.
+const WEB_ONLY_CONDITIONS_SKIPPED_SINCE: SdkVersionRequirements = {
+    'posthog-react-native': '4.10.4',
+    'posthog-ios': '3.67.1',
+    'posthog-android': '3.60.8',
+    posthog_flutter: '5.39.0', // first version to require posthog-ios >= 3.67.1 and posthog-android >= 3.60.8
+}
+
+const WEB_ONLY_TARGETING_FEATURE = 'URL or CSS selector targeting'
+
 export type SurveyFeatureWarning = {
     feature: string
     versionIssues: { sdkType: SurveySdkType; currentVersion: string; minVersion: string }[]
     unsupportedSdks: UnsupportedSdk[]
+    skippingSdks: SurveySdkType[]
+}
+
+function getSdksSkippingSurvey(survey: Survey, teamSdkVersions: TeamSdkVersions): SurveySdkType[] {
+    if (!survey.conditions?.url && !survey.conditions?.selector) {
+        return []
+    }
+    return (Object.entries(WEB_ONLY_CONDITIONS_SKIPPED_SINCE) as [SurveySdkType, string][])
+        .filter(([sdkType, minVersion]) => {
+            const teamVersion = teamSdkVersions[sdkType]
+            return teamVersion !== undefined && meetsVersionRequirement(teamVersion, minVersion)
+        })
+        .map(([sdkType]) => sdkType)
 }
 
 export function getSurveyWarnings(survey: Survey, teamSdkVersions: TeamSdkVersions): SurveyFeatureWarning[] {
     const warnings: SurveyFeatureWarning[] = []
-    const activeTeamSdkTypes = Object.keys(teamSdkVersions) as SurveySdkType[]
+    const skippingSdks = getSdksSkippingSurvey(survey, teamSdkVersions)
+    const activeTeamSdkTypes = (Object.keys(teamSdkVersions) as SurveySdkType[]).filter(
+        (sdkType) => !skippingSdks.includes(sdkType)
+    )
+
+    if (skippingSdks.length > 0) {
+        warnings.push({ feature: WEB_ONLY_TARGETING_FEATURE, versionIssues: [], unsupportedSdks: [], skippingSdks })
+    }
 
     for (const req of SURVEY_SDK_REQUIREMENTS) {
         if (!req.check(survey)) {
@@ -399,7 +429,7 @@ export function getSurveyWarnings(survey: Survey, teamSdkVersions: TeamSdkVersio
 
         for (const [sdkType, minVersion] of Object.entries(req.sdkVersions) as [SurveySdkType, string][]) {
             const teamVersion = teamSdkVersions[sdkType]
-            if (teamVersion && !meetsVersionRequirement(teamVersion, minVersion)) {
+            if (teamVersion && !skippingSdks.includes(sdkType) && !meetsVersionRequirement(teamVersion, minVersion)) {
                 versionIssues.push({ sdkType, currentVersion: teamVersion, minVersion })
             }
         }
@@ -413,7 +443,7 @@ export function getSurveyWarnings(survey: Survey, teamSdkVersions: TeamSdkVersio
         }
 
         if (versionIssues.length > 0 || unsupportedSdks.length > 0) {
-            warnings.push({ feature: req.feature, versionIssues, unsupportedSdks })
+            warnings.push({ feature: req.feature, versionIssues, unsupportedSdks, skippingSdks: [] })
         }
     }
 
