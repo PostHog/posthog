@@ -7,17 +7,24 @@ import { logger } from '~/common/utils/logger'
 import { PluginsServerConfig } from '~/types'
 
 import { isRowScopedTrigger } from '../schema/hogflow'
+import { checkHogFlowQuotaLimits, counterHogFlowQuotaLimited } from '../services/hogflows/hogflow-quota-limiting'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     CyclotronPerson,
+    MinimalAppMetric,
 } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
+
+type StoppedRunMetric = Pick<MinimalAppMetric, 'metric_kind' | 'metric_name'>
+
+const CANCELED_METRIC: StoppedRunMetric = { metric_kind: 'other', metric_name: 'canceled' }
+const QUOTA_LIMITED_METRIC: StoppedRunMetric = { metric_kind: 'failure', metric_name: 'quota_limited' }
 
 type LoadHogFlowsResult = {
     loadedInvocations: CyclotronJobInvocationHogFlow[]
@@ -58,7 +65,8 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     private buildCanceledResult(
         item: CyclotronJobInvocation,
         message: string,
-        hogFlow?: HogFlow
+        hogFlow?: HogFlow,
+        metric: StoppedRunMetric = CANCELED_METRIC
     ): CyclotronJobInvocationResult {
         // The monitoring services identify a workflow result by the presence of `hogFlow`, and use
         // it to key the terminal lifecycle row as `hog_flow` and to fill the row's trigger fields.
@@ -77,11 +85,18 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
             team_id: item.teamId,
             app_source_id: item.parentRunId ?? item.functionId,
             instance_id: (item.state as CyclotronJobInvocationHogFlow['state'] | null)?.currentAction?.id,
-            metric_kind: 'other',
-            metric_name: 'canceled',
+            ...metric,
             count: 1,
         })
         return result
+    }
+
+    private async isOverQuota(hogFlow: HogFlow): Promise<boolean> {
+        const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, hogFlow.team_id, this.deps.quotaLimiting)
+        if (isLimited) {
+            counterHogFlowQuotaLimited.labels({ team_id: hogFlow.team_id }).inc()
+        }
+        return isLimited
     }
 
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
@@ -131,6 +146,21 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 }
 
                 const hogFlowInvocationState = item.state as CyclotronJobInvocationHogFlow['state']
+
+                if (!hogFlowInvocationState.quotaChecked) {
+                    if (await this.isOverQuota(hogFlow)) {
+                        canceledResults.push(
+                            this.buildCanceledResult(
+                                item,
+                                'Run stopped: the project is over its workflow quota',
+                                hogFlow,
+                                QUOTA_LIMITED_METRIC
+                            )
+                        )
+                        return
+                    }
+                    hogFlowInvocationState.quotaChecked = true
+                }
 
                 // Row-scoped invocations (a warehouse row, a Slack message, a GitHub event) don't have
                 // a real person — the delivery is the unit of work and person-dependent steps no-op for

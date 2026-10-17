@@ -1165,6 +1165,7 @@ export class CdpApi {
             const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
 
             const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            invocation.state.quotaChecked = true
             // Straight to the email queue: the flow's only step is the email, so a hop through the
             // workflow queue would only add latency to a password reset or a verification code.
             invocation.queue = 'email'

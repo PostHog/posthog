@@ -13,6 +13,8 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
+import { invocationToV2JobInit, v2JobToInvocation } from '../services/job-queue/job-queue-postgres-v2'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -686,6 +688,83 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             // invocation keys the terminal lifecycle row as `hog_flow` (not `hog_function`) and
             // collapses the earlier `running` row instead of leaving the run stuck at `running`.
             expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(invocation.functionId)
+        })
+    })
+
+    describe('quota limits', () => {
+        let emailFlow: HogFlow
+        let isTeamQuotaLimited: jest.SpyInstance
+
+        const overQuota = (resource: string): boolean => resource === 'workflow_emails'
+
+        beforeEach(async () => {
+            const flow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus('active')
+                .withSimpleWorkflow()
+                .build()
+            emailFlow = await insertHogFlow(hub.postgres, { ...flow, billable_action_types: ['function_email'] })
+            isTeamQuotaLimited = jest.spyOn(hub.quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(false)
+        })
+
+        const requeueThroughCyclotron = (invocation: CyclotronJobInvocation): CyclotronJobInvocation => {
+            const job = invocationToV2JobInit(invocation)
+            return v2JobToInvocation({
+                ...job,
+                scheduled: TIMESTAMP,
+                cancelRequestedAt: null,
+            } as unknown as CyclotronV2DequeuedJob)
+        }
+
+        const runFor = (hogFlow: HogFlow, context: Partial<HogFlowInvocationContext> = {}): CyclotronJobInvocation =>
+            createSerializedHogFlowInvocation(hogFlow, {
+                event: { distinct_id: 'distinct_person_1', properties: {} } as any,
+                ...context,
+            })
+
+        it('stops a run that skipped the trigger quota check when the team is over quota', async () => {
+            isTeamQuotaLimited.mockImplementation((_teamId, resource) => Promise.resolve(overQuota(resource)))
+
+            const [result] = await processor.processInvocations([runFor(emailFlow)])
+
+            expect(result.finished).toBe(true)
+            expect(result.canceled).toBe(true)
+            expect(result.logs.map((l) => l.message)).toContain('Run stopped: the project is over its workflow quota')
+            expect(result.metrics).toEqual([
+                expect.objectContaining({
+                    team_id: team.id,
+                    app_source_id: emailFlow.id,
+                    metric_kind: 'failure',
+                    metric_name: 'quota_limited',
+                    count: 1,
+                }),
+            ])
+            expect((result.invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(emailFlow.id)
+        })
+
+        it('runs a run that passed the trigger quota check even when the team is now over quota', async () => {
+            isTeamQuotaLimited.mockImplementation((_teamId, resource) => Promise.resolve(overQuota(resource)))
+
+            const [result] = await processor.processInvocations([runFor(emailFlow, { quotaChecked: true })])
+
+            expect(result.canceled).toBeFalsy()
+            expect(result.metrics.map((m) => m.metric_name)).not.toContain('quota_limited')
+        })
+
+        it('checks a run once, so a later wake runs even when the team went over quota meanwhile', async () => {
+            const waitFlow = await insertHogFlow(hub.postgres, {
+                ...hogFlows[2],
+                id: new UUIDT().toString(),
+                billable_action_types: ['function'],
+            })
+            const [parked] = await processor.processInvocations([runFor(waitFlow)])
+            expect(parked.finished).toBe(false)
+
+            isTeamQuotaLimited.mockResolvedValue(true)
+            const [woken] = await processor.processInvocations([requeueThroughCyclotron(parked.invocation)])
+
+            expect(woken.canceled).toBeFalsy()
+            expect(woken.metrics.map((m) => m.metric_name)).not.toContain('quota_limited')
         })
     })
 })

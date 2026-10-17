@@ -2106,6 +2106,7 @@ describe('CDP API', () => {
                 state: {
                     event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
                     variables: { reset_link: 'https://example.com/reset' },
+                    quotaChecked: true,
                 },
             })
             // The run counts as started in the workflow's metrics, like an event-triggered run.
