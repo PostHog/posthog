@@ -197,12 +197,24 @@ class CanvasBuild(TeamScopedRootMixin, UUIDModel):
         db_table = "posthog_canvas_build"
         indexes = [
             models.Index(fields=["canvas", "-created_at"], name="canvas_build_recency"),
-            # The team build cap and the stuck-build sweeper both scan only
-            # in-flight rows, which are a tiny fraction of the table.
+            # The team build cap scans only in-flight rows, which are a tiny
+            # fraction of the table.
             models.Index(
                 fields=["team", "status"],
                 condition=Q(status__in=["queued", "building"]),
                 name="canvas_build_active",
+            ),
+            # The stuck-build sweeper filters on status and a timestamp across
+            # all teams, so it needs indexes that do not lead on team.
+            models.Index(
+                fields=["status", "enqueued_at"],
+                condition=Q(status__in=["queued", "building"]),
+                name="canvas_build_active_enqueued",
+            ),
+            models.Index(
+                fields=["status", "lease_expires_at"],
+                condition=Q(status__in=["queued", "building"]),
+                name="canvas_build_active_lease",
             ),
             # The retention sweep scans only prunable rows (unpinned, artifacts
             # still present) by age.
