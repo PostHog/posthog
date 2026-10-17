@@ -118,11 +118,36 @@ const MOCK_HOG_FUNCTION_TEMPLATING_WARNING = {
     },
 }
 
+const MOCK_SOURCE_WEBHOOK_ID = '0196b144-1f82-0000-0d0d-a01de54d6751'
+const MOCK_SOURCE_WEBHOOK_EMPTY_ID = '0196b144-1f82-0000-0d0d-a01de54d6752'
+
+const MOCK_SOURCE_WEBHOOK = {
+    ...MOCK_HOG_FUNCTION,
+    id: MOCK_SOURCE_WEBHOOK_ID,
+    type: 'source_webhook',
+    name: 'HTTP Incoming Webhook',
+    batch_export_id: null,
+    inputs_schema: [
+        { key: 'event', type: 'string', label: 'Event name', secret: false, required: true },
+        { key: 'debug', type: 'boolean', label: 'Log payloads', secret: false, required: false },
+    ],
+    inputs: {
+        event: { value: '{request.body.event}' },
+        debug: { value: true },
+    },
+    template: { id: 'template-source-webhook', name: 'HTTP Incoming Webhook' },
+}
+
 const commonMocks = {
     get: {
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: MOCK_HOG_FUNCTION,
         [`/api/environments/:team_id/hog_functions/${MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID}/`]:
             MOCK_HOG_FUNCTION_TEMPLATING_WARNING,
+        [`/api/environments/:team_id/hog_functions/${MOCK_SOURCE_WEBHOOK_ID}/`]: MOCK_SOURCE_WEBHOOK,
+        [`/api/environments/:team_id/hog_functions/${MOCK_SOURCE_WEBHOOK_EMPTY_ID}/`]: {
+            ...MOCK_SOURCE_WEBHOOK,
+            id: MOCK_SOURCE_WEBHOOK_EMPTY_ID,
+        },
         '/api/environments/:team_id/hog_functions/': { count: 1, results: [MOCK_HOG_FUNCTION], next: null },
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/`]: MOCK_BATCH_EXPORT,
         [`/api/environments/:team_id/batch_exports/${MOCK_BATCH_EXPORT_ID}/runs/`]: { results: [], next: null },
@@ -248,4 +273,37 @@ export const ConfigurationWithTemplatingWarning: Story = {
     parameters: {
         pageUrl: urls.hogFunction(MOCK_HOG_FUNCTION_TEMPLATING_WARNING_ID),
     },
+}
+
+export const SourceWebhookConfigurationWithLastPayload: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_SOURCE_WEBHOOK_ID),
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': {
+                    results: [
+                        [
+                            '2024-01-14T16:30:00Z',
+                            'Incoming request:, {"event":"order placed","distinct_id":"customer-123","properties":{"total":42}}',
+                        ],
+                    ],
+                },
+            },
+        }),
+    ],
+}
+
+export const SourceWebhookConfigurationWithoutPayload: Story = {
+    parameters: {
+        pageUrl: urls.hogFunction(MOCK_SOURCE_WEBHOOK_EMPTY_ID),
+    },
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/:kind': { results: [] },
+            },
+        }),
+    ],
 }
