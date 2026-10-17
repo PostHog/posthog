@@ -1,4 +1,4 @@
-import { comparisonTooltipText, toUtcOffsetFormat } from './WebAnalyticsTile'
+import { comparisonTooltipText, toUtcOffsetFormat, viewportFilterValue } from './WebAnalyticsTile'
 
 describe('WebAnalyticsTile helpers', () => {
     describe('toUtcOffsetFormat', () => {
@@ -29,5 +29,15 @@ describe('WebAnalyticsTile helpers', () => {
         ])('formats %s compared with %s', (current, previous, compare, expected) => {
             expect(comparisonTooltipText(current, previous, compare, formatNumber)).toEqual(expected)
         })
+    })
+})
+
+describe('viewportFilterValue', () => {
+    it('builds the filter for a viewport pair', () => {
+        expect(viewportFilterValue([1920, 1080])).toBe('1920x1080')
+    })
+
+    it('offers no filter for the (not set) pair', () => {
+        expect(viewportFilterValue([null, null])).toBeUndefined()
     })
 })

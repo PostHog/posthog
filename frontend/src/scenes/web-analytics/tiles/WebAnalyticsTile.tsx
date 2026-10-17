@@ -465,6 +465,9 @@ const BreakdownValueCell: QueryContextColumnComponent = (props) => {
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(value)) {
                 const [width, height] = value
+                if (width == null || height == null) {
+                    return <NotSetBreakdownLabel />
+                }
                 return (
                     <>
                         {width}x{height}
@@ -1233,6 +1236,12 @@ export const WebStatsTableTile = ({
     )
 }
 
+// No filter for the (not set) pair
+export const viewportFilterValue = (breakdownValue: unknown[]): string | undefined => {
+    const [width, height] = breakdownValue
+    return width == null || height == null ? undefined : `${width}x${height}`
+}
+
 const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): string | null | undefined => {
     if (typeof record !== 'object' || !record || !('result' in record)) {
         return undefined
@@ -1264,7 +1273,7 @@ const getBreakdownValue = (record: unknown, breakdownBy: WebStatsBreakdown): str
             break
         case WebStatsBreakdown.Viewport:
             if (Array.isArray(breakdownValue)) {
-                return `${breakdownValue[0]}x${breakdownValue[1]}`
+                return viewportFilterValue(breakdownValue)
             }
             break
         case WebStatsBreakdown.Timezone:

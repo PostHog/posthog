@@ -45,6 +45,10 @@ WEB_ANALYTICS_STATS_TABLE_PRE_AGGREGATED_SUPPORTED_BREAKDOWNS = [
 def _nullif_empty_decorator(func):
     def wrapper(self):
         result = func(self)
+        # nullIf(x, '') cannot apply to a tuple-shaped breakdown (ClickHouse
+        # tries to cast '' to the tuple type), and a pair is never ''.
+        if isinstance(result, ast.Call) and result.name == "tuple":
+            return result
         return wrap_with_null_if_empty(result)
 
     return wrapper
@@ -691,19 +695,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             case WebStatsBreakdown.OS:
                 return ast.Field(chain=["os"])
             case WebStatsBreakdown.VIEWPORT:
-                return ast.Call(
-                    name="concat",
-                    args=[
-                        ast.Call(
-                            name="toString",
-                            args=[ast.Field(chain=["viewport_width"])],
-                        ),
-                        ast.Constant(value="x"),
-                        ast.Call(
-                            name="toString",
-                            args=[ast.Field(chain=["viewport_height"])],
-                        ),
-                    ],
+                # Same nullable pair as the live path: a zero or NULL dimension
+                # folds into (NULL, NULL) so both serve one "(not set)" row.
+                return parse_expr(
+                    "tuple("
+                    "if(viewport_width IS NULL OR viewport_height IS NULL OR viewport_width = 0 OR viewport_height = 0, NULL, viewport_width), "
+                    "if(viewport_width IS NULL OR viewport_height IS NULL OR viewport_width = 0 OR viewport_height = 0, NULL, viewport_height)"
+                    ")"
                 )
             case WebStatsBreakdown.INITIAL_REFERRING_DOMAIN:
                 return ast.Field(chain=["referring_domain"])
