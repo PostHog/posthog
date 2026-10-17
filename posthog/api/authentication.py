@@ -4,7 +4,7 @@ import math
 import time
 import random
 import datetime
-from typing import Any, TypedDict, cast
+from typing import Any, NoReturn, TypedDict, cast
 from urllib.parse import urlencode, urljoin
 from uuid import uuid4
 
@@ -65,6 +65,7 @@ from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
+    SSO_REAUTH_SELECT_ACCOUNT_KEY,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
     is_sso_reauth_begin,
     sso_failure_redirect_url,
@@ -1404,6 +1405,12 @@ def _is_signed_in_github_account_link(strategy: DjangoStrategy, backend: BaseAut
     )
 
 
+def _reject_reauth_identity(strategy: DjangoStrategy, backend: Any) -> NoReturn:
+    # Without this, an IdP that signs in silently returns the same wrong account on every retry
+    strategy.session_set(SSO_REAUTH_SELECT_ACCOUNT_KEY, True)
+    raise AuthFailed(backend, "reauth_user_mismatch")
+
+
 def social_identity_matches_session(
     strategy: DjangoStrategy,
     backend: Any,
@@ -1426,7 +1433,7 @@ def social_identity_matches_session(
             backend=getattr(backend, "name", ""),
             session_user_id=request.user.pk,
         )
-        raise AuthFailed(backend, "reauth_user_mismatch")
+        _reject_reauth_identity(strategy, backend)
 
 
 def _github_email_is_verified(backend: GithubOAuth2, access_token: str, email: str) -> bool:
@@ -1508,7 +1515,7 @@ def social_reauth(
             backend=getattr(backend, "name", ""),
             session_user_id=request.user.pk,
         )
-        raise AuthFailed(backend, "reauth_user_mismatch")
+        _reject_reauth_identity(strategy, backend)
 
 
 def social_access_rules_allow(
@@ -1553,6 +1560,7 @@ def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None 
     request.session.cycle_key()
     request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
     request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
+    request.session.pop(SSO_REAUTH_SELECT_ACCOUNT_KEY, None)
 
     backend_name = getattr(backend, "name", "")
     try:
