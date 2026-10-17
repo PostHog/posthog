@@ -23,6 +23,7 @@ export interface PiOrchestrationAgentRunViewModel {
   status: Step["status"];
   toolCalls: PiSubagentToolCall[];
   errorMessage?: string;
+  resultText?: string;
 }
 
 export interface PiOrchestrationViewModel {
@@ -116,6 +117,7 @@ function readWorkflowDetails(
       description: agent.objective ?? agent.produces ?? agent.agent,
       status: readWorkflowStatus(agent.status),
       toolCalls: agent.toolCalls ?? [],
+      resultText: agent.resultPreview,
     }),
   );
   return {
@@ -143,6 +145,7 @@ function readSubagentDetails(
       status: readSubagentStatus(result),
       toolCalls: result.toolCalls ?? [],
       errorMessage: result.errorMessage,
+      resultText: result.resultText,
     }),
   );
   return {
