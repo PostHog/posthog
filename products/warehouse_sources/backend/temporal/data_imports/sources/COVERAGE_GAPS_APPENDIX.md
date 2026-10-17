@@ -1210,9 +1210,9 @@ Today (3): `analyzers`, `archive_rules`, `findings`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/accessanalyzer/2019-11-01/service-2.json>
 
-- [ ] `Analyzed resources (ListAnalyzedResources, POST /analyzed-resource)` — resolves resource ARNs in findings and identifies analyzed resources without findings (high)
-- [ ] `Finding access details (GetFindingV2, GET /findingv2/{id})` — provides principals, actions, and unused permission records that finding summaries omit (high)
-- [ ] `Finding recommendations (GetFindingRecommendation, GET /recommendation/{id})` — provides remediation steps for unused permissions so findings can be assessed against recommended actions (medium)
+- [x] `Analyzed resources (ListAnalyzedResources, POST /analyzed-resource)` — resolves resource ARNs in findings and identifies analyzed resources without findings (high)
+- [x] `Finding access details (GetFindingV2, GET /findingv2/{id})` — provides principals, actions, and unused permission records that finding summaries omit (high)
+- [x] `Finding recommendations (GetFindingRecommendation, GET /recommendation/{id})` — provides remediation steps for unused permissions so findings can be assessed against recommended actions (medium)
 
 Note: Compared the official botocore operation model with the static endpoint map and extraction code. Findings currently use ListFindingsV2 summaries; GetFindingV2 supplies separate, paginated access details. Analyzed resources need analyzer traversal; GetAnalyzedResource hydration applies only to external analyzers. Recommendation reads need existing generated results; policy generation and preview plumbing were excluded.
 
