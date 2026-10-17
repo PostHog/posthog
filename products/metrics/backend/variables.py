@@ -10,7 +10,13 @@ import dataclasses
 from collections.abc import Collection, Iterable, Iterator, Mapping
 from typing import Any
 
-from posthog.schema import MetricsDashboardVariable, MetricsFilterOp, MetricsQueryFilter, MetricsVariableValue
+from posthog.schema import (
+    MetricsDashboardVariable,
+    MetricsDashboardVariableSource,
+    MetricsFilterOp,
+    MetricsQueryFilter,
+    MetricsVariableValue,
+)
 
 from posthog.hogql import ast
 
@@ -46,6 +52,8 @@ class Variable:
     options: tuple[str, ...]
     # Grafana puts an imported all value into the query as it is written, whatever string holds it.
     all_value_as_written: bool = False
+    # True once All has the values of every option, which can be none.
+    loaded: bool = False
 
 
 @frozen
@@ -246,19 +254,55 @@ def from_query(values: Mapping[str, MetricsVariableValue] | None) -> dict[str, V
     }
 
 
-def to_query(variables: Mapping[str, Variable], names: Iterable[str]) -> dict[str, MetricsVariableValue]:
-    """The values to set on a metrics query: only the variables it refers to, so the others do not reach its cache key."""
+def to_query(
+    variables: Mapping[str, Variable],
+    names: Iterable[str],
+    definitions: Mapping[str, MetricsDashboardVariable] | None = None,
+) -> dict[str, MetricsVariableValue]:
+    """The values to set on a metrics query: only the variables it refers to, so the others do not reach its cache key.
+
+    `definitions` are the variables whose All options the query loads when it runs.
+    """
     return {
         name: MetricsVariableValue(
-            values=list(variable.values), all=variable.is_all or None, allValue=variable.all_value
+            values=list(variable.values),
+            all=variable.is_all or None,
+            allValue=variable.all_value,
+            definition=(definitions or {}).get(name),
         )
         for name in names
         if (variable := variables.get(name)) is not None
     }
 
 
+def query_definitions(values: Mapping[str, MetricsVariableValue] | None) -> dict[str, MetricsDashboardVariable]:
+    return {name: value.definition for name, value in (values or {}).items() if value.definition is not None}
+
+
+def all_definitions(
+    names: Iterable[str],
+    variables: Mapping[str, Variable],
+    definitions: Mapping[str, MetricsDashboardVariable],
+) -> dict[str, MetricsDashboardVariable]:
+    """The definitions that SQL needs to load the options of All: of the named variables, and of the
+    variables that their SQL queries refer to."""
+    needed: dict[str, MetricsDashboardVariable] = {}
+    queue = list(names)
+    while queue:
+        name = queue.pop()
+        variable = variables.get(name)
+        definition = definitions.get(name)
+        if name in needed or variable is None or not variable.is_all or variable.values or definition is None:
+            continue
+        # The options query needs no current selection or label.
+        needed[name] = definition.model_copy(update={"current": None, "label": None})
+        if definition.source == MetricsDashboardVariableSource.SQL:
+            queue.extend(sql_referenced_names(definition.query))
+    return needed
+
+
 def with_values(variable: Variable, values: Iterable[str]) -> Variable:
-    return dataclasses.replace(variable, values=tuple(values))
+    return dataclasses.replace(variable, values=tuple(values), loaded=True)
 
 
 def format_promql(variable: Variable, value_format: str | None, *, context: PromQLStringContext) -> str:
@@ -342,7 +386,7 @@ def _comment_end(sql: str, start: int) -> int | None:
 
 
 def _sql_placeholder(name: str, variable: Variable) -> ast.Expr:
-    if variable.is_all and not variable.values:
+    if variable.is_all and not variable.values and not variable.loaded:
         raise ValueError(f"${name} is set to All, but its values are not known. Select values for ${name}.")
     if len(variable.values) == 1 and not variable.is_all:
         return ast.Constant(value=variable.values[0])
