@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_pla
     AGGREGATION_PERIOD,
     ERROR_HISTORY_DAYS,
     LIST_ENDPOINTS,
+    METRIC_SET_PROVEN_HISTORY_DAYS,
     METRIC_SET_WINDOW_DAYS,
     METRIC_SETS,
     PRIMARY_KEYS,
@@ -479,13 +480,27 @@ def _iter_metric_set_rows(
             # sync every run; skip the app so the others still sync.
             continue
 
+        proven_start = _today() - dt.timedelta(days=METRIC_SET_PROVEN_HISTORY_DAYS)
         current = window_start
         while current <= latest:
             window_end = min(current + dt.timedelta(days=METRIC_SET_WINDOW_DAYS - 1), latest)
-            rows = [
-                _metric_row_to_dict(row, package_name, endpoint)
-                for row in _query_metric_set(client, package_name, endpoint, current, window_end)
-            ]
+            try:
+                rows = [
+                    _metric_row_to_dict(row, package_name, endpoint)
+                    for row in _query_metric_set(client, package_name, endpoint, current, window_end)
+                ]
+            except requests.HTTPError as e:
+                if current >= proven_start or e.response is None or e.response.status_code != 400:
+                    raise
+                # The source's error classifier treats a 400 as permanent, so a window older than
+                # Play retains would fail the whole first sync.
+                logger.info(
+                    "Skipping metric window: Play rejected a start older than its retained history",
+                    app=package_name,
+                    resource=endpoint.resource,
+                    window_start=current.isoformat(),
+                )
+                rows = []
             yield from _batch_by_date(rows)
 
             current = window_end + dt.timedelta(days=1)
