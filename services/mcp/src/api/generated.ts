@@ -24774,6 +24774,8 @@ export namespace Schemas {
       is_first_party: boolean;
       /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
       requires_access_confirmation: boolean;
+      /** Whether the application registered itself, through dynamic client registration or a client ID metadata document. MCP clients connect this way; applications PostHog registers do not. */
+      is_self_registered: boolean;
     }
 
     /**

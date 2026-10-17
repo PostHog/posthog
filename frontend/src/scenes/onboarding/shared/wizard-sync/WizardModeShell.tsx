@@ -28,7 +28,7 @@ export interface WizardBadgeItem {
 }
 
 // Frameworks the wizard can set up — the same whichever way it runs, so both modes show them.
-const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
+export const WIZARD_FRAMEWORKS: WizardBadgeItem[] = [
     { name: 'Next.js', icon: nextjsImage },
     { name: 'React', icon: reactImage },
     { name: 'Angular', icon: angularImage },
@@ -82,18 +82,20 @@ export function WizardModeShell({
     children,
     hogCastKey = 0,
     hideHog = false,
+    hog: Hog = WizardHog,
     'data-attr': dataAttr,
 }: {
     children: ReactNode
     hogCastKey?: number
-    /** Drop the hedgehog for compact placements that have no room for it. */
+    /** Drop the hedgehog, e.g. when an outer shell already shows one. */
     hideHog?: boolean
+    hog?: ComponentType<{ className?: string }>
     'data-attr'?: string
 }): JSX.Element {
     return (
         <div className="flex gap-6" data-attr={dataAttr}>
             {!hideHog && (
-                <WizardHog
+                <Hog
                     key={`hog-${hogCastKey}`}
                     className={cn(
                         'w-28 h-28 hidden sm:block shrink-0 self-center',
@@ -101,12 +103,7 @@ export function WizardModeShell({
                     )}
                 />
             )}
-            {/* With the hog hidden (compact placement), center the content at its natural
-                width instead of stretching it full-bleed — so the command block and the GitHub-connect
-                block sit centered without expanding. With the hog shown, keep the left-aligned column. */}
-            <div className={cn('flex-1 flex flex-col justify-center gap-3', hideHog && 'items-center text-center')}>
-                {children}
-            </div>
+            <div className="flex-1 flex flex-col justify-center gap-3 min-w-0">{children}</div>
         </div>
     )
 }

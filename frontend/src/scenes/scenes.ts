@@ -300,6 +300,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
     [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },
+    [Scene.OnboardingWelcome]: { projectBased: true, name: 'Welcome' },
     [Scene.OrganizationCreateFirst]: {
         name: 'Organization creation',
     },
@@ -895,6 +896,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.onboarding({ productKey: ':productKey' })]: [Scene.Onboarding, 'onboarding'],
     [urls.onboarding({ campaign: ':campaign' })]: [Scene.OnboardingCoupon, 'onboardingCoupon'],
     [urls.onboarding()]: [Scene.Onboarding, 'onboarding'],
+    [urls.onboardingWelcome()]: [Scene.OnboardingWelcome, 'onboardingWelcome'],
     [urls.verifyEmail()]: [Scene.VerifyEmail, 'verifyEmail'],
     [urls.verifyEmail(':uuid')]: [Scene.VerifyEmail, 'verifyEmailWithUuid'],
     // Links from emails sent before the switch to verification codes.

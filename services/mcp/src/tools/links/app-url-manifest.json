@@ -1284,6 +1284,11 @@
         "params": [],
         "scope": "project"
     },
+    "onboardingWelcome": {
+        "template": "/welcome",
+        "params": [],
+        "scope": "project"
+    },
     "organizationBilling": {
         "template": "/organization/billing",
         "params": [],
@@ -1573,6 +1578,11 @@
         "template": "/signup",
         "params": [],
         "scope": "global"
+    },
+    "simpleOnboarding": {
+        "template": "/onboarding/simple",
+        "params": [],
+        "scope": "project"
     },
     "site": {
         "template": "/site/{url}",
