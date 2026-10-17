@@ -546,3 +546,33 @@ class TestUpdateHogFunctionCode(BaseTest):
         function.refresh_from_db()
         assert POWERPLATFORM_BRANCH not in function.hog
         self.assertIn("Updated: 0", out.getvalue())
+
+    def test_openai_ads_numeric_external_id_migration(self):
+        stale_hog = (
+            "let userData := {}\n"
+            "if (not empty(inputs.externalId)) {\n"
+            "    userData.external_ids_sha256 := [sha256Hex(trim(inputs.externalId))]\n"
+            "}\n"
+        )
+        with patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers"):
+            function = HogFunction.objects.create(
+                team=self.team,
+                name="OpenAI Ads Function",
+                type="destination",
+                template_id="template-openai-ads",
+                hog=stale_hog,
+                enabled=True,
+            )
+
+        with patch(
+            "posthog.management.commands.update_hog_function_code.compile_hog",
+            return_value="compiled_bytecode",
+        ):
+            for expected in ("Updated: 1", "Updated: 0"):
+                out = StringIO()
+                call_command("update_hog_function_code", replace_key="openai-ads-numeric-external-id", stdout=out)
+                self.assertIn(expected, out.getvalue())
+
+        function.refresh_from_db()
+        assert "sha256Hex(trim(toString(inputs.externalId)))" in function.hog
+        compile_hog_for_check(function.hog, "destination")
