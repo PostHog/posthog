@@ -4,7 +4,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { cn } from 'lib/utils/css-classes'
 
-import { useSidePanelFrame } from '~/layout/navigation-3000/sidepanel/useSidePanelFrame'
+import { SIDE_PANEL_MIN_WIDTH_COMPACT, useSidePanelFrame } from '~/layout/navigation-3000/sidepanel/useSidePanelFrame'
 
 import { TodayContextPanelCard } from './TodayContextPanelCard'
 import { todayShellLogic } from './todayShellLogic'
@@ -22,7 +22,8 @@ export function TodaySidePanel(): JSX.Element | null {
     const roomBesideNav = windowSize.width != null ? windowSize.width - leftNavWidth - TODAY_SCENE_MIN_WIDTH : Infinity
     const { ref, resizerLogicProps, isResizeInProgress, activeTab, width, hasTabs } = useSidePanelFrame({
         defaultWidth: TODAY_SIDE_PANEL_DEFAULT_WIDTH,
-        maxWidth: Math.min(TODAY_SIDE_PANEL_MAX_WIDTH, roomBesideNav),
+        // Never below the panel's own minimum: in a very narrow window the scene gives up the width instead.
+        maxWidth: Math.max(SIDE_PANEL_MIN_WIDTH_COMPACT, Math.min(TODAY_SIDE_PANEL_MAX_WIDTH, roomBesideNav)),
     })
 
     if (!hasTabs) {
