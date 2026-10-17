@@ -8,7 +8,9 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { formatDate } from 'lib/utils/datetime'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -24,7 +26,7 @@ import {
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
+import { alertsPartialUpdate, alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -47,6 +49,7 @@ import {
 import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { alertsLogic } from './alertsLogic'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
@@ -107,6 +110,8 @@ export function ongoingIntervalField(config: AlertConfig | null | undefined, can
 
 /** The insight query kind an alert is built for; selects the default config type for new alerts. */
 export type InsightAlertKind = 'trends' | 'hogql' | 'funnels' | 'metrics'
+
+export type ClearSnoozeSource = 'button' | 'toast_undo'
 
 /** Resolve which alert kind an insight's query produces. Trends is the fallback: it's the one
  * always-on kind, so an unrecognized query gets the trends config and fails validation there. */
@@ -302,6 +307,7 @@ export interface alertFormLogicValues {
     simulationRequestId: number
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
+    snoozeLoading: boolean
     thresholdBoundsFormError: string | undefined
 }
 
@@ -328,8 +334,8 @@ export interface alertFormLogicActions {
             value: true
         }
     }
-    clearSnooze: () => {
-        value: true
+    clearSnooze: (source?: ClearSnoozeSource) => {
+        source: ClearSnoozeSource
     }
     deleteAlert: () => {
         value: true
@@ -358,6 +364,9 @@ export interface alertFormLogicActions {
     }
     setSimulationDateFrom: (dateFrom: string) => {
         dateFrom: string
+    }
+    setSnoozeLoading: (loading: boolean) => {
+        loading: boolean
     }
     simulateAlert: () => {
         value: true
@@ -479,12 +488,13 @@ export const alertFormLogic = kea<alertFormLogicType>([
     actions({
         deleteAlert: true,
         snoozeAlert: (snoozeUntil: string) => ({ snoozeUntil }),
-        clearSnooze: true,
+        clearSnooze: (source: ClearSnoozeSource = 'button') => ({ source }),
         simulateAlert: true,
         clearSimulation: true,
         setSimulationDateFrom: (dateFrom: string) => ({ dateFrom }),
         setAlertFormSubmitAttempted: true,
         setClearSnoozeLoading: (loading: boolean) => ({ loading }),
+        setSnoozeLoading: (loading: boolean) => ({ loading }),
     }),
 
     reducers({
@@ -514,6 +524,12 @@ export const alertFormLogic = kea<alertFormLogicType>([
             false,
             {
                 setClearSnoozeLoading: (_, { loading }) => loading,
+            },
+        ],
+        snoozeLoading: [
+            false,
+            {
+                setSnoozeLoading: (_, { loading }) => loading,
             },
         ],
     }),
@@ -899,6 +915,34 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             return undefined
         }
+        // The alert logics still use the handwritten AlertType, so bridge the generated response type here.
+        const updateSnooze = async (alertId: AlertType['id'], snoozedUntil: string | null): Promise<AlertType> =>
+            (await alertsPartialUpdate(String(ApiConfig.getCurrentProjectId()), alertId, {
+                snoozed_until: snoozedUntil,
+            })) as unknown as AlertType
+        const syncSnoozeState = (updatedAlert: AlertType): void => {
+            hydrateAlertLogicFromSaveResponse(updatedAlert)
+            const parent = getParentLogic()
+            if (parent?.isMounted()) {
+                parent.actions.upsertAlert(updatedAlert)
+                parent.actions.loadAlerts()
+            }
+            alertsLogic.findMounted()?.actions.loadAlerts()
+        }
+        const unsnooze = async (alertId: AlertType['id'], source: ClearSnoozeSource): Promise<void> => {
+            try {
+                const updatedAlert = await updateSnooze(alertId, null)
+                syncSnoozeState(updatedAlert)
+                posthog.capture('alert unsnoozed', { alert_type: 'insight', source })
+                lemonToast.success('Alert unsnoozed.')
+            } catch (error) {
+                lemonToast.error("We couldn't unsnooze this alert. Please try again.")
+                posthog.captureException(error, {
+                    action: 'clear alert snooze',
+                    alertId,
+                })
+            }
+        }
 
         return {
             deleteAlert: async () => {
@@ -915,41 +959,44 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 props.onEditSuccess(undefined)
             },
             snoozeAlert: async ({ snoozeUntil }) => {
-                if (!values.alertForm.id) {
+                const alertId = values.alertForm.id
+                if (!alertId) {
                     throw new Error("Cannot snooze alert that doesn't exist")
                 }
-                const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                    snoozed_until: resolveSnoozeUntil(snoozeUntil),
-                })
-                hydrateAlertLogicFromSaveResponse(updatedAlert)
-                const parent = getParentLogic()
-                if (parent) {
-                    parent.actions.upsertAlert(updatedAlert)
-                    parent.actions.loadAlerts()
+                actions.setSnoozeLoading(true)
+                try {
+                    const snoozedUntil = resolveSnoozeUntil(snoozeUntil)
+                    const updatedAlert = await updateSnooze(alertId, snoozedUntil)
+                    syncSnoozeState(updatedAlert)
+                    posthog.capture('alert snoozed', {
+                        alert_type: 'insight',
+                        snooze_option: snoozeUntil.startsWith('+') ? snoozeUntil : 'custom',
+                        snooze_minutes: dayjs(snoozedUntil).diff(dayjs(), 'minute'),
+                    })
+                    lemonToast.success(
+                        `Alert snoozed until ${formatDate(dayjs(updatedAlert.snoozed_until ?? snoozedUntil), 'MMM D, HH:mm')}.`,
+                        {
+                            button: {
+                                label: 'Undo',
+                                // The modal can close before the user clicks, so this must not need the logic mounted.
+                                action: () => unsnooze(alertId, 'toast_undo'),
+                            },
+                        }
+                    )
+                } catch (error) {
+                    lemonToast.error("We couldn't snooze this alert. Please try again.")
+                    posthog.captureException(error, { action: 'snooze alert', alertId })
+                } finally {
+                    actions.setSnoozeLoading(false)
                 }
-                props.onEditSuccess(values.alertForm.id)
             },
-            clearSnooze: async () => {
+            clearSnooze: async ({ source }) => {
                 if (!values.alertForm.id) {
                     throw new Error("Cannot resolve alert that doesn't exist")
                 }
                 actions.setClearSnoozeLoading(true)
                 try {
-                    const updatedAlert: AlertType = await api.alerts.update(values.alertForm.id, {
-                        snoozed_until: null,
-                    })
-                    hydrateAlertLogicFromSaveResponse(updatedAlert)
-                    const parent = getParentLogic()
-                    if (parent) {
-                        parent.actions.upsertAlert(updatedAlert)
-                        parent.actions.loadAlerts()
-                    }
-                } catch (error) {
-                    lemonToast.error("We couldn't unsnooze this alert. Please try again.")
-                    posthog.captureException(error, {
-                        action: 'clear alert snooze',
-                        alertId: values.alertForm.id,
-                    })
+                    await unsnooze(values.alertForm.id, source)
                 } finally {
                     actions.setClearSnoozeLoading(false)
                 }
