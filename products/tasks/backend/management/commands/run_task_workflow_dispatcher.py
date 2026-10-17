@@ -143,6 +143,9 @@ class Command(BaseCommand):
             while not stop.is_set():
                 Path("/tmp/dispatcher-heartbeat").touch()
                 try:
+                    # Polls and the async ORM calls in _process share one thread-sensitive worker thread.
+                    # Django drops a failed connection only on request signals, which never fire here.
+                    await sync_to_async(close_old_connections)()
                     await sync_to_async(materialize_due_scheduled_task_runs)(SCHEDULED_RUN_MATERIALIZATION_BATCH_SIZE)
                     if monotonic() - last_metrics_sample >= 15:
                         await sync_to_async(sample_dispatch_metrics)()
