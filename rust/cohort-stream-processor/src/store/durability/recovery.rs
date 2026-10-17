@@ -228,8 +228,9 @@ pub async fn open_store(
     Ok((store, restore))
 }
 
-/// Retries [`prepare_store`] with backoff until the boot has a store, and positions the follower
-/// groups of a restore on the partitions `admitted` owns before returning it.
+/// Retries [`prepare_store`] with backoff until the boot has a store. For a restore, it waits until
+/// the fence admits `admitted`'s split again, then positions the follower groups on the partitions
+/// the split owns before returning it.
 ///
 /// The restore runs on a blocking thread: staging, validation and the Kafka position calls block,
 /// and the health server must keep answering meanwhile. A SIGTERM here kills the process; staging
@@ -260,10 +261,16 @@ async fn restore_until_ready(
                 )
                 .await
                 {
-                    Ok((BootStore::Restored(pending), source)) => pending
-                        .position_followers(&groups, &admitted)
-                        .map(|()| (BootStore::Restored(pending), source))
-                        .map_err(RestoreBlocked::Positions),
+                    Ok((BootStore::Restored(pending), source)) => {
+                        // Another split can claim while the restore runs, so the boot's admission
+                        // no longer covers the follower commits.
+                        let admitted =
+                            AdmittedSplit::admit(admitted.ownership(), groups.clone()).await;
+                        pending
+                            .position_followers(&groups, &admitted)
+                            .map(|()| (BootStore::Restored(pending), source))
+                            .map_err(RestoreBlocked::Positions)
+                    }
                     other => other,
                 };
                 match attempt {

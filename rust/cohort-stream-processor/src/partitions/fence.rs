@@ -4,10 +4,11 @@
 //!
 //! 1. **Admission**, before the store opens. A stamp from another split on an owned partition holds
 //!    the boot.
-//! 2. **The claim**, after the store opens. The pod stamps every owned partition on every group and
-//!    reads the stamps back, so a broker that drops commit metadata stops the pod.
-//! 3. **The audit**, while the pod runs. Another split's commit on an owned partition stops the pod,
-//!    and the next boot holds in admission.
+//! 2. **The claim**, after the store opens. The pod checks the stamps again, stamps every owned
+//!    partition on every group and reads the stamps back, so a broker that drops commit metadata
+//!    stops the pod.
+//! 3. **The audit**, while the pod runs. Another split's commit on an owned partition revokes this
+//!    pod's commits and stops the pod, so the next boot holds in admission.
 //!
 //! Two processes with one ordinal are not fenced: they carry the same stamp.
 
@@ -247,12 +248,17 @@ impl AdmittedSplit {
         CommitStamp::new(self.ownership)
     }
 
-    /// Commits every owned partition on every group again with this pod's stamp, at the group's
-    /// commit or at the low watermark where the group never committed, then reads the stamps back.
-    /// Blocks on Kafka.
+    /// Checks the fence again, then commits every owned partition on every group again with this
+    /// pod's stamp, at the group's commit or at the low watermark where the group never committed,
+    /// and reads the stamps back. Blocks on Kafka.
     pub fn claim(self, groups: &InputGroups) -> anyhow::Result<ClaimedSplit> {
         let partitions: BTreeSet<u16> = self.ownership.partitions().collect();
-        groups.restamp(&self.stamp(), &partitions)?;
+        // Another split can claim while this pod opens its store. The restamp would cover that
+        // split's stamps, so the claim checks the fence on the same commits that it overwrites.
+        let ledger = groups.ledger(&partitions)?;
+        ledger.admit(self.ownership)?;
+        let stamp = self.stamp();
+        groups.restamp(&stamp, &ledger)?;
         let ours = Stamp::Split(self.ownership);
         for input in groups.ledger(&partitions)?.inputs() {
             for (&partition, committed) in input.commits() {
@@ -272,22 +278,22 @@ impl AdmittedSplit {
             }
         }
         info!(ownership = %self.ownership, "claimed every owned partition; the stamps read back");
-        Ok(ClaimedSplit(self.ownership))
+        Ok(ClaimedSplit(stamp))
     }
 }
 
 /// A split whose every owned partition carries its stamp on every group. The consumers and the
-/// checkpoint take it as proof.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ClaimedSplit(PartitionOwnership);
+/// followers take it as proof, and commit with its stamp until the audit revokes it.
+#[derive(Debug, Clone)]
+pub struct ClaimedSplit(CommitStamp);
 
 impl ClaimedSplit {
     pub fn ownership(&self) -> PartitionOwnership {
-        self.0
+        self.0.split()
     }
 
     pub fn stamp(&self) -> CommitStamp {
-        CommitStamp::new(self.0)
+        self.0.clone()
     }
 }
 
@@ -342,6 +348,9 @@ impl Sweeper for OwnershipAudit {
             }
         }
         if violated {
+            // The graceful stop commits this pod's offsets with its stamp over the foreign one, and
+            // the next boot would then pass the fence.
+            self.claimed.0.revoke();
             self.handle
                 .signal_failure("another split committed a partition this pod owns");
         }

@@ -7,8 +7,10 @@ use std::fmt;
 use std::num::NonZeroU16;
 
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext};
-use rdkafka::error::KafkaResult;
+use rdkafka::error::{KafkaError, KafkaResult};
+use rdkafka::types::RDKafkaErrorCode;
 use rdkafka::{Offset, TopicPartitionList};
+use tokio_util::sync::CancellationToken;
 
 use super::PartitionOwnership;
 use crate::store::durability::PodOrdinal;
@@ -69,18 +71,33 @@ impl fmt::Display for Stamp {
     }
 }
 
-/// This pod's stamp. Only an admitted split builds one.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CommitStamp(PartitionOwnership);
+/// This pod's stamp. Only an admitted split builds one. The ownership audit revokes it when another
+/// split commits an owned partition, and from then on no list built from it or a clone commits.
+#[derive(Debug, Clone)]
+pub struct CommitStamp {
+    split: PartitionOwnership,
+    revoked: CancellationToken,
+}
 
 impl CommitStamp {
     pub(super) fn new(split: PartitionOwnership) -> Self {
-        Self(split)
+        Self {
+            split,
+            revoked: CancellationToken::new(),
+        }
     }
 
     #[cfg(test)]
     pub(crate) fn for_test(split: PartitionOwnership) -> Self {
-        Self(split)
+        Self::new(split)
+    }
+
+    pub(super) fn split(&self) -> PartitionOwnership {
+        self.split
+    }
+
+    pub(super) fn revoke(&self) {
+        self.revoked.cancel();
     }
 
     /// `offsets` on `topic` as a commit list, each element stamped. Fails on a negative offset.
@@ -96,7 +113,10 @@ impl CommitStamp {
             elem.set_offset(Offset::Offset(offset))?;
             elem.set_metadata(&metadata);
         }
-        Ok(StampedList(list))
+        Ok(StampedList {
+            list,
+            revoked: self.revoked.clone(),
+        })
     }
 }
 
@@ -105,23 +125,27 @@ impl fmt::Display for CommitStamp {
         write!(
             f,
             "{PREFIX}{}:{}:{}",
-            self.0.pods(),
-            self.0.ordinal(),
-            self.0.partition_count()
+            self.split.pods(),
+            self.split.ordinal(),
+            self.split.partition_count()
         )
     }
 }
 
 /// A commit list where every element carries this pod's stamp.
 #[derive(Debug)]
-pub struct StampedList(TopicPartitionList);
+pub struct StampedList {
+    list: TopicPartitionList,
+    revoked: CancellationToken,
+}
 
 impl StampedList {
     /// The list without its role as a commit, for a seek, which ignores metadata.
     pub fn as_list(&self) -> &TopicPartitionList {
-        &self.0
+        &self.list
     }
 
+    /// Fails with `Fenced` once the stamp is revoked.
     // `clippy.toml` disallows `Consumer::commit` everywhere else, so no commit leaves without a
     // stamp.
     #[allow(clippy::disallowed_methods)]
@@ -130,7 +154,10 @@ impl StampedList {
         C: Consumer<X>,
         X: ConsumerContext,
     {
-        consumer.commit(&self.0, mode)
+        if self.revoked.is_cancelled() {
+            return Err(KafkaError::ConsumerCommit(RDKafkaErrorCode::Fenced));
+        }
+        consumer.commit(&self.list, mode)
     }
 }
 
