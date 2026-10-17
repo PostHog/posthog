@@ -29,10 +29,18 @@ interface QuillActivityMemberFilterProps {
 }
 
 export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemberFilterProps): JSX.Element {
-    const { selectableMembers, membersLoading } = useValues(membersLogic)
+    const { meFirstMembers, membersLoading } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const [open, setOpen] = useState(false)
     const triggerRef = useRef<HTMLButtonElement>(null)
+
+    // The trigger opens the picker through the controlled prop, which never calls onOpenChange, so both paths load.
+    const setPickerOpen = (next: boolean): void => {
+        setOpen(next)
+        if (next) {
+            ensureAllMembersLoaded()
+        }
+    }
 
     // A value set from the URL needs the member list to show a name rather than "Any user".
     useEffect(() => {
@@ -41,8 +49,9 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
         }
     }, [value]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    // You come first, then everyone else, as in the other member pickers.
-    const members = selectableMembers()
+    // You come first, then everyone else, as in the other member pickers. The unfiltered list, because the shared
+    // member search from settings would otherwise hide members here.
+    const members = meFirstMembers
     const usersById = Object.fromEntries(members.map((member) => [String(member.user.id), member.user]))
     const selected = value ? usersById[String(value)] : null
     const items = [ANY_USER, ...members.map((member) => String(member.user.id))]
@@ -51,12 +60,7 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
         <Combobox<string>
             items={items}
             open={open}
-            onOpenChange={(next) => {
-                setOpen(next)
-                if (next) {
-                    ensureAllMembersLoaded()
-                }
-            }}
+            onOpenChange={setPickerOpen}
             value={value ? String(value) : ANY_USER}
             onValueChange={(next) => {
                 onChange(!next || next === ANY_USER ? null : (usersById[next] ?? null))
@@ -70,7 +74,7 @@ export function QuillActivityMemberFilter({ value, onChange }: QuillActivityMemb
                 ref={triggerRef}
                 variant="outline"
                 className="min-w-0 shrink"
-                onClick={() => setOpen((prev) => !prev)}
+                onClick={() => setPickerOpen(!open)}
                 data-attr="activity-member-filter"
             >
                 <span className="ph-no-capture min-w-0 truncate">{selected ? fullName(selected) : 'Any user'}</span>
