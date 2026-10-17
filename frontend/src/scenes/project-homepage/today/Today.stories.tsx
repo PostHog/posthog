@@ -841,6 +841,24 @@ type Story = StoryObj<{}>
 
 export const Home: Story = {}
 
+export const HomeWithWaysToUse: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?ways_to_use=1` },
+}
+
+export const NarrowWindowWithWaysToUse: Story = {
+    parameters: {
+        pageUrl: `${urls.projectHomepage()}?ways_to_use=1`,
+        testOptions: { viewport: { width: 800, height: 900 } },
+    },
+}
+
+export const PhoneWidthWithWaysToUse: Story = {
+    parameters: {
+        pageUrl: `${urls.projectHomepage()}?ways_to_use=1`,
+        testOptions: { viewport: { width: 390, height: 844 } },
+    },
+}
+
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
 }
