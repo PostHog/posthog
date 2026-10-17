@@ -1,6 +1,7 @@
 import io
 import json
 import datetime
+import dataclasses
 from typing import Any
 
 import pytest
@@ -56,7 +57,8 @@ from products.signals.dags.inbox_ranking.training.dag import (
     inbox_ranking_model_champion,
     model_object_key,
 )
-from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, RECIPE_KEY, recipe_hash
+from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME, Head
+from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, RECIPE_KEY, model_recipe, recipe_hash
 from products.signals.dags.inbox_ranking.training.serving import FamilyModels, compose_manifest
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics
 from products.signals.dags.inbox_ranking.training.unseen import NN_MODEL_NAME, REPORT_EMBEDDINGS_MODEL_NAME
@@ -313,6 +315,15 @@ def _stored_version(model_name: str, version: str, recipe: dict[str, Any] | None
     return model_object_key(PREFIX, model_name, version, METADATA_FILE), json.dumps(metadata).encode()
 
 
+ACTION = HEADS_BY_NAME["action"]
+
+
+def _action_recipe(head: Head) -> dict[str, Any]:
+    return model_recipe(
+        model_kind=ONNX_MODEL_KIND, feature_set=REPORT_EMBEDDINGS_FEATURE_SET, heads=[head], learner_params={}
+    )
+
+
 @pytest.mark.parametrize(
     "stored, recipe, lookback_days, changed",
     [
@@ -322,6 +333,10 @@ def _stored_version(model_name: str, version: str, recipe: dict[str, Any] | None
         ({"2026-08-17": "network", "2026-08-18": None}, "network_more_epochs", None, "learner_params.epochs"),
         ({"2026-08-18": None}, "network_more_epochs", None, None),
         ({"2026-08-20": "network"}, "network_more_epochs", None, None),
+        ({PARTITION: "network"}, "network", None, None),
+        ({PARTITION: "network"}, "network_more_epochs", None, "learner_params.epochs"),
+        ({"2026-08-18": "action"}, "action_without_status_labels", None, "heads.action.status_labels"),
+        ({"2026-08-18": "action"}, "action_without_label_columns", None, "heads.action.label_columns"),
     ],
     ids=[
         "daily_retrain",
@@ -330,6 +345,10 @@ def _stored_version(model_name: str, version: str, recipe: dict[str, Any] | None
         "skips_a_version_without_a_hash",
         "nothing_hashed_to_compare",
         "ignores_later_versions",
+        "rerun_with_the_same_recipe",
+        "rerun_with_another_recipe",
+        "head_status_labels_change",
+        "head_label_columns_change",
     ],
 )
 def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored, recipe, lookback_days, changed):
@@ -337,6 +356,9 @@ def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored
         "booster": lambda: booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET),
         "network": lambda: network_recipe(NetworkConfig(), ()),
         "network_more_epochs": lambda: network_recipe(NetworkConfig(epochs=NetworkConfig().epochs + 5), ()),
+        "action": lambda: _action_recipe(ACTION),
+        "action_without_status_labels": lambda: _action_recipe(dataclasses.replace(ACTION, status_labels=False)),
+        "action_without_label_columns": lambda: _action_recipe(dataclasses.replace(ACTION, label_columns=())),
     }
     objects = dict(
         _stored_version("family", version, None if name is None else recipes[name]())
