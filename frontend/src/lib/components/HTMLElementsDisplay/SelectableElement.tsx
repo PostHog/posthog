@@ -229,7 +229,7 @@ export function SelectableElement({
             {indent}
             &lt;
             <TagPart
-                tagName={element.tag_name}
+                tagName={element.tag_name ?? ''}
                 selectedParts={parsedCSSSelector || ({} as ParsedCSSSelector)}
                 readonly={readonly}
                 onChange={setParsedCSSSelector}

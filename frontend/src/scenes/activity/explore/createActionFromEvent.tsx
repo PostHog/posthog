@@ -7,10 +7,11 @@ export function recurseSelector(elements: ElementType[], parts: string, index: n
     if (element.attr_id) {
         return `[id="${element.attr_id}"] > ${parts}`
     }
+    const tagName = element.tag_name || '*'
     if (index > 0) {
-        parts = element.tag_name + ' > ' + parts
+        parts = tagName + ' > ' + parts
     } else {
-        parts = element.tag_name
+        parts = tagName
     }
     if (index === 10 || !elements[index + 1]) {
         return parts
@@ -40,7 +41,7 @@ export function applyDataAttributeSelector(
         const element = elements[i]
         if (matchesDataAttribute(element, dataAttributes) || element.attr_id) {
             let selector = elementToSelector(element, dataAttributes)
-            if (i > 0 && !CLICK_TARGETS.includes(element.tag_name)) {
+            if (i > 0 && !CLICK_TARGETS.includes(element.tag_name ?? '')) {
                 const clickedTagName = elements[0].tag_name
                 selector = `${selector} > ${clickedTagName || '*'}`
             }

@@ -22109,13 +22109,13 @@
                     "type": "number"
                 },
                 "tag_name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "text": {
                     "type": "string"
                 }
             },
-            "required": ["attributes", "tag_name"],
+            "required": ["attributes"],
             "type": "object"
         },
         "EmbeddedDocument": {

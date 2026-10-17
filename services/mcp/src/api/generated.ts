@@ -39179,7 +39179,7 @@ export namespace Schemas {
       nth_child?: number | null;
       nth_of_type?: number | null;
       order?: number | null;
-      tag_name: string;
+      tag_name?: string | null;
       text?: string | null;
     }
 

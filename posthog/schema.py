@@ -1379,7 +1379,7 @@ class ElementType(BaseModel):
     nth_child: float | None = None
     nth_of_type: float | None = None
     order: float | None = None
-    tag_name: str
+    tag_name: str | None = None
     text: str | None = None
 
 

@@ -1,10 +1,17 @@
 import time_machine
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    flush_persons_and_events,
+    snapshot_clickhouse_queries,
+)
 from unittest.mock import patch
 
 from posthog.schema import EventType, SessionsTimelineQuery, TimelineEntry
 
 from posthog.hogql_queries.sessions_timeline_query_runner import SessionsTimelineQueryRunner
+from posthog.models.element.element import Element
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
@@ -653,3 +660,22 @@ class TestSessionsTimelineQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 recording_duration_s=None,
             ),
         ]
+
+    def test_element_without_tag_name(self):
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="person1",
+            timestamp="2023-10-01 12:00:00",
+            properties={"$session_id": "s1"},
+            elements=[Element(attr_id="signup", nth_child=1, nth_of_type=1)],
+        )
+        flush_persons_and_events()
+
+        runner = self._create_runner(SessionsTimelineQuery(before="2023-10-02T06:00:00Z", after="2023-10-01T06:00:00Z"))
+        response = runner.calculate()
+
+        elements = response.results[0].events[0].elements
+        assert len(elements) == 1
+        assert elements[0].tag_name is None
+        assert elements[0].attr_id == "signup"
