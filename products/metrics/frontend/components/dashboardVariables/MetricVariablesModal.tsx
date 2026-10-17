@@ -34,7 +34,7 @@ export function MetricVariablesModal({
     onSave: (variables: MetricsDashboardVariable[]) => void
 }): JSX.Element {
     const logic = metricVariableEditorLogic({ dashboardId, variables, options, dateFrom, dateTo })
-    const { draft, selectedIndex, selectedVariable, shownErrors } = useValues(logic)
+    const { applying, draft, selectedIndex, selectedVariable, shownErrors } = useValues(logic)
     const { addVariable, selectVariable, apply } = useActions(logic)
 
     return (
@@ -52,6 +52,7 @@ export function MetricVariablesModal({
                         <LemonButton
                             type="primary"
                             onClick={() => apply(onSave)}
+                            loading={applying}
                             data-attr="dashboard-metric-variables-save"
                         >
                             Apply

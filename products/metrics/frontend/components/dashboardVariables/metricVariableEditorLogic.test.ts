@@ -81,6 +81,30 @@ describe('metricVariableEditorLogic', () => {
         expect(captureException).not.toHaveBeenCalled()
     })
 
+    it('applies only after the server accepts each regex', async () => {
+        mockOptions.mockImplementation(async (_team, body) => {
+            if (body.regex === '(') {
+                throw { status: 400, detail: 'The variable regex cannot be used: missing )' }
+            }
+            return { results: [] }
+        })
+        const onSave = jest.fn()
+        const logic = metricVariableEditorLogic({
+            dashboardId: 1,
+            variables: [{ name: 'job', source: 'sql', query: 'SELECT job', regex: '(' }],
+            options: {},
+        })
+        logic.mount()
+
+        await expectLogic(logic, () => logic.actions.apply(onSave)).toFinishAllListeners()
+        expect(onSave).not.toHaveBeenCalled()
+        expect(logic.values.errors.job?.message).toContain('regex cannot be used')
+
+        logic.actions.updateVariable(0, { regex: 'a(.*)' })
+        await expectLogic(logic, () => logic.actions.apply(onSave)).toFinishAllListeners()
+        expect(onSave).toHaveBeenCalledTimes(1)
+    })
+
     it('sends a preview only after the one before it finishes', async () => {
         let finish: (value: { results: string[] }) => void = () => {}
         mockOptions.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)))
