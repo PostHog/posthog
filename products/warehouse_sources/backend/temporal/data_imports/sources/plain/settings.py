@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+from dataclasses import field
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -33,7 +35,7 @@ CREATED_AT_INCREMENTAL_FIELD: list[IncrementalField] = [
 ]
 
 
-@dataclass
+@frozen
 class PlainEndpointConfig:
     incremental_fields: list[IncrementalField]
     primary_key: str = ID
