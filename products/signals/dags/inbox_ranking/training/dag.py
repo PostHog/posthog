@@ -944,11 +944,11 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         )
         for family in MODEL_FAMILIES
     ]
-    decision = compose_manifest(
-        families, served=served, prefix=prefix, now=datetime.datetime.now(datetime.UTC), pinned=pinned
+    decision = (
+        compose_manifest(families, served=served, prefix=prefix, now=datetime.datetime.now(datetime.UTC), pinned=pinned)
+        if served_reason is None
+        else ManifestDecision(manifest=None, reason=served_reason)
     )
-    if served_reason is not None:
-        decision = ManifestDecision(manifest=None, reason=served_reason)
     manifest_keys = {entry.key for entry in decision.manifest.models} if decision.manifest else set()
     if decision.manifest is not None:
         for key in overrides.pin:
