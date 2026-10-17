@@ -27,5 +27,5 @@ It signs each redirect hop for the GET method, authority, full target URI, and `
 This prevents use of the signature for another method, path, or query.
 The signatures expire after one minute and include a unique 64-byte nonce.
 
-The request uses the structured-string `Signature-Agent` format in [Cloudflare's current verifier](https://developers.cloudflare.com/bots/reference/bot-verification/web-bot-auth/).
-It includes the parameters required by the [current Web Bot Auth protocol draft](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/).
+The request follows the [current Web Bot Auth protocol draft](https://datatracker.ietf.org/doc/draft-meunier-webbotauth-httpsig-protocol/).
+It sends `Signature-Agent` in the dictionary form, with the `https://us.posthog.com` origin as the member value.

@@ -1,7 +1,10 @@
 import { KeyObject, createHash, createPrivateKey, createPublicKey, randomBytes, sign } from 'node:crypto'
 
-const SIGNATURE_AGENT_URL = 'https://us.posthog.com/.well-known/http-message-signatures-directory'
-const SIGNATURE_AGENT_HEADER = JSON.stringify(SIGNATURE_AGENT_URL)
+const SIGNATURE_LABEL = 'sig1'
+const SIGNATURE_AGENT_ORIGIN = 'https://us.posthog.com'
+const SIGNATURE_AGENT_MEMBER_VALUE = JSON.stringify(SIGNATURE_AGENT_ORIGIN)
+const SIGNATURE_AGENT_HEADER = `${SIGNATURE_LABEL}=${SIGNATURE_AGENT_MEMBER_VALUE}`
+const SIGNATURE_AGENT_COMPONENT = `"signature-agent";key="${SIGNATURE_LABEL}"`
 const SIGNATURE_LIFETIME_SECONDS = 60
 const REQUEST_METHOD = 'GET'
 
@@ -36,20 +39,19 @@ class Ed25519WebBotAuthRequestSigner implements WebBotAuthRequestSigner {
         const expires = created + SIGNATURE_LIFETIME_SECONDS
         const nonce = randomBytes(64).toString('base64url')
         const parameters =
-            `("@method" "@authority" "@target-uri" "signature-agent");created=${created};keyid="${this.signingKey.keyId}";` +
+            `("@method" "@authority" "@target-uri" ${SIGNATURE_AGENT_COMPONENT});created=${created};keyid="${this.signingKey.keyId}";` +
             `alg="ed25519";expires=${expires};nonce="${nonce}";tag="web-bot-auth"`
         const signatureBase =
             `"@method": ${REQUEST_METHOD}\n` +
             `"@authority": ${authority}\n` +
             `"@target-uri": ${targetUri}\n` +
-            `"signature-agent": ${SIGNATURE_AGENT_HEADER}\n` +
+            `${SIGNATURE_AGENT_COMPONENT}: ${SIGNATURE_AGENT_MEMBER_VALUE}\n` +
             `"@signature-params": ${parameters}`
 
         return {
-            // Cloudflare rejects the dictionary form from newer drafts, so use the compatible structured string.
             'signature-agent': SIGNATURE_AGENT_HEADER,
-            'signature-input': `sig1=${parameters}`,
-            signature: `sig1=:${sign(null, Buffer.from(signatureBase), this.signingKey.privateKey).toString('base64')}:`,
+            'signature-input': `${SIGNATURE_LABEL}=${parameters}`,
+            signature: `${SIGNATURE_LABEL}=:${sign(null, Buffer.from(signatureBase), this.signingKey.privateKey).toString('base64')}:`,
         }
     }
 }
