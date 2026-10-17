@@ -139,7 +139,9 @@ tools:
             can't read person properties. The first upload creates the template and makes it sendable over the
             transactional email API with the project's default verified sender, so verify a sender first. Later uploads
             publish changed content at once and answer unchanged when nothing changed. Uploading replaces edits made
-            in PostHog. A plain 404 means the transactional email API is not enabled for this project: stop and tell
+            in PostHog. When you upload only because a send answered template_outdated, set if_not_superseded: an
+            answer of superseded means newer content is already published and nothing changed. Leave it out to publish
+            this content even when newer content replaced it, such as to roll back. A plain 404 means the transactional email API is not enabled for this project: stop and tell
             the user.
     workflows-send-email:
         operation: messaging_send_email_create

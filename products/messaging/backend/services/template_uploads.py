@@ -8,6 +8,7 @@ from django.db import IntegrityError, transaction
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.facade.contracts import (
+    ContentHashState,
     SenderUnavailable,
     TemplateManagedBy,
     TemplateSource,
@@ -15,7 +16,7 @@ from products.messaging.backend.facade.contracts import (
     TemplateUploadResult,
 )
 from products.messaging.backend.models import MessageTemplate
-from products.messaging.backend.services.content_hash import HASHED_FIELDS
+from products.messaging.backend.services.content_hash import HASHED_FIELDS, email_content_hash, sent_hash_state
 from products.messaging.backend.services.message_templates import record_content_hash
 from products.messaging.backend.services.template_saves import WorkflowEditorCheck, save_locked_template
 from products.messaging.backend.services.transactional_email import is_transactional, make_transactional
@@ -71,6 +72,8 @@ def _upload(
     if template is None:
         require_workflow_create()
         return Uploaded(result=TemplateUploadResult.CREATED, template=_create(team_id, upload, user_id=user_id))
+    if upload.if_not_superseded and _is_superseded(template, upload):
+        return Uploaded(result=TemplateUploadResult.SUPERSEDED, template=template)
     if _is_unchanged(template, upload):
         _save_source(template, upload.source)
         return Uploaded(result=TemplateUploadResult.UNCHANGED, template=template)
@@ -138,6 +141,12 @@ def _is_unchanged(template: MessageTemplate, upload: TemplateUpload) -> bool:
         and template.managed_by == TemplateManagedBy.CODE
         and is_transactional(template)
     )
+
+
+def _is_superseded(template: MessageTemplate, upload: TemplateUpload) -> bool:
+    uploaded_hash = email_content_hash(_email(upload))
+    state = sent_hash_state(uploaded_hash, template.content_hash, template.superseded_content_hashes or [])
+    return state == ContentHashState.SUPERSEDED
 
 
 def _write_source(template: MessageTemplate, source: TemplateSource | None) -> list[str]:

@@ -418,6 +418,13 @@ class UploadTemplateSerializer(serializers.Serializer):
         help_text="Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of "
         "it, keeps what is stored.",
     )
+    if_not_superseded = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. "
+        "When newer content already replaced this content, the upload changes nothing and answers `superseded`. "
+        "Leave it out to publish the content in any case, such as to roll back to earlier content.",
+    )
 
 
 class UploadTemplateResponseSerializer(serializers.Serializer):
@@ -426,13 +433,17 @@ class UploadTemplateResponseSerializer(serializers.Serializer):
     result = serializers.ChoiceField(
         choices=TemplateUploadResult.choices,
         help_text="`created`: the upload made a new template. `updated`: it published the uploaded content. "
-        "`unchanged`: the template already had this content, so nothing was published.",
+        "`unchanged`: the template already had this content, so nothing was published. `superseded`: the upload "
+        "set `if_not_superseded` and newer content already replaced this content, so nothing was published.",
     )
     content_hash = serializers.CharField(
         help_text="Hash of the published content, as `v1:` and 64 hex characters. Send it with an email to check "
-        "PostHog holds the content you hold."
+        "PostHog holds the content you hold. After `superseded` it is the hash of the newer content."
     )
-    managed_by = serializers.ChoiceField(choices=TemplateManagedBy.choices, help_text="Always `code` after an upload.")
+    managed_by = serializers.ChoiceField(
+        choices=TemplateManagedBy.choices,
+        help_text="`code` after every upload except `superseded`, which changes nothing.",
+    )
     source = TemplateSourceSerializer(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         help_text="Where the template file lives, as stored after the upload."
     )
@@ -935,7 +946,8 @@ class MessageTemplatesViewSet(
         request=UploadTemplateSerializer,
         responses={
             200: OpenApiResponse(
-                response=UploadTemplateResponseSerializer, description="The template was updated, or is unchanged"
+                response=UploadTemplateResponseSerializer,
+                description="The template was updated, is unchanged, or newer content superseded the upload",
             ),
             201: OpenApiResponse(response=UploadTemplateResponseSerializer, description="The template was created"),
             400: OpenApiResponse(
@@ -951,7 +963,8 @@ class MessageTemplatesViewSet(
             "Create or update the email template with this key from HTML, for templates kept as files in a "
             "repository. The first upload creates the template and makes it transactional with the project's "
             "default verified sender. A later upload publishes changed content at once, and answers `unchanged` "
-            "when the content is the same. An upload keeps the template's sender and never turns a paused "
+            "when the content is the same. With `if_not_superseded`, an upload of content that newer content "
+            "already replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused "
             "template back on."
         ),
         parameters=[TEMPLATE_KEY_PARAMETER],
@@ -982,7 +995,7 @@ class MessageTemplatesViewSet(
             raise TransactionalEmailRejected(e) from None
 
         self._report_template_upload(request, {"result": uploaded.result, "template_id": str(uploaded.template.id)})
-        if uploaded.result != TemplateUploadResult.UNCHANGED:
+        if uploaded.result in (TemplateUploadResult.CREATED, TemplateUploadResult.UPDATED):
             self._emit_resource_edited(uploaded.template)
         created = uploaded.result == TemplateUploadResult.CREATED
         return Response(
@@ -1005,6 +1018,7 @@ class MessageTemplatesViewSet(
             source=TemplateSource(repository=source.get("repository"), path=source.get("path"), ref=source.get("ref"))
             if source
             else None,
+            if_not_superseded=data["if_not_superseded"],
         )
 
     @staticmethod

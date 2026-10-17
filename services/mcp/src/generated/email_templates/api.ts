@@ -374,7 +374,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = () => zod.object({
 })
 
 /**
- * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. An upload keeps the template's sender and never turns a paused template back on.
+ * Create or update the email template with this key from HTML, for templates kept as files in a repository. The first upload creates the template and makes it transactional with the project's default verified sender. A later upload publishes changed content at once, and answers `unchanged` when the content is the same. With `if_not_superseded`, an upload of content that newer content already replaced changes nothing and answers `superseded`. An upload keeps the template's sender and never turns a paused template back on.
  * @summary Upload a template by key
  */
 export const MessagingTemplatesByKeyUpdateParams = () => zod.object({
@@ -397,6 +397,8 @@ export const messagingTemplatesByKeyUpdateBodySourceOneRepositoryMax = 400
 export const messagingTemplatesByKeyUpdateBodySourceOnePathMax = 400
 
 export const messagingTemplatesByKeyUpdateBodySourceOneRefMax = 400
+
+export const messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault = false
 
 export const MessagingTemplatesByKeyUpdateBody = () => zod.object({
     name: zod
@@ -436,5 +438,11 @@ export const MessagingTemplatesByKeyUpdateBody = () => zod.object({
         .optional()
         .describe(
             'Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored.'
+        ),
+    if_not_superseded: zod
+        .boolean()
+        .default(messagingTemplatesByKeyUpdateBodyIfNotSupersededDefault)
+        .describe(
+            'Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content.'
         ),
 })

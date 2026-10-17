@@ -90,6 +90,7 @@ class TemplateUploadResult(LabeledStrEnum):
     CREATED = "created", "Created"
     UPDATED = "updated", "Updated"
     UNCHANGED = "unchanged", "Unchanged"
+    SUPERSEDED = "superseded", "Superseded"
 
 
 class ContentHashState(LabeledStrEnum):
@@ -163,3 +164,5 @@ class TemplateUpload:
     # The editor's design for the html, so the template opens in the visual editor.
     design: dict[str, Any]
     source: TemplateSource | None
+    # An automatic upload sets it, so it never publishes content that newer content already replaced.
+    if_not_superseded: bool

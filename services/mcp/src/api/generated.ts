@@ -112291,6 +112291,7 @@ export namespace Schemas {
      * * `created` - Created
      * * `updated` - Updated
      * * `unchanged` - Unchanged
+     * * `superseded` - Superseded
      */
     export type TemplateUploadResultEnum = typeof TemplateUploadResultEnum[keyof typeof TemplateUploadResultEnum];
 
@@ -112299,6 +112300,7 @@ export namespace Schemas {
       Created: 'created',
       Updated: 'updated',
       Unchanged: 'unchanged',
+      Superseded: 'superseded',
     } as const;
 
     /**
@@ -113269,6 +113271,8 @@ export namespace Schemas {
       preheader?: string;
       /** Where the template file lives, so people in PostHog can find it. Leaving it out, or a part of it, keeps what is stored. */
       source?: TemplateSource;
+      /** Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content. */
+      if_not_superseded?: boolean;
     }
 
     export interface UploadTemplateResponse {
@@ -113276,15 +113280,16 @@ export namespace Schemas {
       id: string;
       /** Key of the template. */
       key: string;
-      /** `created`: the upload made a new template. `updated`: it published the uploaded content. `unchanged`: the template already had this content, so nothing was published.
+      /** `created`: the upload made a new template. `updated`: it published the uploaded content. `unchanged`: the template already had this content, so nothing was published. `superseded`: the upload set `if_not_superseded` and newer content already replaced this content, so nothing was published.
        *
        * * `created` - Created
        * * `updated` - Updated
-       * * `unchanged` - Unchanged */
+       * * `unchanged` - Unchanged
+       * * `superseded` - Superseded */
       result: TemplateUploadResultEnum;
-      /** Hash of the published content, as `v1:` and 64 hex characters. Send it with an email to check PostHog holds the content you hold. */
+      /** Hash of the published content, as `v1:` and 64 hex characters. Send it with an email to check PostHog holds the content you hold. After `superseded` it is the hash of the newer content. */
       content_hash: string;
-      /** Always `code` after an upload.
+      /** `code` after every upload except `superseded`, which changes nothing.
        *
        * * `gui` - GUI
        * * `code` - Code */

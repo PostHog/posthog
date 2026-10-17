@@ -274,6 +274,32 @@ class TestTemplateUpload(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("superseded_content", WELCOME, "superseded", "Welcome aboard, {{ variables.first_name }}", "9e8d7c6", 2),
+            ("new_content", GREETING, "updated", GREETING["subject"], "3f2c1ab", 3),
+        ]
+    )
+    def test_an_upload_if_not_superseded_never_puts_replaced_content_back(
+        self, _post, _flag, _capture, _name, body, expected_result, expected_subject, expected_ref, expected_version
+    ):
+        self._upload(WELCOME)
+        newer = self._upload(
+            {**WELCOME, "subject": "Welcome aboard, {{ variables.first_name }}", "source": {"ref": "9e8d7c6"}}
+        )
+
+        response = self.psak.put(
+            self.url, {**body, "source": {"ref": "3f2c1ab"}, "if_not_superseded": True}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        uploaded = response.json()
+        assert (uploaded["result"], uploaded["id"]) == (expected_result, newer["id"])
+        template = self._template(newer["id"])
+        assert uploaded["content_hash"] == template["content_hash"]
+        assert (template["content"]["email"]["subject"], template["source_ref"]) == (expected_subject, expected_ref)
+        assert self._workflow(newer["transactional_hog_flow_id"])["version"] == expected_version
+
+    @parameterized.expand(
+        [
             ("current", None, status.HTTP_202_ACCEPTED, []),
             ("superseded", WELCOME_HASH, status.HTTP_202_ACCEPTED, ["template_superseded"]),
             ("outdated", f"v1:{'0' * 64}", status.HTTP_409_CONFLICT, None),

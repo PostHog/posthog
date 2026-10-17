@@ -192,6 +192,9 @@ const workflowsUploadEmailTemplate = (): ToolBase<
         if (params.source !== undefined) {
             body['source'] = params.source
         }
+        if (params.if_not_superseded !== undefined) {
+            body['if_not_superseded'] = params.if_not_superseded
+        }
         const result = await context.api.request<Schemas.UploadTemplateResponse>({
             method: 'PUT',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/messaging_templates/by_key/${encodeURIComponent(String(params.key))}/`,

@@ -5,6 +5,11 @@
             "description": "Email body as HTML, stored as sent. Supports Liquid, such as `{{ variables.first_name }}`.",
             "type": "string"
         },
+        "if_not_superseded": {
+            "default": false,
+            "description": "Set it on uploads a program makes on its own, such as after a send answered `template_outdated`. When newer content already replaced this content, the upload changes nothing and answers `superseded`. Leave it out to publish the content in any case, such as to roll back to earlier content.",
+            "type": "boolean"
+        },
         "key": {
             "description": "Key of the template, chosen by you. Letters, digits, hyphens (-) and underscores (_), at most 400 characters. The same key names the template in every project.",
             "type": "string"
