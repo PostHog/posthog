@@ -1,0 +1,14 @@
+{
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "postinstall": "esbuild entry.jsx --bundle --jsx=automatic --minify --format=iife --define:process.env.NODE_ENV='\"production\"' --outfile=bundle.js"
+    },
+    "dependencies": {
+        "@posthog/quill-charts": "0.3.0-beta.14",
+        "esbuild": "^0.25.0",
+        "playwright": "1.60.0",
+        "react": "^19.0.0",
+        "react-dom": "^19.0.0"
+    }
+}
