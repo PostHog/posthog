@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCompass } from '@posthog/icons'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -11,7 +12,8 @@ import { ScoutNewButton } from './ScoutNewButton'
 import { ScoutSuggestionsEmptyStateCards } from './ScoutSuggestionsStrip'
 
 export function ScoutsEmptyState(): JSX.Element {
-    const { loadScoutConfigs } = useActions(scoutFleetLogic)
+    const { scoutFleetSyncOutcome, scoutConfigsLoading } = useValues(scoutFleetLogic)
+    const { loadScoutConfigs, syncScoutFleet } = useActions(scoutFleetLogic)
     // A project with picks waiting gets them as the body of the empty state. Without picks the
     // empty state stays exactly as it was.
     const { hasPicks } = useValues(scoutSuggestionsLogic)
@@ -32,6 +34,25 @@ export function ScoutsEmptyState(): JSX.Element {
                     ? 'Here is what PostHog would watch on this project. Turn one on, or write your own.'
                     : 'Create a scout to investigate a recurring signal or behavior on a schedule.'}
             </p>
+            {scoutFleetSyncOutcome === 'skipped_permission' && (
+                <LemonBanner type="warning" className="mt-3 w-full text-left">
+                    You need edit access to scouts on this project to turn on the default scouts. Ask a project admin
+                    for access.
+                </LemonBanner>
+            )}
+            {scoutFleetSyncOutcome === 'failed' && (
+                <LemonBanner
+                    type="error"
+                    className="mt-3 w-full text-left"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => syncScoutFleet(),
+                        loading: scoutConfigsLoading,
+                    }}
+                >
+                    Could not set up the default scouts on this project.
+                </LemonBanner>
+            )}
             {hasPicks && (
                 <div className="mt-3 w-full text-left">
                     <ScoutSuggestionsEmptyStateCards />
