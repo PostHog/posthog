@@ -105,7 +105,15 @@ with `vision-scanners-scan-session` (or `vision-scanners-scan-sessions` for up t
 
 ### Cite moments, not just sessions
 
-`scanner_result.model_output.reasoning_segments` is the same prose as `reasoning`, pre-split into `text` segments and `chip` segments.
+The segment field depends on the scanner type:
+
+| scanner type                | segment field                                    | same prose as |
+| --------------------------- | ------------------------------------------------ | ------------- |
+| monitor, classifier, scorer | `scanner_result.model_output.reasoning_segments` | `reasoning`   |
+| summarizer                  | `scanner_result.model_output.summary_segments`   | `summary`     |
+
+Each field is that prose, pre-split into `text` segments and `chip` segments.
+An older observation can have an empty segment list. Then cite the session without a moment.
 Each chip carries a `timestamp_ms`: the recording-relative offset of the moment the model is pointing at.
 That's what makes a finding checkable — it turns "the user hit a paywall" into a link that opens on the paywall.
 
