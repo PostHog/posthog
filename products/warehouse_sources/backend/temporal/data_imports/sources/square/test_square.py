@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
@@ -171,7 +172,7 @@ class TestGetRowsPagination:
         return SourceDriver(SquareSource(), config).run(endpoint, script, resume_state=resume_state)
 
     def test_first_request_starts_unresumed_when_there_is_no_saved_state(self) -> None:
-        result = self._drive("payments", [_page({"payments": [{"id": "a"}]})])
+        result = self._drive("customers", [_page({"customers": [{"id": "a"}]})])
 
         assert result.requests[0].param("cursor") is None
 
@@ -182,6 +183,7 @@ class TestGetRowsPagination:
         result = self._drive(
             "payments",
             [
+                _page({"locations": [{"id": "L1"}]}),
                 _page({"payments": [{"id": "p1", "created_at": "2026-03-04T02:58:14Z"}], "cursor": "cur-1"}),
                 _page({"errors": [{"code": "INVALID_CURSOR"}]}, status_code=400),
                 _page({"payments": [{"id": "p2", "created_at": "2026-03-05T00:00:00Z"}]}),
@@ -189,12 +191,12 @@ class TestGetRowsPagination:
         )
 
         queries = result.queries
-        assert "cursor" not in queries[0]
-        assert queries[1] == {"sort_order": ("ASC",), "limit": ("50",), "cursor": ("cur-1",)}
+        assert "cursor" not in queries[1]
+        assert queries[2] == {"sort_order": ("ASC",), "limit": ("50",), "location_id": ("L1",), "cursor": ("cur-1",)}
         # The restart drops the cursor and seeds begin_time from the last seen created_at
         # rather than issuing a bare full restart.
-        assert "cursor" not in queries[2]
-        assert queries[2]["begin_time"] == ("2026-03-04T02:58:14Z",)
+        assert "cursor" not in queries[3]
+        assert queries[3]["begin_time"] == ("2026-03-04T02:58:14Z",)
 
     def test_invalid_cursor_gives_up_after_restart_budget_exhausted(self) -> None:
         invalid = _page({"errors": [{"field": "cursor", "code": "INVALID_CURSOR"}]}, status_code=400)
@@ -208,3 +210,91 @@ class TestGetRowsPagination:
         result = self._drive("customers", script, resume_state=SquareResumeConfig(cursor="stale-cursor"))
 
         assert isinstance(result.raised, SquareInvalidCursorError)
+
+
+class TestPerLocationFanOut:
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(SquareSource(), SquareSourceConfig(access_token="EAAA-test", environment="production"))
+
+    @staticmethod
+    def _locations(*ids: str) -> list[ScriptedResponse]:
+        return [ScriptedResponse(json={"locations": [{"id": location_id, "status": "ACTIVE"} for location_id in ids]})]
+
+    @parameterized.expand([("payments",), ("refunds",)])
+    def test_walks_every_location_with_the_same_watermark(self, endpoint: str) -> None:
+        result = self._driver().run(
+            endpoint,
+            route(
+                {
+                    "/v2/locations": self._locations("L1", "L2"),
+                    f"/v2/{endpoint}": [
+                        ScriptedResponse(
+                            json={endpoint: [{"id": "a1", "created_at": "2026-03-10T00:00:00Z"}], "cursor": "c1"}
+                        ),
+                        ScriptedResponse(json={endpoint: [{"id": "a2", "created_at": "2026-03-11T00:00:00Z"}]}),
+                        ScriptedResponse(json={endpoint: [{"id": "b1", "created_at": "2026-03-05T00:00:00Z"}]}),
+                    ],
+                }
+            ),
+            incremental_field="created_at",
+            db_incremental_field_last_value=datetime(2026, 3, 1, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a1", "a2", "b1"]
+        assert result.params("location_id") == [None, "L1", "L1", "L2"]
+        assert result.params("cursor") == [None, None, "c1", None]
+        assert result.params("begin_time")[1:] == ["2026-03-01T00:00:00.000Z"] * 3
+        assert result.saved_states == [
+            SquareResumeConfig(cursor="c1", location_id="L1"),
+            SquareResumeConfig(cursor="", location_id="L2"),
+        ]
+
+    @parameterized.expand(
+        [
+            ("cursor_in_second_location", SquareResumeConfig(cursor="c2", location_id="L2"), ["L2"], ["c2"]),
+            ("state_without_location", SquareResumeConfig(cursor="old"), ["L1", "L2"], [None, None]),
+        ]
+    )
+    def test_resumes_from_the_saved_location(
+        self,
+        _name: str,
+        resume_state: SquareResumeConfig,
+        expected_locations: list[str],
+        expected_cursors: list[str | None],
+    ) -> None:
+        result = self._driver().run(
+            "payments",
+            route(
+                {
+                    "/v2/locations": self._locations("L1", "L2"),
+                    "/v2/payments": [ScriptedResponse(json={"payments": [{"id": "p"}]})] * len(expected_locations),
+                }
+            ),
+            resume_state=resume_state,
+        )
+
+        assert result.raised is None
+        assert result.params("location_id")[1:] == expected_locations
+        assert result.params("cursor")[1:] == expected_cursors
+
+    def test_falls_back_to_main_location_when_token_cannot_list_locations(self) -> None:
+        result = self._driver().run(
+            "payments",
+            route(
+                {
+                    "/v2/locations": [
+                        ScriptedResponse(
+                            status=403,
+                            json={"errors": [{"category": "AUTHENTICATION_ERROR", "code": "INSUFFICIENT_SCOPES"}]},
+                        )
+                    ],
+                    "/v2/payments": [ScriptedResponse(json={"payments": [{"id": "p"}]})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["p"]
+        assert result.params("location_id") == [None, None]
