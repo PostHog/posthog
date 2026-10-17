@@ -30,7 +30,8 @@ WELCOME: dict[str, Any] = {
 }
 WELCOME_HASH = "v1:f74cd913f3aa2e5667a588f2865634e56693df77793ca594d18e9b5f89e3d2e6"
 CHANGE_RULES = (
-    "Change only this file. Open a pull request. Do not upload the template or call PostHog's email template tools."
+    "Change only this file, then open a pull request. Do not upload the template or call PostHog's email template "
+    "tools yourself: the upload that publishes the change happens after the pull request is merged."
 )
 
 TASKS_FACADE = "products.tasks.backend.facade"
@@ -77,6 +78,13 @@ class TestTemplateChangeRequest(APIBaseTest):
             call.kwargs["properties"]
             for call in capture.call_args_list
             if call.kwargs.get("event") == "message template change requested"
+        ]
+
+    def _change_refused_events(self, capture: MagicMock) -> list[dict[str, Any]]:
+        return [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "message template change refused"
         ]
 
     def _personal_api_key_client(self, scopes: list[str]) -> APIClient:
@@ -191,8 +199,8 @@ class TestTemplateChangeRequest(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("personal_api_key", lambda test: test._personal_api_key_client(["task:write"]), "api"),
-            ("oauth_mcp_client", lambda test: test._oauth_mcp_client(["task:write"]), "mcp"),
+            ("personal_api_key", lambda test: test._personal_api_key_client(["hog_flow:read", "task:write"]), "api"),
+            ("oauth_mcp_client", lambda test: test._oauth_mcp_client(["hog_flow:read", "task:write"]), "mcp"),
         ]
     )
     def test_programmatic_callers_with_task_write_start_the_task(
@@ -212,6 +220,8 @@ class TestTemplateChangeRequest(APIBaseTest):
             ("project_secret_api_key", lambda test: test._project_secret_api_key_client()),
             ("personal_api_key_without_task_write", lambda test: test._personal_api_key_client(["hog_flow:write"])),
             ("oauth_without_task_write", lambda test: test._oauth_mcp_client(["hog_flow:write"])),
+            ("personal_api_key_without_template_read", lambda test: test._personal_api_key_client(["task:write"])),
+            ("oauth_without_template_read", lambda test: test._oauth_mcp_client(["task:write"])),
         ]
     )
     def test_refuses_callers_that_may_not_start_a_task(
@@ -252,7 +262,7 @@ class TestTemplateChangeRequest(APIBaseTest):
         ]
     )
     def test_refuses_a_template_whose_repository_posthog_code_cannot_reach(
-        self, create_task, _access, _limited, _connected, _post, _flag, _capture, _name, source, code
+        self, create_task, _access, _limited, _connected, _post, _flag, capture, _name, source, code
     ):
         uploaded = self._upload({**WELCOME, "source": source})
 
@@ -260,6 +270,8 @@ class TestTemplateChangeRequest(APIBaseTest):
 
         self._assert_refused(response, status.HTTP_400_BAD_REQUEST, code)
         create_task.assert_not_called()
+        [event] = self._change_refused_events(capture)
+        assert (event["template_id"], event["surface"], event["code"]) == (uploaded["id"], "web", code)
 
     def test_refuses_a_template_made_in_posthog(
         self, create_task, _access, _limited, _connected, _post, _flag, _capture

@@ -101,9 +101,10 @@ tools:
             design is read, the ops applied in order, the result validated and re-rendered to HTML, and saved only if
             valid, otherwise nothing changes. After patching, call workflows-show-email-template so the user sees the
             result. A template whose managed_by is code refuses this with 403 immutable. Change such a template in this
-            order: 1. when you can reach its repository, edit the file at source_path in source_repository yourself,
-            following change_prompt_context; the next send uploads it. 2. Otherwise, call
-            workflows-request-email-template-change.
+            order: 1. when its repository is in your workspace, edit the file that change_prompt_context names, as it
+            describes; it also says how the change goes live. 2. Inside PostHog Code (PostHog AI, the Slack bot),
+            share the template's link: on its page, the person clicks Edit with your agent, then Run with PostHog Code.
+            3. Otherwise, call workflows-request-email-template-change.
         response:
             exclude:
                 - content
@@ -155,6 +156,7 @@ tools:
         enabled: true
         feature_flag: workflows-transactional-email-api
         scopes:
+            - hog_flow:read
             - task:write
         annotations:
             readOnly: false
@@ -163,8 +165,8 @@ tools:
         title: Request email template change
         description: >
             The fallback for agents that can't edit the file of a template whose managed_by is code. An agent that can
-            reach the template's repository, such as a coding agent in the person's workspace, edits the file at
-            source_path itself, following change_prompt_context, and does not call this tool. Otherwise, pass the
+            reach the template's repository, such as a coding agent in the person's workspace, edits the file that
+            change_prompt_context names itself, as it describes, and does not call this tool. Otherwise, pass the
             person's request as instruction. PostHog Code then starts a task that changes the file and opens a pull
             request in the template's GitHub repository. PostHog doesn't change the template: the next upload of the
             changed file publishes it. Share the returned task_url with the person. Each call starts another task, so
@@ -209,9 +211,10 @@ tools:
             back the complete content.email with your edited design. The server re-renders the sent email from the
             design on save. After updating, call workflows-show-email-template so the user sees the result, and share
             the returned _posthogUrl edit link. A template whose managed_by is code refuses every update with 403
-            immutable. Change such a template in this order: 1. when you can reach its repository, edit the file at
-            source_path in source_repository yourself, following change_prompt_context; the next send uploads it. 2.
-            Otherwise, call workflows-request-email-template-change.
+            immutable. Change such a template in this order: 1. when its repository is in your workspace, edit the file
+            that change_prompt_context names, as it describes; it also says how the change goes live. 2. Inside
+            PostHog Code (PostHog AI, the Slack bot), share the template's link: on its page, the person clicks Edit
+            with your agent, then Run with PostHog Code. 3. Otherwise, call workflows-request-email-template-change.
             To move a template made in PostHog into code, send key (such as welcome) as the only field. A key is set
             once and never changes. The next workflows-upload-email-template with that key updates this template and
             keeps its id, workflow and sender.

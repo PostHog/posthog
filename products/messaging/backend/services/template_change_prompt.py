@@ -20,7 +20,8 @@ COMMIT_SHA: Final = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 # so a value with characters a repository, path or ref never needs (spaces, backticks, shell syntax) is treated as
 # unknown.
 SOURCE_REPOSITORY: Final = re.compile(r"[\w.-]+(?:/[\w.-]+)+")
-SOURCE_PATH: Final = re.compile(r"[\w.@+~,=()\[\]-]+(?:/[\w.@+~,=()\[\]-]+)*")
+# A `..` segment points outside the repository, so it is never the template's file.
+SOURCE_PATH: Final = re.compile(r"(?!\.\.(?:/|$))[\w.@+~,=()\[\]-]+(?:/(?!\.\.(?:/|$))[\w.@+~,=()\[\]-]+)*")
 SOURCE_REF: Final = re.compile(r"[\w./-]+")
 SHORT_SHA_LENGTH: Final = 7
 
@@ -66,10 +67,20 @@ class PromptSource:
     @classmethod
     def of(cls, template: PromptedTemplate) -> "PromptSource":
         return cls(
-            repository=_if_shaped(template.source_repository, SOURCE_REPOSITORY),
-            path=_if_shaped(template.source_path, SOURCE_PATH),
+            repository=shaped_repository(template.source_repository),
+            path=shaped_path(template.source_path),
             ref=_if_shaped(template.source_ref, SOURCE_REF),
         )
+
+
+def shaped_repository(repository: str | None) -> str | None:
+    """The uploaded repository when it has the shape of one, else None."""
+    return _if_shaped(repository, SOURCE_REPOSITORY)
+
+
+def shaped_path(path: str | None) -> str | None:
+    """The uploaded path when it has the shape of a file in the repository, else None."""
+    return _if_shaped(path, SOURCE_PATH)
 
 
 def change_prompt(team_id: int, template: PromptedTemplate) -> TemplateChangePrompt | None:

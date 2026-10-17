@@ -693,7 +693,7 @@ export const MessagingTemplatesRequestChangeCreateBody = /* @__PURE__ */ zod.obj
         .string()
         .max(messagingTemplatesRequestChangeCreateBodyInstructionMax)
         .describe(
-            "The change to make, in the person's words, such as ``In `emails\/welcome.html`, change the button color to green.`` Start it with the template's `change_prompt_starter` when you can. At most 2,000 characters."
+            "The change to make, in the person's words, such as `Make the button green.` At most 2,000 characters."
         ),
 })
 

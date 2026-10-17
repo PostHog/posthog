@@ -14,6 +14,7 @@ from products.messaging.backend.facade.contracts import (
     TemplateManagedByCode,
     TemplateWriteIntent,
 )
+from products.messaging.backend.services.template_change_prompt import shaped_path, shaped_repository
 
 # These act on the template's file, so a template without one refuses them.
 FILE_ACTIONS: Final = frozenset({"request_change"})
@@ -55,9 +56,11 @@ def check_write(template: OwnedTemplate, intent: TemplateWriteIntent) -> None:
     raise TemplateManagedByCode(
         detail="This template is managed by code, so it can't be changed in PostHog.",
         why="Its content comes from a file in a repository. The next upload of that file replaces changes made here.",
-        fix=f"When you can reach the repository, edit {_template_file(template)} yourself. The next send uploads it. "
-        "Otherwise, ask PostHog Code to open a pull request with the change: call the "
-        "`workflows-request-email-template-change` tool, or POST an `instruction` to this template's "
+        fix=f"When you can reach the repository, edit {_template_file(template)} there, as the template's "
+        "`change_prompt_context` describes. It also says how the change goes live. Inside PostHog Code, such as "
+        "PostHog AI or the Slack bot, share the template's link instead: on its page, the person clicks Edit with your "
+        "agent, then Run with PostHog Code. Otherwise, ask PostHog Code to open a pull request with the change: call "
+        "the `workflows-request-email-template-change` tool, or POST an `instruction` to this template's "
         "`request_change/` route. To edit the template in PostHog instead, stop managing it in code first: send a "
         "PATCH whose only field is `managed_by` set to `gui`.",
     )
@@ -73,7 +76,7 @@ def not_managed_by_code() -> TemplateChangeRefused:
 
 
 def _template_file(template: OwnedTemplate) -> str:
-    path, repository = template.source_path, template.source_repository
+    path, repository = shaped_path(template.source_path), shaped_repository(template.source_repository)
     if path and repository:
         return f"`{path}` in `{repository}`"
     if path:

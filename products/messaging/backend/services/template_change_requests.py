@@ -30,7 +30,8 @@ GITHUB_REPOSITORY: Final = re.compile(
     r"^github\.com/(?P<owner>[A-Za-z0-9-]+)/(?P<name>[A-Za-z0-9._-]+?)(?:\.git)?$", re.IGNORECASE
 )
 CHANGE_RULES: Final = (
-    "Change only this file. Open a pull request. Do not upload the template or call PostHog's email template tools."
+    "Change only this file, then open a pull request. Do not upload the template or call PostHog's email template "
+    "tools yourself: the upload that publishes the change happens after the pull request is merged."
 )
 TASK_TITLE_MAX_LENGTH: Final = 255
 
@@ -96,8 +97,8 @@ def _require_posthog_code(team: Team, user: User, *, from_sandbox: bool) -> None
     if from_sandbox:
         raise _posthog_code_not_available(
             why="A PostHog Code task runs at a person's request, so a task already running can't start another one.",
-            fix="Ask the person to request the change from the template's page in PostHog, or to call this route "
-            "themselves.",
+            fix="Share the template's link with the person. On its page, they click Edit with your agent, describe the "
+            "change, and click Run with PostHog Code, which opens a pull request.",
         )
     try:
         decision = tasks_access.get_desktop_access_decision(user, team.organization)
@@ -146,7 +147,7 @@ def _require_connected(team_id: int, repository: str) -> None:
             detail=f"This project's GitHub integration can't reach `{repository}`.",
             why="PostHog Code works only in repositories that the project's GitHub integration can reach.",
             fix=f"Connect GitHub in the project's integrations and give the PostHog app access to `{repository}`, "
-            "then request the change again.",
+            "then request the change again. Access you just gave can take a few minutes to show up.",
         )
 
 
