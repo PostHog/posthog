@@ -1,56 +1,52 @@
-# Writing the tracking plan
+# Writing the fix
 
 Read this before you author or edit a report.
-The plan is what a coding agent implements, and what a person reviews and merges.
-A small plan in the repository's own idiom, tied to a question the team has, gets merged.
-A long plan in a generic idiom goes stale.
+The report is what a coding agent implements, and what the person who needs the data reviews and merges.
+A small fix in the repository's own idiom, tied to an anchor the team owns, gets merged.
+A tracking-only plan in a generic idiom goes stale.
 
-## What to track
+## The shape of the report
+
+1. **Title**: the consequence first, then the gap. "Checkout success cannot be split by plan: 4 dashboard insights rebuild it from the thank-you URL", not "Instrument the checkout".
+2. **Why now**: the anchor, linked. Say what it proves: how many insights rebuild the dimension, the dashboard they sit on, the running experiment, the issue's reach and assignee, the report that could not measure.
+3. **What is missing**: the property or event search that came back empty, and the code check (no capture call, or a capture call without the property).
+4. **The fix**: one to three call sites. For each: the file and function, the event or property in the repository's convention, and where the value comes from (it is usually already in scope).
+5. **After the merge**: the insights, actions, or experiment metrics to point at the new data, so the team sees the value the same day.
+6. **Guardrails and skill**: the rules below, and the PostHog instrumentation skill that matches the fix.
+
+Keep the fix as small as the anchor needs. A second anchor that shares the same call site can join the report; an unrelated gap in the same area cannot.
+
+## What good tracking looks like
 
 These rules come from the PostHog setup wizard, which instruments new projects.
 
-- **Outcomes, not clicks.** Autocapture already records pageviews, clicks, and form submits. Track the result of an action: `project created`, `invite sent`, `subscription upgraded`, `export completed`. Use a "viewed" event only at the top of a funnel the team uses.
-- **Server-side for money, access, and state.** Payments and checkout completion, signup and login, webhooks, API mutations, and job outcomes. Ad blockers and closed tabs drop client events. Server events arrive.
-- **Identify at login and signup.** On the client, call `identify` with the stable user id when the user logs in or signs up.
-- **One identity across client and server.** The client sends its distinct id and session id to the backend (the wizard uses the `X-POSTHOG-DISTINCT-ID` and `X-POSTHOG-SESSION-ID` headers), and server events use them. Then both halves join in funnels, and server events and exceptions link to replays.
-- **Groups on B2B products.** Where the project has group types, the events of a flow carry the group key, the same as their siblings.
-- **Exceptions at boundaries.** Capture exceptions at API and job boundaries, with the user and session when the request has them.
-- **LLM calls through the wrapper.** Use the PostHog LLM analytics wrapper for the model SDK in use, so each generation records its model, tokens, cost, latency, and trace.
-- **Supplement, never duplicate.** Reuse an event that exists. When it misses a property, add the property to it, not a new event.
-
-## The shape of each item
-
-- **Where**: the file and function (`path:line` on the default branch).
-- **What**: the event name or the property, in the repository's convention (`pattern:tracking_gaps:idioms:<owner/repo>`), with the same case and tense as its neighbors.
-- **Properties**: 2 to 5, each bounded: ids, enums, counts, durations, booleans, the plan or tier, the source or entry point. Say what each one lets the team break down by.
-- **How**: client or server, through the repository's own capture helper when it has one.
-- **Question**: one line on what the team can see after the change, for example "trial-to-paid conversion by plan and entry point".
-- **Volume**: the expected events a day, from the route's reach or the call frequency, so the reviewer sees the effect on the bill.
+- **Outcomes, not clicks.** Autocapture already records pageviews, clicks, and form submits. Capture the result of an action at its success path.
+- **Server-side for money, access, and state.** Payments, sign up and log in, webhooks, API mutations, and job outcomes. Ad blockers and closed tabs drop client events.
+- **One identity across client and server.** The client identifies the user at log in and sign up, and sends its distinct id and session id to the backend (the wizard uses the `X-POSTHOG-DISTINCT-ID` and `X-POSTHOG-SESSION-ID` headers). Server events and exceptions use them, so funnels join and errors link to people and replays.
+- **Groups on B2B products.** Where the project has group types, events and exceptions carry the group key.
+- **LLM calls through the wrapper.** Use the PostHog LLM analytics wrapper for the model SDK in use.
+- **Supplement, never duplicate.** When an event exists and misses a property, add the property. Do not add a second event.
 
 ## Guardrails for the implementing agent
 
 State these in the report, so the pull request follows them:
 
-- No personal data or secrets in properties: no emails, names, free text, tokens, file contents, or URLs with query parameters. Use ids.
-- A missing PostHog configuration never breaks the app. Read keys as optional, and guard initialization and capture behind them. Development builds fail loudly about the missing key; production stays a no-op.
-- No capture in hot paths (render, keystroke, poll). Capture once per outcome.
-- A minimal diff: add each call next to its outcome, keep the file's structure, add no second SDK and no second initialization path.
+- No personal data or secrets in properties: no emails, names, free text, tokens, file contents, or URLs with query parameters. Use ids and enum values.
+- A missing PostHog configuration never breaks the app. Guard capture behind the key; production stays a no-op.
+- Capture once per outcome, never per render, keystroke, or poll.
+- A minimal diff: add each call next to its outcome through the repository's own capture helper, keep the file's structure, and add no second SDK or initialization path.
 - Run the repository's own type check and linter on the touched files only.
-- Name the PostHog instrumentation skill that matches the plan, so a coding agent that has it loads it: `instrument-product-analytics` for events, identify, and groups, `instrument-error-tracking` for exceptions, `instrument-llm-analytics` for model calls, `instrument-logs` for logs.
+- The matching PostHog instrumentation skill: `instrument-product-analytics` for events, properties, identify, and groups, `instrument-error-tracking` for exception context, `instrument-llm-analytics` for model calls.
 
 ## Example
 
 This example is invented. It shows the shape, not any real project.
 
-> **Team invites: invite sent and invite accepted are not tracked**
+> **Checkout success cannot be split by plan: 4 dashboard insights rebuild it from the thank-you URL**
 >
-> Invites shipped in the last week (`app/api/invites/route.ts`, merged by the feature's author).
-> The invite page has about 400 weekly viewers, and the team's onboarding dashboard has no step after "workspace created".
-> No event or synonym (`invite`, `invitation`, `member added`) fired in 30 days.
+> Why now: the "Revenue funnel" dashboard has 4 insights that count `order completed` and split it by `$current_url` regexes (`/thanks/pro`, `/thanks/team`).
+> What is missing: `order completed` carries `order_id` and `amount`, and no plan property. The capture call in `app/api/checkout/complete.ts:57` has `plan.tier` in scope.
 >
-> 1. `app/api/invites/route.ts:42` (`createInvite`), server: `invite sent` with `workspace_id`, `role`, `invitee_count`, `source` (`settings` or `onboarding`). Answers "do new workspaces invite teammates, and from where". About 60 a day.
-> 2. `app/api/invites/accept/route.ts:18` (`acceptInvite`), server: `invite accepted` with `workspace_id`, `role`, `hours_since_sent`. Answers "invite acceptance rate and delay". About 35 a day.
-> 3. Both calls use `analytics.captureServer(...)` from `lib/analytics.ts`, with the distinct id from the `X-POSTHOG-DISTINCT-ID` header and the workspace as the group.
->
-> Guardrails: no invitee email in properties, use the invite id. Capture after the database write succeeds.
-> Skill: `instrument-product-analytics`.
+> Fix: add `plan_tier` and `billing_period` to the `order completed` capture in `completeCheckout` (`app/api/checkout/complete.ts:57`), through `analytics.captureServer(...)`.
+> After the merge: change the 4 insights to break down by `plan_tier` and drop the URL filters.
+> Guardrails: ids and enums only. Skill: `instrument-product-analytics`.
