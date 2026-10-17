@@ -100,6 +100,12 @@ export function isScopeNotFoundError(error: unknown): boolean {
 /** DRF code of a security access rule refusal (products/security). Keep in sync with the backend. */
 export const ACCESS_BLOCKED_ERROR_CODE = 'access_blocked'
 
+/**
+ * DRF code of a 400 the experiment exposure linkage sends while the exposed users are still being
+ * computed. It passes on a retry, so the caller offers one. Keep in sync with the backend.
+ */
+export const EXPOSURES_NOT_READY_ERROR_CODE = 'exposures_not_ready'
+
 /** The 403 gates `apiStatusLogic` recovers from, keyed by the DRF `code` the backend sends. */
 const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
     'two_factor_setup_required',
@@ -221,6 +227,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+        return false
+    }
+    if (status === 400 && failure.code === EXPOSURES_NOT_READY_ERROR_CODE) {
         return false
     }
     if (status === 409 && failure.data?.current_version !== undefined) {

@@ -18,6 +18,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { EXPOSURES_NOT_READY_ERROR_CODE } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -196,6 +197,15 @@ export interface ExperimentRecordingsListError {
  * strings, so this only bounds an unexpected one.
  */
 const LIST_ERROR_DETAIL_LIMIT = 200
+
+/**
+ * A 400 is the backend's final answer for this experiment, except while its exposures are still
+ * being computed: that one passes on a later attempt.
+ */
+function isComparisonRefusal(error: unknown): boolean {
+    const failure = error as { status?: unknown; code?: unknown } | null
+    return failure?.status === 400 && failure.code !== EXPOSURES_NOT_READY_ERROR_CODE
+}
 
 /** The link an empty "what to watch" state offers, as reported to telemetry. */
 export type ExperimentWatchEmptyAction = 'exposure_docs' | 'replay_settings'
@@ -451,7 +461,7 @@ export interface experimentReplayTabLogicValues {
     sessionBucketRequest: ExperimentSessionBucketRequest | null
     sessionEventDeltas: ExperimentSessionEventDeltaResponseApi | null
     sessionEventDeltasError: string | null
-    sessionEventDeltasErrorStatus: number | null
+    sessionEventDeltasRefused: boolean
     sessionEventDeltasLoading: boolean
     tabViewContext: ExperimentRecordingsTabContext
     variantKeys: string[]
@@ -1020,7 +1030,7 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
                         actions.reportExperimentBehaviorComparisonFailed(props.experiment.id, {
                             duration_ms: Math.round(performance.now() - startedAt),
                             status: typeof status === 'number' ? status : null,
-                            unavailable: status === 400,
+                            unavailable: isComparisonRefusal(error),
                         })
                         throw error
                     }
@@ -1248,13 +1258,12 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
         ],
         // Kept beside the message because the two are read together: the backend states a refusal
         // as a 400, which no retry can change, while every other failure is worth retrying.
-        sessionEventDeltasErrorStatus: [
-            null as number | null,
+        sessionEventDeltasRefused: [
+            false,
             {
-                loadSessionEventDeltas: () => null,
-                loadSessionEventDeltasSuccess: () => null,
-                loadSessionEventDeltasFailure: (_, { errorObject }) =>
-                    typeof errorObject?.status === 'number' ? errorObject.status : null,
+                loadSessionEventDeltas: () => false,
+                loadSessionEventDeltasSuccess: () => false,
+                loadSessionEventDeltasFailure: (_, { errorObject }) => isComparisonRefusal(errorObject),
             },
         ],
         // The card whose recordings the playlist is showing, kept apart from the metric
@@ -2054,13 +2063,13 @@ export const experimentReplayTabLogic = kea<experimentReplayTabLogicType>([
             if (values.behaviorComparisonUnavailableReason !== null) {
                 return
             }
-            // A 400 is a refusal for a reason the client cannot foresee, and it leaves no deltas
-            // behind, so reopening the shelf would otherwise send the same doomed request again.
+            // A refusal is for a reason the client cannot foresee, and it leaves no deltas behind,
+            // so reopening the shelf would otherwise send the same doomed request again.
             if (
                 values.behaviorComparisonOpen &&
                 !values.sessionEventDeltas &&
                 !values.sessionEventDeltasLoading &&
-                values.sessionEventDeltasErrorStatus !== 400
+                !values.sessionEventDeltasRefused
             ) {
                 actions.loadSessionEventDeltas()
             }
