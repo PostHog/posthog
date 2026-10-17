@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -26,6 +28,11 @@ import {
     sourceWizardLogic,
     WIZARD_DESTINATION_STEP,
 } from '../sourceWizardLogic'
+
+type Deferred = {
+    resolve: (schemas: ExternalDataSourceSyncSchema[]) => void
+    reject: (error: unknown) => void
+}
 
 function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
     // Fills the fields the wizard endpoint always sends but no case here exercises, so each
@@ -1633,6 +1640,45 @@ describe('sourceWizardLogic', () => {
 
                 logic.actions.selectConnector(null)
                 expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        it.each([
+            { outcome: 'rejects', settle: (d: Deferred) => d.reject({ status: 400, data: { message: 'Bad key.' } }) },
+            {
+                outcome: 'resolves',
+                settle: (d: Deferred) => d.resolve([{ table: 'charges' } as ExternalDataSourceSyncSchema]),
+            },
+        ])('ignores a probe that $outcome after another source is picked', async ({ settle }) => {
+            const sentrySource = buildSourceConfig({ name: 'Sentry' })
+            const deferred = {} as Deferred
+            jest.spyOn(api.externalDataSources, 'database_schema').mockReturnValue(
+                new Promise<ExternalDataSourceSyncSchema[]>((resolve, reject) =>
+                    Object.assign(deferred, { resolve, reject })
+                )
+            )
+            const toastError = jest.spyOn(lemonToast, 'error')
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource, Sentry: sentrySource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                logic.actions.setStep(2)
+                logic.actions.getDatabaseSchemas()
+                logic.actions.selectConnector(sentrySource)
+                settle(deferred)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values).toMatchObject({
+                    currentStep: 2,
+                    connectError: null,
+                    databaseSchema: [],
+                    isLoading: false,
+                })
+                expect(toastError).not.toHaveBeenCalled()
             } finally {
                 unmount()
             }

@@ -2427,7 +2427,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
             actions.setIsLoading(true)
 
-            const sourceType = values.selectedConnector.name
+            const connector = values.selectedConnector
+            const sourceType = connector.name
+            // The logic is not keyed per connector, so a slow probe can finish after the user picks
+            // another source. Its result then belongs to no visible form and must not reach the UI.
+            const connectorChanged = (): boolean => values.selectedConnector !== connector
             const startedAt = performance.now()
             const captureSchemasLoaded = (success: boolean, schemaCount: number | null): void => {
                 posthog.capture('source wizard schemas loaded', {
@@ -2446,6 +2450,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         throw e
                     })
                 captureSchemasLoaded(true, schemas.length)
+                if (connectorChanged()) {
+                    actions.setIsLoading(false)
+                    return
+                }
 
                 // Backend `cdc_available` only reflects the team flag — clear it when the
                 // user didn't toggle CDC on for this source in step 1.
@@ -2581,6 +2589,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.setDatabaseSchemas(schemas)
                 actions.onNext()
             } catch (e: any) {
+                if (connectorChanged()) {
+                    actions.setIsLoading(false)
+                    return
+                }
                 const apiMessage = e.data?.message ?? e.detail
                 const errorMessage = resolveConnectErrorMessage(e)
                 actions.setConnectError(errorMessage)
