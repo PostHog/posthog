@@ -35,11 +35,29 @@ export function templateSource(template: MessageTemplate | null | undefined): Te
     }
 }
 
+export function isChangeDescribed(sentence: string, starter: string): boolean {
+    const described = sentence.trim()
+    return described !== '' && described !== starter.trim()
+}
+
+export function changePromptVariableCount(context: string | null | undefined): number {
+    const names = Array.from((context ?? '').matchAll(/\{\{\s*variables\.([A-Za-z_][\w-]*)/g), ([, name]) => name)
+    return new Set(names).size
+}
+
 function shortRef(ref: string): string {
     return GitMetadataParser.isCommitSha(ref) ? ref.slice(0, 7) : ref
 }
 
-const SERVER_OWNED_FIELDS = ['key', 'managed_by', 'source_repository', 'source_path', 'source_ref'] as const
+const SERVER_OWNED_FIELDS = [
+    'key',
+    'managed_by',
+    'source_repository',
+    'source_path',
+    'source_ref',
+    'change_prompt_starter',
+    'change_prompt_context',
+] as const
 
 /** The editor sends the whole form, but the server alone sets these, so a key set elsewhere never blocks a save. */
 export function withoutServerOwnedFields(template: MessageTemplate): Partial<MessageTemplate> {
