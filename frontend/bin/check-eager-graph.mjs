@@ -141,13 +141,16 @@ const ROOTS = [
         root: 'src/scenes/dashboard/Dashboard.tsx',
         label: 'dashboard scene',
         // 2026-10-11: 9.33 MiB (3529 files), stable CSS included. ~10% headroom.
-        budgetBytes: 10_800_000,
+        budgetBytes: 10_500_000,
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+            // The generated schema validators serve web analytics URL filters. A hit means the web
+            // analytics editor filters became a static import of the insight editor.
+            'src/queries/validators.js',
         ],
     },
     {
@@ -168,13 +171,16 @@ const ROOTS = [
         root: 'src/scenes/activity/explore/EventsScene.tsx',
         label: 'events scene',
         // 2026-10-11: 8.92 MiB (3373 files), stable CSS included. ~10% headroom.
-        budgetBytes: 10_355_000,
+        budgetBytes: 10_055_000,
         forbidden: [
             // Neither scene plays recordings. A hit means a static import pulled the playlist and player onto it.
             'src/scenes/session-recordings/playlist/SessionRecordingsPlaylist.tsx',
             // Only web analytics insights render this tile. A hit means a static import put the web
             // analytics stack on every page that shows an insight.
             'src/scenes/web-analytics/tiles/WebAnalyticsTile.tsx',
+            // The generated schema validators serve web analytics URL filters. A hit means the web
+            // analytics editor filters became a static import of the insight editor.
+            'src/queries/validators.js',
         ],
     },
     {
