@@ -9,6 +9,11 @@ export function mountSupportRouter(): { unmount: () => void; mounted: Promise<vo
             if (disposed) {
                 return
             }
+            if (!supportRouterLogic) {
+                // A stale deploy can resolve the chunk without its exports.
+                console.warn('[App] Support router chunk has no supportRouterLogic export; #panel=support is inactive')
+                return
+            }
             unmountRouter = supportRouterLogic.mount()
         })
         .catch((error) => {
