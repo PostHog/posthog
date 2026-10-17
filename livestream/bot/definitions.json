@@ -1548,6 +1548,30 @@
     "traffic_type": "AI Agent"
   },
   {
+    "pattern": "FlashBrain",
+    "name": "FlashBrain",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "NagetBot",
+    "name": "NagetBot",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "ContextRocketBot",
+    "name": "ContextRocket",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
+    "pattern": "AgentNativeSearchBot",
+    "name": "Agent Native Search",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
     "pattern": "redCactiBot",
     "name": "redCactiBot",
     "category": "search_crawler",
@@ -1842,6 +1866,30 @@
     "traffic_type": "Bot"
   },
   {
+    "pattern": "KakaoBot",
+    "name": "KakaoBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "ibou-search",
+    "name": "Ibou Search",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "matnx.com/bot",
+    "name": "AtlasBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "DittaBot",
+    "name": "DittaBot",
+    "category": "search_crawler",
+    "traffic_type": "Bot"
+  },
+  {
     "pattern": "LaunchReadyCodeBot",
     "name": "LaunchReadyCodeBot",
     "category": "seo_crawler",
@@ -2000,6 +2048,12 @@
   {
     "pattern": "NimbusBlocklistSync",
     "name": "Nimbus Blocklist Sync",
+    "category": "monitoring",
+    "traffic_type": "Bot"
+  },
+  {
+    "pattern": "latency.app/bot",
+    "name": "Latency",
     "category": "monitoring",
     "traffic_type": "Bot"
   },

@@ -774,6 +774,24 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "RightAIChoiceBot": BotDefinition(
         "Right AI Choice", "ai_crawler", "AI Agent", "Right AI Choice", documentation_url="https://rightaichoice.com"
     ),
+    "FlashBrain": BotDefinition(
+        "FlashBrain", "ai_crawler", "AI Agent", "Flash Teams", documentation_url="https://flashteams.ai"
+    ),
+    "NagetBot": BotDefinition("NagetBot", "ai_crawler", "AI Agent", "Naget", documentation_url="https://naget.ai/bot"),
+    "ContextRocketBot": BotDefinition(
+        "ContextRocket",
+        "ai_crawler",
+        "AI Agent",
+        "ContextRocket",
+        documentation_url="https://contextrocket.com/llms.txt",
+    ),
+    "AgentNativeSearchBot": BotDefinition(
+        "Agent Native Search",
+        "ai_crawler",
+        "AI Agent",
+        "agent-native-search",
+        documentation_url="https://github.com/agent-native-search",
+    ),
     # Search / index crawlers
     "redCactiBot": BotDefinition(
         "redCactiBot", "search_crawler", "Bot", "redCacti", documentation_url="https://redcacti.com/bot"
@@ -908,6 +926,17 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
         documentation_url="https://swissaitalent.ch/bot",
     ),
     "AtlasSearchBot": BotDefinition("AtlasSearch", "search_crawler", "Bot", "AtlasSearch"),
+    "KakaoBot": BotDefinition(
+        "KakaoBot", "search_crawler", "Bot", "Kakao", documentation_url="https://cs.kakao.com/helps_html/1073213012"
+    ),
+    "ibou-search": BotDefinition(
+        "Ibou Search", "search_crawler", "Bot", "Ibou", documentation_url="https://ibou.com/crawlers.html"
+    ),
+    # Anchored on the operator URL, because a bare "AtlasBot" token also matches unrelated "FeedAtlasBot" agents.
+    "matnx\\.com/bot": BotDefinition(
+        "AtlasBot", "search_crawler", "Bot", "matnx", documentation_url="https://matnx.com/bot"
+    ),
+    "DittaBot": BotDefinition("DittaBot", "search_crawler", "Bot", "DittaBot"),
     # SEO / marketing crawlers
     "LaunchReadyCodeBot": BotDefinition(
         "LaunchReadyCodeBot",
@@ -1005,6 +1034,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     ),
     "NimbusBlocklistSync": BotDefinition(
         "Nimbus Blocklist Sync", "monitoring", "Bot", "Nimbus", documentation_url="https://nimbus.com"
+    ),
+    "latency\\.app/bot": BotDefinition(
+        "Latency", "monitoring", "Bot", "Latency", documentation_url="https://latency.app/bot"
     ),
     # HTTP clients
     "MrAnandPortfolio": BotDefinition(
