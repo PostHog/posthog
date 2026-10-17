@@ -1,3 +1,5 @@
+from posthog.hogql.hogqlx import HOGQLX_TAGS_NO_ATTRIBUTES
+
 SQL_GENERATION_FAILURE_MESSAGE = (
     "I wasn't able to generate a valid SQL query for this request after several attempts. Error: {error_message}"
 )
@@ -25,7 +27,8 @@ HOGQL_FUNCTION_CASING_RULES = (
 
 # Dialect-level differences vs other SQL, shared verbatim with other HogQL-authoring prompts (e.g. AI
 # subscription report generation) so the guidance stays in one place and can't drift.
-HOGQL_DIALECT_RULES = """Important HogQL differences versus other SQL dialects:
+HOGQL_DIALECT_RULES = (
+    """Important HogQL differences versus other SQL dialects:
 - JSON properties are accessed using `properties.foo.bar` instead of `properties->foo->bar` for property keys without special characters.
 - JSON properties can also be accessed using `properties.foo['bar']` if there's any special character (note the single quotes).
 - Width-suffixed conversion functions (toInt64, toInt32, toFloat64, toUInt8, etc., including their OrNull/OrZero variants like toInt32OrNull, toFloat64OrZero) are not supported, if you use them, the query will fail. Use the unsuffixed form instead: toInt(), toFloat(), toUInt() and their OrNull/OrZero variants (toIntOrNull, toFloatOrZero, toUIntOrNull, ...).
@@ -41,7 +44,13 @@ HOGQL_DIALECT_RULES = """Important HogQL differences versus other SQL dialects:
 - There is no split() function in HogQL. Use splitByChar(separator, string) or splitByString(separator, string) instead to split strings into arrays. Example: splitByChar('@', email)
 - Array functions like splitByChar() or splitByString() cannot be used directly on Nullable fields because Array types cannot be wrapped in Nullable.
   ALWAYS guard against nulls in these functions using coalesce() or ifNull().
-  Bad: `splitByChar(',', interest_string)`; Good: `splitByChar(',', coalesce(interest_string, ''))`"""
+  Bad: `splitByChar(',', interest_string)`; Good: `splitByChar(',', coalesce(interest_string, ''))`
+- Result tables render only these tags in a column: """
+    + ", ".join(f"<{tag}>" for tag in HOGQLX_TAGS_NO_ATTRIBUTES)
+    + """, plus <a href={...}>.
+  Any other tag, such as <details>, <summary>, <br> or <img>, fails the whole query with "Unknown tag". Tables do not render raw HTML.
+- substring() counts bytes and can cut a multi-byte character in half, which fails the query on non-English text. Use left(), right() or substringUTF8() to cut text."""
+)
 
 HOGQL_RELATIONAL_JOIN_RULES = """- Relational operators (>, <, >=, <=) in JOIN clauses are COMPLETELY FORBIDDEN and will always cause an InvalidJoinOnExpression error!
   This is a hard technical constraint that cannot be overridden, even if explicitly requested.

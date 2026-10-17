@@ -1316,6 +1316,25 @@ class TestResolver(BaseTest):
 
         assert hogql == expected
 
+    @parameterized.expand(
+        [
+            ("self_closing", "select event from <details />", "details"),
+            ("with_children", "select event from <details><summary>events</summary></details>", "details"),
+            (
+                "nested_in_source",
+                "select id from <ActorsQuery select={['id']} source={<LemonTag />} />",
+                "LemonTag",
+            ),
+        ]
+    )
+    def test_visit_hogqlx_unknown_tag_raises_exposed_error(self, _name: str, query: str, tag: str):
+        with pytest.raises(QueryError) as exc_info:
+            resolve_types(self._select(query), self.context, dialect="clickhouse")
+        message = str(exc_info.value)
+        assert message.startswith(f"Unknown tag <{tag} />. In a column, HogQL supports only these tags: ")
+        assert "pre, code" in message
+        assert "Sparkline" in message
+
     def test_visit_hogqlx_recording_button(self):
         node = self._select("select <RecordingButton sessionId={'12345-6789'} />")
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
