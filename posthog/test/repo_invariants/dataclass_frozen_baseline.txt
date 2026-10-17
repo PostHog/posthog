@@ -293,7 +293,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/better_stack/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bettermode/bettermode.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bettermode/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/bigcommerce/bigcommerce.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bigmailer/bigmailer.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bigmailer/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/bill_com/bill_com.py
