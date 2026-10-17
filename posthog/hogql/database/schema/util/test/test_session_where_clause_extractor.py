@@ -327,6 +327,8 @@ SELECT
             ("not_node", lambda inner: ast.Not(expr=inner)),
             # the same thing as a `not(...)` call, which the parser can also emit
             ("not_call", lambda inner: ast.Call(name="not", args=[inner])),
+            # the parser emits `NOT (...)` as an uppercase `NOT(...)` call
+            ("parsed_not", lambda inner: parse_expr("NOT ({inner})", placeholders={"inner": inner})),
         ]
     )
     def test_negated_or_chain_fails_safe(self, _name, wrap):
