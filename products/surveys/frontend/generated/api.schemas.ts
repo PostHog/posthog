@@ -942,77 +942,51 @@ export const DescriptionContentTypeEnumApi = {
     Text: 'text',
 } as const
 
-export interface SurveyOpenQuestionSchemaApi {
-    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-    id?: string
-    type: SurveyOpenQuestionSchemaTypeEnumApi
-    /** Question text shown to respondents. */
-    question: string
-    /** Optional helper text. */
+export interface SurveyQuestionTranslationSchemaApi {
+    /** Translated question text. */
+    question?: string
+    /** Translated helper text. */
     description?: string
-    /** Format for the description field.
-     *
-     * * `text` - text
-     * * `html` - html */
-    descriptionContentType?: DescriptionContentTypeEnumApi
-    /** Whether respondents may skip this question. */
-    optional?: boolean
-    /** Custom button label. */
+    /** Translated button label. */
     buttonText?: string
+    /** Translated lowest rating label. Rating questions only. */
+    lowerBoundLabel?: string
+    /** Translated highest rating label. Rating questions only. */
+    upperBoundLabel?: string
+    /** Translated choices. Must have the same length as the question choices. Choice questions only. */
+    choices?: string[]
+    /** Translated URL. Link questions only. */
+    link?: string
 }
 
 /**
- * * `link` - link
+ * * `min_length` - min_length
+ * * `max_length` - max_length
+ * * `email` - email
  */
-export type SurveyLinkQuestionSchemaTypeEnumApi =
-    (typeof SurveyLinkQuestionSchemaTypeEnumApi)[keyof typeof SurveyLinkQuestionSchemaTypeEnumApi]
+export type SurveyQuestionValidationRuleTypeEnumApi =
+    (typeof SurveyQuestionValidationRuleTypeEnumApi)[keyof typeof SurveyQuestionValidationRuleTypeEnumApi]
 
-export const SurveyLinkQuestionSchemaTypeEnumApi = {
-    Link: 'link',
+export const SurveyQuestionValidationRuleTypeEnumApi = {
+    MinLength: 'min_length',
+    MaxLength: 'max_length',
+    Email: 'email',
 } as const
 
-export interface SurveyLinkQuestionSchemaApi {
-    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-    id?: string
-    type: SurveyLinkQuestionSchemaTypeEnumApi
-    /** Question text shown to respondents. */
-    question: string
-    /** Optional helper text. */
-    description?: string
-    /** Format for the description field.
+export interface SurveyQuestionValidationRuleApi {
+    /** Validation rule type for open-text questions.
      *
-     * * `text` - text
-     * * `html` - html */
-    descriptionContentType?: DescriptionContentTypeEnumApi
-    /** Whether respondents may skip this question. */
-    optional?: boolean
-    /** Custom button label. */
-    buttonText?: string
-    /** HTTPS or mailto URL for link questions. */
-    link: string
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email */
+    type: SurveyQuestionValidationRuleTypeEnumApi
+    /**
+     * Rule value for min_length or max_length validations.
+     * @minimum 1
+     * @nullable
+     */
+    value?: number | null
 }
-
-/**
- * * `rating` - rating
- */
-export type SurveyRatingQuestionSchemaTypeEnumApi =
-    (typeof SurveyRatingQuestionSchemaTypeEnumApi)[keyof typeof SurveyRatingQuestionSchemaTypeEnumApi]
-
-export const SurveyRatingQuestionSchemaTypeEnumApi = {
-    Rating: 'rating',
-} as const
-
-/**
- * * `number` - number
- * * `emoji` - emoji
- */
-export type SurveyRatingQuestionSchemaDisplayEnumApi =
-    (typeof SurveyRatingQuestionSchemaDisplayEnumApi)[keyof typeof SurveyRatingQuestionSchemaDisplayEnumApi]
-
-export const SurveyRatingQuestionSchemaDisplayEnumApi = {
-    Number: 'number',
-    Emoji: 'emoji',
-} as const
 
 /**
  * * `next_question` - next_question
@@ -1100,6 +1074,110 @@ export type SurveyBranchingSchemaApi =
     | SurveySpecificQuestionBranchingApi
     | SurveyResponseBasedBranchingApi
 
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ * @nullable
+ */
+export type SurveyOpenQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi } | null
+
+export interface SurveyOpenQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
+    type: SurveyOpenQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+     *
+     * * `text` - text
+     * * `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    translations?: SurveyOpenQuestionSchemaApiTranslations
+    /** Validation rules for the response text, for example a minimum length. */
+    validation?: SurveyQuestionValidationRuleApi[]
+    branching?: SurveyBranchingSchemaApi | null
+}
+
+/**
+ * * `link` - link
+ */
+export type SurveyLinkQuestionSchemaTypeEnumApi =
+    (typeof SurveyLinkQuestionSchemaTypeEnumApi)[keyof typeof SurveyLinkQuestionSchemaTypeEnumApi]
+
+export const SurveyLinkQuestionSchemaTypeEnumApi = {
+    Link: 'link',
+} as const
+
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ * @nullable
+ */
+export type SurveyLinkQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi } | null
+
+export interface SurveyLinkQuestionSchemaApi {
+    /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+    id?: string
+    type: SurveyLinkQuestionSchemaTypeEnumApi
+    /** Question text shown to respondents. */
+    question: string
+    /** Optional helper text. */
+    description?: string
+    /** Format for the description field.
+     *
+     * * `text` - text
+     * * `html` - html */
+    descriptionContentType?: DescriptionContentTypeEnumApi
+    /** Whether respondents may skip this question. */
+    optional?: boolean
+    /** Custom button label. */
+    buttonText?: string
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    translations?: SurveyLinkQuestionSchemaApiTranslations
+    /** HTTPS or mailto URL for link questions. */
+    link: string
+    branching?: SurveyBranchingSchemaApi | null
+}
+
+/**
+ * * `rating` - rating
+ */
+export type SurveyRatingQuestionSchemaTypeEnumApi =
+    (typeof SurveyRatingQuestionSchemaTypeEnumApi)[keyof typeof SurveyRatingQuestionSchemaTypeEnumApi]
+
+export const SurveyRatingQuestionSchemaTypeEnumApi = {
+    Rating: 'rating',
+} as const
+
+/**
+ * * `number` - number
+ * * `emoji` - emoji
+ */
+export type SurveyRatingQuestionSchemaDisplayEnumApi =
+    (typeof SurveyRatingQuestionSchemaDisplayEnumApi)[keyof typeof SurveyRatingQuestionSchemaDisplayEnumApi]
+
+export const SurveyRatingQuestionSchemaDisplayEnumApi = {
+    Number: 'number',
+    Emoji: 'emoji',
+} as const
+
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ * @nullable
+ */
+export type SurveyRatingQuestionSchemaApiTranslations = { [key: string]: SurveyQuestionTranslationSchemaApi } | null
+
 export interface SurveyRatingQuestionSchemaApi {
     /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
     id?: string
@@ -1117,6 +1195,11 @@ export interface SurveyRatingQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    translations?: SurveyRatingQuestionSchemaApiTranslations
     /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
      *
      * * `number` - number
@@ -1131,6 +1214,8 @@ export interface SurveyRatingQuestionSchemaApi {
     lowerBoundLabel?: string
     /** Label for the highest rating (e.g., 'Excellent') */
     upperBoundLabel?: string
+    /** Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true. */
+    isNpsQuestion?: boolean
     branching?: SurveyBranchingSchemaApi | null
 }
 
@@ -1143,6 +1228,14 @@ export type SurveySingleChoiceQuestionSchemaTypeEnumApi =
 export const SurveySingleChoiceQuestionSchemaTypeEnumApi = {
     SingleChoice: 'single_choice',
 } as const
+
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ * @nullable
+ */
+export type SurveySingleChoiceQuestionSchemaApiTranslations = {
+    [key: string]: SurveyQuestionTranslationSchemaApi
+} | null
 
 export interface SurveySingleChoiceQuestionSchemaApi {
     /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
@@ -1161,6 +1254,11 @@ export interface SurveySingleChoiceQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    translations?: SurveySingleChoiceQuestionSchemaApiTranslations
     /**
      * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
      * @minItems 2
@@ -1184,6 +1282,14 @@ export const SurveyMultipleChoiceQuestionSchemaTypeEnumApi = {
     MultipleChoice: 'multiple_choice',
 } as const
 
+/**
+ * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+ * @nullable
+ */
+export type SurveyMultipleChoiceQuestionSchemaApiTranslations = {
+    [key: string]: SurveyQuestionTranslationSchemaApi
+} | null
+
 export interface SurveyMultipleChoiceQuestionSchemaApi {
     /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
     id?: string
@@ -1201,6 +1307,11 @@ export interface SurveyMultipleChoiceQuestionSchemaApi {
     optional?: boolean
     /** Custom button label. */
     buttonText?: string
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    translations?: SurveyMultipleChoiceQuestionSchemaApiTranslations
     /**
      * Array of choice options. Multiple selections allowed. No branching logic supported.
      * @minItems 2

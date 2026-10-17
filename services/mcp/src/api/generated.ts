@@ -86102,77 +86102,51 @@ export namespace Schemas {
       Open: 'open',
     } as const;
 
-    export interface SurveyOpenQuestionSchema {
-      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-      id?: string;
-      type: SurveyOpenQuestionSchemaTypeEnum;
-      /** Question text shown to respondents. */
-      question: string;
-      /** Optional helper text. */
+    export interface SurveyQuestionTranslationSchema {
+      /** Translated question text. */
+      question?: string;
+      /** Translated helper text. */
       description?: string;
-      /** Format for the description field.
-       *
-       * * `text` - text
-       * * `html` - html */
-      descriptionContentType?: DescriptionContentTypeEnum;
-      /** Whether respondents may skip this question. */
-      optional?: boolean;
-      /** Custom button label. */
+      /** Translated button label. */
       buttonText?: string;
+      /** Translated lowest rating label. Rating questions only. */
+      lowerBoundLabel?: string;
+      /** Translated highest rating label. Rating questions only. */
+      upperBoundLabel?: string;
+      /** Translated choices. Must have the same length as the question choices. Choice questions only. */
+      choices?: string[];
+      /** Translated URL. Link questions only. */
+      link?: string;
     }
 
     /**
-     * * `link` - link
+     * * `min_length` - min_length
+     * * `max_length` - max_length
+     * * `email` - email
      */
-    export type SurveyLinkQuestionSchemaTypeEnum = typeof SurveyLinkQuestionSchemaTypeEnum[keyof typeof SurveyLinkQuestionSchemaTypeEnum];
+    export type SurveyQuestionValidationRuleTypeEnum = typeof SurveyQuestionValidationRuleTypeEnum[keyof typeof SurveyQuestionValidationRuleTypeEnum];
 
 
-    export const SurveyLinkQuestionSchemaTypeEnum = {
-      Link: 'link',
+    export const SurveyQuestionValidationRuleTypeEnum = {
+      MinLength: 'min_length',
+      MaxLength: 'max_length',
+      Email: 'email',
     } as const;
 
-    export interface SurveyLinkQuestionSchema {
-      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
-      id?: string;
-      type: SurveyLinkQuestionSchemaTypeEnum;
-      /** Question text shown to respondents. */
-      question: string;
-      /** Optional helper text. */
-      description?: string;
-      /** Format for the description field.
+    export interface SurveyQuestionValidationRule {
+      /** Validation rule type for open-text questions.
        *
-       * * `text` - text
-       * * `html` - html */
-      descriptionContentType?: DescriptionContentTypeEnum;
-      /** Whether respondents may skip this question. */
-      optional?: boolean;
-      /** Custom button label. */
-      buttonText?: string;
-      /** HTTPS or mailto URL for link questions. */
-      link: string;
+       * * `min_length` - min_length
+       * * `max_length` - max_length
+       * * `email` - email */
+      type: SurveyQuestionValidationRuleTypeEnum;
+      /**
+         * Rule value for min_length or max_length validations.
+         * @minimum 1
+         * @nullable
+         */
+      value?: number | null;
     }
-
-    /**
-     * * `rating` - rating
-     */
-    export type SurveyRatingQuestionSchemaTypeEnum = typeof SurveyRatingQuestionSchemaTypeEnum[keyof typeof SurveyRatingQuestionSchemaTypeEnum];
-
-
-    export const SurveyRatingQuestionSchemaTypeEnum = {
-      Rating: 'rating',
-    } as const;
-
-    /**
-     * * `number` - number
-     * * `emoji` - emoji
-     */
-    export type SurveyRatingQuestionSchemaDisplayEnum = typeof SurveyRatingQuestionSchemaDisplayEnum[keyof typeof SurveyRatingQuestionSchemaDisplayEnum];
-
-
-    export const SurveyRatingQuestionSchemaDisplayEnum = {
-      Number: 'number',
-      Emoji: 'emoji',
-    } as const;
 
     /**
      * * `next_question` - next_question
@@ -86256,6 +86230,110 @@ export namespace Schemas {
 
     export type SurveyBranchingSchema = SurveyNextQuestionBranching | SurveyEndBranching | SurveySpecificQuestionBranching | SurveyResponseBasedBranching;
 
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    export type SurveyOpenQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema} | null;
+
+    export interface SurveyOpenQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
+      type: SurveyOpenQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+       *
+       * * `text` - text
+       * * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /**
+         * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+         * @nullable
+         */
+      translations?: SurveyOpenQuestionSchemaTranslations;
+      /** Validation rules for the response text, for example a minimum length. */
+      validation?: SurveyQuestionValidationRule[];
+      branching?: SurveyBranchingSchema | null;
+    }
+
+    /**
+     * * `link` - link
+     */
+    export type SurveyLinkQuestionSchemaTypeEnum = typeof SurveyLinkQuestionSchemaTypeEnum[keyof typeof SurveyLinkQuestionSchemaTypeEnum];
+
+
+    export const SurveyLinkQuestionSchemaTypeEnum = {
+      Link: 'link',
+    } as const;
+
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    export type SurveyLinkQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema} | null;
+
+    export interface SurveyLinkQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
+      type: SurveyLinkQuestionSchemaTypeEnum;
+      /** Question text shown to respondents. */
+      question: string;
+      /** Optional helper text. */
+      description?: string;
+      /** Format for the description field.
+       *
+       * * `text` - text
+       * * `html` - html */
+      descriptionContentType?: DescriptionContentTypeEnum;
+      /** Whether respondents may skip this question. */
+      optional?: boolean;
+      /** Custom button label. */
+      buttonText?: string;
+      /**
+         * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+         * @nullable
+         */
+      translations?: SurveyLinkQuestionSchemaTranslations;
+      /** HTTPS or mailto URL for link questions. */
+      link: string;
+      branching?: SurveyBranchingSchema | null;
+    }
+
+    /**
+     * * `rating` - rating
+     */
+    export type SurveyRatingQuestionSchemaTypeEnum = typeof SurveyRatingQuestionSchemaTypeEnum[keyof typeof SurveyRatingQuestionSchemaTypeEnum];
+
+
+    export const SurveyRatingQuestionSchemaTypeEnum = {
+      Rating: 'rating',
+    } as const;
+
+    /**
+     * * `number` - number
+     * * `emoji` - emoji
+     */
+    export type SurveyRatingQuestionSchemaDisplayEnum = typeof SurveyRatingQuestionSchemaDisplayEnum[keyof typeof SurveyRatingQuestionSchemaDisplayEnum];
+
+
+    export const SurveyRatingQuestionSchemaDisplayEnum = {
+      Number: 'number',
+      Emoji: 'emoji',
+    } as const;
+
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    export type SurveyRatingQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema} | null;
+
     export interface SurveyRatingQuestionSchema {
       /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
       id?: string;
@@ -86273,6 +86351,11 @@ export namespace Schemas {
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
+      /**
+         * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+         * @nullable
+         */
+      translations?: SurveyRatingQuestionSchemaTranslations;
       /** Display format: 'number' shows numeric scale, 'emoji' shows emoji scale.
        *
        * * `number` - number
@@ -86287,6 +86370,8 @@ export namespace Schemas {
       lowerBoundLabel?: string;
       /** Label for the highest rating (e.g., 'Excellent') */
       upperBoundLabel?: string;
+      /** Whether a rating question with a scale of 10 shows NPS scoring. A missing value counts as true. */
+      isNpsQuestion?: boolean;
       branching?: SurveyBranchingSchema | null;
     }
 
@@ -86299,6 +86384,12 @@ export namespace Schemas {
     export const SurveySingleChoiceQuestionSchemaTypeEnum = {
       SingleChoice: 'single_choice',
     } as const;
+
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    export type SurveySingleChoiceQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema} | null;
 
     export interface SurveySingleChoiceQuestionSchema {
       /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
@@ -86317,6 +86408,11 @@ export namespace Schemas {
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
+      /**
+         * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+         * @nullable
+         */
+      translations?: SurveySingleChoiceQuestionSchemaTranslations;
       /**
          * Array of choice options. Choice indices (0, 1, 2, ...) are used for branching logic.
          * @minItems 2
@@ -86340,6 +86436,12 @@ export namespace Schemas {
       MultipleChoice: 'multiple_choice',
     } as const;
 
+    /**
+     * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+     * @nullable
+     */
+    export type SurveyMultipleChoiceQuestionSchemaTranslations = {[key: string]: SurveyQuestionTranslationSchema} | null;
+
     export interface SurveyMultipleChoiceQuestionSchema {
       /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
       id?: string;
@@ -86357,6 +86459,11 @@ export namespace Schemas {
       optional?: boolean;
       /** Custom button label. */
       buttonText?: string;
+      /**
+         * Inline translations keyed by language code (for example 'es' or 'pt-BR'). Send back the current value when editing other question fields, or the translations are lost.
+         * @nullable
+         */
+      translations?: SurveyMultipleChoiceQuestionSchemaTranslations;
       /**
          * Array of choice options. Multiple selections allowed. No branching logic supported.
          * @minItems 2
