@@ -227,17 +227,28 @@ function RunSurfaceThread({
 } = {}): JSX.Element {
     const { interaction, isScout, taskId, streamKey, runId, floatingInputsHeight } = useRunSurfaceContext()
     const skin = useThreadSkin()
-    const { bootstrapLoading, hasThreadItems } = useValues(runStreamLogic)
+    const { bootstrapLoading, hasThreadItems, streamPhase } = useValues(runStreamLogic)
+    const showSetupHint = interaction === 'live' && streamPhase === 'provisioning'
     // Feedback identity: always the task, matching `$ai_session_id` on other surfaces.
     const feedbackSessionId = taskId
     const collectsFeedback = interaction === 'live' && !isScout && !!feedbackSessionId
     // Memoized so the footer keeps a stable element identity across streamed frames.
-    const feedbackPrompt = useMemo(
+    const footerExtra = useMemo(
         () =>
-            collectsFeedback ? (
-                <FeedbackPromptTrailer sessionId={feedbackSessionId} sessionKind="task" streamKey={streamKey} />
+            showSetupHint || collectsFeedback ? (
+                <>
+                    {showSetupHint && (
+                        // The setup line alone gives no sign that it is safe to leave the page.
+                        <span className="text-xs text-muted">
+                            Setup can take a minute. You can leave this page, and the task keeps running.
+                        </span>
+                    )}
+                    {collectsFeedback && (
+                        <FeedbackPromptTrailer sessionId={feedbackSessionId} sessionKind="task" streamKey={streamKey} />
+                    )}
+                </>
             ) : undefined,
-        [collectsFeedback, feedbackSessionId, streamKey]
+        [showSetupHint, collectsFeedback, feedbackSessionId, streamKey]
     )
     // Stable identity so the memoized trailer rows don't re-render on every streamed frame.
     const feedbackRun = useMemo(() => ({ taskId, runId: runId ?? undefined }), [taskId, runId])
@@ -265,7 +276,7 @@ function RunSurfaceThread({
             rowClassName={rowClassName}
             showContextUsage={showContextUsage && interaction === 'live' && !isScout}
             renderTurnTrailer={collectsFeedback ? renderTurnTrailer : undefined}
-            footerExtra={feedbackPrompt}
+            footerExtra={footerExtra}
             skin={skin}
         />
     )

@@ -30,7 +30,10 @@ jest.mock('lib/hooks/useFeatureFlag', () => ({ useFeatureFlag: jest.fn() }))
 
 jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
 
-jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
+jest.mock('./ThreadView', () => ({
+    ThreadView: ({ footerExtra }: { footerExtra?: React.ReactNode }) => <div data-attr="thread">{footerExtra}</div>,
+}))
+jest.mock('./FeedbackPromptTrailer', () => ({ FeedbackPromptTrailer: () => null }))
 jest.mock('./ContextUsageChip', () => ({ ContextUsageChip: () => <div data-attr="context" /> }))
 jest.mock('./PermissionInput', () => ({ PermissionInput: () => <div data-attr="permission" /> }))
 jest.mock('./QuestionInput', () => ({ QuestionInput: () => <div data-attr="question" /> }))
@@ -43,6 +46,7 @@ function setValues(
         respondingToPermission: boolean
         bootstrapLoading: boolean
         runOpening: boolean
+        streamPhase: 'provisioning' | 'thinking' | 'idle'
         threadItems: unknown[]
         task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
         piAcpEnabled: boolean
@@ -367,5 +371,22 @@ describe('RunSurface', () => {
             expect(screen.getByTestId('thread')).toBeInTheDocument()
             expect(screen.queryByTestId('run-log-skeleton')).not.toBeInTheDocument()
         })
+
+        it.each([
+            { interaction: 'live' as const, streamPhase: 'provisioning' as const, shown: true },
+            { interaction: 'live' as const, streamPhase: 'thinking' as const, shown: false },
+            { interaction: 'read-only' as const, streamPhase: 'provisioning' as const, shown: false },
+        ])(
+            'shows the leave-safely setup hint=$shown for a $interaction surface in $streamPhase',
+            ({ interaction, streamPhase, shown }) => {
+                setValues({ streamPhase })
+                render(
+                    <RunSurface.Root taskId="task-1" runId="run-1" interaction={interaction}>
+                        <RunSurface.Thread />
+                    </RunSurface.Root>
+                )
+                expect(!!screen.queryByText(/You can leave this page/)).toBe(shown)
+            }
+        )
     })
 })
