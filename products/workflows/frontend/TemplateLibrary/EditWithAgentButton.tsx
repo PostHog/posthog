@@ -19,7 +19,12 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
     return (
         <Popover
             visible={agentPromptOpen}
-            onClickOutside={() => setAgentPromptOpen(false)}
+            // Popover reports a press on its own trigger as outside, so the trigger's click alone toggles it.
+            onClickOutside={(event) => {
+                if (!triggerRef.current?.contains(event.target as Node)) {
+                    setAgentPromptOpen(false)
+                }
+            }}
             placement="bottom-end"
             fallbackPlacements={['bottom-start', 'top-end']}
             overlay={<AgentPrompt {...props} containerRef={promptRef} />}
