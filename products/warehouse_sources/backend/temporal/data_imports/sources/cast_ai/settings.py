@@ -37,7 +37,7 @@ CREATED_AT_INCREMENTAL: IncrementalField = {
 }
 
 
-@dataclass
+@dataclass(frozen=False)
 class CastAiEndpointConfig:
     name: str
     path: str

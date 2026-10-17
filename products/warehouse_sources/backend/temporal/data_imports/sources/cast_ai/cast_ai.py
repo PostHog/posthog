@@ -35,11 +35,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class CastAiResumeConfig:
     # Opaque framework checkpoint (fan-out resume state for the report endpoints; the
     # "clusters" list has no pagination and is never resumed).
     paginator_state: dict[str, Any]
+    # The report window of the run that saved the checkpoint. A resumed run reuses it, so the
+    # rows written before the restart and after it aggregate over the same period.
+    window_start: str | None = None
+    window_end: str | None = None
 
 
 def _format_time_value(value: Any) -> str:
@@ -104,15 +108,13 @@ def get_resource(endpoint: str) -> EndpointResource:
     }
 
 
-def _report_incremental_config_factory(start_param: str, end_param: str) -> Any:
-    end_value = _now()
-
+def _report_incremental_config_factory(start_param: str, end_param: str, initial_value: str, end_value: str) -> Any:
     def factory(field: str) -> IncrementalConfig:
         return {
             "cursor_path": field,
             "start_param": start_param,
             "end_param": end_param,
-            "initial_value": _default_lookback_start(),
+            "initial_value": initial_value,
             "end_value": end_value,
             "convert": _format_time_value,
         }
@@ -147,15 +149,21 @@ def cast_ai_source(
     endpoint_config = CASTAI_ENDPOINTS[endpoint]
 
     initial_paginator_state: Optional[dict[str, Any]] = None
+    resume_config: Optional[CastAiResumeConfig] = None
     if resumable_source_manager.can_resume():
         resume_config = resumable_source_manager.load_state()
         if resume_config is not None:
             initial_paginator_state = resume_config.paginator_state
 
+    window_start = (resume_config.window_start if resume_config else None) or _default_lookback_start()
+    window_end = (resume_config.window_end if resume_config else None) or _now()
+
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         # Only persist when there's somewhere to resume to; the Redis TTL handles cleanup.
         if state:
-            resumable_source_manager.save_state(CastAiResumeConfig(paginator_state=dict(state)))
+            resumable_source_manager.save_state(
+                CastAiResumeConfig(paginator_state=dict(state), window_start=window_start, window_end=window_end)
+            )
 
     if endpoint_config.fanout:
         if endpoint_config.window_params is None:
@@ -165,13 +173,15 @@ def cast_ai_source(
         # literal defaults below are always present; when incremental sync is enabled the
         # framework's incremental config overwrites them with the real last-synced watermark.
         child_params_extra: dict[str, Any] = {
-            start_param: _default_lookback_start(),
-            end_param: _now(),
+            start_param: window_start,
+            end_param: window_end,
         }
         if endpoint_config.step_seconds is not None:
             child_params_extra["stepSeconds"] = endpoint_config.step_seconds
         child_paginator: BasePaginator = (
-            JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="page.cursor")
+            JSONResponseCursorPaginator(
+                cursor_path="nextCursor", cursor_param="page.cursor", raise_on_repeated_cursor=True
+            )
             if endpoint_config.cursor_paginated
             else SinglePagePaginator()
         )
@@ -189,7 +199,9 @@ def cast_ai_source(
                 db_incremental_field_last_value=db_incremental_field_last_value,
                 should_use_incremental_field=should_use_incremental_field,
                 incremental_field=incremental_field,
-                incremental_config_factory=_report_incremental_config_factory(start_param, end_param),
+                incremental_config_factory=_report_incremental_config_factory(
+                    start_param, end_param, window_start, window_end
+                ),
                 page_size_param=None,
                 parent_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": "items"},
                 child_endpoint_extra={"paginator": child_paginator, "data_selector": "items"},

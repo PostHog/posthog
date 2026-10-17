@@ -1,5 +1,4 @@
 from datetime import UTC, datetime
-from typing import cast
 
 from unittest.mock import Mock, patch
 
@@ -50,22 +49,17 @@ class TestCastAiDateFormatting:
 
 class TestCastAiIncrementalConfigFactory:
     def test_produces_start_and_end_params(self) -> None:
-        factory = _report_incremental_config_factory("startTime", "endTime")
+        factory = _report_incremental_config_factory(
+            "startTime", "endTime", "2026-02-01T00:00:00Z", "2026-03-01T00:00:00Z"
+        )
         config = factory("timestamp")
 
         assert config["cursor_path"] == "timestamp"
         assert config["start_param"] == "startTime"
         assert config["end_param"] == "endTime"
+        assert config["initial_value"] == "2026-02-01T00:00:00Z"
+        assert config["end_value"] == "2026-03-01T00:00:00Z"
         assert config["convert"] is _format_time_value
-        # initial_value/end_value are RFC 3339 strings usable as literal query params.
-        datetime.strptime(cast(str, config["initial_value"]), "%Y-%m-%dT%H:%M:%SZ")
-        datetime.strptime(cast(str, config["end_value"]), "%Y-%m-%dT%H:%M:%SZ")
-
-    def test_end_value_is_stable_across_calls(self) -> None:
-        # Both report endpoints must request the same "now" snapshot within one sync, so the
-        # value is captured once at factory-creation time, not per field.
-        factory = _report_incremental_config_factory("fromDate", "toDate")
-        assert factory("createdAt")["end_value"] == factory("timestamp")["end_value"]
 
 
 class TestCastAiGetResource:
@@ -121,7 +115,8 @@ class TestCastAiSourceTopLevel:
 
         resume_hook = mock_rest_api_resource.call_args.kwargs["resume_hook"]
         resume_hook({"offset": 1})
-        manager.save_state.assert_called_once_with(CastAiResumeConfig(paginator_state={"offset": 1}))
+        manager.save_state.assert_called_once()
+        assert manager.save_state.call_args.args[0].paginator_state == {"offset": 1}
 
         manager.save_state.reset_mock()
         resume_hook(None)
@@ -192,6 +187,10 @@ class TestCastAiWorkloadPagination:
         # The report window is required on every page, not only the first.
         assert result.requests[2].param("startTime") == result.requests[1].param("startTime") is not None
         assert result.requests[2].param("endTime") == result.requests[1].param("endTime") is not None
+        # Every checkpoint carries the window its rows cover, so a resumed run requests the same one.
+        assert {(state.window_start, state.window_end) for state in result.saved_states} == {
+            (result.requests[1].param("startTime"), result.requests[1].param("endTime"))
+        }
         assert result.rows == [
             {**workload, "workloadName": "api", "cluster_id": "cluster-1"},
             {**workload, "workloadName": "worker", "cluster_id": "cluster-1"},
@@ -227,7 +226,11 @@ class TestCastAiFanoutWiring:
                 ScriptedResponse(json={"items": [{"id": "cluster-1"}, {"id": "cluster-2"}]}),
                 ScriptedResponse(json={"items": [{"timestamp": "2026-03-01T00:00:00Z"}]}),
             ],
-            resume_state=CastAiResumeConfig(paginator_state={"completed": [child_path.format(cluster_id="cluster-1")]}),
+            resume_state=CastAiResumeConfig(
+                paginator_state={"completed": [child_path.format(cluster_id="cluster-1")]},
+                window_start="2026-02-01T00:00:00Z",
+                window_end="2026-03-01T00:00:00Z",
+            ),
         )
 
         assert result.raised is None
@@ -239,8 +242,8 @@ class TestCastAiFanoutWiring:
         assert result.rows == [{"timestamp": "2026-03-01T00:00:00Z", "cluster_id": "cluster-2"}]
         assert result.requests[0].param(start_param) is None
         assert result.requests[0].param(end_param) is None
-        assert result.requests[1].param(start_param) is not None
-        assert result.requests[1].param(end_param) is not None
+        assert result.requests[1].param(start_param) == "2026-02-01T00:00:00Z"
+        assert result.requests[1].param(end_param) == "2026-03-01T00:00:00Z"
         assert result.requests[1].param("stepSeconds") == (str(step_seconds) if step_seconds else None)
         assert result.saved_states == [
             CastAiResumeConfig(
@@ -251,7 +254,9 @@ class TestCastAiFanoutWiring:
                     ],
                     "current": None,
                     "child_state": None,
-                }
+                },
+                window_start="2026-02-01T00:00:00Z",
+                window_end="2026-03-01T00:00:00Z",
             )
         ]
 
