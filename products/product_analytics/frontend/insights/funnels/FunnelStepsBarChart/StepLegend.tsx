@@ -24,6 +24,7 @@ import {
     formatDroppedOffCount,
     formatDroppedOffPercentage,
     formatMedianConversionTime,
+    getStepLegendSeries,
     getTooltipTitleForConverted,
     getTooltipTitleForDroppedOff,
 } from '../funnelUtils'
@@ -39,9 +40,11 @@ type StepLegendProps = {
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCardView }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { aggregationTargetLabel, funnelsFilter, isStepOptional } = useValues(funnelDataLogic(insightProps))
+    const { aggregationTargetLabel, funnelsFilter, breakdownFilter, isStepOptional } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
-    const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
+    const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
 
     const isOptionalStep = isStepOptional(stepIndex + 1)
@@ -50,14 +53,25 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
         Array.isArray(step.nested_breakdown) &&
         step.nested_breakdown?.length !== undefined &&
         !(step.nested_breakdown.length === 1)
+    const { legendStep, visibleSeries, showsTotals } = getStepLegendSeries(step, breakdownFilter)
+    const totalPrefix = showsTotals ? <span className="text-secondary">Total: </span> : null
+
+    const openPersonsModal = (converted: boolean): void => {
+        if (visibleSeries) {
+            openPersonsModalForSeries({ step: { ...step, order: stepIndex }, series: visibleSeries, converted })
+        } else {
+            openPersonsModalForStep({ step, stepIndex, converted })
+        }
+    }
 
     const convertedCountPresentationWithPercentage = (
         <>
-            {formatConvertedCount(step, aggregationTargetLabel)}
+            {totalPrefix}
+            {formatConvertedCount(legendStep, aggregationTargetLabel)}
             {!isFirstStep && (
                 <>
                     {' '}
-                    <span className="text-secondary">({formatConvertedPercentage(step)})</span>
+                    <span className="text-secondary">({formatConvertedPercentage(legendStep)})</span>
                 </>
             )}
             {/* Spacer used in the card view because the first step has no conversion percentage. */}
@@ -66,8 +80,9 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
     )
     const droppedOffCountPresentationWithPercentage = (
         <>
-            {formatDroppedOffCount(step, aggregationTargetLabel)}{' '}
-            <span className="text-secondary">({formatDroppedOffPercentage(step)})</span>
+            {totalPrefix}
+            {formatDroppedOffCount(legendStep, aggregationTargetLabel)}{' '}
+            <span className="text-secondary">({formatDroppedOffPercentage(legendStep)})</span>
         </>
     )
 
@@ -96,7 +111,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
                 >
                     {!!showPersonsModal && canOpenPersonModal && !isInExperimentContext ? (
                         <ValueInspectorButton
-                            onClick={() => openPersonsModalForStep({ step, stepIndex, converted: true })}
+                            onClick={() => openPersonsModal(true)}
                             data-attr="funnel-inspect-converted"
                         >
                             {convertedCountPresentationWithPercentage}
@@ -120,7 +135,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
                     >
                         {showPersonsModal && stepIndex && !isInExperimentContext ? (
                             <ValueInspectorButton
-                                onClick={() => openPersonsModalForStep({ step, stepIndex, converted: false })}
+                                onClick={() => openPersonsModal(false)}
                                 data-attr="funnel-inspect-dropped-off"
                             >
                                 {droppedOffCountPresentationWithPercentage}
@@ -135,7 +150,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal, inCard
             {/* Median conversion time */}
             {!isFirstStep && !isBreakdown && showTime && (
                 <LemonRow icon={<IconClock />} title="Median time of conversion from previous step">
-                    {formatMedianConversionTime(step)}
+                    {formatMedianConversionTime(legendStep)}
                 </LemonRow>
             )}
         </div>
