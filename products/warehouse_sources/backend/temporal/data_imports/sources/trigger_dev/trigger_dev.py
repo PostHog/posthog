@@ -172,19 +172,19 @@ def _iter_cursor_pages(
     incremental_field: str | None,
     cutoff: datetime | None,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Walk the runs endpoint newest-first via page[after], yielding one list of rows per page."""
+    """Walk a cursor endpoint newest-first via page[after], yielding one list of rows per page."""
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     after: str | None = resume.after if resume else None
     formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
 
     while True:
-        params: dict[str, Any] = {"page[size]": config.page_size}
+        params: dict[str, Any] = {"page[size]": config.page_size, **config.extra_params}
         if after is None:
             # The createdAt filter is only sent on the first (uncursored) request. Mixing a time
             # filter with the cursor is unverified against the live API (no credentials at build
             # time), so we scope it to page one and bound the rest client-side via _should_stop_desc.
-            if formatted_cutoff is not None:
-                params["filter[createdAt][from]"] = formatted_cutoff
+            if formatted_cutoff is not None and config.created_from_param:
+                params[config.created_from_param] = formatted_cutoff
         else:
             params["page[after]"] = after
 
@@ -192,6 +192,8 @@ def _iter_cursor_pages(
         data = _fetch_page(session, url, headers, logger)
 
         items = data.get("data", []) or []
+        if config.excluded_fields:
+            items = [{k: v for k, v in item.items() if k not in config.excluded_fields} for item in items]
         next_after = (data.get("pagination", {}) or {}).get("next")
         stop = _should_stop_desc(items, incremental_field, cutoff)
 
@@ -207,6 +209,54 @@ def _iter_cursor_pages(
     # re-runs extract after the previous one completed) would resume from the final page's cursor and
     # skip every run created since — runs arrive newest-first, so the new ones live on page one.
     resumable_source_manager.clear_state()
+
+
+def _iter_run_events(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: TriggerDevEndpointConfig,
+    logger: FilteringBoundLogger,
+    resumable_source_manager: ResumableSourceManager[TriggerDevResumeConfig],
+    cutoff: datetime | None,
+) -> Iterator[list[dict[str, Any]]]:
+    """Fetch the span events of each run, walking the runs endpoint as the parent.
+
+    The resume state is the runs page cursor that `_iter_cursor_pages` stages. A resumed attempt
+    re-reads that page of runs and their events, and merge dedupes the re-pulled rows.
+    """
+    runs_config = TRIGGER_DEV_ENDPOINTS["runs"]
+    for runs in _iter_cursor_pages(
+        session,
+        base_url,
+        headers,
+        runs_config,
+        logger,
+        resumable_source_manager,
+        runs_config.default_incremental_field,
+        cutoff,
+    ):
+        if not runs:
+            resumable_source_manager.safe_point()
+        for run in runs:
+            run_id = run.get("id")
+            if not run_id:
+                continue
+            url = _build_url(base_url, config.path.format(run_id=run_id), {})
+            try:
+                data = _fetch_page(session, url, headers, logger)
+            except requests.HTTPError as e:
+                # A run deleted between the runs page and this request has no events left to sync.
+                if e.response is not None and e.response.status_code == 404:
+                    resumable_source_manager.safe_point()
+                    continue
+                raise
+
+            events = data.get("events", []) or []
+            if not events:
+                resumable_source_manager.safe_point()
+                continue
+            yield [{**event, "_runs_id": run_id, "_runs_createdAt": run.get("createdAt")} for event in events]
 
 
 def _iter_classic_pages(
@@ -259,7 +309,7 @@ def get_rows(
     # allow_redirects=False keeps the bearer token pinned to the validated host across every page.
     session = make_tracked_session(allow_redirects=False)
 
-    if config.pagination == "cursor":
+    if config.pagination in ("cursor", "run_fanout"):
         cutoff: datetime | None = None
         if should_use_incremental_field and db_incremental_field_last_value is not None:
             value = db_incremental_field_last_value
@@ -272,6 +322,9 @@ def get_rows(
                     value = None
             if isinstance(value, datetime):
                 cutoff = _as_utc(value) - (config.incremental_lookback or timedelta(0))
+        if config.pagination == "run_fanout":
+            yield from _iter_run_events(session, base_url, headers, config, logger, resumable_source_manager, cutoff)
+            return
         yield from _iter_cursor_pages(
             session,
             base_url,
@@ -312,8 +365,8 @@ def trigger_dev_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Runs arrive newest-first; the pipeline must know so it defers the incremental watermark
-        # correctly. Classic full-refresh endpoints keep the default asc.
+        # Runs, deployments, waitpoint tokens and run events arrive newest-first; the pipeline must
+        # know so it defers the incremental watermark correctly. Full-refresh endpoints keep asc.
         sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,

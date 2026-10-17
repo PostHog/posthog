@@ -96,7 +96,14 @@ class TestShouldStopDesc:
 
 
 class TestRunsCursorPagination:
-    def test_incremental_filters_first_page_then_stops_at_watermark(self) -> None:
+    @parameterized.expand(
+        [
+            ("runs", "filter[createdAt][from]"),
+            ("deployments", "from"),
+            ("waitpoint_tokens", "filter[createdAt][from]"),
+        ]
+    )
+    def test_incremental_filters_first_page_then_stops_at_watermark(self, endpoint: str, filter_param: str) -> None:
         # The createdAt filter is only sent on page one; later cursor pages must stop client-side once
         # a page predates the watermark, or every incremental sync re-walks all history.
         responses = [
@@ -119,15 +126,37 @@ class TestRunsCursorPagination:
             _json({"data": [{"id": "should_not_fetch"}], "pagination": {"next": None}}),
         ]
         result = _run(
-            "runs",
+            endpoint,
             responses,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
         )
         assert [r["id"] for r in result.rows] == ["r3", "r2", "r1"]
         assert len(result.requests) == 2
-        assert result.requests[0].param("filter[createdAt][from]") is not None
-        assert not any(name.startswith("filter") for name in result.requests[1].query)
+        assert result.requests[0].param(filter_param) is not None
+        assert filter_param not in result.requests[1].query
+
+    def test_errors_send_the_wide_period_on_every_page(self) -> None:
+        # Without the period the API counts only the last day, so most error groups would be missing.
+        responses = [
+            _json({"data": [{"id": "error_a", "taskIdentifier": "t1"}], "pagination": {"next": "c1"}}),
+            _json({"data": [{"id": "error_a", "taskIdentifier": "t2"}], "pagination": {}}),
+        ]
+        result = _run("errors", responses)
+        assert [(r["id"], r["taskIdentifier"]) for r in result.rows] == [("error_a", "t1"), ("error_a", "t2")]
+        assert result.params("filter[period]") == ["365d", "365d"]
+        assert result.requests[1].param("page[after]") == "c1"
+
+    def test_waitpoint_tokens_drop_the_callback_url(self) -> None:
+        # The callback URL completes the token without an API key, so it must never reach the warehouse.
+        token = {
+            "id": "waitpoint_1",
+            "status": "WAITING",
+            "url": "https://api.trigger.dev/api/v1/waitpoints/tokens/waitpoint_1/callback/fakehash",
+            "createdAt": "2026-01-12T00:00:00Z",
+        }
+        result = _run("waitpoint_tokens", [_json({"data": [token], "pagination": {}})])
+        assert result.rows == [{"id": "waitpoint_1", "status": "WAITING", "createdAt": "2026-01-12T00:00:00Z"}]
 
     def test_checkpoints_current_page_cursor_after_yield(self) -> None:
         # Resume must re-fetch the last yielded page (checkpoint the CURRENT cursor, not the next one)
@@ -138,6 +167,43 @@ class TestRunsCursorPagination:
         ]
         result = _run("runs", responses)
         assert [s.after for s in result.saved_states] == [None, "r2"]
+
+
+class TestRunEventsFanOut:
+    def test_fetches_events_per_run_across_run_pages(self) -> None:
+        responses = [
+            _json(
+                {
+                    "data": [
+                        {"id": "run_b", "createdAt": "2026-01-12T00:00:00Z"},
+                        {"id": "run_gone", "createdAt": "2026-01-11T12:00:00Z"},
+                        {"id": "run_quiet", "createdAt": "2026-01-11T06:00:00Z"},
+                    ],
+                    "pagination": {"next": "run_quiet"},
+                }
+            ),
+            _json({"events": [{"spanId": "s1"}, {"spanId": "s2"}]}),
+            # A run deleted after the runs page was read is skipped, not fatal.
+            ScriptedResponse(status=404, json={"error": "Run not found"}),
+            _json({"events": []}),
+            _json({"data": [{"id": "run_a", "createdAt": "2026-01-10T00:00:00Z"}], "pagination": {}}),
+            _json({"events": [{"spanId": "s1"}]}),
+        ]
+        result = _run("run_events", responses)
+        assert [(r["_runs_id"], r["spanId"], r["_runs_createdAt"]) for r in result.rows] == [
+            ("run_b", "s1", "2026-01-12T00:00:00Z"),
+            ("run_b", "s2", "2026-01-12T00:00:00Z"),
+            ("run_a", "s1", "2026-01-10T00:00:00Z"),
+        ]
+        assert [r.path for r in result.requests] == [
+            "/api/v1/runs",
+            "/api/v1/runs/run_b/events",
+            "/api/v1/runs/run_gone/events",
+            "/api/v1/runs/run_quiet/events",
+            "/api/v1/runs",
+            "/api/v1/runs/run_a/events",
+        ]
+        assert result.requests[4].param("page[after]") == "run_quiet"
 
 
 class TestClassicPagination:
@@ -224,7 +290,17 @@ class TestFetchPageRetries:
 
 
 class TestSourceResponseSortMode:
-    @parameterized.expand([("runs", "desc"), ("schedules", "asc"), ("queues", "asc")])
+    @parameterized.expand(
+        [
+            ("runs", "desc"),
+            ("deployments", "desc"),
+            ("waitpoint_tokens", "desc"),
+            ("run_events", "desc"),
+            ("errors", "asc"),
+            ("schedules", "asc"),
+            ("queues", "asc"),
+        ]
+    )
     def test_sort_mode_matches_arrival_order(self, endpoint: str, expected: str) -> None:
         # Runs arrive newest-first; declaring asc there would corrupt the incremental watermark.
         response = _run(endpoint, []).response
