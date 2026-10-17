@@ -605,7 +605,7 @@ describe('HogFunctionHandler', () => {
             if (isTest && mockFunctions) {
                 expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
             } else {
-                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(1)
+                expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(billingType === 'push' ? 2 : 1)
                 expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
                     expect.objectContaining({ teamId: team.id, usageKey })
                 )
@@ -648,9 +648,18 @@ describe('HogFunctionHandler', () => {
 
         expect(invocationResult.metrics.some((metric) => metric.metric_name === 'billable_invocation')).toBe(shouldBill)
         if (shouldBill) {
-            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith(
-                expect.objectContaining({ teamId: team.id, usageKey: 'workflow_push_sent' })
-            )
+            const recordId = `flow:${invocation.id}:${invocation.state.actionStepCount}:push`
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_push_sent',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledWith({
+                teamId: team.id,
+                usageKey: 'workflow_billable_invocations',
+                recordId,
+            })
+            expect(usageReporter.reportBillableInvocation).toHaveBeenCalledTimes(2)
         } else {
             expect(usageReporter.reportBillableInvocation).not.toHaveBeenCalled()
         }

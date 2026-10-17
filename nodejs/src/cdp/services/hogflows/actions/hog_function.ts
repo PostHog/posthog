@@ -30,10 +30,10 @@ type FunctionActionType = 'function' | 'function_email' | 'function_sms'
 type HogFlowActionBillingType = 'fetch' | 'email' | 'push' | 'sms'
 
 const WORKFLOW_USAGE_KEYS = {
-    fetch: 'workflow_billable_invocations',
-    email: 'workflow_emails_sent',
-    push: 'workflow_push_sent',
-    sms: 'workflow_sms_sent',
+    fetch: ['workflow_billable_invocations'],
+    email: ['workflow_emails_sent'],
+    push: ['workflow_push_sent', 'workflow_billable_invocations'],
+    sms: ['workflow_sms_sent'],
 } as const
 
 type Action = Extract<HogFlowAction, { type: FunctionActionType }>
@@ -225,11 +225,13 @@ export class HogFunctionHandler implements ActionHandler {
 
                 if (!hogExecutorOptions?.isTest || !hogExecutorOptions.functions) {
                     // actionStepCount holds across a retry of this step but changes on a loop revisit.
-                    this.usageReporter?.reportBillableInvocation({
-                        teamId: invocation.teamId,
-                        usageKey: WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType],
-                        recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
-                    })
+                    for (const usageKey of WORKFLOW_USAGE_KEYS[this.hogFlowActionBillingType]) {
+                        this.usageReporter?.reportBillableInvocation({
+                            teamId: invocation.teamId,
+                            usageKey,
+                            recordId: `flow:${invocation.id}:${invocation.state.actionStepCount}:${this.hogFlowActionBillingType}`,
+                        })
+                    }
                 }
             }
 
