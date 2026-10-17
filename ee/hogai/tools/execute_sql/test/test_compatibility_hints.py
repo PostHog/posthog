@@ -27,8 +27,15 @@ class TestSuggestCastType:
 
 
 class TestBuildCompatibilityHint:
-    def test_none_for_unrelated_error(self) -> None:
-        assert build_compatibility_hint("Unknown table `charges`.") is None
+    @parameterized.expand(
+        [
+            ("unrelated_error", "Unknown table `charges`."),
+            ("unresolved_regular_field", "Unable to resolve field: $browser"),
+            ("unknown_virtual_name", "Unable to resolve field: $virt_trafic_type"),
+        ]
+    )
+    def test_none_for_unrelated_error(self, _name: str, message: str) -> None:
+        assert build_compatibility_hint(message) is None
 
     @parameterized.expand(
         [

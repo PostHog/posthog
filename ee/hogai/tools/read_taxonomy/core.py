@@ -2,6 +2,8 @@ from typing import Literal, Union
 
 from pydantic import BaseModel, Field
 
+from posthog.hogql.taxonomy_validation import VIRTUAL_EVENT_PROPERTY_NAMES
+
 from posthog.event_usage import EventSource
 from posthog.models import Team, User
 from posthog.taxonomy.dynamic_properties import PropertyScope, dynamic_property_patterns, format_dynamic_property_lines
@@ -106,6 +108,22 @@ DYNAMIC_PERSON_PROPERTIES_HINT = _dynamic_properties_hint("person")
 
 DYNAMIC_EVENT_PROPERTIES_HINT = _dynamic_properties_hint("event")
 
+# The list shows virtual properties for every event, but HogQL computes them only on the `events` table.
+# Without this note, callers query them through a subquery or another table and get a resolution error.
+VIRTUAL_EVENT_PROPERTIES_HINT = (
+    "NOTE: `$virt_` properties are computed at query time. In SQL, read them as `properties.$virt_<name>` "
+    "in a query whose FROM clause is `events`. `SELECT *` does not include them, so in a subquery or CTE "
+    "select them explicitly with an alias. The `persons` and `sessions` tables, and the `person.`, "
+    "`session.` and `poe.` joins, do not have them."
+)
+
+
+def _event_properties_hints(result: str) -> str:
+    hints = [DYNAMIC_EVENT_PROPERTIES_HINT]
+    if any(name in result for name in VIRTUAL_EVENT_PROPERTY_NAMES):
+        hints.insert(0, VIRTUAL_EVENT_PROPERTIES_HINT)
+    return "\n\n".join(hints)
+
 
 def execute_taxonomy_query(
     query: ReadTaxonomyQuery,
@@ -126,12 +144,12 @@ def execute_taxonomy_query(
             result = toolkit.retrieve_event_or_action_properties(query.event_name)
             description = get_event_description(team, query.event_name)
             prefix = f"Description of `{query.event_name}`: {description}\n\n" if description else ""
-            return f"{prefix}{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
+            return f"{prefix}{result}\n\n{_event_properties_hints(result)}"
         case ReadEventSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.event_name, query.property_name)
         case ReadActionProperties():
             result = toolkit.retrieve_event_or_action_properties(query.action_id)
-            return f"{result}\n\n{DYNAMIC_EVENT_PROPERTIES_HINT}"
+            return f"{result}\n\n{_event_properties_hints(result)}"
         case ReadActionSamplePropertyValues():
             return toolkit.retrieve_event_or_action_property_values(query.action_id, query.property_name)
         case ReadEntityProperties():

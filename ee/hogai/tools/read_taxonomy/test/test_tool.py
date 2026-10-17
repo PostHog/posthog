@@ -13,6 +13,7 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_taxonomy.core import (
     DYNAMIC_EVENT_PROPERTIES_HINT,
     DYNAMIC_PERSON_PROPERTIES_HINT,
+    VIRTUAL_EVENT_PROPERTIES_HINT,
     ReadEntityProperties,
     ReadEventProperties,
     ReadEvents,
@@ -139,15 +140,22 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
 
         self.assertNotIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
 
+    @parameterized.expand(
+        [
+            ("without_virtual_properties", "- $browser\n- $os", False),
+            ("with_virtual_properties", "- $browser\n- $virt_traffic_type", True),
+        ]
+    )
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
-    def test_event_properties_include_dynamic_hint(self, mock_toolkit_class):
+    def test_event_properties_include_dynamic_hint(self, _name, properties, expect_virtual_hint, mock_toolkit_class):
         mock_toolkit = mock_toolkit_class.return_value
-        mock_toolkit.retrieve_event_or_action_properties.return_value = "- $browser\n- $os"
+        mock_toolkit.retrieve_event_or_action_properties.return_value = properties
 
         result = execute_taxonomy_query(ReadEventProperties(event_name="$pageview"), mock_toolkit, self.team, self.user)
 
         self.assertIn(DYNAMIC_EVENT_PROPERTIES_HINT, result)
         self.assertIn("$feature/{flag_key}", result)
+        self.assertEqual(VIRTUAL_EVENT_PROPERTIES_HINT in result, expect_virtual_hint)
 
     @parameterized.expand(
         [

@@ -91,8 +91,8 @@ are also individually clickable — clicking a bot row opens a single-bot trend.
 
 ## Bot detection model
 
-Bots are detected server-side. Three virtual properties are attached to the event before
-it lands in ClickHouse:
+Bots are detected at query time from the event's `$raw_user_agent` and `$ip`.
+These virtual properties are not stored on the event. HogQL computes them on the `events` table:
 
 - `$virt_is_bot` — boolean, `true` if classified as a bot
 - `$virt_bot_name` — string, the bot's display name (e.g. `Googlebot`, `GPTBot`,
@@ -217,10 +217,8 @@ to `properties`.
 
 ## Gotchas
 
-- Bot virtual properties (`$virt_*`) only exist on events processed by the bot
-  classification step. They are not retroactive — events from before the classifier
-  shipped will not have them. Keep `dateRange.date_from` within the last few months
-  for reliable bot results.
+- Bot virtual properties (`$virt_*`) are computed at query time, so they also apply to
+  older events. An event that has no `$raw_user_agent` classifies as `no_user_agent`.
 - `$http_log` events come from server-side log capture, not from `posthog-js`. If a
   project does not emit `$http_log`, bots that don't run JS (most crawlers) will be
   invisible to the bot tiles.
