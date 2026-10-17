@@ -152,6 +152,7 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.web_analytics.backend.facade.achievements import clear_achievement_filter_retry
 
 logger = structlog.get_logger(__name__)
 
@@ -1411,6 +1412,8 @@ class ProjectBackwardCompatSerializer(
         elif updated_team_fields:
             # auto_now fields only refresh when included in update_fields
             team.save(update_fields=[*updated_team_fields, "updated_at"])
+        if "test_account_filters" in updated_team_fields:
+            clear_achievement_filter_retry(team.parent_team_id or team.id)
         # Snapshot before the cache refresh below so the audit diff only reflects this
         # request's writes, not fields a concurrent request changed.
         team_after_update = team.__dict__.copy()
