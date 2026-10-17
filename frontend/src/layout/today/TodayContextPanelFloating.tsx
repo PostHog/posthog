@@ -21,9 +21,11 @@ import { TODAY_CONTEXT_PANEL_DOCK_EDGE, todayContextPanelLogic } from './todayCo
 const NOT_A_DRAG_HANDLE = 'button, a, input, [role="menuitem"]'
 
 export function TodayContextPanelFloating(): JSX.Element {
-    const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint } = useValues(todayContextPanelLogic)
+    const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint, panelTabs } =
+        useValues(todayContextPanelLogic)
     const { setFloatingOpen, setFloatingTab, setFloatingOffset, setDockHint, dock } = useActions(todayContextPanelLogic)
     const cardRef = useRef<HTMLDivElement>(null)
+    const launcherHidden = docked || !panelTabs.includes(SidePanelTab.Max)
 
     const startDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
         if (event.button !== 0 || (event.target as HTMLElement).closest(NOT_A_DRAG_HANDLE)) {
@@ -87,12 +89,13 @@ export function TodayContextPanelFloating(): JSX.Element {
                     setFloatingOpen(open)
                 }}
             >
-                {/* Stays mounted while docked, so the button can sink away and rise back with the panel. */}
+                {/* Stays mounted while docked, so the button can sink away and rise back with the panel. Scenes
+                    without PostHog AI, like a canvas, hide it but keep the host for other undocked tabs. */}
                 <div
                     data-quill
                     className="TodayContextPanelButton pointer-events-none absolute inset-x-0 bottom-4 z-[var(--z-main-nav)] flex justify-center"
-                    data-hidden={docked || undefined}
-                    {...(docked ? { inert: '' } : {})}
+                    data-hidden={launcherHidden || undefined}
+                    {...(launcherHidden ? { inert: '' } : {})}
                 >
                     {/* The outline button is see-through, so an opaque pill sits behind it over the page. */}
                     <span className="pointer-events-auto rounded-full bg-background shadow-md">

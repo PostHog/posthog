@@ -4,11 +4,11 @@ import posthog from 'posthog-js'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { CANVAS_SIDE_PANEL_TABS, sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { todayAiChatLogic } from './todayAiChatLogic'
+import { todayShellLogic } from './todayShellLogic'
 
 export interface TodayContextPanelOffset {
     x: number
@@ -32,8 +32,9 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
-    aiFullScreenUrl: string | null // todayAiChatLogic
+    onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
+    canUndock: boolean
     dockHint: boolean
     docked: boolean
     floatingActiveTab: SidePanelTab
@@ -56,9 +57,6 @@ export interface todayContextPanelLogicActions {
         options: string | undefined
         tab: SidePanelTab
     } // sidePanelStateLogic
-    carryContextToFullScreen: () => {
-        value: true
-    } // todayAiChatLogic
     close: () => {
         value: true
     }
@@ -93,13 +91,10 @@ export interface todayContextPanelLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         docked: (sidePanelOpen: boolean) => boolean
         panelTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
-        floatingActiveTab: (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]) => SidePanelTab
+        floatingActiveTab: (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]) => SidePanelTab
+        canUndock: (activeTab: SidePanelTab, onAiPage: boolean) => boolean
         activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
-        fullScreenUrl: (
-            activeTab: SidePanelTab,
-            aiFullScreenUrl: string | null,
-            selectedNotebook: string
-        ) => string | null
+        fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string) => string | null
     }
 }
 
@@ -122,17 +117,12 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             ['sidePanelOpen', 'selectedTab'],
             sidePanelLogic,
             ['enabledTabs'],
-            todayAiChatLogic,
-            ['fullScreenUrl as aiFullScreenUrl'],
             notebookPanelLogic,
             ['selectedNotebook'],
+            todayShellLogic,
+            ['onAiPage'],
         ],
-        actions: [
-            sidePanelStateLogic,
-            ['openSidePanel', 'closeSidePanel'],
-            todayAiChatLogic,
-            ['carryContextToFullScreen'],
-        ],
+        actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
     actions({
         setFloatingOpen: (open: boolean) => ({ open }),
@@ -180,16 +170,31 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         docked: [(s) => [s.sidePanelOpen], (sidePanelOpen: boolean): boolean => sidePanelOpen],
         panelTabs: [
             (s) => [s.enabledTabs],
+            // PostHog AI goes last, and only where the scene offers it. Canvas scenes bring their own chat.
             (enabledTabs: SidePanelTab[]): SidePanelTab[] => [
                 ...enabledTabs.filter((tab) => tab !== SidePanelTab.Max && !TABS_LEFT_OUT.includes(tab)),
-                SidePanelTab.Max,
+                ...(enabledTabs.includes(SidePanelTab.Max) ? [SidePanelTab.Max] : []),
             ],
         ],
-        /** A tab the scene no longer offers falls back to PostHog AI, like the docked panel closing on navigation. */
+        /**
+         * A tab the scene no longer offers falls back to PostHog AI, like the docked panel closing on navigation.
+         * Checked against every enabled tab, so an undocked tab the top bar leaves out stays open.
+         */
         floatingActiveTab: [
-            (s) => [s.floatingTab, s.panelTabs],
-            (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]): SidePanelTab =>
-                panelTabs.includes(floatingTab) ? floatingTab : SidePanelTab.Max,
+            (s) => [s.floatingTab, s.enabledTabs],
+            (floatingTab: SidePanelTab, enabledTabs: SidePanelTab[]): SidePanelTab =>
+                enabledTabs.includes(floatingTab) && !CANVAS_SIDE_PANEL_TABS.includes(floatingTab)
+                    ? floatingTab
+                    : SidePanelTab.Max,
+        ],
+        /**
+         * Canvas tabs read their body from the docked panel's selected tab, so they only dock. The AI page has no
+         * floating panel to undock into.
+         */
+        canUndock: [
+            (s) => [s.activeTab, s.onAiPage],
+            (activeTab: SidePanelTab, onAiPage: boolean): boolean =>
+                !onAiPage && !CANVAS_SIDE_PANEL_TABS.includes(activeTab),
         ],
         activeTab: [
             (s) => [s.docked, s.selectedTab, s.floatingActiveTab],
@@ -197,11 +202,10 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 docked && selectedTab ? selectedTab : floatingActiveTab,
         ],
         fullScreenUrl: [
-            (s) => [s.activeTab, s.aiFullScreenUrl, s.selectedNotebook],
-            (activeTab: SidePanelTab, aiFullScreenUrl: string | null, selectedNotebook: string): string | null => {
+            // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
+            (s) => [s.activeTab, s.selectedNotebook],
+            (activeTab: SidePanelTab, selectedNotebook: string): string | null => {
                 switch (activeTab) {
-                    case SidePanelTab.Max:
-                        return aiFullScreenUrl
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
                     case SidePanelTab.Notebooks:
@@ -230,7 +234,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             posthog.capture('today context panel tab toggled', { tab, docked: values.docked, open })
             if (open && values.activeTab === tab) {
                 actions.close()
-            } else if (values.floatingOpen) {
+            } else if (values.floatingOpen && !CANVAS_SIDE_PANEL_TABS.includes(tab)) {
                 actions.setFloatingTab(tab)
             } else {
                 actions.openSidePanel(tab)
@@ -254,9 +258,6 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             }
         },
         openFullScreen: () => {
-            if (values.activeTab === SidePanelTab.Max) {
-                actions.carryContextToFullScreen()
-            }
             actions.close()
         },
         // The floating and docked panel are one panel, so docking any tab takes the floating card away.

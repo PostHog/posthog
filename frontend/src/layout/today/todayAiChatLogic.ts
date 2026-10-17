@@ -9,13 +9,18 @@ import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+
 import { attachedContextLogic } from 'products/posthog_ai/frontend/logics/attachedContextLogic'
 import { ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/logics/runnerPanelLogic'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/types/contextTypes'
+import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
+import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
+import type { TaskActivityDTOApi } from '../../../../products/tasks/frontend/generated/api.schemas'
 import { todayShellLogic } from './todayShellLogic'
 import { todaySpacesLogic } from './todaySpacesLogic'
-import { TodayWorkGroup, TodayWorkItem, groupByDay } from './todayWorkItems'
+import { TodayWorkGroup, TodayWorkItem, groupByDay, sessionReadRequest } from './todayWorkItems'
 
 const FULL_SCREEN_CONTEXT_PROVIDER_ID = 'today-context-panel-full-screen'
 
@@ -30,10 +35,12 @@ export interface todayAiChatLogicValues {
     conversationId: string | null // maxLogic
     legacyChatTitle: string | null // maxLogic
     activeCreation: ActiveCreation | null // runnerPanelLogic
+    selectedTabOptions: string | null // sidePanelStateLogic
     onAiPage: boolean // todayShellLogic
     allRecentItems: TodayWorkItem[] // todaySpacesLogic
     pinnedItems: TodayWorkItem[] // todaySpacesLogic
     recentLoading: boolean // todaySpacesLogic
+    taskActivity: TaskActivityDTOApi[] // todaySpacesLogic
     unreadSessionIds: Set<string> // todaySpacesLogic
     activeItemId: string | null
     chatTitle: string
@@ -65,6 +72,16 @@ export interface todayAiChatLogicActions {
     setActiveCreation: (creation: ActiveCreation) => {
         creation: ActiveCreation
     } // runnerPanelLogic
+    setHistoryExpanded: (expanded: boolean) => {
+        expanded: boolean
+    } // runnerPanelLogic
+    markSessionRead: (
+        marker: import('products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi,
+        activityIds: string[]
+    ) => {
+        activityIds: string[]
+        marker: import('products/tasks/frontend/generated/api.schemas').TaskActivityReadMarkerApi
+    } // todaySpacesLogic
     carryContextToFullScreen: () => {
         value: true
     }
@@ -94,6 +111,7 @@ export interface todayAiChatLogicMeta {
         ) => string
         fullScreenUrl: (
             effectivePhaiView: PhaiViewMode,
+            selectedTabOptions: string | null,
             activeCreation: ActiveCreation | null,
             conversationId: string | null
         ) => string | null
@@ -139,7 +157,7 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
     connect(() => ({
         values: [
             todaySpacesLogic,
-            ['allRecentItems', 'pinnedItems', 'unreadSessionIds', 'recentLoading'],
+            ['allRecentItems', 'pinnedItems', 'unreadSessionIds', 'recentLoading', 'taskActivity'],
             maxGlobalLogic,
             ['effectivePhaiView'],
             maxLogic({ panelId: SIDE_PANEL_PANEL_ID }),
@@ -150,12 +168,16 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             ['contextItems'],
             todayShellLogic,
             ['onAiPage'],
+            sidePanelStateLogic,
+            ['selectedTabOptions'],
         ],
         actions: [
+            todaySpacesLogic,
+            ['markSessionRead'],
             maxLogic({ panelId: SIDE_PANEL_PANEL_ID }),
             ['openConversation', 'startNewConversation'],
             runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }),
-            ['setActiveCreation', 'clearActiveCreation'],
+            ['setActiveCreation', 'clearActiveCreation', 'setHistoryExpanded'],
             attachedContextLogic,
             ['registerContext', 'deregisterContext'],
         ],
@@ -198,20 +220,31 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
                 return item?.title || 'Untitled chat'
             },
         ],
+        // Report and scout chats run on the task runner in either view, the same as the side panel's own header.
         fullScreenUrl: [
-            (s) => [s.effectivePhaiView, s.activeCreation, s.conversationId],
+            (s) => [s.effectivePhaiView, s.selectedTabOptions, s.activeCreation, s.conversationId],
             (
                 effectivePhaiView: PhaiViewMode,
+                selectedTabOptions: string | null,
                 activeCreation: ActiveCreation | null,
                 conversationId: string | null
             ): string | null =>
-                mainFocusUrl({ isNewView: effectivePhaiView === 'new', activeCreation, conversationId }),
+                mainFocusUrl({
+                    isNewView:
+                        effectivePhaiView === 'new' ||
+                        selectedTabOptions === REPORT_AI_PANEL ||
+                        selectedTabOptions === SCOUT_AI_PANEL,
+                    activeCreation,
+                    conversationId,
+                }),
         ],
     }),
     listeners(({ actions, values, cache }) => ({
         startNewChat: () => {
             if (values.effectivePhaiView === 'new') {
                 actions.clearActiveCreation()
+                // An expanded task history would otherwise stay in place of the composer.
+                actions.setHistoryExpanded(false)
             } else {
                 actions.startNewConversation()
             }
@@ -223,6 +256,11 @@ export const todayAiChatLogic = kea<todayAiChatLogicType>([
             if (item.kind === 'session') {
                 if (newView && item.latestRunId) {
                     actions.setActiveCreation({ streamKey: item.latestRunId, taskId: item.id, runId: item.latestRunId })
+                    // Read tracking follows the /ai URL, which an inline open never changes, so mark it here.
+                    const request = sessionReadRequest(values.taskActivity, item.id)
+                    if (request) {
+                        actions.markSessionRead(request.marker, request.activityIds)
+                    }
                 } else {
                     router.actions.push(urls.aiTask(item.id))
                 }
