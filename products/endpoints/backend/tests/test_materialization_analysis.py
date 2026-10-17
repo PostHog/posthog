@@ -8,6 +8,7 @@ stay on SimpleTestCase and skip Django setup.
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
@@ -625,14 +626,31 @@ class TestMaterializedReadPath(SimpleTestCase):
 
         assert "toDate('2024-01-15 14:30:00')" in result
 
-    def test_lower_wrapper_applied_to_value(self):
+    @parameterized.expand(
+        [
+            ("string", "$PageView", "lower('$PageView')"),
+            ("int", 1, "lower('1')"),
+            ("float", 1.5, "lower('1.5')"),
+            ("bool", True, "lower('true')"),
+        ]
+    )
+    def test_lower_wrapper_applied_to_value(self, _name, value, expected):
         result = self._build_read_query(
             "SELECT count() FROM events WHERE lower(event) = lower({variables.event_name})",
             {"var-1": {"code_name": "event_name", "value": "$PageView"}},
-            {"event_name": "$PageView"},
+            {"event_name": value},
         )
 
-        assert "lower('$PageView')" in result
+        assert expected in result
+
+    @parameterized.expand([("list", ["a"]), ("dict", {"a": 1})])
+    def test_non_scalar_value_rejected(self, _name, value):
+        with self.assertRaises(ValidationError):
+            self._build_read_query(
+                "SELECT count() FROM events WHERE lower(event) = lower({variables.event_name})",
+                {"var-1": {"code_name": "event_name", "value": "$PageView"}},
+                {"event_name": value},
+            )
 
     def test_range_with_wrapper_both_sides(self):
         result = self._build_read_query(

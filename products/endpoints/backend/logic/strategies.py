@@ -13,10 +13,11 @@ stay kind-agnostic.
 """
 
 import abc
+import json
 import dataclasses
 from datetime import datetime
 from functools import cached_property
-from typing import TYPE_CHECKING, ClassVar, Optional
+from typing import TYPE_CHECKING, Any, ClassVar, Optional
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -74,7 +75,7 @@ def add_where_condition(select_query: ast.SelectQuery, condition: ast.Expr) -> N
 def apply_where_filter(
     select_query: ast.SelectQuery,
     column: str,
-    value: str,
+    value: Any,
     op: ast.CompareOperationOp = ast.CompareOperationOp.Eq,
     value_wrapper_fns: list[str] | None = None,
     bucket_fn: str | None = None,
@@ -84,6 +85,11 @@ def apply_where_filter(
     When bucket_fn is set (range variables), wrap the filter value with the
     bucket function so the comparison matches the bucketed column values.
     """
+    if isinstance(value, dict | list):
+        raise ValidationError({"variables": f"Variable '{column}' must be a string, number or boolean"})
+    # Wrappers such as lower() take a string, and ClickHouse rejects lower(1).
+    if value_wrapper_fns and not isinstance(value, str):
+        value = json.dumps(value) if isinstance(value, bool) else str(value)
     right_expr: ast.Expr = ast.Constant(value=value)
     for fn in reversed(value_wrapper_fns or []):
         right_expr = ast.Call(name=fn, args=[right_expr])
