@@ -633,6 +633,24 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
         assert (self._coverage(result).events_checked, self._internal_users(result).events) == (20, 0)
 
+    @parameterized.expand(
+        [
+            ("persons_are_not_on_events", "disabled", 80),
+            ("persons_are_joined", "person_id_override_properties_joined", 80),
+            ("persons_are_on_events", "person_id_override_properties_on_events", 60),
+        ]
+    )
+    def test_reads_person_properties_from_where_the_insight_reads_them(
+        self, _name: str, persons_on_events_mode: str, internal_user_events: int
+    ) -> None:
+        _create_person(team=self.team, distinct_ids=["joined later"], properties={"email": "new@posthog.com"})
+        self._events(20, distinct_id="joined later", person_properties={"email": "before@example.com"})
+        flush_persons_and_events()
+
+        result = self._check(self._query(modifiers={"personsOnEventsMode": persons_on_events_mode}))
+
+        assert self._internal_users(result).events == internal_user_events
+
     @parameterized.expand([("on_a_deleted_cohort", "cohort"), ("on_a_field_that_does_not_exist", "hogql")])
     def test_reports_the_other_checks_when_the_projects_filter_cannot_run(self, _name: str, filter_type: str) -> None:
         if filter_type == "cohort":

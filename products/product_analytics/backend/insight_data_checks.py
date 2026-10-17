@@ -330,6 +330,8 @@ def _choose_window(events: ChartEvents, reader: _EventReader, timezone: ZoneInfo
 class _InternalUsersMatch:
     passes_filter: ast.Expr
     is_team_email: ast.Expr
+    # The join `passes_filter` reads the person from, if it needs one.
+    person_join: ast.JoinExpr | None = None
 
 
 _NO_INTERNAL_USERS = _InternalUsersMatch(
@@ -337,31 +339,51 @@ _NO_INTERNAL_USERS = _InternalUsersMatch(
 )
 
 
-class _PersonFromEvent(CloningVisitor):
-    def __init__(self, *, person_id_from_event: bool) -> None:
+_CURRENT_PERSON = "current_person"
+
+
+class _PersonFromLeftJoin(CloningVisitor):
+    def __init__(self) -> None:
         super().__init__()
-        self.person_id_from_event = person_id_from_event
+        self.reads_person = False
 
     def visit_field(self, node: ast.Field) -> ast.Field:
         if node.chain[:1] == ["person"]:
-            return ast.Field(chain=["poe", *node.chain[1:]])
-        if self.person_id_from_event and node.chain == ["person_id"]:
-            return ast.Field(chain=["poe", "id"])
+            self.reads_person = True
+            return ast.Field(chain=[_CURRENT_PERSON, *node.chain])
+        if node.chain == ["person_id"]:
+            self.reads_person = True
+            return ast.Field(chain=[_CURRENT_PERSON, "person_id"])
         return super().visit_field(node)
 
 
-def _passes_internal_users_filter(events: ChartEvents, team: Team) -> ast.Expr:
+def _passes_internal_users_filter(events: ChartEvents, team: Team) -> tuple[ast.Expr, ast.JoinExpr | None]:
     # An insight that applies the filter has already dropped the events it removes.
     if events.filters_test_accounts or not team.test_account_filters:
-        return ast.Constant(value=True)
-    # A persons join can drop the events that have no person, which the insight counts, so read the event's copy.
-    # Without persons on events, `person_id` also comes from that join.
-    person_from_event = _PersonFromEvent(
-        person_id_from_event=events.modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED
-    )
-    project_filter = person_from_event.visit(property_to_expr(team.test_account_filters, team))
+        return ast.Constant(value=True), None
+    project_filter = property_to_expr(team.test_account_filters, team)
+    person_join: ast.JoinExpr | None = None
+    # Without persons on events, the person comes from an inner join that drops the events with no person, which
+    # the insight counts. A left join on the same table reads the same person and keeps those events.
+    if events.modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
+        person_from_left_join = _PersonFromLeftJoin()
+        project_filter = person_from_left_join.visit(project_filter)
+        if person_from_left_join.reads_person:
+            person_join = ast.JoinExpr(
+                join_type="LEFT JOIN",
+                table=ast.Field(chain=["person_distinct_ids"]),
+                alias=_CURRENT_PERSON,
+                constraint=ast.JoinConstraint(
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=[_CURRENT_PERSON, "distinct_id"]),
+                        right=ast.Field(chain=[events.alias or "events", "distinct_id"]),
+                    ),
+                    constraint_type="ON",
+                ),
+            )
     # The insight's own WHERE drops an event whose filter is NULL, so NULL counts as removed.
-    return ast.Call(name="ifNull", args=[project_filter, ast.Constant(value=False)])
+    return ast.Call(name="ifNull", args=[project_filter, ast.Constant(value=False)]), person_join
 
 
 def _internal_users_match(
@@ -376,8 +398,10 @@ def _internal_users_match(
         return Skipped(reason=InsightDataCheckSkipReason.HIDDEN_PROPERTY)
 
     team_emails = team_emails_of(reader.team, reader.user, email_access)
+    passes_filter, person_join = _passes_internal_users_filter(events, reader.team)
     return _InternalUsersMatch(
-        passes_filter=_passes_internal_users_filter(events, reader.team),
+        passes_filter=passes_filter,
+        person_join=person_join,
         is_team_email=parse_expr(
             _IS_TEAM_EMAIL, placeholders={"team_email_pattern": ast.Constant(value=team_email_pattern(team_emails))}
         ),
@@ -397,6 +421,8 @@ def _count_every_event(
         passes_filter=match.passes_filter,
         is_team_email=match.is_team_email,
     )
+    if match.person_join is not None:
+        cast(ast.JoinExpr, query.select_from).next_join = match.person_join
     rows = reader.rows_within_limits(
         query, query_type="insight_data_checks_counted", max_bytes_read_per_shard=MAX_BYTES_READ_PER_SHARD
     )
