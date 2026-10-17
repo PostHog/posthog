@@ -1720,6 +1720,8 @@ export class CdpApi {
                     valid: result.valid,
                     team_id: result.team_id,
                     identifier: result.identifier,
+                    app_source_id: result.app_source_id,
+                    instance_id: result.instance_id,
                 })
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)
