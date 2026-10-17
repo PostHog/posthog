@@ -96,6 +96,10 @@ export interface AlertSimulationResult extends Pick<
     anomaly_count: number
     sub_detector_scores?: SubDetectorScores[]
     breakdown_results?: BreakdownSimulationResult[]
+    /** AI detector only: the model's reason for its verdict on the latest point. */
+    rationale?: string
+    /** AI detector only: the shape the model saw at the latest point. */
+    kind?: string | null
 }
 
 export interface AnomalyPoint {

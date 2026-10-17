@@ -413,7 +413,7 @@ class TestUpsertAlertTool(BaseTest):
     async def test_update_rejects_enabling_an_ai_alert_over_the_team_cap(self, _name, stale_enabled, _flag):
         # Max is a second writer of alerts, so it must apply the same AI-alert cap as the API.
         insight = await self._create_insight()
-        llm_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        llm_config = {"type": "llm"}
         active = await self._create_alert(insight, name="Active")
         disabled = await self._create_alert(insight, name="Disabled", enabled=stale_enabled, lower_threshold=100.0)
         await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id__in=[active.id, disabled.id]).update)(
@@ -450,9 +450,7 @@ class TestUpsertAlertTool(BaseTest):
     async def test_update_rejects_invalid_ai_configuration(self, _name, already_enabled, _flag):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, enabled=already_enabled)
-        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(
-            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
-        )
+        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(detector_config={"type": "llm"})
         tool = self._setup_tool()
         check_access = tool.check_object_access
 
@@ -481,9 +479,7 @@ class TestUpsertAlertTool(BaseTest):
     async def test_update_validates_the_threshold_the_edit_would_leave_behind(self, _flag):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, enabled=True)
-        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(
-            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
-        )
+        await AlertConfiguration.objects.filter(team=self.team, id=alert.id).aupdate(detector_config={"type": "llm"})
         tool = self._setup_tool()
 
         content, artifact = await tool._arun_impl(
@@ -503,7 +499,7 @@ class TestUpsertAlertTool(BaseTest):
         insight = await self._create_insight()
         disabled = await self._create_alert(insight, name="Disabled", enabled=False)
         await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=disabled.id).update)(
-            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+            detector_config={"type": "llm"}
         )
         tool = self._setup_tool()
 
@@ -525,7 +521,7 @@ class TestUpsertAlertTool(BaseTest):
         disabled = await self._create_alert(insight, name="Disabled", enabled=False)
         creator = await sync_to_async(User.objects.create_and_join)(self.organization, "creator@posthog.com", None)
         await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=disabled.id).update)(
-            detector_config={"type": "llm", "threshold": 0.7, "window": 90}, created_by=creator
+            detector_config={"type": "llm"}, created_by=creator
         )
         tool = self._setup_tool()
 
@@ -547,7 +543,7 @@ class TestUpsertAlertTool(BaseTest):
         insight = await self._create_insight()
         alert = await self._create_alert(insight, name="AI")
         await sync_to_async(AlertConfiguration.objects.filter(team=self.team, id=alert.id).update)(
-            detector_config={"type": "llm", "threshold": 0.7, "window": 90}
+            detector_config={"type": "llm"}
         )
         tool = self._setup_tool()
 

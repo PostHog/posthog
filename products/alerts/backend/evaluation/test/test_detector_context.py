@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -10,8 +11,16 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.alerts.backend.evaluation.contract import ComparableSeries, ExtractionResult, SeriesPoint
-from products.alerts.backend.evaluation.detector import evaluate_with_detector
-from products.alerts.backend.judge import JudgeAttribution, LLMDetectorMisconfiguredError, SeriesContext, SeriesJudgment
+from products.alerts.backend.evaluation.detector import _earlier_flags, evaluate_with_detector
+from products.alerts.backend.judge import (
+    EarlierFlag,
+    JudgeAttribution,
+    LLMDetectorMisconfiguredError,
+    SeriesContext,
+    SeriesJudgment,
+)
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.product_analytics.backend.facade.models import Insight
 
 TRENDS_QUERY = {
     "kind": "InsightVizNode",
@@ -37,11 +46,6 @@ class _RecordingJudge:
     ) -> SeriesJudgment | None:
         _RecordingJudge.seen.append((series, attribution))
         return _RecordingJudge.judgment
-
-    def judge_every_point(
-        self, data: np.ndarray, *, series: SeriesContext, attribution: JudgeAttribution
-    ) -> SeriesJudgment | None:
-        raise AssertionError("a live check judges the latest point only")
 
 
 # The judge only reads identity off these, so a mock avoids a Postgres round trip for a
@@ -75,14 +79,9 @@ def _extraction() -> ExtractionResult:
 def _judgment(**overrides: Any) -> SeriesJudgment:
     defaults: dict[str, Any] = {
         "fires": True,
-        "verdict_is_anomaly": True,
-        "confidence": 0.88,
         "kind": "drop",
         "rationale": "Signups fell to 12.",
         "model": "claude-sonnet-5",
-        "score": 0.88,
-        "triggered_indices": (4,),
-        "all_scores": (0.88,),
     }
     return SeriesJudgment(**{**defaults, **overrides})
 
@@ -90,12 +89,18 @@ def _judgment(**overrides: Any) -> SeriesJudgment:
 FIRING_JUDGMENT = _judgment()
 
 
+EARLIER_FLAGS = (EarlierFlag(date="2026-01-02", rationale="Signups spiked to 98."),)
+
+
 def _evaluate(
     detector_config: dict[str, Any], alert: Any = None, judgment: SeriesJudgment | None = FIRING_JUDGMENT
 ) -> Any:
     _RecordingJudge.seen = []
     _RecordingJudge.judgment = judgment
-    with patch("products.alerts.backend.evaluation.detector.LLMSeriesJudge", _RecordingJudge):
+    with (
+        patch("products.alerts.backend.evaluation.detector.LLMSeriesJudge", _RecordingJudge),
+        patch("products.alerts.backend.evaluation.detector._earlier_flags", return_value=EARLIER_FLAGS),
+    ):
         return evaluate_with_detector(
             _extraction(),
             detector_config,
@@ -115,12 +120,14 @@ class TestJudgePlumbing:
         assert series.insight_name == "Daily signups"
         assert series.instructions == "Only care about drops"
         assert "signed_up" in series.metric_description
+        assert series.earlier_flags == EARLIER_FLAGS
         assert attribution.team is FAKE_TEAM
         assert attribution.user is FAKE_USER
         assert attribution.evaluation_id == "workflow-run:activity"
 
     def test_the_description_covers_only_the_points_the_judge_is_shown(self) -> None:
-        _evaluate({"type": "llm", "window": 3})
+        with patch("products.alerts.backend.evaluation.detector.prompt_window", return_value=3):
+            _evaluate({"type": "llm"})
 
         series, _ = _RecordingJudge.seen[0]
         assert "2026-01-03 to 2026-01-05" in series.metric_description
@@ -148,22 +155,22 @@ class TestJudgePlumbing:
 
 class TestLLMVerdictReachesTheCheck:
     def test_rationale_is_in_the_breach_message_and_the_check_metadata(self) -> None:
-        result = _evaluate({"type": "llm", "threshold": 0.7})
+        result = _evaluate({"type": "llm"})
 
         assert result.breaches is not None
         assert "Signups fell to 12." in result.breaches[0]
         assert "using AI detector" in result.breaches[0]
-        # The model's number is its own stated confidence, so the message must not call it a probability.
-        assert "model confidence:" in result.breaches[0]
+        assert "confidence" not in result.breaches[0]
         assert "probability" not in result.breaches[0]
+        assert result.anomaly_scores is None
+        assert result.triggered_points == [4]
+        assert result.triggered_dates == ["2026-01-05"]
         assert result.triggered_metadata == {
             "detector_type": "llm",
             "series_index": 0,
             "insight_id": 42,
             "rationale": "Signups fell to 12.",
             "kind": "drop",
-            "verdict_is_anomaly": True,
-            "confidence": 0.88,
         }
 
     def test_a_series_too_short_to_judge_leaves_the_check_uncomputed(self) -> None:
@@ -191,7 +198,10 @@ class TestLLMVerdictReachesTheCheck:
 
         _RecordingJudge.seen = []
         _RecordingJudge.judgment = FIRING_JUDGMENT
-        with patch("products.alerts.backend.evaluation.detector.LLMSeriesJudge", _RecordingJudge):
+        with (
+            patch("products.alerts.backend.evaluation.detector.LLMSeriesJudge", _RecordingJudge),
+            patch("products.alerts.backend.evaluation.detector._earlier_flags", return_value=()),
+        ):
             evaluate_with_detector(
                 _extraction(),
                 {"type": "llm"},
@@ -202,3 +212,28 @@ class TestLLMVerdictReachesTheCheck:
         series, _ = _RecordingJudge.seen[0]
         assert 'Alerted values: column "failures"' in series.metric_description
         assert "the rows were reversed, so the last value is the latest" in series.metric_description
+
+
+class TestEarlierFlags(BaseTest):
+    def test_only_earlier_ai_checks_that_fired_without_error_are_read(self) -> None:
+        insight = Insight.objects.create(team=self.team, query=TRENDS_QUERY)
+        alert, other_alert = (
+            AlertConfiguration.objects.create(
+                team=self.team, insight=insight, created_by=self.user, detector_config={"type": "llm"}
+            )
+            for _ in range(2)
+        )
+
+        def check(target: AlertConfiguration, dates: list[str] | None, **fields: Any) -> None:
+            metadata = fields.pop("metadata", {"detector_type": "llm", "rationale": f"Flagged {dates}."})
+            AlertCheck.objects.create(
+                alert_configuration=target, triggered_dates=dates, triggered_metadata=metadata, **fields
+            )
+
+        check(alert, ["2026-01-02"])
+        check(alert, ["2026-01-03"], metadata={"detector_type": "zscore"})
+        check(alert, ["2026-01-04"], error={"message": "boom"})
+        check(alert, None)
+        check(other_alert, ["2026-01-05"])
+
+        assert _earlier_flags(alert.id) == (EarlierFlag(date="2026-01-02", rationale="Flagged ['2026-01-02']."),)

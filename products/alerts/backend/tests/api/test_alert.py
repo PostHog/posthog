@@ -2621,7 +2621,7 @@ class TestAlertAPIKeyAccess(TrendsInsightAPITest):
 
         cache.clear()
         endpoint = f"/api/projects/{self.team.id}/alerts/simulate/"
-        detector_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        detector_config = {"type": "llm"}
         payload = {
             "insight": self.insight["id"],
             "detector_config": json.dumps(detector_config) if request_format == "multipart" else detector_config,
@@ -2951,7 +2951,8 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             ),
             ("instructions_too_long", {"type": "llm", "instructions": "x" * 2001}, "characters or fewer"),
             ("instructions_not_text", {"type": "llm", "instructions": 5}, "must be text"),
-            ("window_too_long", {"type": "llm", "window": 401}, "between 5 and 400"),
+            ("removed_threshold", {"type": "llm", "threshold": 0.7}, "Invalid detector configuration"),
+            ("removed_window", {"type": "llm", "window": 90}, "Invalid detector configuration"),
         ]
     )
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
@@ -2969,7 +2970,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     )
     def test_rejected_when_flag_is_off(self, _name, flag_value, expected_status, expected_message) -> None:
         with mock.patch("posthoganalytics.feature_enabled", return_value=flag_value):
-            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+            response = self._create({"type": "llm"})
 
         assert response.status_code == expected_status, response.content
         assert expected_message in response.json()["detail"]
@@ -2991,18 +2992,18 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
     def test_flag_off_allows_edits_and_disabling_but_blocks_reenabling(self) -> None:
         with mock.patch("posthoganalytics.feature_enabled", return_value=True):
-            created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+            created = self._create({"type": "llm"})
         assert created.status_code == status.HTTP_201_CREATED, created.content
         endpoint = f"/api/projects/{self.team.id}/alerts/{created.json()['id']}"
 
         with mock.patch("posthoganalytics.feature_enabled", return_value=False):
             edited = self.client.patch(
                 endpoint,
-                {"name": "Renamed", "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+                {"name": "Renamed", "detector_config": {"type": "llm"}},
             )
             disabled = self.client.patch(
                 endpoint,
-                {"enabled": False, "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+                {"enabled": False, "detector_config": {"type": "llm"}},
             )
             reenabled = self.client.patch(endpoint, {"enabled": True})
 
@@ -3016,7 +3017,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         self.organization.is_ai_data_processing_approved = False
         self.organization.save()
 
-        response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        response = self._create({"type": "llm"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "AI data processing is turned off" in response.json()["detail"]
@@ -3024,7 +3025,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     @parameterized.expand([("create", False), ("concurrent_interval_change", True)])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_rejected_on_the_real_time_cadence(self, _name, concurrent_change, _flag) -> None:
-        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        config = {"type": "llm"}
         if concurrent_change:
             created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
             assert created.status_code == status.HTTP_201_CREATED, created.content
@@ -3059,7 +3060,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_rejected_for_a_breakdown_insight(self, _name, concurrent_change, _flag) -> None:
         breakdown_insight = self._create_breakdown_insight()
-        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        config = {"type": "llm"}
         if _name == "concurrent_create_query_change":
             create = AlertSerializer.create
 
@@ -3096,12 +3097,10 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "does not support breakdown insights" in response.json()["detail"]
 
-    @parameterized.expand(
-        [("instructions", "Only care about drops"), ("threshold", 0.9), ("window", 30), ("window", 90)]
-    )
+    @parameterized.expand([("instructions", "Only care about drops"), ("instructions", "Only drops")])
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_detector_edits_reset_state_and_schedule(self, field, value, _flag) -> None:
-        config = {"type": "llm", "threshold": 0.7, "window": 90}
+        config = {"type": "llm", "instructions": "Only drops"}
         created = self._create(config, calculation_interval="monthly")
         assert created.status_code == status.HTTP_201_CREATED, created.content
         scheduled_check = datetime.now(UTC) + timedelta(days=20)
@@ -3139,7 +3138,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
-            {"insight": breakdown_insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            {"insight": breakdown_insight["id"], "detector_config": {"type": "llm"}},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
@@ -3156,7 +3155,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             return True
 
         with mock.patch(lock, side_effect=delete_then_lock):
-            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+            response = self._create({"type": "llm"})
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
         assert "was deleted" in response.json()["detail"]
@@ -3164,7 +3163,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_created_with_instructions_stripped(self, _flag) -> None:
-        response = self._create({"type": "llm", "threshold": 0.7, "window": 90, "instructions": "  only drops  "})
+        response = self._create({"type": "llm", "instructions": "  only drops  "})
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         alert = AlertConfiguration.objects.get(id=response.json()["id"])
@@ -3174,28 +3173,28 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     @mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1)
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_blocks_a_second_enabled_alert(self, _flag, _cap) -> None:
-        first = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        first = self._create({"type": "llm"})
         assert first.status_code == status.HTTP_201_CREATED, first.content
 
-        second = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        second = self._create({"type": "llm"})
         assert second.status_code == status.HTTP_400_BAD_REQUEST, second.content
         assert "1 of 1 alerts using the AI detector" in second.json()["detail"]
 
         # A disabled one never runs, so it costs nothing and is allowed.
-        disabled = self._create({"type": "llm", "threshold": 0.7, "window": 90}, enabled=False)
+        disabled = self._create({"type": "llm"}, enabled=False)
         assert disabled.status_code == status.HTTP_201_CREATED, disabled.content
 
     @mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1)
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_still_lets_you_edit_the_alert_at_the_cap(self, _flag, _cap) -> None:
-        created = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+        created = self._create({"type": "llm"})
         assert created.status_code == status.HTTP_201_CREATED, created.content
 
         # An edit that cannot add an AI alert must not take the team's cap lock either.
         with mock.patch("products.alerts.backend.llm_detector_limits.lock_llm_alert_limit") as lock:
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/alerts/{created.json()['id']}",
-                {"detector_config": {"type": "llm", "threshold": 0.8, "window": 90}},
+                {"detector_config": {"type": "llm", "instructions": "Only drops"}},
             )
 
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -3210,7 +3209,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
             mock.patch("products.alerts.backend.llm_detector_limits.lock_llm_alert_limit", order.lock, create=True),
         ):
             order.cap.return_value = 5
-            response = self._create({"type": "llm", "threshold": 0.7, "window": 90})
+            response = self._create({"type": "llm"})
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert [call[0] for call in order.mock_calls[:2]] == ["cap", "lock"]
@@ -3218,15 +3217,15 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_per_team_cap_lowered_below_the_count_still_lets_you_edit_but_not_enable(self, _flag) -> None:
         with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=2):
-            first = self._create({"type": "llm", "threshold": 0.7, "window": 90})
-            second = self._create({"type": "llm", "threshold": 0.7, "window": 90}, name="second")
-            disabled = self._create({"type": "llm", "threshold": 0.7, "window": 90}, enabled=False)
+            first = self._create({"type": "llm"})
+            second = self._create({"type": "llm"}, name="second")
+            disabled = self._create({"type": "llm"}, enabled=False)
         assert {first.status_code, second.status_code, disabled.status_code} == {status.HTTP_201_CREATED}
 
         with mock.patch("products.alerts.backend.llm_detector_limits.max_llm_alerts_per_team", return_value=1):
             renamed = self.client.patch(
                 f"/api/projects/{self.team.id}/alerts/{first.json()['id']}",
-                {"name": "Renamed", "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+                {"name": "Renamed", "detector_config": {"type": "llm"}},
             )
             enabled = self.client.patch(
                 f"/api/projects/{self.team.id}/alerts/{disabled.json()['id']}",
@@ -3241,7 +3240,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     def test_simulate_is_gated_by_the_same_flag(self, _flag) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
-            {"insight": self.insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            {"insight": self.insight["id"], "detector_config": {"type": "llm"}},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
@@ -3255,7 +3254,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     def test_simulate_reports_a_model_outage_as_503_not_500(self, _flag, _simulate) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/alerts/simulate",
-            {"insight": self.insight["id"], "detector_config": {"type": "llm", "threshold": 0.7, "window": 90}},
+            {"insight": self.insight["id"], "detector_config": {"type": "llm"}},
         )
 
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE, response.content
@@ -3306,20 +3305,25 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
                 }
             ]
         )
-        ask.return_value = LLMDetectionVerdict(
-            is_anomaly=False, confidence=0.9, kind="none", rationale="Expected range."
-        )
+        ask.return_value = LLMDetectionVerdict(is_anomaly=True, kind="drop", rationale="Pageviews stay low at 15.")
         with mock.patch("products.alerts.backend.presentation.views.alert.is_impersonated", return_value=impersonated):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/alerts/simulate",
-                {"insight": self.insight["id"], "detector_config": {"type": "llm", "window": 5}},
+                {"insight": self.insight["id"], "detector_config": {"type": "llm"}},
             )
         assert response.status_code == status.HTTP_200_OK, response.content
+        # A preview is one live check of the latest point, not a scan over the history.
+        ask.assert_called_once()
         assert ask.call_args.kwargs["attribution"].is_agent_billable is (not impersonated)
+        body = response.json()
+        assert body["triggered_indices"] == [5]
+        assert body["triggered_dates"] == ["2026-01-06"]
+        assert body["rationale"] == "Pageviews stay low at 15."
+        assert body["kind"] == "drop"
+        assert body["scores"] == [None] * 6
         series = ask.call_args.kwargs["series"]
-        # Seven points, the incomplete last one dropped, then only the 5-point window is described.
-        assert "2026-01-02 to 2026-01-06" in series.metric_description
-        assert "2026-01-01" not in series.metric_description
+        # Seven points, the incomplete last one dropped.
+        assert "2026-01-01 to 2026-01-06" in series.metric_description
         assert "-1d" not in series.metric_description
 
     @parameterized.expand(
@@ -3336,7 +3340,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     ) -> None:
         cache.clear()
         endpoint = f"/api/projects/{self.team.id}/alerts/simulate"
-        detector_config = {"type": "llm", "threshold": 0.7, "window": 90}
+        detector_config = {"type": "llm"}
         payload = {
             "insight": self.insight["id"],
             # A form-encoded body carries the config as a JSON string, which must throttle too.

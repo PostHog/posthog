@@ -397,7 +397,7 @@ class TestPrepareAlert:
             interval=IntervalType.DAY,
             trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
         ).model_dump()
-        a = await _create_alert(ateam, query=query, detector_config={"type": "llm", "threshold": 0.7, "window": 90})
+        a = await _create_alert(ateam, query=query, detector_config={"type": "llm"})
 
         env = ActivityEnvironment()
         result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))

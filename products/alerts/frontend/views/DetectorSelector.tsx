@@ -29,9 +29,6 @@ import {
 
 import {
     DEFAULT_ANOMALY_DETECTION_THRESHOLD,
-    DEFAULT_LLM_DETECTION_CONFIDENCE,
-    DEFAULT_LLM_DETECTOR_WINDOW,
-    MAX_LLM_DETECTOR_WINDOW,
     getDefaultLLMDetectorConfig,
     getDefaultZScoreDetectorConfig,
     getDefaultWindow,
@@ -153,7 +150,7 @@ function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorC
             preprocessing: { diffs_n: 1 },
         },
         iqr: { type: 'iqr', multiplier: 1.5, window },
-        llm: getDefaultLLMDetectorConfig(window),
+        llm: getDefaultLLMDetectorConfig(),
         threshold: { type: 'threshold' },
         ecod: { type: 'ecod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
         copod: { type: 'copod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
@@ -516,7 +513,6 @@ function SingleDetectorConfigSection({
                 <LLMConfig
                     config={config as LLMDetectorConfig}
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
-                    calculationInterval={calculationInterval}
                 />
             )}
             {/* The AI detector reads the series as it is, so it has no preprocessing to configure:
@@ -534,11 +530,9 @@ function SingleDetectorConfigSection({
 function LLMConfig({
     config,
     onChange,
-    calculationInterval,
 }: {
     config: LLMDetectorConfig
     onChange: (config: DetectorConfig) => void
-    calculationInterval?: AlertCalculationInterval
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
@@ -557,37 +551,9 @@ function LLMConfig({
                     placeholder='For example: "Only tell me about drops" or "Weekends are always quiet, ignore that"'
                 />
             </div>
-            <div>
-                <Label
-                    text="Confidence to alert"
-                    tooltip="How sure the model has to be before you get an alert (0-1). Higher values mean fewer alerts."
-                />
-                <LemonInput
-                    aria-label="Confidence to alert"
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    value={config.threshold ?? DEFAULT_LLM_DETECTION_CONFIDENCE}
-                    onChange={(val) =>
-                        onChange({
-                            ...config,
-                            threshold: val == null ? DEFAULT_LLM_DETECTION_CONFIDENCE : parseFloat(String(val)),
-                        })
-                    }
-                />
-            </div>
-            <WindowSizeInput
-                config={config}
-                onChange={onChange}
-                calculationInterval={calculationInterval}
-                max={MAX_LLM_DETECTOR_WINDOW}
-                defaultWindow={DEFAULT_LLM_DETECTOR_WINDOW}
-                tooltip="How many recent data points the model is shown. Larger gives it more history to compare against, and costs more per check."
-            />
             <p className="text-xs text-muted">
-                Each check sends the recent values and a chart of them to an AI model, which is slower and costs more
-                than the statistical detectors.
+                Each check asks an AI model whether the latest value is unusual, given its recent history and the points
+                this alert flagged before. This is slower and costs more than the statistical detectors.
             </p>
         </div>
     )
@@ -897,27 +863,23 @@ function WindowSizeInput({
     config,
     onChange,
     calculationInterval,
-    max = 1000,
-    defaultWindow,
-    tooltip = 'Number of historical data points used to calculate the baseline. Larger = more stable, smaller = more responsive.',
 }: {
     config: { window?: number }
     onChange: (config: SingleDetectorConfig) => void
     calculationInterval?: AlertCalculationInterval
-    max?: number
-    defaultWindow?: number
-    /** Override when the window does not describe a training baseline (the AI detector reads the points). */
-    tooltip?: string
 }): JSX.Element {
-    const defWindow = defaultWindow ?? getDefaultWindow(calculationInterval)
+    const defWindow = getDefaultWindow(calculationInterval)
     return (
         <div>
-            <Label text="Window size" tooltip={tooltip} />
+            <Label
+                text="Window size"
+                tooltip="Number of historical data points used to calculate the baseline. Larger = more stable, smaller = more responsive."
+            />
             <LemonInput
                 aria-label="Window size"
                 type="number"
                 min={5}
-                max={max}
+                max={1000}
                 step={5}
                 value={config.window ?? defWindow}
                 onChange={(val) =>

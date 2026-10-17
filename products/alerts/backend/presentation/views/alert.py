@@ -82,7 +82,6 @@ from products.alerts.backend.evaluation.validation import (
 )
 from products.alerts.backend.facade.api import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
-    MAX_PROMPT_POINTS,
     LLMAlertWrite,
     LLMDetectorError,
     LLMDetectorUnavailableError,
@@ -288,8 +287,6 @@ def _validate_detector_params(config: dict) -> None:
     value of the wrong type is left for the schema.
     """
     for param, (min_val, max_val, label) in _DETECTOR_PARAM_RANGES.items():
-        if param == "window" and config.get("type") == DetectorType.LLM.value:
-            max_val = MAX_PROMPT_POINTS
         val = _as_number(config.get(param))
         if val is not None and (val < min_val or val > max_val):
             raise ValidationError(f"{label} must be between {min_val} and {max_val}.")
@@ -1264,6 +1261,13 @@ class AlertSimulateSerializer(serializers.Serializer):
         help_text="Per-insight-kind alert config. For SQL insights, selects the evaluated column and "
         "read direction (last_row/first_row) so the preview matches the alert; ignored for trends.",
     )
+    alert = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="ID of the saved alert this preview is for. The AI detector reads the points that the "
+        "alert's earlier AI checks fired on, the same way a live check does. Omit it for a new alert.",
+    )
 
     def validate_insight(self, value):
         _require_insight_viewer_access(self.context, value)
@@ -1324,8 +1328,7 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.FloatField(allow_null=True),
         help_text=(
             "Score for each point. Null can mean insufficient data or a valid unscored point. "
-            "AI previews report model confidence only for points flagged by an anomaly verdict; "
-            "all other points are null, including every point in a normal verdict."
+            "The AI detector has no score, so every point is null in an AI preview."
         ),
     )
     triggered_indices = serializers.ListField(
@@ -1343,6 +1346,15 @@ class AlertSimulateResponseSerializer(serializers.Serializer):
         child=serializers.DictField(),
         required=False,
         help_text="Per-sub-detector scores for ensemble detectors. Each entry has 'type' and 'scores' fields.",
+    )
+    rationale = serializers.CharField(
+        required=False,
+        help_text="AI detector only: the model's reason for its verdict on the latest point.",
+    )
+    kind = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="AI detector only: the shape the model saw at the latest point, or 'none'.",
     )
     breakdown_results = BreakdownSimulationResultSerializer(
         many=True,
@@ -1863,6 +1875,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         series_index = serializer.validated_data["series_index"]
         date_from = serializer.validated_data.get("date_from")
         config = serializer.validated_data.get("config")
+        alert_id = serializer.validated_data.get("alert")
+        if alert_id is not None and not AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id).exists():
+            raise ValidationError({"alert": ["Alert not found."]})
 
         try:
             result = simulate_detector_on_insight(
@@ -1875,6 +1890,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 config=config,
                 is_agent_billable=not is_impersonated(request),
                 evaluation_delay_intervals=serializer.validated_data["evaluation_delay_intervals"],
+                alert_id=alert_id,
             )
         except (ValueError, IndexError, AlertExtractionError, DelayedEvaluationUnavailable) as e:
             raise ValidationError(str(e))
