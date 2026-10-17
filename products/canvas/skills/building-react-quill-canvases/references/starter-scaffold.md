@@ -39,7 +39,8 @@ import {
 } from '@posthog/quill'
 import { RefreshCw } from 'lucide-react'
 import { editable, ph } from '@posthog/canvas-sdk'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { TimeSeriesLineChart, useChartTheme } from '@posthog/quill-charts'
+import dayjs from 'dayjs'
 
 // One builder per query feeds both the ph.query call and its "View query"
 // dialog, so the query a viewer inspects is exactly the one that ran. Typed
@@ -149,13 +150,14 @@ function NumberCard(props) {
 }
 
 function TrendCard(props) {
-  const { title = 'Over time', color = 'var(--primary)', height = 280, state, onRetry, query } = props
+  const { title = 'Over time', color, height = 280, state, onRetry, query } = props
+  const theme = useChartTheme()
   return (
     <Card
       size="sm"
       {...editable('TrendCard', props, {
         title: { type: 'text', label: 'Title', default: 'Over time' },
-        color: { type: 'color', label: 'Line color', default: 'var(--primary)' },
+        color: { type: 'color', label: 'Line color' },
         height: { type: 'number', label: 'Chart height', min: 160, max: 520, step: 20, default: 280 },
       })}
     >
@@ -171,16 +173,14 @@ function TrendCard(props) {
         ) : state.error ? (
           <CardError message={state.error} onRetry={onRetry} />
         ) : (
-          <div className="w-full" style={{ height }}>
-            <ResponsiveContainer>
-              <LineChart data={state.data.series}>
-                <CartesianGrid stroke="var(--border)" strokeDasharray="3 3" />
-                <XAxis dataKey="day" stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
-                <YAxis stroke="var(--muted-foreground)" tick={{ fontSize: 12 }} />
-                <Tooltip />
-                <Line type="monotone" dataKey="value" stroke={color} dot={false} strokeWidth={2} />
-              </LineChart>
-            </ResponsiveContainer>
+          // A chart fills its parent, so the parent is a flex column with a fixed height.
+          <div className="flex w-full flex-col" style={{ height }}>
+            <TimeSeriesLineChart
+              theme={theme}
+              labels={state.data.series.map((point) => point.day)}
+              series={[{ key: 'value', label: title, color, data: state.data.series.map((point) => point.value) }]}
+              config={{ xAxis: { interval: 'day', tickFormatter: (day) => dayjs(day).format('MMM D') } }}
+            />
           </div>
         )}
       </CardContent>
@@ -274,7 +274,6 @@ export default function Canvas() {
 
       <TrendCard
         title="Events over time"
-        color="var(--primary)"
         height={280}
         state={events}
         onRetry={retry}

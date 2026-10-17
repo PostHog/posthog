@@ -47,7 +47,7 @@ from posthog.storage import object_storage
 
 from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
-from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
+from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits, platform_dependencies
 from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
@@ -1091,7 +1091,12 @@ def run_canvas_build(team_id: int, build_id: str) -> None:
 
     project_files = dict(project["files"])
     project_files.setdefault(project.get("entryHtml", "index.html"), SYNTHETIC_INDEX_HTML)
-    project = {**project, "files": project_files}
+    project = {
+        **project,
+        "files": project_files,
+        # A project declares only the platform dependencies that existed when it was created.
+        "dependencies": {**platform_dependencies(), **(project.get("dependencies") or {})},
+    }
     try:
         result = run_cloud_builder(project)
         if result.get("status") != "ready":

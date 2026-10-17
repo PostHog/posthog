@@ -139,7 +139,7 @@ export default function WelcomeChecklist() {
 ## The rules the example encodes
 
 - One file, one `export default` React component, no props, no `createRoot` — the host mounts it.
-- Imports only from the platform allowlist (`react`, `@posthog/quill`, `lucide-react`, `recharts`, `dayjs`).
+- Imports only from the platform allowlist (`react`, `@posthog/quill`, `@posthog/quill-charts`, `lucide-react`, `dayjs`).
 - `ph` is a host-injected global — never import it, and feature-detect optional surfaces like `ph.state` so the widget degrades instead of crashing on an older runtime.
 - Loading state renders a skeleton, never a blank; every async access has a `.catch` that lands in a renderable state.
 - Fill the placement iframe viewport with `min-h-screen` and let the iframe document scroll.

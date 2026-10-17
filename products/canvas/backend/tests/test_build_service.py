@@ -15,6 +15,7 @@ from posthog.models.scoping import team_scope
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.canvas.backend import build_service, notebook_integration
+from products.canvas.backend.contract import platform_dependencies
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import synthetic_source_project
 from products.canvas.backend.tests.test_canvas_api import InMemoryStorage
@@ -89,6 +90,26 @@ class TestRunCanvasBuild(BuildServiceBaseTest):
         assert self.canvas.published_build_id == build.id
         entry_key = f"{build.artifact_object_prefix}/index.html"
         assert self.storage.objects[entry_key] == b"<html></html>"
+
+    def test_build_admits_platform_dependencies_the_project_predates(self):
+        project = synthetic_source_project('import { Sparkline } from "@posthog/quill-charts"')
+        project["dependencies"] = {"react": "19.0.0"}
+        _, _, build, _ = build_service.publish_source_project(
+            self.canvas,
+            project=project,
+            prompt=None,
+            name=None,
+            has_expected_version=False,
+            expected_version_id=None,
+            task_id=None,
+            created_by=None,
+        )
+        with patch.object(
+            build_service, "run_cloud_builder", return_value=_builder_result({"index.html": "<html></html>"})
+        ) as builder:
+            build_service.run_canvas_build(self.team.id, str(build.id))
+
+        assert builder.call_args.args[0]["dependencies"] == platform_dependencies()
 
     def test_draft_build_ready_does_not_advance_pointer(self):
         published = self._publish()
