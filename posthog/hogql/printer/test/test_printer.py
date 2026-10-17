@@ -1974,6 +1974,26 @@ class TestPrinter(BaseTest):
             prepare_and_print_ast(parse_select("SELECT sha1('abc')"), context, "postgres")
         assert str(exc.value) == expected_error
 
+    @parameterized.expand(
+        [
+            (
+                "dateAdd('hour', 24, timestamp)",
+                "plus(toTimeZone(events.timestamp, %(hogql_val_0)s), toIntervalHour(24))",
+            ),
+            ("dateSub('DAY', 2, timestamp)", "minus(toTimeZone(events.timestamp, %(hogql_val_0)s), toIntervalDay(2))"),
+            (
+                "dateAdd(timestamp, toIntervalHour(24))",
+                "dateAdd(toTimeZone(events.timestamp, %(hogql_val_0)s), toIntervalHour(24))",
+            ),
+        ]
+    )
+    def test_date_add_and_sub(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand([("dateAdd('fortnight', 1, timestamp)",), ("dateSub(event, 1, timestamp)",)])
+    def test_date_add_and_sub_reject_unknown_unit(self, expr: str):
+        self._assert_query_error(f"SELECT {expr} FROM events", "needs a constant unit")
+
     def test_functions(self):
         context = HogQLContext(team_id=self.team.pk)  # inline values
 
