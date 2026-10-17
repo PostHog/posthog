@@ -46,6 +46,7 @@ import { template as redditAdsTemplate } from './_destinations/reddit_ads/reddit
 import { template as retainTemplate } from './_destinations/retain/retain.template'
 import { template as slackTemplate } from './_destinations/slack/slack.template'
 import { template as snapchatAdsTemplate } from './_destinations/snapchat_ads/snapchat.template'
+import { template as telegramTemplate } from './_destinations/telegram/telegram.template'
 import { template as tiktokAdsTemplate } from './_destinations/tiktok_ads/tiktok.template'
 import { template as twilioTemplate } from './_destinations/twilio/twilio.template'
 import { template as unifyTemplate } from './_destinations/unify/unify.template'
@@ -98,6 +99,7 @@ export const HOG_FUNCTION_TEMPLATES_DESTINATIONS: HogFunctionTemplate[] = [
     pinterestAdsTemplate,
     twilioTemplate,
     whatsappTemplate,
+    telegramTemplate,
     googleSheetsTemplate,
     googleTagManagerTemplate,
     emailTemplate,
