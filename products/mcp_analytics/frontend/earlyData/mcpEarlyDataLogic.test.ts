@@ -68,7 +68,7 @@ describe('mcpEarlyDataLogic', () => {
         await expectLogic(logic, change).toDispatchActions(['loadOverviewSuccess'])
 
         expect(overviewMock).toHaveBeenCalledTimes(1)
-        expect(overviewMock.mock.calls[0][1]).toMatchObject(expectedParams)
+        expect(overviewMock.mock.calls[0][1]).toMatchObject({ ...expectedParams, summary_only: true })
         expect(logic.values.activityQuery.source).toMatchObject(expectedQuery)
     })
 })

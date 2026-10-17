@@ -844,6 +844,11 @@ class TestActivityOverview(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin
         assert overview.recent_calls[1].duration_ms == 120.0
         assert overview.recent_calls[1].intent == "check signups"
 
+        summary = api.get_activity_overview(self.team, summary_only=True)
+
+        assert (summary.stats, summary.top_tools) == (overview.stats, overview.top_tools)
+        assert (summary.clients, summary.recent_calls) == ([], [])
+
     def _emit_call(self, properties: dict[str, Any], count: int = 1) -> None:
         for _ in range(count):
             _create_event(
