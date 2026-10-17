@@ -11,6 +11,7 @@ TODAY_RAIL_NAV_FLAG = "today-rail-nav"
 TODAY_REPORT_JEV_FLAG = "today-report-jev"
 TODAY_PULSE_RANKING_FLAG = "today-pulse-ranking"
 FRECENCY_RANKING = "frecency"
+RECENCY_RANKING = "recency"
 CONTROL_RANKING = "control"
 
 
@@ -53,7 +54,7 @@ def pulse_ranking(user: User, team: Team) -> str:
         person_properties={"email": user.email},
         send_feature_flag_events=False,
     )
-    return FRECENCY_RANKING if variant == FRECENCY_RANKING else CONTROL_RANKING
+    return variant if variant in (FRECENCY_RANKING, RECENCY_RANKING) else CONTROL_RANKING
 
 
 def may_ask_jev(user: User, team: Team) -> bool:
