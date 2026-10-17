@@ -3,6 +3,7 @@
 from posthog.schema import NativeMarketingSource
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 from ..constants import (
     INTEGRATION_DEFAULT_SOURCES,
@@ -72,6 +73,15 @@ class SnapchatAdsAdapter(MarketingSourceAdapter[SnapchatAdsConfig]):
             error_msg = f"Validation error: {str(e)}"
             self.logger.exception("Snapchat Ads validation failed", error=error_msg)
             return ValidationResult(is_valid=False, errors=[error_msg])
+
+    def _stats_date_field(self, table_name: str) -> ast.Expr:
+        # Snapchat stores `start_time` as an ISO string with the ad account's UTC offset, for example
+        # `2024-01-15T00:00:00.000+04:00`. `toDate` returns NULL for that string, which empties the
+        # precomputed cost rows. The first 10 characters are the reporting day in the account's timezone.
+        return parse_expr(
+            "toDate(substring(toString({start_time}), 1, 10))",
+            placeholders={"start_time": ast.Field(chain=[table_name, self._stats_date_column])},
+        )
 
     def _get_source_name_field(self) -> ast.Expr:
         return ast.Call(name="toString", args=[ast.Constant(value="snapchat")])
