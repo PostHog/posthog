@@ -76,7 +76,8 @@ export interface AgentServerConfig {
    * `X-PostHog-Service-Tier` header on every request to the Go gateway, which
    * writes it into the body itself.
    * Flex also permits the gateway's standard-tier fallback when capacity is
-   * unavailable, so a flex run can incur standard-tier charges.
+   * unavailable, so a flex run can incur standard-tier charges. The gateway
+   * holds each call on Flex for a short budget before that fallback.
    */
   serviceTier?: ServiceTier;
   contextWindow?: "200k" | "1m";
