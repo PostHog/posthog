@@ -525,6 +525,68 @@ class TestSavedQuery(APIBaseTest):
 
             mock_get_columns.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("type_is_list", [["event", ["Nullable(String)"]]]),
+            ("type_is_empty", [["event", ""]]),
+            ("name_is_not_string", [[1, "String"]]),
+            ("item_is_not_pair", [["event"]]),
+            ("types_is_not_list", "event String"),
+        ]
+    )
+    def test_create_rejects_malformed_types(self, _name, types):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                "types": types,
+            },
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "types"
+        assert not DataWarehouseSavedQuery.objects.filter(team=self.team, name="event_view").exists()
+
+    def test_update_rejects_malformed_types(self):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="event_view",
+            query={"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+            columns={"event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/{view.id}/",
+            {
+                "query": {"kind": "HogQLQuery", "query": "select event as event from events LIMIT 100"},
+                "types": [["event", ["String"]]],
+            },
+        )
+        assert response.status_code == 400, response.json()
+        view.refresh_from_db()
+        assert view.columns["event"]["clickhouse"] == "String"
+
+    def test_stored_malformed_column_type_does_not_break_project_queries(self):
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="broken_view",
+            query={"kind": "HogQLQuery", "query": "select event, 1 as n from events"},
+            columns={
+                "event": {"hogql": "StringDatabaseField", "clickhouse": ["Nullable(String)"], "valid": True},
+                "n": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+            },
+        )
+
+        list_response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/")
+        assert list_response.status_code == 200, list_response.json()
+        [view] = list_response.json()["results"]
+        assert [column["name"] for column in view["columns"]] == ["n"]
+
+        query_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {"query": {"kind": "HogQLQuery", "query": "select count() from events"}},
+        )
+        assert query_response.status_code == 200, query_response.json()
+
     def test_column_order_survives_postgres_roundtrip(self):
         # Columns are stored in a jsonb object, which does not preserve key insertion order. Names
         # are chosen so jsonb reorders them (by length then bytes -> a, mm, zebra) away from the
