@@ -46,7 +46,7 @@ export function TodaySidePanel(): JSX.Element | null {
             {activeTab && (
                 <>
                     <Resizer {...resizerLogicProps} visible={false} className="left-0 top-0 h-full" />
-                    <TodayContextPanelCard tab={activeTab} className="h-full" />
+                    <TodayContextPanelCard docked tab={activeTab} className="h-full" />
                 </>
             )}
         </div>

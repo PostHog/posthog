@@ -1,13 +1,19 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45, IconX } from '@posthog/icons'
-import { Button, CardHeader, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { IconExpand45, IconExternal, IconSidePanel, IconX } from '@posthog/icons'
+import { Button, CardHeader, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
 
 import { todayContextPanelLogic } from './todayContextPanelLogic'
+
+interface TodayContextPanelHeaderProps {
+    docked: boolean
+    /** Starts moving the floating panel. Left out when docked, since a docked panel doesn't move. */
+    onDragStart?: (event: React.PointerEvent<HTMLDivElement>) => void
+}
 
 function HeaderIconButton({
     label,
@@ -44,12 +50,18 @@ function HeaderIconButton({
     )
 }
 
-export function TodayContextPanelHeader(): JSX.Element {
-    const { activeTab, fullScreenUrl } = useValues(todayContextPanelLogic)
-    const { close, openFullScreen } = useActions(todayContextPanelLogic)
+export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPanelHeaderProps): JSX.Element {
+    const { activeTab, fullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
+    const { dock, undock, close, openFullScreen } = useActions(todayContextPanelLogic)
 
     return (
-        <CardHeader className="flex items-center gap-1 border-b border-border py-1.5 ps-1.5 pe-1.5">
+        <CardHeader
+            className={cn(
+                'flex items-center gap-1 border-b border-border py-1.5 ps-1.5 pe-1.5',
+                onDragStart && 'cursor-grab touch-none select-none active:cursor-grabbing'
+            )}
+            onPointerDown={onDragStart}
+        >
             <span className="flex h-7 min-w-0 items-center px-1.5 font-semibold">
                 <span className="truncate">{SIDE_PANEL_TABS[activeTab].label}</span>
             </span>
@@ -62,6 +74,17 @@ export function TodayContextPanelHeader(): JSX.Element {
                         render={<LinkPrimitive to={fullScreenUrl} />}
                     >
                         <IconExpand45 />
+                    </HeaderIconButton>
+                )}
+                {docked ? (
+                    canUndock && (
+                        <HeaderIconButton label="Undock" onClick={undock} dataAttr="today-context-panel-undock">
+                            <IconExternal />
+                        </HeaderIconButton>
+                    )
+                ) : (
+                    <HeaderIconButton label="Dock to the right" onClick={dock} dataAttr="today-context-panel-dock">
+                        <IconSidePanel />
                     </HeaderIconButton>
                 )}
                 <HeaderIconButton label="Close" onClick={close} dataAttr="today-context-panel-close">

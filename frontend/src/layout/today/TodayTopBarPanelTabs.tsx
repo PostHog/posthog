@@ -17,16 +17,17 @@ const TODAY_TAB_ICONS: Partial<Record<SidePanelTab, ComponentType>> = {
 }
 
 export function TodayTopBarPanelTabs(): JSX.Element {
-    const { panelTabs, activeTab, docked } = useValues(todayContextPanelLogic)
+    const { panelTabs, activeTab, docked, floatingOpen } = useValues(todayContextPanelLogic)
     const { togglePanelTab } = useActions(todayContextPanelLogic)
     const { unreadCount } = useValues(sidePanelNotificationsLogic)
+    const panelOpen = docked || floatingOpen
 
     return (
         <div className="flex items-center gap-0.5">
             {panelTabs.map((tab) => {
                 const { label: tabLabel } = SIDE_PANEL_TABS[tab]
                 const Icon = TODAY_TAB_ICONS[tab] ?? SIDE_PANEL_TABS[tab].Icon
-                const pressed = docked && activeTab === tab
+                const pressed = panelOpen && activeTab === tab
                 const label = pressed ? `Close ${tabLabel}` : tabLabel
                 const unread = tab === SidePanelTab.Activity ? unreadCount : 0
                 return (
