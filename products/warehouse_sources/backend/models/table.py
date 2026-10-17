@@ -691,6 +691,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def get_columns(
         self,
         safe_expose_ch_error: bool = True,
+        describe_staged_files: bool = False,
     ) -> DataWarehouseTableIntrospectedColumns:
         result: list[tuple[str, ...]] | None = None
         describe_settings = self._describe_settings()
@@ -698,9 +699,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         s3_table_func = build_function_call(
             url=self.url_pattern,
             queryable_folder=self.queryable_folder,
-            format="Delta"  # Use deltaLake() to get table schema for evolved tables
-            if self.format == "DeltaS3Wrapper"
-            else self.format,
+            # deltaLake() reads the schema of evolved tables. A snapshot model has no Delta log at its root,
+            # so its caller describes the staged parquet instead.
+            format="Delta" if self.format == "DeltaS3Wrapper" and not describe_staged_files else self.format,
             access_key=self.credential.access_key if self.credential else None,
             access_secret=self.credential.access_secret if self.credential else None,
             context=placeholder_context,
