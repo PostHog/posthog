@@ -16,6 +16,7 @@ Do NOT:
 """
 
 import asyncio
+import dataclasses
 from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 from enum import Enum
@@ -3201,8 +3202,12 @@ def _validate_account_table_definitions(
     selection: contracts.AccountTableColumnSelection,
     filters: tuple[contracts.AccountTableFilter, ...],
     sort: contracts.AccountTableSort | None,
-) -> dict[UUID, DisplayType]:
-    relationship_ids = set(selection.relationship_definition_ids)
+    drop_unknown_columns: bool = False,
+) -> tuple[dict[UUID, DisplayType], contracts.AccountTableColumnSelection, contracts.AccountTableSort | None]:
+    # Saved views keep columns for definitions deleted later. With drop_unknown_columns, those columns
+    # (and a sort on them) are dropped instead of failing the whole query. Unknown filters still fail.
+    relationship_column_ids = set(selection.relationship_definition_ids)
+    relationship_ids = set(relationship_column_ids)
     relationship_ids.update(
         filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableRelationshipFilter)
     )
@@ -3210,6 +3215,7 @@ def _validate_account_table_definitions(
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Relationship sorting requires a definition.")
         relationship_ids.add(sort.definition_id)
+    dropped_ids: set[UUID] = set()
     if relationship_ids:
         valid_relationship_ids = set(
             AccountRelationshipDefinition.objects.for_team(team_id)
@@ -3217,11 +3223,17 @@ def _validate_account_table_definitions(
             .values_list("id", flat=True)
         )
         invalid_relationship_ids = relationship_ids - valid_relationship_ids
+        if drop_unknown_columns:
+            dropped_ids.update(invalid_relationship_ids & relationship_column_ids)
+            invalid_relationship_ids -= dropped_ids
         if invalid_relationship_ids:
             invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_relationship_ids))
             raise InvalidAccountTableColumn(f"Unknown relationship definitions: {invalid_ids}")
 
-    custom_property_ids = set(selection.custom_property_definition_ids) | set(selection.custom_property_history_windows)
+    custom_property_column_ids = set(selection.custom_property_definition_ids) | set(
+        selection.custom_property_history_windows
+    )
+    custom_property_ids = set(custom_property_column_ids)
     custom_property_ids.update(
         filter_.definition_id for filter_ in filters if isinstance(filter_, contracts.AccountTableCustomPropertyFilter)
     )
@@ -3229,19 +3241,37 @@ def _validate_account_table_definitions(
         if sort.definition_id is None:
             raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
         custom_property_ids.add(sort.definition_id)
-    if not custom_property_ids:
-        return {}
 
-    custom_property_display_types = {
-        definition_id: DisplayType(display_type)
-        for definition_id, display_type in CustomPropertyDefinition.objects.for_team(team_id)
-        .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
-        .values_list("id", "display_type")
-    }
-    invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
-    if invalid_custom_property_ids:
-        invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_custom_property_ids))
-        raise InvalidAccountTableColumn(f"Unknown account custom property definitions: {invalid_ids}")
+    custom_property_display_types: dict[UUID, DisplayType] = {}
+    if custom_property_ids:
+        custom_property_display_types = {
+            definition_id: DisplayType(display_type)
+            for definition_id, display_type in CustomPropertyDefinition.objects.for_team(team_id)
+            .filter(id__in=custom_property_ids, target_type=TargetType.ACCOUNT)
+            .values_list("id", "display_type")
+        }
+        invalid_custom_property_ids = custom_property_ids - set(custom_property_display_types)
+        if drop_unknown_columns:
+            dropped_custom_property_ids = invalid_custom_property_ids & custom_property_column_ids
+            dropped_ids.update(dropped_custom_property_ids)
+            invalid_custom_property_ids -= dropped_custom_property_ids
+        if invalid_custom_property_ids:
+            invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in invalid_custom_property_ids))
+            raise InvalidAccountTableColumn(f"Unknown account custom property definitions: {invalid_ids}")
+
+    if dropped_ids:
+        selection = dataclasses.replace(
+            selection,
+            relationship_definition_ids=selection.relationship_definition_ids - dropped_ids,
+            custom_property_definition_ids=selection.custom_property_definition_ids - dropped_ids,
+            custom_property_history_windows={
+                definition_id: window_days
+                for definition_id, window_days in selection.custom_property_history_windows.items()
+                if definition_id not in dropped_ids
+            },
+        )
+        if sort and sort.definition_id in dropped_ids:
+            sort = None
 
     non_numeric_history_ids = {
         definition_id
@@ -3251,7 +3281,7 @@ def _validate_account_table_definitions(
     if non_numeric_history_ids:
         invalid_ids = ", ".join(sorted(str(definition_id) for definition_id in non_numeric_history_ids))
         raise InvalidAccountTableColumn(f"Custom property history requires numeric definitions: {invalid_ids}")
-    return custom_property_display_types
+    return custom_property_display_types, selection, sort
 
 
 LIFECYCLE_ACCOUNT_TABLE_FIELDS = frozenset(
@@ -3458,7 +3488,7 @@ def query_accounts_metrics(
         for metric in metrics
         if isinstance(metric, contracts.AccountTableAggregateMetric | contracts.AccountTableCountThresholdMetric)
     )
-    custom_property_display_types = _validate_account_table_definitions(
+    custom_property_display_types, _, _ = _validate_account_table_definitions(
         team_id=team_id,
         selection=contracts.AccountTableColumnSelection(custom_property_definition_ids=definition_ids),
         filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
@@ -3554,11 +3584,12 @@ def query_accounts_table(
     include_churned: bool = False,
     include_ignored: bool = False,
 ) -> contracts.AccountTablePage:
-    custom_property_display_types = _validate_account_table_definitions(
+    custom_property_display_types, selection, sort = _validate_account_table_definitions(
         team_id=team_id,
         selection=selection,
         filters=filters + tuple(filter_ for group in filter_groups for filter_ in group),
         sort=sort,
+        drop_unknown_columns=True,
     )
 
     queryset = _accounts_queryset(team_id, user_access_control)

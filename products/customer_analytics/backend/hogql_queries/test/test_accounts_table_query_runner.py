@@ -1180,8 +1180,9 @@ class TestAccountsTableQueryRunner(BaseTest):
             )
 
     @parameterized.expand(["relationship", "custom_property"])
-    def test_rejects_definition_from_another_team(self, column_kind: str) -> None:
+    def test_drops_column_for_definition_from_another_team(self, column_kind: str) -> None:
         other_team = Team.objects.create(organization=self.organization)
+        create_account(team_id=self.team.id, name="Acme")
         column: AccountsTableRelationshipColumn | AccountsTableCustomPropertyColumn
         if column_kind == "relationship":
             relationship_definition = AccountRelationshipDefinition.objects.unscoped().create(
@@ -1192,8 +1193,41 @@ class TestAccountsTableQueryRunner(BaseTest):
             custom_property_definition = create_custom_property_definition(team_id=other_team.id, name="Other plan")
             column = AccountsTableCustomPropertyColumn(definitionId=str(custom_property_definition.id))
 
-        with self.assertRaises(ValidationError):
-            self._run(AccountsTableQuery(columns=[column], filters=[]))
+        response = self._run(AccountsTableQuery(columns=[column], filters=[]))
+
+        assert [row.name for row in response.results] == ["Acme"]
+        assert response.results[0].relationships == {}
+        assert response.results[0].customProperties == {}
+
+    def test_drops_columns_and_sort_for_deleted_custom_property_definition(self) -> None:
+        account = create_account(team_id=self.team.id, name="Acme")
+        kept_definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        deleted_definition = create_custom_property_definition(
+            team_id=self.team.id, name="MRR", display_type=DisplayType.NUMBER
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=account, definition=kept_definition, value_str="enterprise"
+        )
+        deleted_definition_id = str(deleted_definition.id)
+        deleted_definition.delete()
+
+        response = self._run(
+            AccountsTableQuery(
+                columns=[
+                    AccountsTableCustomPropertyColumn(definitionId=str(kept_definition.id)),
+                    AccountsTableCustomPropertyColumn(definitionId=deleted_definition_id),
+                    AccountsTableCustomPropertyHistoryColumn(definitionId=deleted_definition_id, windowDays=30),
+                ],
+                filters=[],
+                sort=AccountsTableSort(
+                    column=AccountsTableCustomPropertyColumn(definitionId=deleted_definition_id),
+                    direction=AccountsTableSortDirection.DESC,
+                ),
+            )
+        )
+
+        assert response.results[0].customProperties == {str(kept_definition.id): "enterprise"}
+        assert response.results[0].customPropertyHistory == {}
 
     @parameterized.expand(["filter", "sort"])
     def test_rejects_filter_or_sort_definition_from_another_team(self, query_part: str) -> None:
