@@ -1,12 +1,12 @@
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.test import APIRequestFactory
 
 from posthog.models import Tag
 
-from products.feature_flags.backend.api.feature_flag import TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS
+from products.feature_flags.backend.api.feature_flag import TAG_REQUIREMENT_EXEMPT_CREATION_CONTEXTS, FeatureFlagViewSet
 from products.feature_flags.backend.facade.api import update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.team_feature_flag_policy_config import TeamFeatureFlagPolicyConfig
@@ -202,6 +202,32 @@ class TestFeatureFlagRequireTags(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         for flag in (keeps_a_tag, loses_its_last, also_keeps_a_tag):
             assert "billing" in flag.tagged_items.values_list("tag__name", flat=True)
+
+    @parameterized.expand(
+        [
+            ("tag_added_after_load", ["billing"], ["billing", "growth"], False),
+            ("tag_removed_after_load", ["billing", "growth"], ["billing"], True),
+        ]
+    )
+    def test_bulk_remove_checks_the_stored_tags_not_the_loaded_ones(
+        self, _name: str, loaded_tags: list[str], stored_tags: list[str], rejected: bool
+    ) -> None:
+        # Another request changed the flag's tags after the bulk endpoint loaded it. The remove
+        # deletes only "billing" from the stored rows, so the stored rows decide if a tag is left.
+        flag = FeatureFlag.objects.create(key="tagged-flag", team=self.team, created_by=self.user)
+        for name in sorted({*loaded_tags, *stored_tags}):
+            self._tag_flag(flag, name)
+        flag.prefetched_tags = list(flag.tagged_items.filter(tag__name__in=loaded_tags).select_related("tag"))  # type: ignore[attr-defined]
+        flag.tagged_items.exclude(tag__name__in=stored_tags).delete()
+        self._require_tags(True)
+        viewset = FeatureFlagViewSet()
+        viewset.team_id = self.team.id
+
+        if rejected:
+            with self.assertRaises(serializers.ValidationError):
+                viewset.validate_bulk_tag_changes([flag], "remove", ["billing"])
+        else:
+            viewset.validate_bulk_tag_changes([flag], "remove", ["billing"])
 
     def test_bulk_update_can_still_swap_tags_when_required(self) -> None:
         flag = FeatureFlag.objects.create(key="tagged-flag", team=self.team, created_by=self.user)

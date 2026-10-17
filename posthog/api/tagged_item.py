@@ -65,8 +65,13 @@ def add_tags_to_object(tags: list[str], obj: Any) -> list[TaggedItem]:
 
 def remove_tags_from_object(tags: list[str], obj: Any) -> list[TaggedItem]:
     """Detach only the named tags from an object."""
-    # Individual deletes so the TaggedItem activity signal fires for each removal.
-    for tagged_item in obj.tagged_items.filter(tag__name__in=normalize_tag_names(tags)):
+    # Individual deletes so the TaggedItem activity signal fires for each removal. The signal
+    # reads the tag, its team and the tagged object, so load them with the rows.
+    for tagged_item in (
+        obj.tagged_items.filter(tag__name__in=normalize_tag_names(tags))
+        .select_related("tag__team")
+        .prefetch_related("integer_object", "uuid_object")
+    ):
         tagged_item.delete()
     return list(obj.tagged_items.select_related("tag"))
 
@@ -84,6 +89,11 @@ def current_tag_names(obj: Any) -> set[str]:
     """The object's tags, preferring a ``prefetched_tags`` attribute over a fresh query."""
     tagged_items = obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag")
     return {tagged_item.tag.name for tagged_item in tagged_items}
+
+
+def stored_tag_names(obj: Any) -> set[str]:
+    """The object's tags as the database holds them now, ignoring any ``prefetched_tags`` snapshot."""
+    return {tagged_item.tag.name for tagged_item in obj.tagged_items.select_related("tag")}
 
 
 def resolve_bulk_tags(current_tags: set[str], tag_action: str, normalized_tags: set[str]) -> set[str]:
@@ -121,8 +131,9 @@ def apply_bulk_tag_changes(
 ) -> list[dict[str, Any]]:
     """Apply an add/remove/set tag mutation to each object and return a per-object result.
 
-    Callers are responsible for team-scoping and access-checking ``objects`` first. When a
-    ``prefetched_tags`` attribute is present it is used to avoid a per-object tag query.
+    Callers are responsible for team-scoping and access-checking ``objects`` first. For a set,
+    a ``prefetched_tags`` attribute is used when present to avoid a per-object tag query. add and
+    remove always read the object's tags from the database.
     Orphaned tags are cleaned up per affected team, since ``objects`` may span multiple teams
     when the caller scopes by project (e.g. event definitions across environments).
 
@@ -137,10 +148,19 @@ def apply_bulk_tag_changes(
 
     for obj in objects:
         team_ids.add(obj.team_id)
-        current_tags = current_tag_names(obj)
-        new_tags = resolve_bulk_tags(current_tags, tag_action, normalized_tags)
-
-        set_tags_on_object(list(new_tags), obj)
+        if tag_action == "set":
+            current_tags = current_tag_names(obj)
+            new_tags = set(normalized_tags)
+            set_tags_on_object(list(new_tags), obj)
+        else:
+            # add and remove write only the named tags. The prefetched tags can be stale, so
+            # writing back a full set resolved from them would delete a tag that another request
+            # attached after the objects were loaded. The before side of the activity diff comes
+            # from the database for the same reason, because the after side is read live and a
+            # stale before side would credit this request with the other request's change.
+            current_tags = stored_tag_names(obj)
+            write_tags = add_tags_to_object if tag_action == "add" else remove_tags_from_object
+            new_tags = {tagged_item.tag.name for tagged_item in write_tags(tags, obj)}
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
 
         if activity_context is not None and current_tags != new_tags:
