@@ -126,7 +126,7 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
-            listHref: (query?: FileSystemListQuery) => combineUrl(urls.workflows(), { q: query?.query }).url,
+            listHref: (query?: FileSystemListQuery) => combineUrl(urls.workflows(), { q: query?.queryWithoutType }).url,
             filterKey: 'workflows',
         },
     },

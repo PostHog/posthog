@@ -46,6 +46,27 @@ describe('viewAllFor', () => {
             '/feature_flags?search=checkout%20v2%20beta',
         ],
         [
+            'a list that searches without the excluded words',
+            [chip('feature_flag', 'Feature flag')],
+            'beta -legacy -"old flow"',
+            'View all feature flags',
+            '/feature_flags?search=beta',
+        ],
+        [
+            'a list that searches the name filter before the text',
+            [chip('feature_flag', 'Feature flag'), chip('checkout', 'checkout', { key: 'name' })],
+            'beta',
+            'View all feature flags',
+            '/feature_flags?search=checkout%20beta',
+        ],
+        [
+            'a list that searches without an excluded name',
+            [chip('feature_flag', 'Feature flag'), chip('checkout', 'checkout', { key: 'name', negated: true })],
+            '',
+            'View all feature flags',
+            '/feature_flags',
+        ],
+        [
             'a fallback page that searches the text',
             [chip('dashboard', 'Dashboard')],
             'revenue',
