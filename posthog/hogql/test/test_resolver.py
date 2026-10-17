@@ -39,6 +39,8 @@ from posthog.hogql.resolver_utils import extract_base_table_types, lookup_field_
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
 
+from posthog.errors import QueryErrorCategory, classify_query_error
+
 
 class TestResolver(BaseTest):
     maxDiff = None
@@ -644,6 +646,7 @@ class TestResolver(BaseTest):
             f"Ambiguous query. Found multiple sources for field: properties ({expected_sources}). "
             "Use a qualified field name.",
         )
+        self.assertEqual(classify_query_error(context.exception), QueryErrorCategory.USER_ERROR)
 
     def test_select_set_order_by_prints(self):
         printed = self._print_hogql("select 1 union all select 2 order by 1")
