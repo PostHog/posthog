@@ -12,7 +12,13 @@ import { BIFilterValueInput } from 'products/business_intelligence/frontend/BIFi
 
 import { getBIFilterLabel } from '../biFilterSummary'
 
-export function BIFilterEditor({ index, onDone }: { index: number; onDone: () => void }): JSX.Element | null {
+export function BIFilterEditor({
+    index,
+    onDone,
+}: {
+    index: number
+    onDone: (removed?: boolean) => void
+}): JSX.Element | null {
     const { config } = useValues(biEditorLogic)
     const {
         removeFieldFromShelf,
@@ -39,7 +45,7 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
                     type="tertiary"
                     size="xsmall"
                     aria-label="Close filter editor"
-                    onClick={onDone}
+                    onClick={() => onDone()}
                 />
             </div>
             <div className="flex flex-col gap-1">
@@ -141,12 +147,12 @@ export function BIFilterEditor({ index, onDone }: { index: number; onDone: () =>
                     size="small"
                     onClick={() => {
                         removeFieldFromShelf('filters', index)
-                        onDone()
+                        onDone(true)
                     }}
                 >
                     Remove filter
                 </LemonButton>
-                <LemonButton type="primary" size="small" onClick={onDone} data-attr="bi-editor-filter-done">
+                <LemonButton type="primary" size="small" onClick={() => onDone()} data-attr="bi-editor-filter-done">
                     Done
                 </LemonButton>
             </div>
