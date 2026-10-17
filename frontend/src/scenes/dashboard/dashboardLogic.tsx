@@ -248,6 +248,7 @@ interface InsightTileRefreshContext {
     filters: Parameters<typeof getInsightWithRetry>[6]
     urlFilters: Record<string, any>
     variables: Record<string, HogQLVariable>
+    onSuccess?: (shortId: InsightShortId) => PendingFilterChange | undefined
 }
 
 const REFRESH_CONCURRENCY = 4
@@ -290,6 +291,7 @@ async function refreshInsightTile(
         filters,
         urlFilters,
         variables,
+        onSuccess,
     }: InsightTileRefreshContext
 ): Promise<InsightTileRefreshOutcome> {
     const insight = tile.insight
@@ -327,13 +329,15 @@ async function refreshInsightTile(
         dashboardsModel.actions.updateDashboardInsight(refreshedInsight, undefined, dashboardId)
         actions.setRefreshStatus(insight.short_id)
         actions.clearDeferredTileRefresh([tile.id])
+        const filterChange = onSuccess?.(insight.short_id)
         reportDashboardTileRefreshed(
             dashboardId,
             tile,
             urlFilters,
             variables,
             Math.floor(performance.now() - queryStartTime),
-            false
+            false,
+            filterChange
         )
         return refreshedInsight.is_cached ? 'cached' : 'refreshed'
     } catch (e: any) {
@@ -4882,9 +4886,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const dashboardId: number = props.id
             const allInsightTiles = values.insightTiles || []
             const totalTileCount = allInsightTiles.length
-            if (filterChange) {
-                filterChange.remainingInsightIds = new Set(allInsightTiles.map((tile) => tile.insight!.short_id))
-            }
             // Cache values used during and after the long-running fetch, since the logic
             // may be unmounted by the time the awaits complete (kea's no-arg breakpoint()
             // only cancels on newer invocations, not on unmount).
@@ -4902,6 +4903,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         !t.insight.cache_target_age ||
                         dayjs(t.insight.cache_target_age).isBefore(dayjs())
                 )
+            if (filterChange) {
+                const insightIdsToRefresh = staleTiles.map((tile) => tile.insight.short_id)
+                filterChange.remainingInsightIds = new Set(
+                    refreshesOnlyStaleTiles(action, forceRefresh)
+                        ? [...filterChange.remainingInsightIds, ...insightIdsToRefresh]
+                        : insightIdsToRefresh
+                )
+            }
             const collapsedTileIds = new Set(values.collapsedTileIds)
             const sortedTilesToRefresh = staleTiles.filter((t) => !collapsedTileIds.has(t.id))
             const deferredTileIds = staleTiles.filter((t) => collapsedTileIds.has(t.id)).map((t) => t.id)
@@ -4951,11 +4960,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
                     // Set insight as refreshing
                     const outcome = await refreshInsightTile(tile, tileRefreshContext)
-                    if (
-                        filterChange &&
-                        !methodOptions.signal?.aborted &&
-                        cache.pendingFilterChange === filterChange
-                    ) {
+                    if (filterChange && !methodOptions.signal?.aborted && cache.pendingFilterChange === filterChange) {
                         if (outcome === 'refreshed' || outcome === 'cached') {
                             filterChange.remainingInsightIds.delete(tile.insight.short_id)
                         } else {
@@ -5187,6 +5192,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
             actions.setRefreshStatuses(shortIds, false, true)
             const settings = values.deferredTileRefresh.settings ?? values.settingsForRefresh
+            const pendingFilterChange: PendingFilterChange | undefined = cache.pendingFilterChange
+            const filterChange =
+                pendingFilterChange && dashboardSettingsMatch(pendingFilterChange.settings, settings)
+                    ? pendingFilterChange
+                    : undefined
+            shortIds.forEach((shortId) => filterChange?.remainingInsightIds.add(shortId))
             const tileRefreshContext: InsightTileRefreshContext = {
                 actions,
                 dashboardId: props.id,
@@ -5196,6 +5207,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 filters: combineDashboardFilters(settings.filters, externalFilters),
                 urlFilters,
                 variables: settings.variables,
+                onSuccess: (shortId: InsightShortId): PendingFilterChange | undefined => {
+                    if (
+                        !filterChange ||
+                        signal.aborted ||
+                        cache.pendingFilterChange !== filterChange ||
+                        !dashboardSettingsMatch(settings, values.currentDashboardSettings)
+                    ) {
+                        return undefined
+                    }
+                    filterChange.remainingInsightIds.delete(shortId)
+                    if (filterChange.remainingInsightIds.size === 0) {
+                        cache.pendingFilterChange = undefined
+                    }
+                    return filterChange
+                },
             }
             insightTiles.forEach((tile) => loadingTileIds.add(tile.id))
             // A tile leaves the waiting list only once it loads, because a failed or aborted tile still shows the
