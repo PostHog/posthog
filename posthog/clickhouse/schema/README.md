@@ -20,6 +20,8 @@ The catalogue includes migrations through 0353 and the current query-log archive
 
 The `custom_metrics*` views that Prometheus scrapes, and the counter table `MetricsClient` writes to, are monitoring objects of PostHog Cloud and are declared in posthog-cloud-infra, not here. Without the table, `MetricsClient.increment` does nothing.
 
+The separate catalogue canary changes only the `read_count` column comment of the warehouse read rollup. After importing the foundation on the dev aux nodes, review and apply that metadata change and verify that the next plan is empty before adopting production. The original custom-metrics canary now belongs to the infrastructure catalogue, so it is no longer a PostHog module change.
+
 Switch local, test and Hobby setup only after the cloud handover is verified. Delete the legacy implementations in a separate cleanup pull request.
 
 ## Standard table families
