@@ -4,6 +4,9 @@ import { useState } from 'react'
 import { IconChevronDown, IconCopy, IconLogomark, IconSparkles } from '@posthog/icons'
 
 import { MCP_INSTALL_COMMAND } from 'lib/components/MCPHint/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { useKeyboardNavigation } from 'lib/lemon-ui/LemonMenu/useKeyboardNavigation'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -78,6 +81,8 @@ export interface AgentPromptButtonProps {
     onOpenChange?: (open: boolean) => void
     size?: AgentPromptButtonSize
     variant?: NonNullable<QuillButtonProps['variant']>
+    /** `lemon` renders a LemonButton with a side menu, to sit beside other Lemon buttons. `size` and `variant` apply to `quill` only. */
+    appearance?: 'quill' | 'lemon'
     /** Renders the dropdown open on first paint. Useful for visual regression snapshots. */
     defaultOpen?: boolean
     /** Fired whenever a combo runs (agent deeplink opened or clipboard copied). Useful for analytics. */
@@ -288,6 +293,7 @@ export function AgentPromptButton({
     onOpenChange,
     size = 'default',
     variant = 'default',
+    appearance = 'quill',
     defaultOpen = false,
     onRun,
     repository,
@@ -305,6 +311,10 @@ export function AgentPromptButton({
     const { currentProjectId } = useValues(projectLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const availableAgents = AGENTS.filter((agent) => !(todayRailEnabled && agent.key === 'posthog-ai'))
+    // The Lemon menu renders its overlay directly, so it wires LemonMenu's arrow-key focus handling itself.
+    const lemonKeyboard = useKeyboardNavigation<HTMLButtonElement>(
+        (actions.length > 1 ? actions.length : 0) + availableAgents.length
+    )
 
     if (actions.length === 0 || availableAgents.length === 0) {
         return null
@@ -341,6 +351,63 @@ export function AgentPromptButton({
 
     const handleMainClick = (): void => {
         runCombo(activeAction.key, activeAgent.key)
+    }
+
+    if (appearance === 'lemon') {
+        return (
+            // Focus and key events bubble up from the side action, which takes no handlers of its own.
+            // React also bubbles them up from the portaled menu, so only events from inside this subtree count.
+            <div
+                className="contents"
+                onFocus={(e) => e.currentTarget.contains(e.target) && lemonKeyboard.onTriggerFocus(e)}
+                onKeyDown={(e) => e.currentTarget.contains(e.target as Node) && lemonKeyboard.onTriggerKeyDown(e)}
+            >
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<AgentLogo logo={activeAgent.logo} logoClassName={activeAgent.logoClassName} />}
+                    onClick={handleMainClick}
+                    data-attr={dataAttr}
+                    title={`Run: ${buttonLabel}`}
+                    sideAction={{
+                        'aria-label': actions.length > 1 ? 'Choose prompt and agent' : 'Open prompt in an agent',
+                        dropdown: {
+                            placement: 'bottom-end',
+                            onVisibilityChange: onOpenChange,
+                            overlay: (
+                                <LemonMenuOverlay
+                                    itemsRef={lemonKeyboard.itemsRef}
+                                    onKeyDown={lemonKeyboard.onItemsKeyDown}
+                                    items={[
+                                        actions.length > 1 && {
+                                            title: 'Content',
+                                            items: actions.map((action) => ({
+                                                label: action.label,
+                                                icon: action.icon,
+                                                active: action.key === activeAction.key,
+                                                onClick: () => selectAction(action.key),
+                                            })),
+                                        },
+                                        {
+                                            title: 'Open in',
+                                            items: availableAgents.map((agent) => ({
+                                                label: agent.name,
+                                                icon: (
+                                                    <AgentLogo logo={agent.logo} logoClassName={agent.logoClassName} />
+                                                ),
+                                                onClick: () => selectAgent(agent.key),
+                                            })),
+                                        },
+                                    ]}
+                                />
+                            ),
+                        },
+                    }}
+                >
+                    <span className="truncate max-w-64">{buttonLabel}</span>
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
