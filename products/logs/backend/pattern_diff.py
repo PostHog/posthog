@@ -1,8 +1,10 @@
 import datetime as dt
+from time import monotonic
 from typing import TYPE_CHECKING
 
 from posthog.schema import DateRange, LogsQuery
 
+from posthog.clickhouse.client.limit import get_logs_api_team_rate_limiter
 from posthog.hogql_queries.query_runner import ExecutionMode
 
 from products.logs.backend.log_patterns import ERROR_SEVERITIES, _env, pattern_fingerprint
@@ -12,6 +14,7 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 _BASELINE_OFFSET = dt.timedelta(days=7)
+_SLOT_TTL_MARGIN_SECONDS = 30
 
 
 def _rate(estimated_count: float, window: tuple[dt.datetime, dt.datetime]) -> float:
@@ -168,6 +171,11 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
     baseline_runner = PatternsQueryRunner(team=team, query=baseline_query)
     current_runner.use_stored_patterns = False
     baseline_runner.use_stored_patterns = False
+    # The logs API holds a concurrency slot for the whole request. Both windows share one deadline that ends
+    # before the slot's ttl, so the slot cannot expire while the comparison still queries ClickHouse.
+    deadline = monotonic() + get_logs_api_team_rate_limiter().ttl - _SLOT_TTL_MARGIN_SECONDS
+    current_runner._query_deadline = deadline
+    baseline_runner._query_deadline = deadline
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 

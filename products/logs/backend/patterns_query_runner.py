@@ -336,7 +336,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             remaining = int(self._query_deadline - monotonic())
             if remaining < 1:
                 raise ClickHouseQueryTimeOut()
-            settings.max_execution_time = remaining
+            # The deadline bounds the whole run. It must not give one query more time than its own limit.
+            settings.max_execution_time = min(remaining, settings.max_execution_time or remaining)
         response = execute_hogql_query(
             query_type="LogsQuery",
             query=query,
