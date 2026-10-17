@@ -24,9 +24,14 @@ class OwnedTemplate(Protocol):
     def source_path(self) -> str | None: ...
 
 
+def patches_only(intent: TemplateWriteIntent, field: str) -> bool:
+    """A PATCH whose only field is `field`. Matched on the whole body, so a form spread into a PATCH never matches."""
+    return intent.action == "partial_update" and set(intent.payload.keys()) == {field}
+
+
 def is_release(intent: TemplateWriteIntent) -> bool:
     """A PATCH whose only field is `managed_by: gui`."""
-    return intent.patches_only("managed_by") and intent.payload["managed_by"] == TemplateManagedBy.GUI
+    return patches_only(intent, "managed_by") and intent.payload["managed_by"] == TemplateManagedBy.GUI
 
 
 def check_write(template: OwnedTemplate, intent: TemplateWriteIntent) -> None:

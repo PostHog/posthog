@@ -246,10 +246,15 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                 className="flex items-center gap-1 min-w-0 max-w-full"
                                 data-attr="message-template-key"
                             >
-                                <span>Key</span>
-                                <CopyToClipboardInline description="template key" className="font-mono">
+                                <span className="shrink-0">Key</span>
+                                <span className="font-mono truncate min-w-0" title={originalTemplate.key}>
                                     {originalTemplate.key}
-                                </CopyToClipboardInline>
+                                </span>
+                                <CopyToClipboardInline
+                                    explicitValue={originalTemplate.key}
+                                    description="template key"
+                                    iconMargin={false}
+                                />
                             </span>
                         )}
                         <CodeManagedSource source={templateSource} />

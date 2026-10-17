@@ -578,21 +578,28 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
     ):
         MessageTemplate.objects.filter(id=self.template.id).update(managed_by="code", **stored_hashes)
 
-        response = self.client.put(
-            f"/api/projects/{self.team.id}/messaging_templates/by_key/password-reset/",
-            {
-                "name": "Password reset",
-                "subject": "Reset your password",
-                "html": "<p>Reset</p>",
-                "source": {"repository": "github.com/example/other"},
-                "if_not_superseded": if_not_superseded,
-            },
-            format="json",
-        )
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_api.posthoganalytics.capture"
+        ) as capture:
+            response = self.client.put(
+                f"/api/projects/{self.team.id}/messaging_templates/by_key/password-reset/",
+                {
+                    "name": "Password reset",
+                    "subject": "Reset your password",
+                    "html": "<p>Reset</p>",
+                    "source": {"repository": "github.com/example/other"},
+                    "if_not_superseded": if_not_superseded,
+                },
+                format="json",
+            )
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         self.template.refresh_from_db()
         assert self.template.source_repository is None
+        uploaded_events = [
+            c for c in capture.call_args_list if c.kwargs["event"] == "transactional email template uploaded"
+        ]
+        assert [e.kwargs["properties"]["error_code"] for e in uploaded_events] == ["permission_denied"]
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):

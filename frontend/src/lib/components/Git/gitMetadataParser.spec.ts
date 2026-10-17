@@ -66,6 +66,11 @@ describe('GitMetadataParser', () => {
                 remote_url: 'gitlab.com/group/subgroup/project',
                 expected: 'https://gitlab.com/group/subgroup/project/-/tree/branch-name',
             },
+            {
+                description: 'should create branch link for a gitlab remote with a trailing slash',
+                remote_url: 'https://gitlab.com/group/project/',
+                expected: 'https://gitlab.com/group/project/-/tree/branch-name',
+            },
         ])('$description', ({ remote_url, expected }) => {
             const result = GitMetadataParser.getBranchLink(remote_url, 'branch-name')
             expect(result).toBe(expected)

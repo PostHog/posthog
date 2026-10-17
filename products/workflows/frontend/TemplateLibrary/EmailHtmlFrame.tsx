@@ -1,20 +1,30 @@
+import { useMemo } from 'react'
+
 import { cn } from 'lib/utils/css-classes'
 
-const OPEN_LINKS_IN_NEW_TAB = '<base target="_blank">'
-
-export function withLinksInNewTab(html: string): string {
-    const head = /<head(\s[^>]*)?>/i.exec(html)
-    if (!head) {
-        return OPEN_LINKS_IN_NEW_TAB + html
+function doctypeOf(parsed: Document): string {
+    const doctype = parsed.doctype
+    if (!doctype) {
+        return ''
     }
-    const afterHead = head.index + head[0].length
-    return html.slice(0, afterHead) + OPEN_LINKS_IN_NEW_TAB + html.slice(afterHead)
+    const publicId = doctype.publicId ? ` PUBLIC "${doctype.publicId}"` : ''
+    const systemId = doctype.systemId ? `${doctype.publicId ? '' : ' SYSTEM'} "${doctype.systemId}"` : ''
+    return `<!DOCTYPE ${doctype.name}${publicId}${systemId}>`
+}
+
+function withLinksInNewTab(html: string): string {
+    const parsed = new DOMParser().parseFromString(html, 'text/html')
+    for (const link of parsed.querySelectorAll('a[href], area[href]')) {
+        link.setAttribute('target', '_blank')
+    }
+    return doctypeOf(parsed) + parsed.documentElement.outerHTML
 }
 
 export function EmailHtmlFrame({ html, className }: { html: string; className?: string }): JSX.Element {
+    const previewDocument = useMemo(() => withLinksInNewTab(html), [html])
     return (
         <iframe
-            srcDoc={withLinksInNewTab(html)}
+            srcDoc={previewDocument}
             sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
             title="Message template preview"
             className={cn('w-full border-0 bg-white', className)}

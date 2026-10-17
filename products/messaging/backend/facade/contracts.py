@@ -118,11 +118,6 @@ class TemplateWriteIntent:
     action: str
     payload: Mapping[str, Any]
 
-    def patches_only(self, field: str) -> bool:
-        """A PATCH whose only field is `field`. Matched on the whole body, so a form spread into a PATCH never
-        matches."""
-        return self.action == "partial_update" and set(self.payload.keys()) == {field}
-
 
 class TemplateWriteRefused(Exception):
     """The template refuses this write. `code` is stable for API clients; `detail`, `why` and `fix` are written for

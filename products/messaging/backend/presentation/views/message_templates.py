@@ -773,6 +773,9 @@ class MessageTemplatesViewSet(
         except TransactionalEmailError as e:
             self._report_template_upload(request, {"result": "rejected", "error_code": e.code})
             raise TransactionalEmailRejected(e) from None
+        except exceptions.PermissionDenied:
+            self._report_template_upload(request, {"result": "rejected", "error_code": "permission_denied"})
+            raise
 
         self._report_template_upload(request, {"result": uploaded.result, "template_id": str(uploaded.template.id)})
         if uploaded.result in (TemplateUploadResult.CREATED, TemplateUploadResult.UPDATED):

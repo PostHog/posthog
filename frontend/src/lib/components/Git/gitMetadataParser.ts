@@ -184,7 +184,10 @@ export class GitMetadataParser {
         }
 
         const domain = withoutProtocol.slice(0, firstSlashIdx)
-        const pathParts = withoutProtocol.slice(firstSlashIdx + 1).split('/')
+        const pathParts = withoutProtocol
+            .slice(firstSlashIdx + 1)
+            .split('/')
+            .filter((part) => part !== '')
 
         if (pathParts.length < 2) {
             return undefined
