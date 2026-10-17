@@ -2253,14 +2253,20 @@ export const notebookLogic = kea<notebookLogicType>([
     })),
 
     beforeUnload((logic) => ({
-        enabled: (newLocation?: CombinedLocation) =>
-            shouldWarnBeforeLeavingNotebook({
-                isLocalOnly: logic.values.isLocalOnly,
-                isEditable: logic.values.isEditable,
-                syncStatus: logic.values.syncStatus,
-                currentPathname: router.values.location.pathname,
-                newPathname: newLocation?.pathname,
-            }),
+        enabled: (newLocation?: CombinedLocation) => {
+            try {
+                return shouldWarnBeforeLeavingNotebook({
+                    isLocalOnly: logic.values.isLocalOnly,
+                    isEditable: logic.values.isEditable,
+                    syncStatus: logic.values.syncStatus,
+                    currentPathname: router.values.location.pathname,
+                    newPathname: newLocation?.pathname,
+                })
+            } catch {
+                // kea-router can call this during a Redux dispatch, and reading values then throws Redux error #3
+                return false
+            }
+        },
         message: 'Leave notebook?\nChanges you made may not be saved.',
     })),
 

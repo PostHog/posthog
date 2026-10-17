@@ -5453,7 +5453,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
     beforeUnload(({ values, actions }) => ({
         enabled: (newLocation?: CombinedLocation) => {
-            if (!values.dashboardEditing?.layout || !values.hasUnsavedLayoutChanges) {
+            let hasUnsavedLayout: boolean
+            try {
+                hasUnsavedLayout = !!values.dashboardEditing?.layout && values.hasUnsavedLayoutChanges
+            } catch {
+                // kea-router can call this during a Redux dispatch, and reading values then throws Redux error #3
+                return false
+            }
+            if (!hasUnsavedLayout) {
                 return false
             }
             // Ignore in-page navigations such as opening a side panel
