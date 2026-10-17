@@ -4,6 +4,7 @@ from uuid import uuid4
 
 import pytest
 
+from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase
@@ -12,6 +13,7 @@ import psycopg
 from parameterized import parameterized
 
 from posthog.management.commands.apply_persons_migrations import (
+    HOBBY_ONLY_MIGRATIONS_DIR,
     TRACKING_TABLE,
     _concurrent_index_target,
     _holds_multiple_statements,
@@ -109,11 +111,20 @@ class TestApplyPersonsMigrations(TestCase):
         self._migrations_tmp.cleanup()
         super().tearDown()
 
-    def _write_migration(self, version: str, name: str, body: str) -> None:
-        (self.migrations_dir / f"{version}_{self.suffix}_{name}.sql").write_text(body)
+    def _write_migration(self, version: str, name: str, body: str, subdir: str = "") -> None:
+        directory = self.migrations_dir / subdir
+        directory.mkdir(exist_ok=True)
+        (directory / f"{version}_{self.suffix}_{name}.sql").write_text(body)
 
-    def _apply(self) -> None:
-        call_command("apply_persons_migrations", "--migrations-dir", str(self.migrations_dir))
+    def _copy_hobby_migrations_onto_test_table(self) -> None:
+        source = Path(settings.BASE_DIR) / "rust" / "persons_migrations" / HOBBY_ONLY_MIGRATIONS_DIR
+        for sql_file in sorted(source.glob("*.sql")):
+            version, name = sql_file.stem.split("_", 1)
+            body = sql_file.read_text().replace("posthog_person", self.table)
+            self._write_migration(version, name, body, subdir=HOBBY_ONLY_MIGRATIONS_DIR)
+
+    def _apply(self, *args: str) -> None:
+        call_command("apply_persons_migrations", "--migrations-dir", str(self.migrations_dir), *args)
 
     def _leave_an_invalid_index(self, table: str, index: str) -> None:
         _persons_execute([f"CREATE TABLE {table} (id INT)", f"INSERT INTO {table} (id) VALUES (1), (1)"])
@@ -203,4 +214,51 @@ class TestApplyPersonsMigrations(TestCase):
             self._apply()
 
         assert "INVALID" in str(error.value)
+        assert len(self._recorded_migrations()) == 1
+
+    @parameterized.expand([("hobby", ["--hobby"], 2), ("not_hobby", [], 1)])
+    def test_applies_hobby_only_migrations_only_on_hobby(self, _name: str, args: list[str], expected: int) -> None:
+        self._write_migration("20990101000001", "create_table", f"CREATE TABLE {self.table} (id INT);")
+        self._write_migration(
+            "20990101000002",
+            "add_column",
+            f"ALTER TABLE {self.table} ADD COLUMN extra INT;",
+            subdir=HOBBY_ONLY_MIGRATIONS_DIR,
+        )
+
+        self._apply(*args)
+
+        assert len(self._recorded_migrations()) == expected
+
+    def test_hobby_migrations_give_an_unpartitioned_person_table_the_upsert_arbiter(self) -> None:
+        self._write_migration(
+            "20000101000001",
+            "create_table",
+            f"CREATE TABLE {self.table} (id SERIAL PRIMARY KEY, team_id INT NOT NULL, uuid UUID NOT NULL);",
+        )
+        self._copy_hobby_migrations_onto_test_table()
+
+        self._apply("--hobby")
+
+        person_uuid = str(uuid4())
+        upsert = f"INSERT INTO {self.table} (team_id, uuid) VALUES (1, %s) ON CONFLICT (team_id, uuid) DO NOTHING"
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute(upsert, [person_uuid])
+            cursor.execute(upsert, [person_uuid])
+        assert _persons_fetchall(f"SELECT count(*) FROM {self.table}") == [(1,)]
+
+    def test_hobby_migrations_stop_with_a_clear_message_on_duplicate_person_uuids(self) -> None:
+        person_uuid = str(uuid4())
+        self._write_migration(
+            "20000101000001",
+            "create_table",
+            f"CREATE TABLE {self.table} (id SERIAL PRIMARY KEY, team_id INT NOT NULL, uuid UUID NOT NULL); "
+            f"INSERT INTO {self.table} (team_id, uuid) VALUES (1, '{person_uuid}'), (1, '{person_uuid}');",
+        )
+        self._copy_hobby_migrations_onto_test_table()
+
+        with pytest.raises(psycopg.Error, match=r"1 duplicate \(team_id, uuid\) pair"):
+            self._apply("--hobby")
+
+        assert _persons_fetchall("SELECT count(*) FROM pg_indexes WHERE tablename = %s", [self.table]) == [(1,)]
         assert len(self._recorded_migrations()) == 1
