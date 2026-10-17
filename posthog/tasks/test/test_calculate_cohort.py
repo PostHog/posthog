@@ -32,6 +32,7 @@ from posthog.tasks.calculate_cohort import (
     STATIC_POPULATION_MAX_RETRIES,
     calculate_cohort_ch,
     calculate_cohort_from_list,
+    enqueue_calculate_dependent_cohorts,
     enqueue_cohorts_to_calculate,
     increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_filters,
@@ -1996,6 +1997,39 @@ class TestCohortCalculationTasks(APIBaseTest):
         mock_chain.assert_called_once()
         mock_chain_instance.apply_async.assert_called_once()
 
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+    def test_enqueue_calculate_dependent_cohorts_recalculates_only_dynamic_dependents(
+        self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+    ) -> None:
+        static_source = Cohort.objects.create(team=self.team, name="Static source", is_static=True)
+
+        def references(cohort_id: int) -> dict:
+            return {"properties": {"type": "AND", "values": [{"key": "id", "value": cohort_id, "type": "cohort"}]}}
+
+        dynamic_parent = Cohort.objects.create(
+            team=self.team, name="Dynamic parent", filters=references(static_source.id), is_static=False
+        )
+        dynamic_grandparent = Cohort.objects.create(
+            team=self.team, name="Dynamic grandparent", filters=references(dynamic_parent.id), is_static=False
+        )
+        static_parent = Cohort.objects.create(
+            team=self.team, name="Static parent", filters=references(static_source.id), is_static=True
+        )
+        mock_calculate_cohort_ch_si.return_value = MagicMock()
+
+        enqueue_calculate_dependent_cohorts(static_source, initiating_user=None)
+
+        self.assertEqual(
+            [call[0][0] for call in mock_calculate_cohort_ch_si.call_args_list],
+            [dynamic_parent.id, dynamic_grandparent.id],
+        )
+        mock_chain.return_value.apply_async.assert_called_once()
+        static_source.refresh_from_db()
+        static_parent.refresh_from_db()
+        self.assertIsNone(static_source.pending_version)
+        self.assertIsNone(static_parent.pending_version)
+
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_increment_version_and_enqueue_resets_is_calculating_when_delay_fails(
         self, mock_calculate_cohort_ch_delay: MagicMock
@@ -2176,6 +2210,25 @@ class TestCalculateCohortFromListRetries(APIBaseTest):
         self.assertTrue(cohort.is_calculating)
         self.assertEqual(cohort.errors_calculating, 0)
         self.assertIsNotNone(cohort.last_error_at)
+
+    @patch("posthog.tasks.calculate_cohort.chain")
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.si")
+    def test_successful_import_recalculates_dependent_cohorts(
+        self, mock_calculate_cohort_ch_si: MagicMock, mock_chain: MagicMock
+    ) -> None:
+        create_person(team=self.team, distinct_ids=["user123"])
+        cohort = self._create_static_cohort()
+        dependent = Cohort.objects.create(
+            team=self.team,
+            name="Dependent",
+            filters={"properties": {"type": "AND", "values": [{"key": "id", "value": cohort.id, "type": "cohort"}]}},
+            is_static=False,
+        )
+
+        self._run_task(cohort, retries=0, called_directly=False)
+
+        self.assertEqual([call[0][0] for call in mock_calculate_cohort_ch_si.call_args_list], [dependent.id])
+        mock_chain.return_value.apply_async.assert_called_once()
 
     def test_skips_a_cohort_flipped_to_dynamic(self) -> None:
         create_person(team=self.team, distinct_ids=["user123"])

@@ -5311,11 +5311,20 @@ email@example.org,
         cohort_data = response.json()
         self.assertIsNotNone(cohort_data.get("id"))
 
-    def test_remove_person_from_static_cohort(self):
+    @patch("posthog.tasks.calculate_cohort.chain")
+    def test_remove_person_from_static_cohort(self, mock_chain):
         static_cohort = Cohort.objects.create(
             team=self.team,
             name="Test Static Cohort",
             is_static=True,
+        )
+        dependent_cohort = Cohort.objects.create(
+            team=self.team,
+            name="Dynamic cohort built on the static cohort",
+            filters={
+                "properties": {"type": "AND", "values": [{"key": "id", "value": static_cohort.id, "type": "cohort"}]}
+            },
+            is_static=False,
         )
 
         personToRemove = _create_person(
@@ -5357,6 +5366,11 @@ email@example.org,
         person_uuids_in_cohort = [p["uuid"] for p in cohort_persons]
         assert str(personToRemove.uuid) not in person_uuids_in_cohort
         assert str(personToKeep.uuid) in person_uuids_in_cohort
+
+        dependent_cohort.refresh_from_db()
+        assert dependent_cohort.pending_version == 1
+        assert dependent_cohort.is_calculating
+        mock_chain.return_value.apply_async.assert_called_once()
 
     def test_remove_person_from_static_cohort_validation_errors(self):
         static_cohort = Cohort.objects.create(

@@ -522,39 +522,65 @@ def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating
             _enqueue_single_cohort_calculation(cohort, initiating_user)
             return False
 
-        # Create a chain of tasks to ensure sequential execution.
-        # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
-        # the preceding cohort's new rows may not have replicated yet. See #47618.
-        task_chain: list = []
-        prepared_cohort_ids: list[int] = []
-        for cohort_id in sorted_cohort_ids:
-            current_cohort = seen_cohorts_cache.get(cohort_id)
-            if current_cohort and not current_cohort.is_static:
-                _prepare_cohort_for_calculation(current_cohort)
-                prepared_cohort_ids.append(current_cohort.id)
-                task = calculate_cohort_ch.si(
-                    current_cohort.id,
-                    current_cohort.pending_version,
-                    initiating_user.id if initiating_user else None,
-                )
-                if len(task_chain) > 0:
-                    task = task.set(countdown=2)
-                task_chain.append(task)
-
-        if task_chain:
-            try:
-                chain(*task_chain).apply_async()
-            except Exception:
-                # apply_async() never actually enqueued anything, but _prepare_cohort_for_calculation
-                # already flipped is_calculating on every cohort in the chain. Clear it so they aren't
-                # stranded looking "in flight" until the hourly stuck-cohort reset catches them.
-                Cohort.objects.filter(id__in=prepared_cohort_ids).update(is_calculating=False)
-                raise
+        _enqueue_cohort_chain(sorted_cohort_ids, seen_cohorts_cache, initiating_user)
     else:
         logger.info("cohort_has_no_dependencies", cohort_id=cohort.id)
         _enqueue_single_cohort_calculation(cohort, initiating_user)
 
     return True
+
+
+def enqueue_calculate_dependent_cohorts(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
+    """
+    Recalculate the dynamic cohorts that reference `cohort` after its static membership changed.
+    The static cohort itself has materialized membership, so it is not calculated.
+    This is best effort: the membership change already succeeded, and the periodic job still
+    recalculates dynamic dependents if the enqueue fails.
+    """
+    try:
+        seen_cohorts_cache: dict[int, CohortOrEmpty] = {
+            dep.id: dep for dep in get_all_cohort_dependents(cohort) if not dep.is_static
+        }
+        if not seen_cohorts_cache:
+            return
+        sorted_cohort_ids = sort_cohorts_topologically(set(seen_cohorts_cache), seen_cohorts_cache)
+        _enqueue_cohort_chain(sorted_cohort_ids, seen_cohorts_cache, initiating_user)
+    except Exception as e:
+        logger.exception("dependent_cohort_enqueue_failed", cohort_id=cohort.id, error=str(e))
+        capture_exception()
+
+
+def _enqueue_cohort_chain(
+    sorted_cohort_ids: list[int], seen_cohorts_cache: dict[int, CohortOrEmpty], initiating_user: Optional[User]
+) -> None:
+    # Create a chain of tasks to ensure sequential execution.
+    # Non-first tasks get a 2s countdown to mitigate ClickHouse replica lag:
+    # the preceding cohort's new rows may not have replicated yet. See #47618.
+    task_chain: list = []
+    prepared_cohort_ids: list[int] = []
+    for cohort_id in sorted_cohort_ids:
+        current_cohort = seen_cohorts_cache.get(cohort_id)
+        if current_cohort and not current_cohort.is_static:
+            _prepare_cohort_for_calculation(current_cohort)
+            prepared_cohort_ids.append(current_cohort.id)
+            task = calculate_cohort_ch.si(
+                current_cohort.id,
+                current_cohort.pending_version,
+                initiating_user.id if initiating_user else None,
+            )
+            if len(task_chain) > 0:
+                task = task.set(countdown=2)
+            task_chain.append(task)
+
+    if task_chain:
+        try:
+            chain(*task_chain).apply_async()
+        except Exception:
+            # apply_async() never actually enqueued anything, but _prepare_cohort_for_calculation
+            # already flipped is_calculating on every cohort in the chain. Clear it so they aren't
+            # stranded looking "in flight" until the hourly stuck-cohort reset catches them.
+            Cohort.objects.filter(id__in=prepared_cohort_ids).update(is_calculating=False)
+            raise
 
 
 def _prepare_cohort_for_calculation(cohort: Cohort) -> None:
@@ -868,6 +894,7 @@ def calculate_cohort_from_list(
             cohort_id, len(items), batch_count, (time.time() - start_time)
         )
     )
+    enqueue_calculate_dependent_cohorts(cohort, initiating_user=None)
 
 
 def _finalize_population_history(
@@ -1019,6 +1046,8 @@ def _populate_static_cohort(
                 is_calculating=claimed.is_calculating,
                 errors_calculating=claimed.errors_calculating,
             )
+    if claimed is not None and processing_error is None:
+        enqueue_calculate_dependent_cohorts(claimed, initiating_user=None)
     if settings.DEBUG and processing_error is not None:
         raise processing_error
 

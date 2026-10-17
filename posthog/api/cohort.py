@@ -2322,6 +2322,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             activity="persons_added_manually",
             detail=Detail(changes=[Change(type="Cohort", action="changed")]),
         )
+        from posthog.tasks.calculate_cohort import enqueue_calculate_dependent_cohorts
+
+        enqueue_calculate_dependent_cohorts(cohort, initiating_user=cast(User, request.user))
         return Response({"success": True}, status=200)
 
     @extend_schema(request=RemovePersonRequestSerializer)
@@ -2363,6 +2366,9 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             activity="person_removed_manually",
             detail=Detail(changes=[Change(type="Cohort", action="changed")]),
         )
+        from posthog.tasks.calculate_cohort import enqueue_calculate_dependent_cohorts
+
+        enqueue_calculate_dependent_cohorts(cohort, initiating_user=cast(User, request.user))
         return Response({"success": True}, status=200)
 
     @extend_schema(operation_id="cohorts_all_activity_retrieve")
