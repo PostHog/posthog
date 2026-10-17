@@ -180,9 +180,13 @@ const ROOTS = [
     {
         root: 'src/scenes/session-recordings/detail/SessionRecordingDetail.tsx',
         label: 'replay detail scene',
-        // 2026-10-11: 11.70 MiB (4204 files), stable CSS included. ~30% headroom.
-        budgetBytes: 15_785_000,
-        forbidden: [],
+        // 2026-10-17: 8.61 MiB (3264 files), stable CSS included. ~10% headroom.
+        budgetBytes: 9_930_000,
+        forbidden: [
+            // The player shows a snapshot of a few settings. A hit means it imports settingsLogic again,
+            // which holds every settings page.
+            'src/scenes/settings/SettingsMap.tsx',
+        ],
     },
 ]
 
