@@ -50,4 +50,27 @@ describe('app metrics logic', () => {
             series: [{ name: 'success', values: [2, 3] }],
         })
     })
+
+    it('groups into a constant breakdown when no breakdown is set', async () => {
+        const querySpy = jest.spyOn(api, 'queryHogQL').mockResolvedValue({
+            results: [[['2026-11-01T00:00:00Z'], '', [5]]],
+        } as HogQLQueryResponse)
+
+        const result = await loadAppMetricsTimeSeries(
+            {
+                appSource: 'data_warehouse',
+                metricName: 'rows_synced',
+                instanceId: 'destination-1',
+                interval: 'day',
+                dateFrom: '2026-11-01T00:00:00Z',
+                dateTo: '2026-11-02T00:00:00Z',
+            },
+            'UTC'
+        )
+
+        const query = querySpy.mock.calls[0][0] as string
+        expect(query).toContain("'' AS breakdown")
+        expect(query).not.toContain('undefined')
+        expect(result.series).toEqual([{ name: '', values: [5] }])
+    })
 })
