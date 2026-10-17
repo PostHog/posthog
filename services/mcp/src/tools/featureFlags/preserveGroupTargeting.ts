@@ -300,12 +300,14 @@ function explicitGroupPropertyIndex(
     personSource: ExistingSet | undefined
 ): number | undefined {
     const properties = Array.isArray(group.properties) ? group.properties : []
-    const indexes = properties.flatMap((prop) =>
-        prop?.type === 'group' && isPresentGroupIndex(prop.group_type_index) && !holdsGroupProperty(personSource, prop)
-            ? [prop.group_type_index]
-            : []
+    const typed = properties.filter(
+        (prop): prop is FlagProperty & { group_type_index: number } =>
+            prop?.type === 'group' && isPresentGroupIndex(prop.group_type_index)
     )
-    const unique = [...new Set(indexes)]
+    if (typed.every((prop) => holdsGroupProperty(personSource, prop))) {
+        return undefined
+    }
+    const unique = [...new Set(typed.map((prop) => prop.group_type_index))]
     return unique.length === 1 ? unique[0] : undefined
 }
 
@@ -329,9 +331,9 @@ function resolveSetAggregation(
     // that changes the flag level already decides this set, the same way the API distributes
     // the flag level into every set that sends no index of its own. A group property that the
     // agent typed with an index names the group type of its own set. A retarget that the agent
-    // sends only on the property therefore survives. A group property that a person-aggregated
-    // source already holds names no group type, because that set filters on it without
-    // aggregating on its group type.
+    // sends only on the property therefore survives. A set whose typed group properties all
+    // repeat ones its person-aggregated source holds names no group type, because that set
+    // filters on them without aggregating on their group type.
     if (!pinnedToPerson && !payloadChangesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
         const restored =
             explicitGroupPropertyIndex(incoming, sourceSet?.aggregation === null ? sourceSet : undefined) ??

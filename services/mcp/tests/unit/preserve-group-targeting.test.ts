@@ -650,6 +650,36 @@ describe('preserveGroupTargetingFilters', () => {
         }
     )
 
+    // The backend rule reports this payload. This test therefore skips the oracle that copies the rule.
+    it('keeps a person-aggregated set when an echoed group property disagrees with a moved one', () => {
+        const existing = {
+            groups: [
+                {
+                    properties: [
+                        { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
+                        { key: 'plan', type: 'group', group_type_index: 1, operator: 'exact', value: 'pro' },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        }
+
+        const merged = preserveGroupTargetingFilters(existing, {
+            groups: [
+                {
+                    properties: [
+                        { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
+                        { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'pro' },
+                    ],
+                    rollout_percentage: 100,
+                },
+            ],
+        })
+
+        expect(merged?.groups?.[0]?.aggregation_group_type_index ?? null).toBeNull()
+        expect(merged?.groups?.[0]?.properties?.map((prop) => prop.group_type_index)).toEqual([1, 0])
+    })
+
     it('passes through multivariate and payloads without restoring from existing', () => {
         const existing = {
             aggregation_group_type_index: 0,
@@ -1143,6 +1173,49 @@ describe('preserveGroupTargetingFilters', () => {
                 [undefined, 'group', 0],
                 [undefined, undefined, undefined],
             ],
+        },
+        {
+            name: 'a person set moves its group property to another group type',
+            existing: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [
+                    {
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 2, operator: 'exact', value: 'eu' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [[2, 'group', 2]],
+        },
+        {
+            name: 'a stored set that inherits a group flag level moves to persons',
+            existing: {
+                aggregation_group_type_index: 0,
+                groups: [
+                    {
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                aggregation_group_type_index: null,
+                groups: [{ properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 }],
+            },
+            expected: [[undefined, undefined, undefined]],
         },
     ])('keeps each condition set on its own aggregation when $name', ({ existing, incoming, expected }) => {
         const merged = preserveGroupTargetingFilters(existing, incoming)
