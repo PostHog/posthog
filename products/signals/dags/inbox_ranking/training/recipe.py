@@ -3,13 +3,13 @@
 `model_name` names a recipe, and `model_version` is the day it was fit on. A candidate's
 `metadata.json` carries `recipe` (the inputs below, as a dict) and `recipe_hash`, a stable hash of
 that dict. The recipe holds what a daily retrain keeps fixed: the learner, the feature set, the
-learner's settings, each head's cohort, label and horizon, the example window and budget, and the
-dataset version. It never holds dates, the `run_id`, row counts or metrics.
+learner's settings, each head's label definition and horizon, the example window and budget, and
+the dataset version. It never holds dates, the `run_id`, row counts or metrics.
 
 The promotion gate compares a candidate only to the champion of its own `model_name`, so two
 recipes under one name would be compared as if they were one series. The candidate asset refuses
-that: it compares its hash with the newest earlier version of the same name that has one, and fails
-before it writes the partition when they differ. The fix is a new `model_name`, not an override.
+that: it compares its hash with the newest version of the same name, at or before its partition,
+that has one, and fails before it writes the partition when they differ. The fix is a new `model_name`, not an override.
 """
 
 import json
@@ -47,6 +47,9 @@ def model_recipe(
                 "cohort": head.cohort.__name__,
                 "label": head.label.__name__,
                 "horizon_days": head.horizon_days,
+                # Both drop example rows, so a change to either changes what the head is fit on.
+                "label_columns": list(head.label_columns),
+                "status_labels": head.status_labels,
             }
             for head in heads
         },
@@ -85,7 +88,8 @@ def changed_recipe_keys(previous: Mapping[str, Any], current: Mapping[str, Any])
 def recipe_mismatch(model_name: str, recipe: Mapping[str, Any], previous: Mapping[str, Any] | None) -> str | None:
     """Why a candidate with `recipe` must not be written under `model_name`, or None when it may.
 
-    `previous` is the metadata of the newest earlier version of the name that has a hash. None
+    `previous` is the metadata of the newest version of the name, at or before this partition, that
+    has a hash. None
     means there is nothing to compare: the name is new, or its versions predate the hash."""
     if previous is None or previous.get(RECIPE_HASH_KEY) == recipe_hash(recipe):
         return None

@@ -268,15 +268,17 @@ def read_served_pointer(client, bucket: str, prefix: str) -> dict[str, Any] | No
 def previous_recipe_metadata(
     client, bucket: str, prefix: str, model_name: str, partition_key: str
 ) -> dict[str, Any] | None:
-    """The `metadata.json` of the newest version of `model_name` before `partition_key` that carries a
-    recipe hash, or None. A version written before the hash existed is passed over."""
+    """The `metadata.json` of the newest version of `model_name` at or before `partition_key` that
+    carries a recipe hash, or None. A re-run of a partition compares with that partition's own saved
+    recipe, so a re-run cannot replace a version with another recipe. A version written before the
+    hash existed is passed over."""
     folder = f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/dt="
     versions = [
         common["Prefix"][len(folder) :].rstrip("/")
         for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=folder, Delimiter="/")
         for common in page.get("CommonPrefixes", [])
     ]
-    for version in sorted((version for version in versions if version < partition_key), reverse=True):
+    for version in sorted((version for version in versions if version <= partition_key), reverse=True):
         metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, version, METADATA_FILE))
         if metadata is not None and metadata.get(RECIPE_HASH_KEY):
             return metadata
