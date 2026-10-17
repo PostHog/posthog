@@ -56,6 +56,7 @@ from products.logs.backend.alert_source_cycle import (
 )
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import backfill_platform_alert_configurations
+from products.logs.backend.platform_source_config import filters_of
 from products.logs.backend.temporal.alert_evaluate import (
     EVALUATE_SCHEDULE_TO_CLOSE,
     EVALUATE_START_TO_CLOSE,
@@ -84,9 +85,8 @@ class TestLogsAlertEvaluation(APIBaseTest):
         redis.get_client().delete(INFLIGHT_KEY)
 
     def _legacy_alert(self, source_config: dict[str, Any], **fields: Any) -> LogsAlertConfiguration:
-        filters = {key: value for key, value in source_config.items() if key != "condition"}
         return LogsAlertConfiguration.objects.create(
-            team=self.team, name="API errors", filters=filters, **source_config["condition"], **fields
+            team=self.team, name="API errors", filters=filters_of(source_config), **source_config["condition"], **fields
         )
 
     def _configuration(self, **overrides: Any) -> PlatformConfigurationSnapshot:
@@ -233,9 +233,10 @@ class TestLogsAlertEvaluation(APIBaseTest):
             (check,) = due_checks(self.team.id, SourceKind.LOGS.value, self._slot(), self.cutoff)
             copied = platform_testing.configuration(check.id)
 
-        evaluation, _ = self._run(copied)
+        evaluation, query = self._run(copied)
 
         assert [(g.kind, g.value) for o in evaluation.outcomes for g in o.groups] == [(AlertEventKind.FIRING, 500.0)]
+        assert [alert.filters for alert in query.call_args.kwargs["alerts"]] == [{"serviceNames": ["api"]}]
 
     def test_a_cohort_query_is_capped_below_the_batch_budget(self) -> None:
         _, query = self._run(self._configuration())
