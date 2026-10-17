@@ -386,15 +386,16 @@ pub(crate) fn try_extract_severity(body: &str) -> Option<&'static str> {
     let Ok(val) = serde_json::from_str::<JsonValue>(body) else {
         return None;
     };
+    severity_from_json(&val)
+}
 
-    for key in SEVERITY_KEYS {
-        if let Some(found) = val.get(key).and_then(|severity| severity.as_str()) {
-            if let Some(text) = severity_alias(found) {
-                return Some(text);
-            }
-        }
-    }
-    None
+/// Canonical severity from the usual level keys of an already parsed JSON body.
+pub(crate) fn severity_from_json(val: &JsonValue) -> Option<&'static str> {
+    SEVERITY_KEYS.iter().find_map(|key| {
+        val.get(key)
+            .and_then(|severity| severity.as_str())
+            .and_then(severity_alias)
+    })
 }
 
 /// Canonical severity for a level word, or `None` when the word is not a known level. Unlike
