@@ -229,13 +229,10 @@ function pickCandidate(
     usableType: (type: unknown) => boolean
 ): FlagProperty | undefined {
     const usable = (candidates ?? []).filter((candidate) => usableType(candidate.type))
-    if (incoming.operator) {
-        const byOperator = usable.find((candidate) => candidate.operator === incoming.operator)
-        if (byOperator) {
-            return byOperator
-        }
-    }
-    return usable[0]
+    const byOperator = incoming.operator ? usable.filter((candidate) => candidate.operator === incoming.operator) : []
+    // Two group filters on one key can share an operator and differ only in group type and value.
+    const pool = byOperator.length > 0 ? byOperator : usable
+    return pool.find((candidate) => isDeepStrictEqual(candidate.value, incoming.value)) ?? pool[0]
 }
 
 function mergeProperty(

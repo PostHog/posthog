@@ -513,9 +513,14 @@ describe('preserveGroupTargetingFilters', () => {
         { key: 'name', type: 'group', group_type_index: 0, operator: 'icontains', value: 'acme' },
         { key: 'name', type: 'person', operator: 'exact', value: 'acme' },
     ]
+    const twoGroupTypeCandidates = [
+        { key: 'name', type: 'group', group_type_index: 0, operator: 'exact', value: 'acme' },
+        { key: 'name', type: 'group', group_type_index: 1, operator: 'exact', value: 'globex' },
+    ]
 
     // The set aggregates on person, so the candidates decide the type. The operator picks
-    // between two candidates that share a key. Without an operator match, the first one wins.
+    // between two candidates that share a key, and the value picks between those. Without a
+    // match, the first one wins.
     it.each([
         { name: 'the operator matches the cohort candidate', operator: 'in', expected: { type: 'cohort' } },
         { name: 'the operator matches the person candidate', operator: 'icontains', expected: { type: 'person' } },
@@ -532,14 +537,21 @@ describe('preserveGroupTargetingFilters', () => {
             operator: 'exact',
             expected: { type: 'person' },
         },
+        {
+            name: 'the value matches one of two group candidates with the same operator',
+            stored: twoGroupTypeCandidates,
+            operator: 'exact',
+            value: 'globex',
+            expected: { type: 'group', group_type_index: 1 },
+        },
     ])(
         'picks a duplicate-key candidate by operator when $name',
-        ({ stored = personAndCohortCandidates, operator, expected }) => {
+        ({ stored = personAndCohortCandidates, operator, value = 'acme', expected }) => {
             const existing = { groups: [{ properties: stored, rollout_percentage: 100 }] }
             const incoming = {
                 groups: [
                     {
-                        properties: [{ key: 'name', operator, value: 'acme' }],
+                        properties: [{ key: 'name', operator, value }],
                         rollout_percentage: 100,
                     },
                 ],
@@ -547,7 +559,7 @@ describe('preserveGroupTargetingFilters', () => {
 
             const merged = preserveGroupTargetingFilters(existing, incoming)
 
-            expect(merged?.groups?.[0]?.properties?.[0]).toEqual({ key: 'name', operator, value: 'acme', ...expected })
+            expect(merged?.groups?.[0]?.properties?.[0]).toEqual({ key: 'name', operator, value, ...expected })
             expect(aggregationViolations(existing, merged)).toEqual([])
         }
     )
