@@ -1,6 +1,8 @@
 import { resetContext } from 'kea'
 import { expectLogic, testUtilsPlugin } from 'kea-test-utils'
 
+import api from 'lib/api'
+
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -278,6 +280,22 @@ describe('surveyTriggerLogic', () => {
                 })
 
             expect(logic.values.surveysById['configured-survey']).toEqual(exists ? configured : undefined)
+        })
+
+        it('stops quietly when the panel closes before the survey loads', async () => {
+            useSetupMocks()
+            let resolveSurvey: (survey: Survey) => void = () => {}
+            jest.spyOn(api.surveys, 'get').mockReturnValue(new Promise((resolve) => (resolveSurvey = resolve)))
+            const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+
+            logic = surveyTriggerLogic({ selectedSurveyId: 'configured-survey' })
+            logic.mount()
+            logic.unmount()
+            resolveSurvey(makeSurvey({ id: 'configured-survey' }))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(consoleError).not.toHaveBeenCalled()
+            consoleError.mockRestore()
         })
     })
 
