@@ -3,11 +3,13 @@ import asyncio
 import inspect
 
 import pytest
+from unittest.mock import patch
 
 import posthoganalytics
 import temporalio.activity
 from temporalio.testing import ActivityEnvironment
 
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.temporal.common.scoped import scoped_temporal
 
 
@@ -46,13 +48,22 @@ def test_scoped_temporal_rejects_sync_function() -> None:
         scoped_temporal()(my_sync_activity)  # type: ignore[arg-type]
 
 
-def test_scoped_temporal_propagates_exceptions() -> None:
+@pytest.mark.parametrize(
+    "error, expect_capture",
+    [
+        (ValueError("boom"), True),
+        (GitHubEgressBudgetExhausted("boom", scope="123"), False),
+    ],
+)
+def test_scoped_temporal_propagates_exceptions(error: Exception, expect_capture: bool) -> None:
     @scoped_temporal()
     async def my_activity() -> None:
-        raise ValueError("boom")
+        raise error
 
-    with pytest.raises(ValueError, match="boom"):
+    with patch("posthoganalytics.capture_exception") as capture, pytest.raises(type(error), match="boom"):
         asyncio.run(my_activity())
+
+    assert capture.called is expect_capture
 
 
 def test_scoped_temporal_preserves_function_metadata() -> None:
