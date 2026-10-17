@@ -5,7 +5,7 @@
          minus(uniq(id), uniqIf(id, notEquals(is_deleted, 0))) AS c
   FROM
     (SELECT toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'country'), ''), 'null'), '^"|"$', '')) AS value,
-            person.is_deleted AS is_deleted,
+            toBool(person.is_deleted) AS is_deleted,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), isNotNull(value), ifNull(notEquals(value, ''), 1))

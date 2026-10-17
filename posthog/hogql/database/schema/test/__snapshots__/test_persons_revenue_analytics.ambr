@@ -12,7 +12,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.id, '0193a0b1-2c3d-4e5f-8899-aabbccddeeff')))))
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -51,7 +51,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                             HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
               FROM events
@@ -216,7 +216,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -288,7 +288,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -468,7 +468,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -540,7 +540,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -724,10 +724,9 @@
   WHERE equals(person.team_id,
                99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted,
-                           person.version), 0), less(argMax(toTimeZone(person.created_at,
-                                                                       'UTC'), person.version), plus(now64(6,
-                                                                                                           'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at,
+                                                                                                  'UTC'), person.version), plus(now64(6,
+                                                                                                                                      'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN (
   SELECT 99999 AS team_id,
          person_id AS person_id,
@@ -850,10 +849,9 @@
   WHERE equals(person.team_id,
                99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted,
-                           person.version), 0), less(argMax(toTimeZone(person.created_at,
-                                                                       'UTC'), person.version), plus(now64(6,
-                                                                                                           'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at,
+                                                                                                  'UTC'), person.version), plus(now64(6,
+                                                                                                                                      'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN (
   SELECT argMax(person_distinct_id2.person_id,
                 person_distinct_id2.version) AS person_id,
@@ -1203,7 +1201,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -1275,7 +1273,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -1456,7 +1454,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -1528,7 +1526,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -1712,10 +1710,9 @@
   WHERE equals(person.team_id,
                99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted,
-                           person.version), 0), less(argMax(toTimeZone(person.created_at,
-                                                                       'UTC'), person.version), plus(now64(6,
-                                                                                                           'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at,
+                                                                                                  'UTC'), person.version), plus(now64(6,
+                                                                                                                                      'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN (
   SELECT 99999 AS team_id,
          person_id AS person_id,
@@ -1838,10 +1835,9 @@
   WHERE equals(person.team_id,
                99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted,
-                           person.version), 0), less(argMax(toTimeZone(person.created_at,
-                                                                       'UTC'), person.version), plus(now64(6,
-                                                                                                           'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at,
+                                                                                                  'UTC'), person.version), plus(now64(6,
+                                                                                                                                      'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN (
   SELECT argMax(person_distinct_id2.person_id,
                 person_distinct_id2.version) AS person_id,
@@ -2190,7 +2186,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -2229,7 +2225,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                             HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
               FROM events
@@ -2393,7 +2389,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -2465,7 +2461,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -2644,7 +2640,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   JOIN
     (SELECT 99999 AS team_id,
             toUUIDOrNull('00000000-0000-0000-0000-000000000000') AS person_id,
@@ -2709,7 +2705,7 @@
                                                              FROM person
                                                              WHERE equals(person.team_id, 99999)
                                                              GROUP BY person.id
-                                                             HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                             HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
               FROM events
@@ -2959,7 +2955,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -3147,7 +3143,7 @@
     SELECT person.id AS id, max(person.version) AS version
     FROM person WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
   INNER JOIN (
   SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
   FROM events
@@ -3232,7 +3228,7 @@
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN (
   SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id, person_distinct_id2.distinct_id AS distinct_id
   FROM person_distinct_id2
@@ -3354,7 +3350,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            LEFT JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -3542,10 +3538,9 @@
                                                        99999), equals(where_optimization.id,
                                                                       toUUIDOrNull('00000000-0000-4000-8000-000000000000'))))))
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted,
-                           person.version), 0), less(argMax(toTimeZone(person.created_at,
-                                                                       'UTC'), person.version), plus(now64(6,
-                                                                                                           'UTC'), toIntervalDay(1))))) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at,
+                                                                                                  'UTC'), person.version), plus(now64(6,
+                                                                                                                                      'UTC'), toIntervalDay(1))))) AS persons
   LEFT JOIN (
   SELECT 99999 AS team_id,
          person_id AS person_id,
@@ -3668,10 +3663,9 @@
   WHERE equals(person.team_id,
                99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted,
-                           person.version), 0), less(argMax(toTimeZone(person.created_at,
-                                                                       'UTC'), person.version), plus(now64(6,
-                                                                                                           'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at,
+                                                                                                  'UTC'), person.version), plus(now64(6,
+                                                                                                                                      'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN (
   SELECT argMax(person_distinct_id2.person_id,
                 person_distinct_id2.version) AS person_id,
@@ -4054,7 +4048,7 @@
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
   LEFT JOIN (
   SELECT 99999 AS team_id, person_id AS person_id, sum(revenue) AS revenue, sum(mrr) AS mrr
   FROM (
@@ -4068,7 +4062,7 @@
     SELECT person.id AS id, max(person.version) AS version
     FROM person WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
   INNER JOIN (
   SELECT DISTINCT events__pdi__person.id AS person_id
   FROM events
@@ -4083,7 +4077,7 @@
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__pdi__person ON equals(events__pdi.events__pdi___person_id, events__pdi__person.id)
   WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
   ORDER BY persons.created_at DESC) AS revenue_analytics_customer
   LEFT JOIN (
@@ -4223,7 +4217,7 @@
                                                                       FROM person
                                                                       WHERE equals(person.team_id, 99999)
                                                                       GROUP BY person.id
-                                                                      HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+                                                                      HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
                     INNER JOIN
                       (SELECT DISTINCT events.person_id AS person_id
                        FROM events
@@ -4418,7 +4412,7 @@
     SELECT person.id AS id, max(person.version) AS version
     FROM person WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
   INNER JOIN (
   SELECT DISTINCT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS person_id
   FROM events
@@ -4531,7 +4525,7 @@
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
   LEFT JOIN (
   SELECT 99999 AS team_id, person_id AS person_id, sum(revenue) AS revenue, sum(mrr) AS mrr
   FROM (
@@ -4545,7 +4539,7 @@
     SELECT person.id AS id, max(person.version) AS version
     FROM person WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))))) SETTINGS optimize_aggregation_in_order=1) AS persons
   INNER JOIN (
   SELECT DISTINCT events__person.id AS person_id
   FROM events
@@ -4560,7 +4554,7 @@
   FROM person
   WHERE equals(person.team_id, 99999)
   GROUP BY person.id
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+  HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
   WHERE equals(events.team_id, 99999)) AS events ON equals(persons.id, events.person_id)
   ORDER BY persons.created_at DESC) AS revenue_analytics_customer
   LEFT JOIN (
@@ -4660,7 +4654,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.id, '0193a0b1-2c3d-4e5f-8899-aabbccddeeff')))))
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -4713,7 +4707,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -4736,7 +4730,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -4783,7 +4777,7 @@
      FROM person
      WHERE equals(person.team_id, 99999)
      GROUP BY person.id
-     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+     HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
   LEFT JOIN
     (SELECT 99999 AS team_id,
             person_id AS person_id,
@@ -4806,7 +4800,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -4917,7 +4911,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS persons
            INNER JOIN
              (SELECT argMax(person_distinct_id2.person_id, person_distinct_id2.version) AS person_id,
                      person_distinct_id2.distinct_id AS distinct_id
@@ -5004,7 +4998,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__pdi__person ON equals(e__pdi.e__pdi___person_id, e__pdi__person.e__pdi__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      person_id AS person_id,
@@ -5454,7 +5448,7 @@
               FROM person
               WHERE equals(person.team_id, 99999)
               GROUP BY person.id
-              HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
+              HAVING and(equals(argMax(toBool(person.is_deleted), person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1)))) SETTINGS optimize_aggregation_in_order=1) AS e__person ON equals(if(not(empty(e__override.distinct_id)), e__override.person_id, e.person_id), e__person.e__person___id)
            LEFT JOIN
              (SELECT 99999 AS team_id,
                      person_id AS person_id,
