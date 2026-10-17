@@ -225,6 +225,42 @@ describe('Utils', () => {
                 ['*', '*', '*', '*', '*', '*', '*', '*', 'R'],
                 '{"key":"***REDACTED***"}',
             ],
+            [
+                'a Basic auth pair next to an unrelated encoded value',
+                ['Authorization: Basic ZmFrZS11c2VyLTAwOmZha2Utc2VjcmV0LTAwMDA=', 'ZXhhbXBsZS12YWx1ZQ=='],
+                ['fake-secret-0000'],
+                'Authorization: Basic ***REDACTED***, ZXhhbXBsZS12YWx1ZQ==',
+            ],
+            [
+                'a Basic auth pair with a short secret',
+                ['Authorization: Basic ZmFrZS11c2VyOnBpbg=='],
+                ['pin'],
+                'Authorization: Basic ***REDACTED***',
+            ],
+            [
+                'a Basic auth pair with a secret that occurs inside the marker',
+                ['Authorization: Basic ZmFrZS11c2VyOio='],
+                ['*'],
+                'Authorization: Basic ***REDACTED***',
+            ],
+            [
+                'a value that contains the marker',
+                ['password=fake***REDACTED***password'],
+                ['fake***REDACTED***password'],
+                'password=***REDACTED***',
+            ],
+            [
+                'a longer encoded value, keeping the characters it shares with the bytes around the secret',
+                ['payload=eyJrZXkiOiJmYWtlLXNlY3JldC0wMDAwIn0='],
+                ['fake-secret-0000'],
+                'payload=eyJrZXkiOiJ***REDACTED***In0=',
+            ],
+            [
+                'its base64url encoding',
+                ['token=ZmFrZS1zZWNyZXQtPj4-Pz8_'],
+                ['fake-secret->>>???'],
+                'token=***REDACTED***',
+            ],
         ])('should redact a sensitive value in %s', (_name, args, sensitiveValues, expected) => {
             expect(sanitizeLogMessage(args, sensitiveValues)).toBe(expected)
         })

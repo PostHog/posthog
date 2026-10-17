@@ -431,23 +431,20 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
         return message
     }
 
-    const variants = new Set<string>()
-    sensitiveValues.forEach((sensitiveValue) => {
-        if (typeof sensitiveValue !== 'string' || !sensitiveValue) {
-            return
-        }
-        variants.add(sensitiveValue)
-        // Logged objects are JSON-encoded, which escapes quotes, backslashes and newlines, so a secret
-        // such as a PEM private key no longer matches its raw form inside the message.
-        variants.add(JSON.stringify(sensitiveValue).slice(1, -1))
-    })
-    if (!variants.size) {
+    const secrets = sensitiveValues.filter((value) => typeof value === 'string' && value)
+    if (!secrets.length) {
         return message
     }
 
-    // Replace every value in one pass over the original text, longest first. Replacing the values one
-    // after another rescans the markers that earlier passes inserted, so a value that occurs inside
-    // the marker, such as `*`, multiplies the message length on every pass.
+    // Logged objects are JSON-encoded, which escapes quotes, backslashes and newlines, so a secret
+    // such as a PEM private key no longer matches its raw form inside the message.
+    const variants = new Set(
+        secrets.flatMap((secret) => [secret, JSON.stringify(secret).slice(1, -1), ...base64Variants(secret)])
+    )
+
+    // Find every value in one scan of the original text, longest first. Replacing the values one after
+    // another rescans the markers that earlier passes inserted, so a value that occurs inside the
+    // marker, such as `*`, multiplies the message length on every pass.
     const pattern = new RegExp(
         [...variants]
             .sort((a, b) => b.length - a.length)
@@ -455,8 +452,54 @@ export const redactSensitiveValues = (message: string, sensitiveValues?: string[
             .join('|'),
         'g'
     )
-    return message.replace(pattern, REDACTED)
+    return redactSpans(message, [...matchSpans(message, pattern), ...basicAuthSpans(message, secrets)])
 }
+
+type Span = [start: number, end: number]
+
+const matchSpans = (message: string, pattern: RegExp): Span[] =>
+    [...message.matchAll(pattern)].map((match) => [match.index, match.index + match[0].length])
+
+const BASIC_AUTH_TOKEN = /\b(Basic\s+)([A-Za-z0-9+/]+={0,2})/gi
+
+// A Basic auth token encodes the whole `user:secret` pair, so decoding it also finds a secret too
+// short for its encoded fragments to be masked on their own.
+const basicAuthSpans = (message: string, secrets: string[]): Span[] =>
+    [...message.matchAll(BASIC_AUTH_TOKEN)]
+        .filter(([, , credentials]) => {
+            const decoded = Buffer.from(credentials, 'base64').toString('utf-8')
+            return secrets.some((secret) => decoded.includes(secret))
+        })
+        .map((match) => [match.index + match[1].length, match.index + match[0].length])
+
+// Overlapping spans merge into one marker, and no marker is ever scanned again.
+const redactSpans = (message: string, spans: Span[]): string => {
+    let redacted = ''
+    let cursor = 0
+    for (const [start, end] of spans.sort(([a], [b]) => a - b)) {
+        if (start >= cursor) {
+            redacted += message.slice(cursor, start) + REDACTED
+        }
+        cursor = Math.max(cursor, end)
+    }
+    return redacted + message.slice(cursor)
+}
+
+// Shorter fragments of an encoded secret are too common in ordinary base64 text to mask safely.
+const MIN_BASE64_VARIANT_LENGTH = 4
+
+// A secret also travels base64-encoded inside a longer value, such as an encoded request body. Its
+// encoding depends on where it starts within a 3-byte group, so this takes all three alignments and
+// keeps only the characters that the neighboring bytes do not change.
+const base64Variants = (secret: string): string[] =>
+    [0, 1, 2].flatMap((offset) => {
+        const encoded = Buffer.concat([Buffer.alloc(offset), Buffer.from(secret)]).toString('base64')
+        const stableStart = offset ? offset + 1 : 0
+        const stableEnd = Math.floor(((offset + Buffer.byteLength(secret)) * 4) / 3)
+        const stable = encoded.slice(stableStart, stableEnd)
+        const urlSafe = stable.replace(/\+/g, '-').replace(/\//g, '_')
+        return [stable, urlSafe].filter((variant) => variant.length >= MIN_BASE64_VARIANT_LENGTH)
+    })
 
 // Redacts each string before the outer JSON encoding. A value that is already a JSON string, such as a
 // request body, is otherwise escaped a second time and no longer matches the escaped secret.
