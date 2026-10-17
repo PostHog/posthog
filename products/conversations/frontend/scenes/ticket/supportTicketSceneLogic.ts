@@ -1364,7 +1364,12 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 breakpoint()
                 if (values.ticket?.id === ticketId) {
                     // Only ai_triage changes: setTicket would reset the unsaved status, priority and tag edits.
-                    actions.setAiTriage(ticket.ai_triage)
+                    const currentHumanOutcome = values.ticket.ai_triage?.human_outcome
+                    actions.setAiTriage(
+                        currentHumanOutcome
+                            ? { ...ticket.ai_triage, human_outcome: currentHumanOutcome }
+                            : ticket.ai_triage
+                    )
                 }
             } catch (error: any) {
                 if (error?.isBreakpoint) {

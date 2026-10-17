@@ -1228,6 +1228,46 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
         commentsListMock.mockReset().mockResolvedValue({ results: [] })
     })
 
+    it('keeps a new AI outcome when the source refresh finishes late', async () => {
+        let finishTicketRefresh!: (ticket: Ticket) => void
+        let refreshStarted!: () => void
+        const ticketRefreshStarted = new Promise<void>((resolve) => {
+            refreshStarted = resolve
+        })
+        ticketRetrieveMock.mockImplementationOnce(
+            () =>
+                new Promise<Ticket>((resolve) => {
+                    finishTicketRefresh = resolve
+                    refreshStarted()
+                })
+        )
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+
+        logic.actions.loadMessages()
+        await ticketRefreshStarted
+
+        const message = {
+            id: 'msg-ai-cited',
+            content: 'Draft reply',
+            authorType: 'AI' as const,
+            authorName: 'PostHog Assistant',
+            createdAt: '2026-01-01T00:00:00Z',
+            isPrivate: true,
+            persistAs: 'reply' as const,
+        }
+        await expectLogic(logic, () => logic.actions.applyAiDraft(message)).toDispatchActions(['setTicket'])
+        expect(logic.values.ticket?.ai_triage?.human_outcome).toBe('used')
+
+        finishTicketRefresh({
+            ...loadedTicket(),
+            ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
+        })
+        await expectLogic(logic).toDispatchActions(['setAiTriage'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.ticket?.ai_triage?.human_outcome).toBe('used')
+    })
+
     it('loads the sources of an AI draft that arrives while the ticket is open, keeping unsaved edits', async () => {
         logic.actions.setStatus('pending')
         commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
