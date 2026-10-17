@@ -225,6 +225,32 @@ class TestConversationEvents(BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "allowlisted_host",
+                ["eu.example.com"],
+                {"current_url": "https://EU.example.com/project/1"},
+                "eu.example.com",
+            ),
+            ("wildcard_host", ["*.example.com"], {"current_url": "https://us.example.com/x"}, "us.example.com"),
+            ("host_not_allowlisted", ["example.com"], {"current_url": "https://attacker.test/x"}, None),
+            ("no_allowlist", [], {"current_url": "https://eu.example.com/x"}, None),
+            ("no_current_url", ["example.com"], {}, None),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_capture_message_sent_stamps_session_host(
+        self, _name, widget_domains, session_context, expected, mock_capture
+    ):
+        self.team.conversations_settings = {"widget_domains": widget_domains}
+        self.team.save()
+        self.ticket.session_context = session_context
+
+        capture_message_sent(self.ticket, "msg-123", "Hello customer", author=self.user)
+
+        assert mock_capture.call_args.kwargs["properties"]["session_host"] == expected
+
+    @parameterized.expand(
+        [
             ("capture_ticket_created", capture_ticket_created, []),
             ("capture_message_received", capture_message_received, ["msg-id", "content"]),
             ("capture_message_sent", capture_message_sent, ["msg-id", "content"]),
