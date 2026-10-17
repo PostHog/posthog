@@ -8,7 +8,7 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 
-import { RATING_SCALE, sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
+import { RATING_SCALE, WIZARD_COMMAND, sourceMapsFixWizardLogic } from './sourceMapsFixWizardLogic'
 import { WizardHog } from './sourceMapsWizardVisuals'
 
 export function SourceMapsFixModal(): JSX.Element {
@@ -42,11 +42,10 @@ export function SourceMapsFixModal(): JSX.Element {
 // Local command renderer instead of CommandBlock: same rainbow text, but no
 // scale bounce or color flash on click, and a theme-aware hairline border.
 function WizardCommand({ onCopy }: { onCopy: (key: number) => void }): JSX.Element {
-    const { wizardCommand } = useValues(sourceMapsFixWizardLogic)
     const copyCount = useRef(0)
 
     const handleCopy = (): void => {
-        void copyToClipboard(wizardCommand, 'Wizard command')
+        void copyToClipboard(WIZARD_COMMAND, 'Wizard command')
         copyCount.current += 1
         onCopy(copyCount.current)
     }
@@ -60,7 +59,7 @@ function WizardCommand({ onCopy }: { onCopy: (key: number) => void }): JSX.Eleme
         >
             <IconTerminal className="size-4 text-muted" />
             <code className="rainbow-text rainbow-text-animating !bg-transparent !p-0 !border-0 select-all min-w-0">
-                {wizardCommand}
+                {WIZARD_COMMAND}
             </code>
             <IconCopy className="size-4 text-muted group-hover:text-primary" />
         </button>
