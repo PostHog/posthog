@@ -47,6 +47,11 @@ class FileSystem(models.Model):
         return self.path
 
 
+def project_team_ids(project_id: int) -> list[int]:
+    # Every file system index starts with team_id. A team__project_id filter joins posthog_team and skips them.
+    return list(Team.objects.filter(project_id=project_id).values_list("id", flat=True))
+
+
 def create_or_update_file(
     *,
     team: Team,

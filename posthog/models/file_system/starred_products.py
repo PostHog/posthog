@@ -4,6 +4,7 @@ from django.db import transaction
 from django.db.models import QuerySet
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.file_system import project_team_ids
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
 from posthog.models.user import User
 from posthog.products import Products
@@ -26,8 +27,9 @@ DEFAULT_PRODUCT_PATHS = [
 
 def _project_shortcuts(user: User, team: "Team") -> QuerySet[FileSystemShortcut]:
     # The sidebar lists the shortcuts of every environment in the project, so checks span them all.
-    # nosemgrep: environment-model-scoped-by-project -- the shortcut API lists a user's own stars project-wide
-    return FileSystemShortcut.objects.filter(surface_q(DEFAULT_SURFACE), team__project_id=team.project_id, user=user)
+    return FileSystemShortcut.objects.filter(
+        surface_q(DEFAULT_SURFACE), team_id__in=project_team_ids(team.project_id), user=user
+    )
 
 
 def _product_stars(user: User, team: "Team") -> QuerySet[FileSystemShortcut]:
