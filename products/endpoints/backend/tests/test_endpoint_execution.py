@@ -17,6 +17,7 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.errors import CHQueryErrorNoCommonType
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
@@ -202,9 +203,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
 
-    def test_budget_refusal_does_not_count_as_an_endpoint_error(self):
+    @parameterized.expand(
+        [
+            ("budget", APIQueriesBudgetExceeded(wait=120)),
+            ("concurrency", ConcurrencyLimitExceeded()),
+        ]
+    )
+    def test_refusal_does_not_count_as_an_endpoint_error(self, name: str, refusal: Exception):
         endpoint = create_endpoint_with_version(
-            name="budget_refused",
+            name=f"{name}_refused",
             team=self.team,
             query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
             created_by=self.user,
@@ -214,7 +221,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         with (
             mock.patch(
                 "products.endpoints.backend.logic.execution.process_query_model",
-                side_effect=APIQueriesBudgetExceeded(wait=120),
+                side_effect=refusal,
             ),
             mock.patch("products.endpoints.backend.logic.execution.ENDPOINT_EXECUTION_TOTAL") as mock_counter,
             mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
@@ -2668,6 +2675,31 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_exec.call_count, 2, "expected materialized attempt then inline fallback")
         # A refresh that cannot start must not overwrite the reason the read failed.
         self.assertIsInstance(mock_capture.call_args_list[0].args[0], MaterializedSeriesMismatchError)
+
+    @parameterized.expand(
+        [
+            ("budget", APIQueriesBudgetExceeded(wait=120)),
+            ("concurrency", ConcurrencyLimitExceeded()),
+        ]
+    )
+    def test_materialized_refusal_is_not_captured(self, name: str, refusal: Exception):
+        endpoint = self._make_fresh_materialized_endpoint(
+            f"mat-{name}-refused", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+
+        with (
+            mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", side_effect=refusal) as mock_exec,
+            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal") as mock_signal,
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(mock_exec.call_count, 1, "a refusal must not fall back inline")
+        mock_signal.assert_not_called()
+        mock_capture.assert_not_called()
 
     def test_unrecoverable_failure_not_labeled_materialized_fallback(self):
         from prometheus_client import REGISTRY
