@@ -63,12 +63,18 @@ def _within_limits(values: list[str]) -> bool:
     return len(values) <= MAX_VALUES and all(len(value) <= MAX_VALUE_LENGTH for value in values)
 
 
-def _is_re2(regex: str | None) -> bool:
+def _runs_live(regex: str | None) -> bool:
+    """Whether the options endpoint runs the regex as Grafana does."""
+    if regex is None:
+        return True
+    if len(regex) > MAX_VALUE_LENGTH:
+        return False
     try:
-        re2.compile(re2_pattern(regex))
+        pattern = re2.compile(re2_pattern(regex))
     except re2.error:
         return False
-    return True
+    # Grafana reads the `text` and `value` groups by name. The options endpoint takes the first group.
+    return not pattern.groupindex
 
 
 def _live_definition(
@@ -88,7 +94,7 @@ def _live_definition(
         if not _PROMQL_VARIABLE_QUERY.match(query) or _RANGE_MACRO.search(query) or len(query) > MAX_QUERY_LENGTH:
             return None
         # Grafana runs the regex in JavaScript, and the options endpoint runs it with RE2, which has no lookaround.
-        if datasource_type not in _PROMQL_DATASOURCES or not _is_re2(_regex(item)):
+        if datasource_type not in _PROMQL_DATASOURCES or not _runs_live(_regex(item)):
             return None
         # A live All without an allValue matches every value, so it must not drop a filter that limits the options.
         if include_all and all_value is None and ("{" in query or _regex(item)):
@@ -137,15 +143,23 @@ def _resolvable(
     live: dict[str, MetricsDashboardVariable], variables: dict[str, Variable]
 ) -> dict[str, MetricsDashboardVariable]:
     """The live variables whose queries refer only to live variables or to variables with a saved value."""
-    while True:
-        kept = {
-            name: definition
-            for name, definition in live.items()
-            if not definition.query or not substitute_promql(definition.query, variables, keep=live).unresolved
-        }
-        if len(kept) == len(live):
-            return kept
-        live = kept
+    dependents: dict[str, list[str]] = {}
+    static: list[str] = []
+    for name, definition in live.items():
+        needed = substitute_promql(definition.query, variables).unresolved if definition.query else ()
+        if any(other not in live for other in needed):
+            static.append(name)
+        for other in needed:
+            dependents.setdefault(other, []).append(name)
+    # Each variable becomes static at most once, so the work grows with the number of references.
+    removed: set[str] = set()
+    while static:
+        name = static.pop()
+        if name in removed:
+            continue
+        removed.add(name)
+        static.extend(dependents.get(name, ()))
+    return {name: definition for name, definition in live.items() if name not in removed}
 
 
 class TemplateVariables:
