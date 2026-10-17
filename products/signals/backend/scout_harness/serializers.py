@@ -3600,7 +3600,8 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
     precheck_query_source = serializers.SerializerMethodField(
         help_text=(
             "Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), "
-            "`skill_default` (the default its skill ships), or `off` (no pre-check runs)."
+            "`skill_default` (the default its skill ships), or `off` (no pre-check runs). `skill_default` "
+            "with a null `effective_precheck_query` means the scout runs a built-in check in code."
         ),
     )
     last_run_at = serializers.DateTimeField(
