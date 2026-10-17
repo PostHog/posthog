@@ -50,10 +50,16 @@ All carry `surface` on both surfaces, except `include stale toggled`, which carr
   Legacy sends `wasUrlContainsShortcut` only on a quick filter, with `filterName`, `propertyKey`, `operator`, `filterValue`, `propertyFilterType` and `eventName`.
   The rebuild always sends `wasUrlContainsShortcut` and none of the others.
 - `taxonomic_filter_search_query`: `searchQuery`, `groupType`, `inputMode`, `pastedFraction`, `excludeStale`.
-- `taxonomic filter empty result`: `groupType`, `searchQuery`.
-  Legacy sends it only from a remote list on the active tab.
-  Suggested is a local list, so its empty state sends nothing.
-  Add coverage there before you measure a change to the Suggested empty state.
+- `taxonomic filter empty result`: `groupType`, `searchQuery`, `scope`.
+  `scope` is `all` for the aggregate All view and `category` for a content category.
+  The rebuild also uses `recent` and `pinned` for those scopes.
+  Legacy All sends it when its visible empty state renders after contributing lists settle without a fetch failure.
+  Its `groupType` remains `suggested_filters`; rebuild All keeps `groupType` unset.
+  Empty or whitespace-only searches do not count.
+  Repeated renders of the same trimmed query do not send another event.
+  Legacy content categories send it from successful remote searches on the active tab.
+  Older legacy data has no All-tab empty events, and older events have no `scope`.
+  Compare periods with the same coverage.
 - `taxonomic filter fetch failed`: `groupType`, `searchQuery`, and on legacy `forbidden` (true when the request was refused with a 403).
   Each surface sends it once per group or scope and query while the request keeps failing.
   Legacy has also sent it on first-load failures since 2026-09-13, so legacy rates from before then are not comparable.
