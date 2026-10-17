@@ -29,4 +29,21 @@ function isRecordingNotFound(body: string): boolean {
     }
 }
 
-export default { onError } satisfies ToolHooks<{ id: string }>
+// A person's display name falls back to their email, so drop it to keep personal data out of agent context.
+function afterResponse(_context: Context, _params: { id: string }, result: unknown): unknown {
+    if (!isRecord(result) || !isRecord(result.person) || !looksLikeEmail(result.person.name)) {
+        return result
+    }
+    const { name: _name, ...person } = result.person
+    return { ...result, person }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function looksLikeEmail(value: unknown): boolean {
+    return typeof value === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
+}
+
+export default { afterResponse, onError } satisfies ToolHooks<{ id: string }>
