@@ -26,7 +26,7 @@ import {
 import { containsHogQLQuery, isFunnelsQuery, isInsightVizNode, isMetricsQuery } from '~/queries/utils'
 import { AvailableFeature, InsightLogicProps, IntervalType, InsightModel } from '~/types'
 
-import { alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
+import { alertsPartialUpdate, alertsSimulateCreate } from 'products/alerts/frontend/generated/api'
 import {
     blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
@@ -286,7 +286,6 @@ export interface alertFormLogicValues {
     alertFormTouches: Record<string, boolean>
     alertFormValidationErrors: DeepPartialMap<AlertFormType, ValidationErrorType>
     clearSnoozeLoading: boolean
-    snoozeLoading: boolean
     funnelAlertPreview: FunnelAlertPreview | null
     hogqlAlertPreview: HogQLAlertPreview | null
     hogqlConfigPrefill: Partial<Pick<HogQLAlertConfig, 'column' | 'label_column'>> | null
@@ -308,6 +307,7 @@ export interface alertFormLogicValues {
     simulationRequestId: number
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
+    snoozeLoading: boolean
     thresholdBoundsFormError: string | undefined
 }
 
@@ -362,11 +362,11 @@ export interface alertFormLogicActions {
     setClearSnoozeLoading: (loading: boolean) => {
         loading: boolean
     }
-    setSnoozeLoading: (loading: boolean) => {
-        loading: boolean
-    }
     setSimulationDateFrom: (dateFrom: string) => {
         dateFrom: string
+    }
+    setSnoozeLoading: (loading: boolean) => {
+        loading: boolean
     }
     simulateAlert: () => {
         value: true
@@ -915,6 +915,11 @@ export const alertFormLogic = kea<alertFormLogicType>([
             }
             return undefined
         }
+        // The alert logics still use the handwritten AlertType, so bridge the generated response type here.
+        const updateSnooze = async (alertId: AlertType['id'], snoozedUntil: string | null): Promise<AlertType> =>
+            (await alertsPartialUpdate(String(ApiConfig.getCurrentProjectId()), alertId, {
+                snoozed_until: snoozedUntil,
+            })) as unknown as AlertType
         const syncSnoozeState = (updatedAlert: AlertType): void => {
             hydrateAlertLogicFromSaveResponse(updatedAlert)
             const parent = getParentLogic()
@@ -926,7 +931,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
         }
         const unsnooze = async (alertId: AlertType['id'], source: ClearSnoozeSource): Promise<void> => {
             try {
-                const updatedAlert: AlertType = await api.alerts.update(alertId, { snoozed_until: null })
+                const updatedAlert = await updateSnooze(alertId, null)
                 syncSnoozeState(updatedAlert)
                 posthog.capture('alert unsnoozed', { alert_type: 'insight', source })
                 lemonToast.success('Alert unsnoozed.')
@@ -961,9 +966,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 actions.setSnoozeLoading(true)
                 try {
                     const snoozedUntil = resolveSnoozeUntil(snoozeUntil)
-                    const updatedAlert: AlertType = await api.alerts.update(alertId, {
-                        snoozed_until: snoozedUntil,
-                    })
+                    const updatedAlert = await updateSnooze(alertId, snoozedUntil)
                     syncSnoozeState(updatedAlert)
                     posthog.capture('alert snoozed', {
                         alert_type: 'insight',

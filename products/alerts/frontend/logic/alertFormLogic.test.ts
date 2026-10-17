@@ -404,7 +404,10 @@ describe('alertFormLogic', () => {
 
     it('keeps the modal open after a snooze and lets the toast undo it after the modal closes', async () => {
         const snoozedUntil = '2026-08-21T14:30:00.000Z'
-        updateSpy.mockResolvedValueOnce(makeSavedAlert({ id: 'alert-existing-id', snoozed_until: snoozedUntil }))
+        const snoozeSpy = jest
+            .spyOn(generatedApi, 'alertsPartialUpdate')
+            .mockResolvedValueOnce(makeSavedAlert({ id: 'alert-existing-id', snoozed_until: snoozedUntil }) as any)
+            .mockResolvedValueOnce(makeSavedAlert({ id: 'alert-existing-id' }) as any)
         const onEditSuccess = jest.fn()
         const logic = mountExistingForm(onEditSuccess)
 
@@ -417,7 +420,7 @@ describe('alertFormLogic', () => {
             ])
             .toFinishAllListeners()
 
-        expect(updateSpy).toHaveBeenCalledWith('alert-existing-id', { snoozed_until: snoozedUntil })
+        expect(snoozeSpy).toHaveBeenCalledWith(expect.any(String), 'alert-existing-id', { snoozed_until: snoozedUntil })
         expect(onEditSuccess).not.toHaveBeenCalled()
         expect(successToastSpy).toHaveBeenCalledWith(
             expect.stringMatching(/^Alert snoozed until /),
@@ -427,13 +430,13 @@ describe('alertFormLogic', () => {
         logic.unmount()
         await successToastSpy.mock.calls[0][1].button.action()
 
-        expect(updateSpy).toHaveBeenLastCalledWith('alert-existing-id', { snoozed_until: null })
+        expect(snoozeSpy).toHaveBeenLastCalledWith(expect.any(String), 'alert-existing-id', { snoozed_until: null })
         expect(successToastSpy).toHaveBeenLastCalledWith('Alert unsnoozed.')
         expect(captureSpy).toHaveBeenCalledWith('alert unsnoozed', { alert_type: 'insight', source: 'toast_undo' })
     })
 
     it('shows an error toast and stays open when the snooze request fails', async () => {
-        updateSpy.mockRejectedValueOnce(new Error('Network request failed'))
+        jest.spyOn(generatedApi, 'alertsPartialUpdate').mockRejectedValueOnce(new Error('Network request failed'))
         const onEditSuccess = jest.fn()
         const logic = mountExistingForm(onEditSuccess)
 
