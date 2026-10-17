@@ -7,6 +7,7 @@ from django.utils.functional import Promise
 
 import structlog
 
+from posthog.event_usage import report_team_action
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
@@ -219,8 +220,28 @@ class HogFlow(UUIDTModel):
         return f"HogFlow {self.id}/{self.version}: {self.name}"
 
 
+def report_workflow_created(team_id: int, workflow_id: str, origin_product: str | None, actions_count: int) -> None:
+    try:
+        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+        report_team_action(
+            team,
+            "workflows workflow created",
+            {"workflow_id": workflow_id, "origin_product": origin_product, "actions_count": actions_count},
+        )
+    except Exception:
+        logger.exception("Failed to report workflow creation", team_id=team_id, workflow_id=workflow_id)
+
+
 @receiver(post_save, sender=HogFlow)
-def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
+def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, using="default", **kwargs):
+    if created:
+        team_id = instance.team_id
+        workflow_id = str(instance.id)
+        origin_product = instance.origin_product
+        actions_count = len(instance.actions or [])
+        transaction.on_commit(
+            lambda: report_workflow_created(team_id, workflow_id, origin_product, actions_count), using=using
+        )
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
         return
