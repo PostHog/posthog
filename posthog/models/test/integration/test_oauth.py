@@ -34,6 +34,8 @@ from posthog.models.integration import (
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
 )
+from posthog.models.integration.oauth import _build_posthog_slack_scope
+from posthog.schema_enums import SlackIntegrationScope
 
 
 def get_db_field_value(field, model_id):
@@ -51,6 +53,29 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
     requested = set(POSTHOG_SLACK_SCOPE.split(","))
 
     assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
+
+
+@pytest.mark.parametrize(
+    "region,debug,includes_pending",
+    [
+        ("US", False, False),
+        ("EU", False, False),
+        ("E2E", False, False),
+        (None, False, False),
+        ("DEV", False, True),
+        (None, True, True),
+    ],
+)
+def test_slack_oauth_stages_channel_join_only_in_development(
+    region: str | None, debug: bool, includes_pending: bool
+) -> None:
+    with override_settings(CLOUD_DEPLOYMENT=region, DEBUG=debug):
+        requested = set(_build_posthog_slack_scope().split(","))
+
+    approved = {scope.value for scope in SlackIntegrationScope}
+    assert requested == approved | ({"channels:join"} if includes_pending else set())
+    assert ("channels:join" in requested) == includes_pending
+    assert "chat:write.public" not in requested
 
 
 class TestOauthIntegrationModel(BaseTest):

@@ -7,11 +7,12 @@ import { expectLogic } from 'kea-test-utils'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationKind, IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
+import { IntegrationKind, IntegrationType, Region, SLACK_INTEGRATION_SCOPES } from '~/types'
 
 import * as integrationsApi from 'products/integrations/frontend/generated/api'
 import type {
@@ -552,30 +553,60 @@ describe('integrationsLogic', () => {
             })
 
             it.each([
-                ['every requested scope', SLACK_INTEGRATION_SCOPES.join(','), null],
+                ['every requested scope', SLACK_INTEGRATION_SCOPES.join(','), null, Region.US],
                 [
                     'fewer scopes than requested',
                     SLACK_INTEGRATION_SCOPES.filter((scope) => scope !== 'users:read' && scope !== 'files:write').join(
                         ','
                     ),
                     ['files:write', 'users:read'],
+                    Region.US,
                 ],
-                ['no recorded scopes', undefined, null],
-            ])('reports a Slack install that granted %s', async (_name, grantedScope, expectedMissing) => {
-                createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
-                const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
-                const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
-                const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+                ['no recorded scopes', undefined, null, Region.US],
+                [
+                    'every requested scope with the debug flag',
+                    SLACK_INTEGRATION_SCOPES.join(','),
+                    null,
+                    Region.US,
+                    true,
+                ],
+                ['no pending scope on DEV', SLACK_INTEGRATION_SCOPES.join(','), ['channels:join'], Region.DEV],
+                [
+                    'the pending scope on DEV',
+                    [...SLACK_INTEGRATION_SCOPES, 'channels:join'].join(','),
+                    null,
+                    Region.DEV,
+                ],
+            ])(
+                'reports a Slack install that granted %s',
+                async (_name, grantedScope, expectedMissing, region, is_debug = false) => {
+                    preflightLogic.actions.loadPreflightSuccess({
+                        ...preflightLogic.values.preflight!,
+                        region,
+                        is_debug,
+                        slack_service: {
+                            available: true,
+                            scopes:
+                                region === Region.DEV
+                                    ? [...SLACK_INTEGRATION_SCOPES, 'channels:join']
+                                    : SLACK_INTEGRATION_SCOPES,
+                        },
+                    })
+                    createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
+                    const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+                    const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
+                    const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
 
-                await expectLogic(logic, () => {
-                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
-                }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+                    }).toFinishAllListeners()
 
-                expect(warningSpy.mock.calls.map(([message]) => message)).toEqual(
-                    expectedMissing ? [expect.stringContaining(`: ${expectedMissing.join(', ')}.`)] : []
-                )
-                expect(successSpy).toHaveBeenCalledTimes(expectedMissing ? 0 : 1)
-            })
+                    expect(warningSpy.mock.calls.map(([message]) => message)).toEqual(
+                        expectedMissing ? [expect.stringContaining(`: ${expectedMissing.join(', ')}.`)] : []
+                    )
+                    expect(successSpy).toHaveBeenCalledTimes(expectedMissing ? 0 : 1)
+                }
+            )
         })
     })
 })

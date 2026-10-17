@@ -4877,6 +4877,7 @@ export interface PreflightStatus {
     slack_service: {
         available: boolean
         client_id?: string
+        scopes?: string[]
     }
     data_warehouse_integrations: {
         hubspot: {
@@ -5802,13 +5803,12 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Nothing is pending Slack app-directory review right now, so there is no in-review list.
-// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
-// enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration/oauth.py) and `useSlackRequiredScopes` append it on
-// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
-// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
-// `hogli build:schema` fails on it.
+// Unapproved scopes stay separate because Slack rejects them on the public app with `invalid_scope`.
+// OAuth requests these only on DEV/local. Preflight reports that exact list to the frontend.
+// Remove an empty enum because JSON Schema rejects it during `hogli build:schema`.
+export enum SlackIntegrationScopeInReview {
+    CHANNELS_JOIN = 'channels:join',
+}
 
 export interface IntegrationType {
     id: number

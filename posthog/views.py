@@ -35,7 +35,7 @@ from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.integration import SlackIntegration
+from posthog.models.integration import POSTHOG_SLACK_SCOPE, SlackIntegration
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.project_secret_api_key import find_project_secret_api_key
@@ -213,6 +213,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
+            "scopes": POSTHOG_SLACK_SCOPE.split(","),
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},

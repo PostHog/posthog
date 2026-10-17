@@ -5,6 +5,7 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
+import { useState } from 'react'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
@@ -13,7 +14,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
 
+import type { SlackChannelJoinApi } from 'products/integrations/frontend/generated/api.schemas'
+
 import { SlackChannelPicker } from './SlackIntegrationHelpers'
+import { slackIntegrationLogic } from './slackIntegrationLogic'
 
 const INTEGRATION: IntegrationType = {
     id: 1,
@@ -96,6 +100,9 @@ describe('SlackChannelPicker', () => {
     let extraListedChannels: (typeof NOT_JOINED_CHANNEL)[] = []
     // Whether Slack now reports the app as a member of NOT_JOINED_CHANNEL.
     let appJoinedTheChannel = false
+    let joinedChannelIds: string[] = []
+    let holdJoin: Promise<void> | null = null
+    let joinFails = false
 
     beforeEach(() => {
         channelsRequestSearchQueries = []
@@ -104,7 +111,22 @@ describe('SlackChannelPicker', () => {
         holdChannelIdLookup = null
         extraListedChannels = []
         appJoinedTheChannel = false
+        joinedChannelIds = []
+        holdJoin = null
+        joinFails = false
         useMocks({
+            post: {
+                '/api/projects/:team_id/integrations/:id/channels/join': async ({ request }) => {
+                    const { channel_id } = (await request.json()) as SlackChannelJoinApi
+                    joinedChannelIds.push(channel_id)
+                    if (holdJoin) {
+                        await holdJoin
+                    }
+                    return joinFails
+                        ? [400, { detail: 'Joining was refused.' }]
+                        : [200, { channels: [{ ...NOT_JOINED_CHANNEL, id: channel_id, is_member: true }] }]
+                },
+            },
             get: {
                 '/api/environments/:team_id/integrations/:id/channels': async ({ request }) => {
                     const url = new URL(request.url)
@@ -154,6 +176,130 @@ describe('SlackChannelPicker', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    it.each(['selection', 'pasted ID'])('joins a newly selected public channel via %s', async (method) => {
+        extraListedChannels = method === 'selection' ? [NOT_JOINED_CHANNEL] : []
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={{ ...INTEGRATION, config: { scope: 'channels:read,channels:join' } }}
+                    onChange={onChange}
+                />
+            </Provider>
+        )
+        const input = container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!
+        await userEvent.click(input)
+        if (method === 'pasted ID') {
+            await userEvent.paste(NOT_JOINED_CHANNEL.id)
+        } else {
+            await userEvent.click(await screen.findByText('#not-joined'))
+        }
+        await waitFor(() => expect(joinedChannelIds).toEqual([NOT_JOINED_CHANNEL.id]))
+        expect(onChange).toHaveBeenCalledWith(`${NOT_JOINED_CHANNEL.id}|#not-joined`)
+    })
+
+    it.each([
+        ['missing scope', {}, false, false],
+        ['private channel', { scope: 'channels:join' }, true, false],
+        ['already joined', { scope: 'channels:join' }, false, true],
+    ])('keeps %s selection read-only', async (_reason, config, isPrivate, isMember) => {
+        extraListedChannels = [{ ...NOT_JOINED_CHANNEL, is_private: isPrivate, is_member: isMember }]
+        const onChange = jest.fn()
+        const { container } = render(
+            <Provider>
+                <SlackChannelPicker integration={{ ...INTEGRATION, config }} onChange={onChange} />
+            </Provider>
+        )
+        await userEvent.click(container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!)
+        await userEvent.click(await screen.findByText(isPrivate ? '🔒not-joined' : '#not-joined'))
+        expect(onChange).toHaveBeenCalled()
+        expect(joinedChannelIds).toEqual([])
+    })
+
+    it.each([false, true])('does not join saved channels on mount (disabled: %s)', async (disabled) => {
+        extraListedChannels = [NOT_JOINED_CHANNEL]
+        render(
+            <Provider>
+                <SlackChannelPicker
+                    integration={{ ...INTEGRATION, config: { scope: 'channels:join' } }}
+                    value={`${NOT_JOINED_CHANNEL.id}|#not-joined`}
+                    disabled={disabled}
+                />
+            </Provider>
+        )
+        await screen.findByText('Check again')
+        expect(joinedChannelIds).toEqual([])
+    })
+
+    it('keeps the selection and manual invitation when joining fails', async () => {
+        extraListedChannels = [NOT_JOINED_CHANNEL]
+        joinFails = true
+        let releaseJoin!: () => void
+        holdJoin = new Promise<void>((resolve) => {
+            releaseJoin = resolve
+        })
+        function ControlledPicker(): JSX.Element {
+            const [value, setValue] = useState<string | null>(null)
+            return (
+                <SlackChannelPicker
+                    integration={{ ...INTEGRATION, config: { scope: 'channels:join' } }}
+                    value={value ?? undefined}
+                    onChange={setValue}
+                />
+            )
+        }
+        const { container } = render(
+            <Provider>
+                <ControlledPicker />
+            </Provider>
+        )
+        await userEvent.click(container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!)
+        await userEvent.click(await screen.findByText('#not-joined'))
+        await screen.findByText('Adding PostHog to the selected channels...')
+        expect(screen.queryByText('Check again')).not.toBeInTheDocument()
+        releaseJoin()
+        await screen.findByText('Check again')
+        expect(within(container).getByText('#not-joined')).toBeInTheDocument()
+        expect(joinedChannelIds).toEqual([NOT_JOINED_CHANNEL.id])
+    })
+
+    it('does not consume a pending paste after switching integrations', async () => {
+        let releaseLookup!: () => void
+        holdChannelIdLookup = new Promise<void>((resolve) => {
+            releaseLookup = resolve
+        })
+        const firstLogic = slackIntegrationLogic({ id: 1 })
+        const secondLogic = slackIntegrationLogic({ id: 2 })
+        firstLogic.mount()
+        secondLogic.mount()
+        secondLogic.actions.loadSlackChannelByIdSuccess(NOT_JOINED_CHANNEL)
+        const onChange = jest.fn()
+        const integration = { ...INTEGRATION, config: { scope: 'channels:join' } }
+        try {
+            const { container, rerender } = render(
+                <Provider>
+                    <SlackChannelPicker integration={integration} onChange={onChange} />
+                </Provider>
+            )
+            await userEvent.click(container.querySelector<HTMLInputElement>('input[data-attr="select-slack-channel"]')!)
+            await userEvent.paste(NOT_JOINED_CHANNEL.id)
+            await waitFor(() => expect(channelIdLookups).toContain(NOT_JOINED_CHANNEL.id))
+            rerender(
+                <Provider>
+                    <SlackChannelPicker integration={{ ...integration, id: 2 }} onChange={onChange} />
+                </Provider>
+            )
+            releaseLookup()
+            await waitFor(() => expect(firstLogic.values.slackChannelByIdLoading).toBe(false))
+            expect(onChange).not.toHaveBeenCalled()
+            expect(joinedChannelIds).toEqual([])
+        } finally {
+            releaseLookup()
+            firstLogic.unmount()
+            secondLogic.unmount()
+        }
     })
 
     it('does not search for the composite key when the input is focused with an existing value', async () => {

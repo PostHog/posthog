@@ -46,6 +46,7 @@ import type {
     RoleExternalReferencesListParams,
     RoleExternalReferencesLookupRetrieveParams,
     RoleLookupResponseApi,
+    SlackChannelJoinApi,
     SlackChannelsResponseApi,
     SlackUsersResponseApi,
 } from './api.schemas'
@@ -331,6 +332,24 @@ export const integrationsChannelsRetrieve = async (
     return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsRetrieveUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getIntegrationsChannelsJoinCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/integrations/${id}/channels/join/`
+}
+
+export const integrationsChannelsJoinCreate = async (
+    projectId: string,
+    id: number,
+    slackChannelJoinApi: SlackChannelJoinApi,
+    options?: RequestInit
+): Promise<SlackChannelsResponseApi> => {
+    return apiMutator<SlackChannelsResponseApi>(getIntegrationsChannelsJoinCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(slackChannelJoinApi),
     })
 }
 

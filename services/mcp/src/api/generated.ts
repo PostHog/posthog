@@ -103291,6 +103291,29 @@ export namespace Schemas {
       is_private_without_access: boolean;
     }
 
+    export interface SlackChannelJoin {
+      /**
+         * ID of the selected public Slack channel to add PostHog to (e.g. C0123ABC456).
+         * @maxLength 64
+         * @pattern ^[CG][A-Z0-9]{8,}$
+         */
+      channel_id: string;
+    }
+
+    export interface SlackChannelJoinError {
+      /** Error category. */
+      type: string;
+      /** Machine-readable error code. */
+      code: string;
+      /** What failed and how to recover. */
+      detail: string;
+      /**
+         * Input field that caused the error, or null.
+         * @nullable
+         */
+      attr: string | null;
+    }
+
     export interface SlackChannelsResponse {
       /** Slack channels visible to the PostHog Slack app. */
       channels: SlackChannel[];

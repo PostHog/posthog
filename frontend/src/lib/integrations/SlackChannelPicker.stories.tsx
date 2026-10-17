@@ -111,6 +111,35 @@ function PastedChannelIdScene(): JSX.Element {
     )
 }
 
+function AutomaticJoinScene({ joinFails = false }: { joinFails?: boolean }): JSX.Element {
+    const [selectedChannel, setSelectedChannel] = useState<string | null>(null)
+    const publicChannel = { ...notJoinedChannel, id: 'C1234567890' }
+    useStorybookMocks({
+        get: {
+            '/api/projects/:id/integrations/:intId/channels': { channels: [publicChannel] },
+            '/api/environments/:id/integrations/:intId/channels': { channels: [publicChannel] },
+        },
+        post: {
+            '/api/projects/:id/integrations/:intId/channels/join': () =>
+                joinFails
+                    ? [400, { detail: 'Slack could not add PostHog to this channel.' }]
+                    : [200, { channels: [{ ...publicChannel, is_member: true }] }],
+        },
+    })
+    return (
+        <div className="p-4 max-w-md">
+            <SlackChannelPicker
+                integration={{
+                    ...integration,
+                    config: { ...integration.config, scope: 'channels:read,channels:join' },
+                }}
+                value={selectedChannel ?? undefined}
+                onChange={setSelectedChannel}
+            />
+        </div>
+    )
+}
+
 type StoryArgs = { recentlySubscribedChannelIds: string[] }
 
 const meta: Meta<StoryArgs> = {
@@ -157,6 +186,32 @@ export const PastedChannelId: Story = {
         await userEvent.click(input)
         await userEvent.paste('C1234567890')
         await within(document.body).findByText('#release-updates')
+    },
+}
+
+export const AutomaticPublicChannelJoin: Story = {
+    render: () => <AutomaticJoinScene />,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('textbox'))
+        await userEvent.click(await within(document.body).findByText('#launch-plans'))
+        await waitFor(() => {
+            if (
+                slackIntegrationLogic({ id: integration.id }).values.slackChannelJoinStatus.C1234567890?.status !==
+                'joined'
+            ) {
+                throw new Error('Channel join still in progress')
+            }
+        })
+        await within(canvasElement).findByText('#launch-plans')
+    },
+}
+
+export const AutomaticJoinRefused: Story = {
+    render: () => <AutomaticJoinScene joinFails />,
+    play: async ({ canvasElement }) => {
+        await userEvent.click(await within(canvasElement).findByRole('textbox'))
+        await userEvent.click(await within(document.body).findByText('#launch-plans'))
+        await within(canvasElement).findByText('Check again')
     },
 }
 

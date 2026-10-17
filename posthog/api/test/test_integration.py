@@ -1595,6 +1595,263 @@ class TestAzureBlobIntegration:
         assert not Integration.objects.filter(team=self.team, kind="azure-blob").exists()
 
 
+class TestSlackChannelJoin:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db, client: HttpClient):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "member@example.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T_JOIN_TEST",
+            config={"scope": "channels:read,channels:join"},
+            sensitive_config={"access_token": "fake-slack-token"},
+        )
+        self.url = f"/api/projects/{self.team.pk}/integrations/{self.integration.pk}/channels/join/"
+        self.channel = {
+            "id": "C0123ABC456",
+            "name": "release-updates",
+            "is_channel": True,
+            "is_private": False,
+            "is_archived": False,
+            "is_member": False,
+            "is_ext_shared": False,
+        }
+        client.force_login(self.user)
+        cache.clear()
+        with patch("posthog.models.integration.slack.WebClient") as mock_client:
+            self.slack_client = mock_client.return_value
+            self.slack_client.conversations_info.return_value = {"channel": self.channel}
+            self.slack_client.conversations_join.return_value = {"channel": {**self.channel, "is_member": True}}
+            yield
+
+    def test_join_succeeds_when_recording_cache_revision_fails(self, client: HttpClient):
+        cache_key = f"slack/{self.integration.pk}/False/channels"
+        cached_data = {"channels": [self.channel.copy()], "lastRefreshedAt": timezone.now().isoformat()}
+        cache.set(cache_key, cached_data, 60)
+        with patch("posthog.api.integration.cache.set", side_effect=OSError("test cache unavailable")):
+            response = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["channels"][0]["is_member"] is True
+        self.slack_client.conversations_join.assert_called_once_with(channel=self.channel["id"])
+        assert cache.get(cache_key) == cached_data
+
+    @pytest.mark.parametrize("already_member", [False, True])
+    @override_settings(
+        CACHES={
+            **settings.CACHES,
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": "redis://slack-channel-join-test:6379/0",
+                "OPTIONS": {"CONNECTION_POOL_KWARGS": {"connection_class": FakeConnection}},
+            },
+        }
+    )
+    def test_join_updates_membership_in_both_channel_caches(self, already_member: bool, client: HttpClient):
+        self.channel["is_member"] = already_member
+        cached_data = {"channels": [], "lastRefreshedAt": timezone.now().isoformat()}
+        cache_keys = [f"slack/{self.integration.id}/{private_access}/channels" for private_access in (False, True)]
+        for key in cache_keys:
+            cache.set(key, cached_data, 60)
+
+        response = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["channels"] == [
+            {
+                "id": self.channel["id"],
+                "name": "release-updates",
+                "is_private": False,
+                "is_member": True,
+                "is_ext_shared": False,
+                "is_private_without_access": False,
+            }
+        ]
+        for key in cache_keys:
+            assert cache.get(key) == {**cached_data, "channels": response.json()["channels"]}
+        if already_member:
+            self.slack_client.conversations_join.assert_not_called()
+        else:
+            self.slack_client.conversations_join.assert_called_once_with(channel=self.channel["id"])
+
+    @pytest.mark.parametrize("lookup", ["list", "id", "missing_id"])
+    @pytest.mark.parametrize("has_cached_list", [False, True])
+    @override_settings(
+        CACHES={
+            **settings.CACHES,
+            "default": {
+                "BACKEND": "django_redis.cache.RedisCache",
+                "LOCATION": settings.REDIS_URL,
+                "KEY_PREFIX": "slack-join-ordering-test",
+            },
+        }
+    )
+    def test_old_channel_reads_cannot_overwrite_join_but_later_removal_can(
+        self, lookup: str, has_cached_list: bool, client: HttpClient
+    ):
+        cache.clear()
+        self.integration.config["authed_user"] = {"id": "U0123ABC456"}
+        self.integration.save()
+        cache_key = f"slack/{self.integration.pk}/False/channels"
+        if has_cached_list:
+            cache.set(cache_key, {"channels": [self.channel.copy()], "lastRefreshedAt": timezone.now().isoformat()}, 60)
+        channels_url = f"/api/projects/{self.team.pk}/integrations/{self.integration.pk}/channels/"
+        interleaved = False
+
+        def old_read_finishes_after_join(**kwargs):
+            nonlocal interleaved
+            stale_channel = self.channel.copy()
+            interleaved = True
+            response = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+            assert response.status_code == status.HTTP_200_OK, response.content
+            if lookup == "missing_id":
+                raise SlackApiError("missing channel", {"error": "channel_not_found"})
+            return {"channels": [stale_channel]} if lookup == "list" else {"channel": stale_channel}
+
+        def channel_info(**kwargs):
+            if lookup != "list" and not interleaved:
+                return old_read_finishes_after_join(**kwargs)
+            return {"channel": self.channel.copy()}
+
+        self.slack_client.conversations_info.side_effect = channel_info
+        self.slack_client.conversations_list.side_effect = old_read_finishes_after_join
+        self.slack_client.users_conversations.return_value = {"channels": []}
+        self.slack_client.conversations_members.return_value = {"members": ["U0123ABC456"]}
+        query = {"force_refresh": "true"}
+        if lookup != "list":
+            query["channel_id"] = cast(str, self.channel["id"])
+
+        response = client.get(channels_url, query)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert interleaved
+        if has_cached_list:
+            assert cache.get(cache_key)["channels"][0]["is_member"] is True
+        else:
+            assert cache.get(cache_key) is None
+
+        self.slack_client.conversations_list.side_effect = None
+        self.slack_client.conversations_list.return_value = {"channels": [self.channel.copy()]}
+        removal_response = client.get(channels_url, query if has_cached_list else {"force_refresh": "true"})
+
+        assert removal_response.status_code == status.HTTP_200_OK
+        assert removal_response.json()["channels"][0]["is_member"] is False
+        assert cache.get(cache_key)["channels"][0]["is_member"] is False
+
+    @pytest.mark.parametrize(
+        "flags",
+        [{"is_private": True}, {"is_archived": True}, {"is_im": True}, {"is_mpim": True}, {"is_channel": False}],
+    )
+    def test_join_rejects_private_archived_and_nonchannel_conversations(self, flags: dict, client: HttpClient):
+        self.channel.update(flags)
+
+        response = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        self.slack_client.conversations_join.assert_not_called()
+
+    @pytest.mark.parametrize("scopes", ["", "channels:read,chat:write"])
+    def test_join_without_granted_scope_keeps_manual_invite_fallback(self, scopes: str, client: HttpClient):
+        self.integration.config = {"scope": scopes}
+        self.integration.save()
+
+        response = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "/invite @PostHog" in response.json()["detail"]
+        self.slack_client.conversations_info.assert_not_called()
+        self.slack_client.conversations_join.assert_not_called()
+
+    @pytest.mark.parametrize("scope,expected_status", [("integration:read", 403), ("integration:write", 200)])
+    def test_join_requires_write_scope_for_api_tokens(self, scope: str, expected_status: int, client: HttpClient):
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value("test_slack_join_key"),
+            scopes=[scope],
+        )
+        client.logout()
+
+        response = client.post(
+            self.url,
+            {"channel_id": self.channel["id"]},
+            content_type="application/json",
+            HTTP_AUTHORIZATION="Bearer test_slack_join_key",
+        )
+
+        assert response.status_code == expected_status
+        if expected_status == 403:
+            self.slack_client.conversations_join.assert_not_called()
+
+    @pytest.mark.parametrize("other_team", [False, True])
+    def test_join_rejects_non_slack_and_other_project_integrations(self, other_team: bool, client: HttpClient):
+        if other_team:
+            self.integration.team = Team.objects.create(organization=self.organization, name="Other project")
+        else:
+            self.integration.kind = "github"
+        self.integration.save()
+
+        response = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+
+        assert response.status_code == (404 if other_team else 400)
+        self.slack_client.conversations_info.assert_not_called()
+        self.slack_client.conversations_join.assert_not_called()
+
+    def test_join_requires_post_and_a_channel_id(self, client: HttpClient):
+        assert client.get(self.url).status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+        assert client.post(self.url, {}, content_type="application/json").status_code == status.HTTP_400_BAD_REQUEST
+        self.slack_client.conversations_join.assert_not_called()
+
+    @pytest.mark.parametrize("method", ["conversations_info", "conversations_join"])
+    def test_join_preserves_slack_rate_limit_retry_after(self, method: str, client: HttpClient):
+        response = MagicMock()
+        response.get.side_effect = {"error": "ratelimited"}.get
+        response.headers = {"Retry-After": "17"}
+        getattr(self.slack_client, method).side_effect = SlackApiError("rate limited", response)
+
+        result = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+
+        assert result.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert result.headers["Retry-After"] == "17"
+
+    @pytest.mark.parametrize("error", ["missing_scope", "app_cannot_join_channel", "channel_not_found"])
+    def test_join_refusal_is_actionable_without_marking_integration_inactive(self, error: str, client: HttpClient):
+        self.slack_client.conversations_join.side_effect = SlackApiError("join failed", {"error": error})
+
+        response = client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "/invite @PostHog" in response.json()["detail"]
+        assert response.json()["code"] != "slack_integration_inactive"
+
+    @patch("posthog.api.integration.SLACK_CHANNEL_JOINS_PER_MINUTE", 1)
+    def test_join_budget_is_shared_by_integrations_in_the_same_workspace(self, client: HttpClient):
+        second = Integration.objects.create(
+            team=Team.objects.create(organization=self.organization, name="Other project"),
+            kind="slack",
+            integration_id=self.integration.integration_id,
+            config=self.integration.config,
+            sensitive_config=self.integration.sensitive_config,
+        )
+        assert (
+            client.post(self.url, {"channel_id": self.channel["id"]}, content_type="application/json").status_code
+            == 200
+        )
+
+        response = client.post(
+            f"/api/projects/{second.team_id}/integrations/{second.pk}/channels/join/",
+            {"channel_id": self.channel["id"]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert self.slack_client.conversations_join.call_count == 1
+
+
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

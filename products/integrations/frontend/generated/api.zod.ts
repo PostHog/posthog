@@ -120,6 +120,18 @@ export const IntegrationsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Standard Integration serializer.')
 
+export const integrationsChannelsJoinCreateBodyChannelIdMax = 64
+
+export const integrationsChannelsJoinCreateBodyChannelIdRegExp = new RegExp('^[CG][A-Z0-9]{8,}$')
+
+export const IntegrationsChannelsJoinCreateBody = /* @__PURE__ */ zod.object({
+    channel_id: zod
+        .string()
+        .max(integrationsChannelsJoinCreateBodyChannelIdMax)
+        .regex(integrationsChannelsJoinCreateBodyChannelIdRegExp)
+        .describe('ID of the selected public Slack channel to add PostHog to (e.g. C0123ABC456).'),
+})
+
 export const IntegrationsEmailPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         kind: zod

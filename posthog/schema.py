@@ -3329,6 +3329,10 @@ class SimilarIssue(BaseModel):
     status: str
 
 
+class SlackIntegrationScopeInReview(RootModel[Literal["channels:join"]]):
+    root: Literal["channels:join"] = "channels:join"
+
+
 class SourceMap(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
