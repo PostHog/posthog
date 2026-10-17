@@ -1,16 +1,4 @@
-import {
-    MakeLogicType,
-    actions,
-    afterMount,
-    connect,
-    kea,
-    key,
-    listeners,
-    path,
-    props,
-    reducers,
-    selectors,
-} from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -218,7 +206,10 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
             }
         } else if ((variable.query?.length ?? 0) > MAX_QUERY_LENGTH) {
             errors[variable.name] = { field: 'query', message: `Use at most ${MAX_QUERY_LENGTH} characters.` }
-        } else if ((variable.source === 'promql' || variable.source === 'sql') && (variable.regex?.length ?? 0) > MAX_VALUE_LENGTH) {
+        } else if (
+            (variable.source === 'promql' || variable.source === 'sql') &&
+            (variable.regex?.length ?? 0) > MAX_VALUE_LENGTH
+        ) {
             errors[variable.name] = { field: 'regex', message: `Use at most ${MAX_VALUE_LENGTH} characters.` }
         } else if ((variable.allValue?.length ?? 0) > MAX_VALUE_LENGTH) {
             errors[variable.name] = { field: 'allValue', message: `Use at most ${MAX_VALUE_LENGTH} characters.` }
@@ -410,7 +401,8 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
             // A failed check can be a timeout or a rate limit, so each Apply checks the patterns again.
             actions.clearRegexErrors()
             const checked = values.draft
-            const firstError = (): number => values.draft.findIndex((variable) => ownValue(values.errors, variable.name))
+            const firstError = (): number =>
+                values.draft.findIndex((variable) => ownValue(values.errors, variable.name))
             if (firstError() === -1) {
                 // The server checks a regex without running a query, so a pattern it rejects is never saved.
                 const unchecked = new Set(
@@ -431,7 +423,8 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                                 })
                                 ;(cache.validRegexes ??= new Set<string>()).add(regex)
                             } catch (error) {
-                                const detail = error && typeof error === 'object' && 'detail' in error ? error.detail : null
+                                const detail =
+                                    error && typeof error === 'object' && 'detail' in error ? error.detail : null
                                 actions.setRegexError(
                                     regex,
                                     typeof detail === 'string' ? detail : 'The regex could not be checked. Try again.'
