@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.core.cache import cache
 from django.db import models, transaction
 from django.db.models.functions import Upper
 from django.db.models.signals import pre_delete
@@ -32,6 +33,33 @@ logger = structlog.get_logger(__name__)
 # being unsuppressed by a single invite delete, the logic invariant has drifted and ops should
 # investigate rather than silently bulk-update many User rows.
 _DELEGATION_UNSUPPRESS_WARN_THRESHOLD = 5
+
+# use() deletes the invite row. This marker lets a reopened invite link say "already used"
+# instead of "not valid", so the invitee gets sent to login.
+USED_INVITE_MARKER_TTL_SECONDS = 90 * 24 * 60 * 60
+
+
+def _used_invite_cache_key(invite_id: object) -> str:
+    return f"organization_invite_used:{invite_id}"
+
+
+def mark_invites_used(invite_ids: list[object]) -> None:
+    try:
+        cache.set_many(
+            {_used_invite_cache_key(invite_id): True for invite_id in invite_ids},
+            timeout=USED_INVITE_MARKER_TTL_SECONDS,
+        )
+    except Exception:
+        logger.warning("organization_invite_used_marker_write_failed", exc_info=True)
+
+
+def was_invite_used(invite_id: object) -> bool:
+    # A cache outage must not block a valid invite, so a failed read counts as "not used".
+    try:
+        return bool(cache.get(_used_invite_cache_key(invite_id)))
+    except Exception:
+        logger.warning("organization_invite_used_marker_read_failed", exc_info=True)
+        return False
 
 
 def validate_private_project_access(value):
@@ -218,7 +246,9 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 OrganizationInvite.objects.filter(pk=sibling_pk).delete()
                 if sibling_pk in sibling_delegation_ids:
                     mark_delegators_accepted(invite_id=sibling_pk)
+            used_invite_ids: list[object] = [self.pk, *sibling_pks]
             self.delete()
+            transaction.on_commit(lambda: mark_invites_used(used_invite_ids))
 
         if is_email_available(with_absolute_urls=True):
             from posthog.tasks.email import send_member_join

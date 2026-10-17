@@ -47,7 +47,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
-from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
+from posthog.models.organization_invite import INVITE_DAYS_VALIDITY, was_invite_used
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
@@ -765,6 +765,9 @@ class InviteSignupViewset(generics.CreateAPIView):
 
         if not invite_id:
             raise exceptions.ValidationError("Please provide an invite ID to continue.")
+
+        if was_invite_used(invite_id):
+            raise exceptions.ValidationError("This invite has already been used.", code="invite_used")
 
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
