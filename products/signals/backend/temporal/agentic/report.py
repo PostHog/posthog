@@ -153,15 +153,29 @@ class RunAgenticReportOutput:
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
 
 
+def _upgrade_legacy_actionability(content: object) -> object:
+    # Early `actionability_judgment` artefacts stored `{choice, explanation}`, before `already_addressed` existed.
+    if not isinstance(content, dict) or "choice" not in content or "actionability" in content:
+        return content
+    upgraded = {key: value for key, value in content.items() if key != "choice"}
+    return {
+        **upgraded,
+        "actionability": content["choice"],
+        "already_addressed": content.get("already_addressed", False),
+    }
+
+
 def _parse_artefact_content(
     model_cls: type[_ArtefactContentT], artefact: SignalReportArtefact, report_id: str
 ) -> _ArtefactContentT:
-    # These artefacts are written only by this pipeline from the current schemas, so a parse failure
-    # is a bug on our side (corrupt content or an incompatible schema change) — fail loudly rather
-    # than silently dropping prior research and degrading a re-promotion into a fresh run.
+    # These artefacts are written only by this pipeline, so a parse failure that the legacy upgrade
+    # does not cover is a bug on our side (corrupt content or an incompatible schema change) — fail
+    # loudly rather than silently dropping prior research and degrading a re-promotion into a fresh run.
     try:
+        if model_cls is ActionabilityAssessment:
+            return model_cls.model_validate(_upgrade_legacy_actionability(json.loads(artefact.content)))
         return model_cls.model_validate_json(artefact.content)
-    except ValidationError as error:
+    except ValueError as error:
         raise ValueError(
             f"report {report_id}: {artefact.type} artefact {artefact.id} is incompatible with the "
             f"current {model_cls.__name__} schema"
