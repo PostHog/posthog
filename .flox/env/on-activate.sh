@@ -9,14 +9,14 @@
 set -euo pipefail
 
 # ── Colors & symbols ────────────────────────────────────────────────
-readonly C_RESET='\033[0m'
-readonly C_DIM='\033[2m'
-readonly C_GREEN='\033[32m'
-readonly C_YELLOW='\033[33m'
-readonly C_RED='\033[31m'
-readonly C_CYAN='\033[1;36m'
-readonly C_ITALIC='\033[3m'
-readonly C_BOLD='\033[1m'
+readonly C_RESET=$'\033[0m'
+readonly C_DIM=$'\033[2m'
+readonly C_GREEN=$'\033[32m'
+readonly C_YELLOW=$'\033[33m'
+readonly C_RED=$'\033[31m'
+readonly C_CYAN=$'\033[1;36m'
+readonly C_ITALIC=$'\033[3m'
+readonly C_BOLD=$'\033[1m'
 readonly SPINNER_FRAMES=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
 
 _ACTIVATION_TMPFILES=()
@@ -446,22 +446,31 @@ fi
 # Install shell completions for hogli
 HOGLI_COMPLETION_DIR="$FLOX_ENV_CACHE/completions"
 mkdir -p "$HOGLI_COMPLETION_DIR"
-if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
+# The completions list only the commands in hogli.yaml, so they change only when that file
+# or their generator changes.
+if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]] && {
+  [[ ! -s "$HOGLI_COMPLETION_DIR/hogli.bash" || ! -s "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/hogli.yaml" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]] ||
+    [[ "$FLOX_ENV_PROJECT/tools/hogli/src/hogli/completion.py" -nt "$HOGLI_COMPLETION_DIR/_hogli" ]]
+}; then
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell bash > "$HOGLI_COMPLETION_DIR/hogli.bash" 2>/dev/null || true
   "$UV_PROJECT_ENVIRONMENT/bin/python" \
     -m hogli.completion --shell zsh > "$HOGLI_COMPLETION_DIR/_hogli" 2>/dev/null || true
 fi
 
-# Generate hogli man page into the active environment so `man hogli` works.
+# Generate hogli man page into the active environment so `man hogli` works. The page also
+# documents commands defined in Python, so it is regenerated in the background each time
+# instead of making activation wait for it.
 HOGLI_MANPAGE_DIR="$UV_PROJECT_ENVIRONMENT/share/man/man1"
 if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
   (
     mkdir -p "$HOGLI_MANPAGE_DIR"
     "$UV_PROJECT_ENVIRONMENT/bin/python" \
       "$FLOX_ENV_PROJECT/tools/hogli/scripts/generate_man_page.py" \
-      --output "$HOGLI_MANPAGE_DIR/hogli.1" >/dev/null 2>&1
-  ) || true
+      --output "$HOGLI_MANPAGE_DIR/hogli.1"
+  ) >/dev/null 2>&1 &
+  disown
 fi
 
 # ── Step 1b: Build phrocs from source ─────────────────────────────
@@ -585,7 +594,7 @@ if [[ "$(uname -s)-$(uname -m)" == "Darwin-arm64" && -z "${SDKROOT:-}" ]] && com
 
     if [[ -n "$_lld_sdk" ]]; then
       export SDKROOT="$_lld_sdk"
-      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk") — newest one lld can link against)${C_RESET}"
+      done_step "macOS SDK ${C_DIM}($(basename "$_lld_sdk"), the newest one lld can link against)${C_RESET}"
     else
       warn_step "No macOS SDK found that lld can link against. Rust builds will fail."
       echo -e "    ${C_DIM}$(basename "$_active_sdk") has an arm64e.x1 slice that lld cannot parse, or no arm64 slice.${C_RESET}"
