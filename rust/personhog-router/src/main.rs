@@ -157,6 +157,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let monitor_guard = manager.monitor_background();
 
+    let local_zone = detect_local_zone(&config).await;
+
     let (replica_backend, discovery_readiness) = build_channel_backend(
         BackendSpec {
             role: "replica",
@@ -170,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         },
         &config,
         replica_discovery_handle,
+        local_zone.clone(),
     )
     .await;
 
@@ -190,6 +193,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             &config,
             identity_discovery_handle,
+            local_zone.clone(),
         )
         .await;
         Some(backend)
@@ -457,6 +461,47 @@ struct BackendSpec {
     timeout: Duration,
 }
 
+/// Without `K8S_NODE_NAME` or `get` on nodes the zone stays unknown and routing is unchanged.
+async fn detect_local_zone(config: &Config) -> Option<String> {
+    let uses_k8s_discovery = config.replica_discovery_mode == DiscoveryMode::K8s
+        || (config.identity_enabled && config.identity_discovery_mode == DiscoveryMode::K8s);
+    if !uses_k8s_discovery {
+        return None;
+    }
+    if config.k8s_node_name.is_empty() {
+        tracing::info!("K8S_NODE_NAME not set; router zone unknown");
+        return None;
+    }
+
+    let client = match kube::Client::try_default().await {
+        Ok(client) => client,
+        Err(e) => {
+            tracing::warn!(error = %e, "no K8s client for the zone lookup; router zone unknown");
+            return None;
+        }
+    };
+    let lookup = k8s_awareness::node_zone(&client, &config.k8s_node_name);
+    match tokio::time::timeout(Duration::from_secs(5), lookup).await {
+        Ok(Ok(Some(zone))) => {
+            tracing::info!(node = %config.k8s_node_name, %zone, "router zone detected");
+            metrics::gauge!("personhog_router_zone", "zone" => zone.clone()).set(1.0);
+            Some(zone)
+        }
+        Ok(Ok(None)) => {
+            tracing::warn!(node = %config.k8s_node_name, "node has no zone label; router zone unknown");
+            None
+        }
+        Ok(Err(e)) => {
+            tracing::warn!(node = %config.k8s_node_name, error = %e, "node zone lookup failed; router zone unknown");
+            None
+        }
+        Err(_) => {
+            tracing::warn!(node = %config.k8s_node_name, "node zone lookup timed out; router zone unknown");
+            None
+        }
+    }
+}
+
 /// Build a channel backend; in k8s mode this also starts its EndpointSlice
 /// discovery task under `discovery_handle` and returns the readiness the
 /// task drives.
@@ -464,6 +509,7 @@ async fn build_channel_backend(
     spec: BackendSpec,
     config: &Config,
     discovery_handle: Option<Handle>,
+    local_zone: Option<String>,
 ) -> (Arc<ChannelBackend>, Option<DiscoveryReadiness>) {
     let role = spec.role;
     match spec.discovery_mode {
@@ -492,7 +538,8 @@ async fn build_channel_backend(
                 panic!("{role} discovery handle must be registered in k8s mode")
             });
 
-            let (channel, readiness, discovery) = EndpointDiscovery::new(
+            let (balancer, readiness, discovery) = EndpointDiscovery::new(
+                role,
                 kube_client,
                 namespace,
                 spec.service_name,
@@ -504,6 +551,7 @@ async fn build_channel_backend(
                     keepalive_timeout: config.backend_keepalive_timeout(),
                     http2_windows: config.backend_http2_windows(),
                 },
+                local_zone,
                 discovery_handle.shutdown_token(),
             );
 
@@ -515,7 +563,7 @@ async fn build_channel_backend(
             (
                 Arc::new(ChannelBackend::new_k8s(
                     role,
-                    channel,
+                    balancer,
                     config.retry_config(),
                     readiness.clone(),
                 )),

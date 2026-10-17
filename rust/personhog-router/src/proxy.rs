@@ -17,6 +17,7 @@ use tonic::body::BoxBody;
 use tonic::Code;
 use tower::{Service, ServiceExt};
 
+use crate::backend::zone::ZoneAffinity;
 use crate::backend::{ChannelBackend, LeaderBackend};
 use crate::config::RetryConfig;
 use crate::grpc_http::{
@@ -138,6 +139,21 @@ pub struct RawProxyService {
     inner: Arc<RawProxyInner>,
 }
 
+#[derive(Clone, Copy)]
+struct ChannelCall {
+    elapsed_ms: f64,
+    zone: ZoneAffinity,
+}
+
+impl ChannelCall {
+    fn unknown_zone(elapsed_ms: f64) -> Self {
+        Self {
+            elapsed_ms,
+            zone: ZoneAffinity::Unknown,
+        }
+    }
+}
+
 struct RawProxyInner {
     replica: Arc<ChannelBackend>,
     identity: Option<Arc<ChannelBackend>>,
@@ -248,7 +264,7 @@ impl RawProxyInner {
         let caller_tag = current_caller_tag();
         let start = Instant::now();
 
-        let (mut response, backend, channel_call_ms) = match (target, method_name) {
+        let (mut response, backend, channel_call) = match (target, method_name) {
             (Target::Identity | Target::Lifecycle, _) => {
                 let (resp, call_ms) = self.raw_proxy_to_identity(req, &path, method.clone()).await;
                 (resp, "identity", call_ms)
@@ -257,7 +273,7 @@ impl RawProxyInner {
                 let (resp, call_ms) = self
                     .raw_proxy_to_leader(req, "UpdatePersonProperties")
                     .await;
-                (resp, "leader", call_ms)
+                (resp, "leader", call_ms.map(ChannelCall::unknown_zone))
             }
             // Lifecycle fence RPCs: person writes, so they route to the
             // owning leader and share the handoff stash discipline. A batch
@@ -265,25 +281,25 @@ impl RawProxyInner {
             // leader call; the leader checks the rest hash there too.
             (Target::Service, "FencePerson") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePerson").await;
-                (resp, "leader", call_ms)
+                (resp, "leader", call_ms.map(ChannelCall::unknown_zone))
             }
             (Target::Service, "FencePersons") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FencePersons").await;
-                (resp, "leader", call_ms)
+                (resp, "leader", call_ms.map(ChannelCall::unknown_zone))
             }
             (Target::Service, "ReleaseFence") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFence").await;
-                (resp, "leader", call_ms)
+                (resp, "leader", call_ms.map(ChannelCall::unknown_zone))
             }
             (Target::Service, "ReleaseFences") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "ReleaseFences").await;
-                (resp, "leader", call_ms)
+                (resp, "leader", call_ms.map(ChannelCall::unknown_zone))
             }
             // The merge saga's document write: leader-routed like every
             // person write.
             (Target::Service, "FoldPersonDocument") => {
                 let (resp, call_ms) = self.raw_proxy_to_leader(req, "FoldPersonDocument").await;
-                (resp, "leader", call_ms)
+                (resp, "leader", call_ms.map(ChannelCall::unknown_zone))
             }
             (Target::Service, "GetPerson") => {
                 let is_strong = req
@@ -294,7 +310,7 @@ impl RawProxyInner {
 
                 if is_strong {
                     let (resp, call_ms) = self.raw_proxy_to_leader(req, "GetPerson").await;
-                    (resp, "leader", call_ms)
+                    (resp, "leader", call_ms.map(ChannelCall::unknown_zone))
                 } else {
                     let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
                     (resp, "replica", call_ms)
@@ -344,15 +360,16 @@ impl RawProxyInner {
             )
             .record((duration_ms - processing_ms).max(0.0));
 
-            if let Some(call_ms) = channel_call_ms {
+            if let Some(call) = channel_call {
                 let replica_total_ms = processing_ms + gzip_overhead_ms.unwrap_or(0.0);
                 histogram!(
                     "personhog_router_network_overhead_ms",
                     "method" => method.clone(),
                     "backend" => backend,
                     "client" => client.clone(),
+                    "same_zone" => call.zone.label(),
                 )
-                .record((call_ms - replica_total_ms).max(0.0));
+                .record((call.elapsed_ms - replica_total_ms).max(0.0));
             }
         }
 
@@ -383,7 +400,7 @@ impl RawProxyInner {
         &self,
         req: http::Request<BoxBody>,
         method: Arc<str>,
-    ) -> (http::Response<BoxBody>, Option<f64>) {
+    ) -> (http::Response<BoxBody>, Option<ChannelCall>) {
         let (parts, body) = req.into_parts();
         let body_bytes = match self.collect_body_timed(body, &method).await {
             Ok(b) => b,
@@ -404,7 +421,7 @@ impl RawProxyInner {
         req: http::Request<BoxBody>,
         path: &str,
         method: Arc<str>,
-    ) -> (http::Response<BoxBody>, Option<f64>) {
+    ) -> (http::Response<BoxBody>, Option<ChannelCall>) {
         let identity = match &self.identity {
             Some(backend) => backend,
             None => {
@@ -463,12 +480,24 @@ impl RawProxyInner {
         body_bytes: &Bytes,
         path: &str,
         method: Arc<str>,
-    ) -> (http::Response<BoxBody>, Option<f64>) {
+    ) -> (http::Response<BoxBody>, Option<ChannelCall>) {
         let mut delay_ms = self.retry_config.initial_backoff_ms;
         let client = current_client_name();
 
         for attempt in 0..=self.retry_config.max_retries {
-            let mut channel = backend.channel();
+            let Some((mut channel, zone)) = backend.channel() else {
+                if attempt >= self.retry_config.max_retries {
+                    return (
+                        grpc_error_response(
+                            Code::Unavailable,
+                            &format!("{} backend has no endpoints", backend.role()),
+                        ),
+                        None,
+                    );
+                }
+                retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
+                continue;
+            };
 
             let ready_start = Instant::now();
             let ready_channel = match channel.ready().await {
@@ -539,7 +568,13 @@ impl RawProxyInner {
                         retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
                         continue;
                     }
-                    return (response, Some(channel_call_ms));
+                    return (
+                        response,
+                        Some(ChannelCall {
+                            elapsed_ms: channel_call_ms,
+                            zone,
+                        }),
+                    );
                 }
                 Err(e) => {
                     histogram!(

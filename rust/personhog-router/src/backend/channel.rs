@@ -1,20 +1,29 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use tonic::transport::{Channel, Endpoint};
 use tracing::info;
 
 use crate::backend::discovery::DiscoveryReadiness;
+use crate::backend::zone::{ZoneAffinity, ZoneBalancer};
 use crate::config::{Http2Windows, RetryConfig};
 
 /// Channels to a backend whose pods are interchangeable (replica or
-/// identity), handed out round-robin.
+/// identity), handed out per request.
 pub struct ChannelBackend {
     role: &'static str,
-    channels: Vec<Channel>,
-    next_idx: AtomicUsize,
+    pool: Pool,
     retry_config: RetryConfig,
     readiness: Option<DiscoveryReadiness>,
+}
+
+enum Pool {
+    Dns {
+        channels: Vec<Channel>,
+        next_idx: AtomicUsize,
+    },
+    K8s(Arc<ZoneBalancer>),
 }
 
 #[derive(Clone)]
@@ -63,28 +72,31 @@ impl ChannelBackend {
 
         Self {
             role,
-            channels,
-            next_idx: AtomicUsize::new(0),
+            pool: Pool::Dns {
+                channels,
+                next_idx: AtomicUsize::new(0),
+            },
             retry_config: config.retry_config,
             readiness: None,
         }
     }
 
-    /// K8s discovery: single balanced channel fed by an EndpointDiscovery task
-    /// that watches EndpointSlices. Tower's p2c balancer handles per-request
-    /// load distribution, so a single channel is sufficient.
     pub fn new_k8s(
         role: &'static str,
-        channel: Channel,
+        balancer: Arc<ZoneBalancer>,
         retry_config: RetryConfig,
         readiness: DiscoveryReadiness,
     ) -> Self {
-        info!(role, mode = "k8s", "created channel backend");
+        info!(
+            role,
+            mode = "k8s",
+            local_zone = balancer.local_zone().unwrap_or("unknown"),
+            "created channel backend"
+        );
 
         Self {
             role,
-            channels: vec![channel],
-            next_idx: AtomicUsize::new(0),
+            pool: Pool::K8s(balancer),
             retry_config,
             readiness: Some(readiness),
         }
@@ -94,9 +106,15 @@ impl ChannelBackend {
         self.role
     }
 
-    pub fn channel(&self) -> Channel {
-        let idx = self.next_idx.fetch_add(1, Ordering::Relaxed) % self.channels.len();
-        self.channels[idx].clone()
+    /// `None` while EndpointSlice discovery has no member to dial.
+    pub fn channel(&self) -> Option<(Channel, ZoneAffinity)> {
+        match &self.pool {
+            Pool::Dns { channels, next_idx } => {
+                let idx = next_idx.fetch_add(1, Ordering::Relaxed) % channels.len();
+                Some((channels[idx].clone(), ZoneAffinity::Unknown))
+            }
+            Pool::K8s(balancer) => balancer.pick(),
+        }
     }
 
     pub fn retry_config(&self) -> &RetryConfig {
@@ -136,10 +154,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn channel_is_cloneable() {
+    async fn dns_backend_hands_out_channels_with_unknown_zone() {
         let backend = make_backend();
-        let _ch1 = backend.channel();
-        let _ch2 = backend.channel();
+        let (_ch1, zone) = backend.channel().expect("dns pool always has a channel");
+        assert_eq!(zone, ZoneAffinity::Unknown);
+        assert!(backend.channel().is_some());
     }
 
     #[tokio::test]
