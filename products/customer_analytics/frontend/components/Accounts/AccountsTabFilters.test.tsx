@@ -206,7 +206,7 @@ describe('AccountsTabFilters', () => {
 
         expect(logic.values.assignmentStatus).toBe('assigned')
     })
-    it('keeps OR branches when collapsed and returns to the empty trigger after removing every group', async () => {
+    it('keeps duplicated OR branches when collapsed and restores the empty trigger after removal', async () => {
         manualViewsLogic = accountsViewsLogic()
         manualViewsLogic.mount()
         await waitFor(() => expect(manualViewsLogic!.values.viewsLoaded).toBe(true))
@@ -236,14 +236,18 @@ describe('AccountsTabFilters', () => {
         expect(screen.getByText('Filters').closest('button')).toHaveAttribute('aria-expanded', 'true')
         expect(screen.queryByText('Match all conditions')).not.toBeInTheDocument()
         expect(await screen.findByText('Add OR group')).toBeInTheDocument()
+        fireEvent.click(screen.getByLabelText('Duplicate group A'))
+        expect(await screen.findByLabelText('Remove group C')).toBeInTheDocument()
         fireEvent.click(screen.getByText('Filters'))
         expect(logic.values.accountFilters).toEqual(first)
-        expect(logic.values.accountFilterGroups).toEqual([second])
+        expect(logic.values.accountFilterGroups).toEqual([second, first])
 
         fireEvent.click(screen.getByText('Filters'))
         fireEvent.click(await screen.findByLabelText('Remove group A'))
         expect(logic.values.accountFilters).toEqual(second)
-        expect(logic.values.accountFilterGroups).toEqual([])
+        expect(logic.values.accountFilterGroups).toEqual([first])
+        fireEvent.click(screen.getByLabelText('Remove group A'))
+        expect(logic.values.accountFilters).toEqual(first)
         fireEvent.click(screen.getByLabelText('Remove group A'))
         expect(await screen.findByText('Filter')).toBeInTheDocument()
         expect(screen.queryByText('Filters')).not.toBeInTheDocument()

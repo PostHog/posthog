@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Fragment, useId, useState } from 'react'
 
-import { IconFilter, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFilter, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonCard, LemonDivider } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -25,6 +25,7 @@ export function AccountsFilterGroups(): JSX.Element {
     const {
         updateAccountFilters,
         addAccountFilterGroup,
+        duplicateAccountFilterGroup,
         removeFirstAccountFilterGroup,
         removeAccountFilterGroup,
         updateAccountFilterGroup,
@@ -116,6 +117,21 @@ export function AccountsFilterGroups(): JSX.Element {
                                     data-attr="accounts-filter-group"
                                 >
                                     <div className="flex-1 min-w-0">{renderFilters(filters, groupIndex)}</div>
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconCopy />}
+                                        aria-label={`Duplicate group ${String.fromCharCode(65 + groupIndex)}`}
+                                        tooltip="Duplicate to a new OR group"
+                                        onClick={() => duplicateAccountFilterGroup(groupIndex)}
+                                        disabledReason={
+                                            filters.length === 0
+                                                ? 'Add a condition to this group first'
+                                                : groups.length >= 10
+                                                  ? 'You can add up to 10 groups'
+                                                  : undefined
+                                        }
+                                        data-attr="accounts-duplicate-or-group"
+                                    />
                                     <LemonButton
                                         size="xsmall"
                                         icon={<IconTrash />}
