@@ -1,13 +1,12 @@
 import { expectLogic } from 'kea-test-utils'
 
-import type { ConnectedApp } from 'scenes/settings/user/connectedAppsLogic'
-
+import type { ConnectedAppApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { agentConnectionLogic, hasAgentConnection } from './agentConnectionLogic'
 
-const AGENT_APP: ConnectedApp = {
+const AGENT_APP: ConnectedAppApi = {
     id: 'agent',
     name: 'Claude Code',
     logo_uri: null,
@@ -15,9 +14,10 @@ const AGENT_APP: ConnectedApp = {
     authorized_at: '2026-06-18T00:00:00Z',
     is_verified: false,
     is_first_party: false,
+    requires_access_confirmation: false,
     is_self_registered: true,
 }
-const WIZARD_APP: ConnectedApp = {
+const WIZARD_APP: ConnectedAppApi = {
     ...AGENT_APP,
     id: 'wizard',
     name: 'PostHog Wizard',
