@@ -80,6 +80,9 @@ export interface metricVariableEditorLogicActions {
         error: string | null
         regex: string
     }
+    clearRegexErrors: () => {
+        value: true
+    }
     setApplying: (applying: boolean) => {
         applying: boolean
     }
@@ -268,6 +271,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
         schedulePreview: true,
         setPreviewError: (error: string | null) => ({ error }),
         setRegexError: (regex: string, error: string | null) => ({ regex, error }),
+        clearRegexErrors: true,
         setApplying: (applying: boolean) => ({ applying }),
         apply: (onSave: (variables: MetricsDashboardVariable[]) => void) => ({ onSave }),
         removeVariable: (index: number) => ({ index }),
@@ -327,6 +331,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                     const { [regex]: _, ...rest } = state
                     return error ? { ...rest, [regex]: error } : rest
                 },
+                clearRegexErrors: () => ({}),
             },
         ],
         applying: [false, { setApplying: (_, { applying }) => applying }],
@@ -401,7 +406,9 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
         removeVariable: () => {
             actions.loadPreview()
         },
-        apply: async ({ onSave }) => {
+        apply: async ({ onSave }, breakpoint) => {
+            // A failed check can be a timeout or a rate limit, so each Apply checks the patterns again.
+            actions.clearRegexErrors()
             const firstError = (): number => values.draft.findIndex((variable) => ownValue(values.errors, variable.name))
             if (firstError() === -1) {
                 // The server checks a regex without running a query, so a pattern it rejects is never saved.
@@ -434,6 +441,8 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                 } finally {
                     actions.setApplying(false)
                 }
+                // Closing the editor while the check runs cancels the Apply.
+                breakpoint()
             }
             const index = firstError()
             if (index === -1) {
