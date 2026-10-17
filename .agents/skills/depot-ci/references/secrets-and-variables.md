@@ -22,6 +22,10 @@ Variants are managed from the CLI (selectors on `add`, `set`, `bulk`, `get`, `li
 
 Selector flags are repeatable, and `--branch`/`--workflow` accept glob patterns. On `add`/`set`/`bulk` they scope where a variant applies; on `get`/`list`/`remove` they select or filter existing variants.
 
+For `add` and `set`, omit the variant name or use `default` to update the variant with exactly the supplied selectors. If none matches, Depot creates a variant. New repository variants use repository-derived names, with numeric suffixes to avoid collisions. Use a non-default name to select a named variant.
+
+Repository variants follow GitHub repositories through renames and transfers. A new repository under an old name does not inherit the original repository's values. The server resolves repository selectors, including previous repository names.
+
 ## Access rule kinds
 
 Limit when a variant is selected by combining one or more rules:
@@ -53,7 +57,7 @@ Secrets are referenced in workflows as `${{ secrets.SECRET_NAME }}`. Secret valu
 
 ### `depot ci secrets add`
 
-Adds a secret variant. Three modes: interactive prompt (`depot ci secrets add NAME`), piped stdin (`printf '%s' "$V" | depot ci secrets add NAME`), or bulk `KEY=VALUE` pairs (`depot ci secrets add FOO=bar BAZ=qux`, `--description` not allowed in this mode). An optional second positional names the variant; without it the value writes to the `default` variant.
+Adds a secret variant. Three modes: interactive prompt (`depot ci secrets add NAME`), piped stdin (`printf '%s' "$V" | depot ci secrets add NAME`), or bulk `KEY=VALUE` pairs (`depot ci secrets add FOO=bar BAZ=qux`, `--description` not allowed in this mode). An optional second positional names the variant; omit the name to select by the supplied selectors.
 
 | Flag                   | Description                                                   |
 | ---------------------- | ------------------------------------------------------------- |

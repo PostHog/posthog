@@ -4349,11 +4349,12 @@ jobs:
                   # can answer 404, because GitHub does not always find a check it just created.
                   # GitHub rejects a summary over 65535 characters, and the byte budget below stays
                   # under that however the characters are encoded.
+                  # The retry hint goes first, because the byte budget trims the summary from the end.
                   touch "$GATE_SUMMARY"
                   jq -n --arg name "$GATE_CHECK" --arg sha "$SHA" --arg conclusion "$CONCLUSION" --arg url "$DEPOT_JOB_URL" \
                       --arg title "$title" --rawfile summary "$GATE_SUMMARY" \
                       '{name: $name, head_sha: $sha, status: "completed", conclusion: $conclusion, details_url: $url,
-                        output: {title: $title, summary: ($summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}' \
+                        output: {title: $title, summary: ((if $conclusion == "failure" then "To retry the failed jobs without a new push, comment `/retry` on this pull request.\n\n" else "" end) + $summary | if utf8bytelength > 60000 then until(utf8bytelength <= 60000; .[:-1000]) + "\n\n(truncated)" else . end)}}' \
                       | gh api "repos/$REPO/check-runs" --method POST --input - --silent && exit 0
                   # A rejected output must not lose the check.
                   echo "::warning::Could not post the gate check with its summary. Posting it without."

@@ -21,6 +21,7 @@ import subprocess
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 WORKFLOW_PATH = "ci-backend.yml"
 ACTIVE = ("queued", "running")
@@ -64,7 +65,7 @@ def superseded(own_workflow_id: str, active_workflows: Sequence[Workflow], runs:
     ]
 
 
-def depot(*args: str) -> list[dict[str, str]]:
+def depot(*args: str) -> Any:
     # stderr passes through, so a failed call explains itself in the job log.
     result = subprocess.run(
         ["depot", "ci", *args], check=True, stdout=subprocess.PIPE, text=True, timeout=CLI_TIMEOUT_SECONDS
