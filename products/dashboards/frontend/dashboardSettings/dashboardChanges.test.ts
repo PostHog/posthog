@@ -1,5 +1,5 @@
-import type { HogQLVariable } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import type { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
     dashboardFiltersEqual,
@@ -234,6 +234,36 @@ describe('dashboardFiltersEqual', () => {
 
         expect(dashboardFiltersEqual({ properties: [browser, os] }, { properties: [os, browser] })).toBe(true)
         expect(getDashboardFilterChanges({ properties: [browser, os] }, { properties: [os, browser] })).toEqual([])
+    })
+
+    it.each([
+        [
+            'a property group',
+            { type: FilterLogicalOperator.And, values: [{ type: FilterLogicalOperator.And, values: [] }] },
+        ],
+        ['an object that is not a property group', { key: 'browser' }],
+        ['a string', 'browser'],
+    ])('does not throw when saved properties hold %s', (_name, properties) => {
+        const saved = { properties } as unknown as DashboardFilter
+        expect(dashboardFiltersEqual(saved, { properties: [] })).toBe(true)
+    })
+
+    it('compares the leaf filters of a saved property group', () => {
+        const browser: AnyPropertyFilter = {
+            key: 'browser',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'Chrome',
+        }
+        const saved = {
+            properties: {
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.And, values: [browser] }],
+            },
+        } as unknown as DashboardFilter
+
+        expect(dashboardFiltersEqual(saved, { properties: [browser] })).toBe(true)
+        expect(dashboardFiltersEqual(saved, { properties: [] })).toBe(false)
     })
 
     it.each([

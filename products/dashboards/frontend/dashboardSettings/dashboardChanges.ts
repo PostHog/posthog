@@ -1,12 +1,16 @@
 import { deepEqual as equal } from 'fast-equals'
 
 import { compareFilterLabel } from 'lib/components/CompareFilter/compareFilterLabel'
-import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import {
+    convertPropertyGroupToProperties,
+    formatPropertyLabel,
+    isPropertyGroup,
+} from 'lib/components/PropertyFilters/utils'
 import { dateFilterToText } from 'lib/utils/dateFilters'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type { DashboardFilter, HogQLVariable, MultipleBreakdownType } from '~/queries/schema/schema-general'
-import { type AnyPropertyFilter, type BreakdownType, PropertyFilterType } from '~/types'
+import { type AnyPropertyFilter, type BreakdownType, PropertyFilterType, type PropertyGroupFilter } from '~/types'
 
 export interface DashboardSettingsChange {
     label: string
@@ -226,12 +230,25 @@ function getPropertyChanges(previous: AnyPropertyFilter[], current: AnyPropertyF
     return changes
 }
 
+// Saved dashboard filters can hold a legacy property group instead of a list. A spread of that
+// value throws inside a selector and crashes the dashboard scene.
+function propertyFilterList(properties: unknown): AnyPropertyFilter[] {
+    const value = properties as AnyPropertyFilter[] | PropertyGroupFilter | null | undefined
+    if (Array.isArray(value)) {
+        return value
+    }
+    if (isPropertyGroup(value) && Array.isArray(value.values)) {
+        return convertPropertyGroupToProperties(value) ?? []
+    }
+    return []
+}
+
 function getPropertyFilterChanges(
     previousFilters: DashboardFilter,
     currentFilters: DashboardFilter
 ): DashboardFilterChange[] {
-    const previousProperties = previousFilters.properties ?? []
-    const currentProperties = currentFilters.properties ?? []
+    const previousProperties = propertyFilterList(previousFilters.properties)
+    const currentProperties = propertyFilterList(currentFilters.properties)
     const changes = getPropertyChanges(previousProperties, currentProperties)
     const previousPropertiesAreExplicit = previousFilters.properties != null
     const currentPropertiesAreExplicit = currentFilters.properties != null
