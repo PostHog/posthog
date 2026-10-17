@@ -1,8 +1,10 @@
+import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, FileSystemListQuery, ProductManifest } from '../../frontend/src/types'
 import type { MessagingNavTabKey } from './frontend/messagingTabs'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
@@ -87,7 +89,7 @@ export const manifest: ProductManifest = {
             iconType: 'workflows',
             iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.workflow(ref, 'workflow'),
-            listHref: () => urls.workflows(),
+            listHref: (query?: FileSystemListQuery) => combineUrl(urls.workflows(), { q: query?.queryWithoutType }).url,
             filterKey: 'workflows',
         },
     },

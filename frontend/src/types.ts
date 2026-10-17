@@ -7891,10 +7891,15 @@ export interface CoreMemory {
 
 export type FileSystemIconColor = [string] | [string, string]
 
+export interface FileSystemListQuery {
+    searchText?: string
+    queryWithoutType?: string
+}
+
 export interface FileSystemType {
     href?: (ref: string) => string
     // The product's own list page, which Library opens for this type instead of its generic table
-    listHref?: () => string
+    listHref?: (query?: FileSystemListQuery) => string
     // Visual name of the product
     name: string
     // Flag to determine if the product is enabled

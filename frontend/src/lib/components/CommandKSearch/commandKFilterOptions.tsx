@@ -1,12 +1,15 @@
+import { combineUrl } from 'kea-router'
+
 import { IconArrowRight } from '@posthog/icons'
 
 import { SearchItem } from 'lib/components/Search/searchItems'
+import { urls } from 'scenes/urls'
 
 import { fileSystemTypes } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
-import { OrganizationMemberType, UserType } from '~/types'
+import { FileSystemListQuery, OrganizationMemberType, UserType } from '~/types'
 
-import { FilterOptions, ResolvedQuery, ValueOption } from './commandKQuery'
+import { FilterOptions, QueryChip, ResolvedQuery, ValueOption, queryAsText, tokenize, unquote } from './commandKQuery'
 import type { ViewAll } from './commandKSections'
 
 /** Short words people type for a type, on top of its name and key. */
@@ -21,7 +24,7 @@ const TYPE_ALIASES: Record<string, string[]> = {
 interface FileSystemTypeDefinition {
     name?: string
     iconType?: string
-    listHref?: () => string
+    listHref?: (query?: FileSystemListQuery) => string
 }
 
 const FILE_SYSTEM_TYPES = fileSystemTypes as Record<string, FileSystemTypeDefinition>
@@ -91,21 +94,41 @@ export function buildFilterOptions(
 }
 
 /** List pages for types whose manifest registers no `listHref`. */
-const LIST_HREF_FALLBACKS: Record<string, string> = {
-    dashboard: '/dashboard',
-    notebook: '/notebooks',
+const LIST_HREF_FALLBACKS: Record<string, (query: FileSystemListQuery) => string> = {
+    dashboard: ({ searchText }) => combineUrl(urls.dashboards(), { search: searchText }).url,
+    notebook: () => urls.notebooks(),
 }
 
+const isExcluded = (raw: string): boolean => raw.startsWith('-') || raw.startsWith('!')
+
+const includedWords = (freeText: string): string[] =>
+    tokenize(freeText)
+        .map((token) => unquote(token.raw))
+        .filter((word) => word && !isExcluded(word))
+
+const includedNames = (filters: QueryChip[]): string[] =>
+    filters.filter((filter) => filter.key === 'name' && !filter.negated).map((filter) => filter.value)
+
+const listQueryFor = (typeChip: QueryChip, { filters, freeText }: ResolvedQuery): FileSystemListQuery => ({
+    searchText: [...includedNames(filters), ...includedWords(freeText)].join(' ') || undefined,
+    queryWithoutType:
+        queryAsText(
+            freeText,
+            filters.filter((filter) => filter !== typeChip)
+        ) || undefined,
+})
+
 // With only filters the list page is the likely target; once there is search text, the matches matter more.
-export function viewAllFor({ filters, freeText }: ResolvedQuery): ViewAll | null {
-    const chip = filters.find((candidate) => candidate.key === 'is' && !candidate.negated)
+export function viewAllFor(resolved: ResolvedQuery): ViewAll | null {
+    const chip = resolved.filters.find((candidate) => candidate.key === 'is' && !candidate.negated)
     if (!chip) {
         return null
     }
-    const href = typeDefinition(chip.value)?.listHref?.() ?? LIST_HREF_FALLBACKS[chip.value]
-    if (!href) {
+    const listHref = typeDefinition(chip.value)?.listHref ?? LIST_HREF_FALLBACKS[chip.value]
+    if (!listHref) {
         return null
     }
+    const href = listHref(listQueryFor(chip, resolved))
     const name = `View all ${pluralTypeName(chip.label)}`
     const item: SearchItem = {
         id: `view-all-${chip.value}`,
@@ -116,5 +139,5 @@ export function viewAllFor({ filters, freeText }: ResolvedQuery): ViewAll | null
         icon: <IconArrowRight className="size-4 shrink-0 text-muted-foreground" />,
         record: { type: chip.value },
     }
-    return { item, placement: freeText.trim() ? 'trail' : 'lead' }
+    return { item, placement: resolved.freeText.trim() ? 'trail' : 'lead' }
 }
