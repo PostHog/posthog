@@ -3,6 +3,11 @@
 // 12k tokens × 4 chars/token
 export const TOKEN_CHAR_LIMIT = 4 * 12_000
 
+// 2k tokens × 4 chars/token. A drilled field above this budget is summarized, so
+// each nested union sits behind its own drill-down hint. A retention entity fits
+// under TOKEN_CHAR_LIMIT but embeds the property-filter union once per variant.
+export const FIELD_INLINE_CHAR_LIMIT = 4 * 2_000
+
 type JSONSchema = Record<string, unknown>
 
 /**
