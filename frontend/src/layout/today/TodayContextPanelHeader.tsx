@@ -1,12 +1,15 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45, IconExternal, IconSidePanel, IconX } from '@posthog/icons'
+import { IconExpand45, IconExternal, IconPlus, IconSidePanel, IconX } from '@posthog/icons'
 import { Button, CardHeader, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
+import { SidePanelTab } from '~/types'
 
+import { todayAiChatLogic } from './todayAiChatLogic'
+import { TodayAiChatTitleMenu } from './TodayAiChatTitleMenu'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
 interface TodayContextPanelHeaderProps {
@@ -51,8 +54,11 @@ function HeaderIconButton({
 }
 
 export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPanelHeaderProps): JSX.Element {
-    const { activeTab, fullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
+    const { activeTab, fullScreenUrl: tabFullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
     const { dock, undock, close, openFullScreen } = useActions(todayContextPanelLogic)
+    const { fullScreenUrl: aiFullScreenUrl } = useValues(todayAiChatLogic)
+    const { startNewChat, carryContextToFullScreen } = useActions(todayAiChatLogic)
+    const fullScreenUrl = activeTab === SidePanelTab.Max ? aiFullScreenUrl : tabFullScreenUrl
 
     return (
         <CardHeader
@@ -62,15 +68,30 @@ export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPan
             )}
             onPointerDown={onDragStart}
         >
-            <span className="flex h-7 min-w-0 items-center px-1.5 font-semibold">
-                <span className="truncate">{SIDE_PANEL_TABS[activeTab].label}</span>
-            </span>
+            {activeTab === SidePanelTab.Max ? (
+                <TodayAiChatTitleMenu />
+            ) : (
+                // As tall as the chat's title button, so the header keeps its height across tabs.
+                <span className="flex h-7 min-w-0 items-center px-1.5 font-semibold">
+                    <span className="truncate">{SIDE_PANEL_TABS[activeTab].label}</span>
+                </span>
+            )}
             <div className="ms-auto flex shrink-0 items-center gap-0.5">
+                {activeTab === SidePanelTab.Max && (
+                    <HeaderIconButton label="New chat" onClick={startNewChat} dataAttr="today-ai-chat-new">
+                        <IconPlus />
+                    </HeaderIconButton>
+                )}
                 {fullScreenUrl && (
                     <HeaderIconButton
                         label="Open full screen"
                         dataAttr="today-context-panel-full-screen"
-                        onClick={openFullScreen}
+                        onClick={() => {
+                            if (activeTab === SidePanelTab.Max) {
+                                carryContextToFullScreen()
+                            }
+                            openFullScreen()
+                        }}
                         render={<LinkPrimitive to={fullScreenUrl} />}
                     >
                         <IconExpand45 />

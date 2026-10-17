@@ -202,6 +202,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 docked && selectedTab ? selectedTab : floatingActiveTab,
         ],
         fullScreenUrl: [
+            // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
             (s) => [s.activeTab, s.selectedNotebook],
             (activeTab: SidePanelTab, selectedNotebook: string): string | null => {
                 switch (activeTab) {

@@ -9,10 +9,13 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
 import { SidePanelTab } from '~/types'
 
+import { TodayAiPanel } from './TodayAiPanel'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
 
 // The quill rebuilds of the side panel tabs. Every other tab keeps its own panel.
-const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {}
+const QUILL_TAB_PANELS: Partial<Record<SidePanelTab, ComponentType>> = {
+    [SidePanelTab.Max]: TodayAiPanel,
+}
 
 type SwitchDirection = 'forward' | 'backward'
 
