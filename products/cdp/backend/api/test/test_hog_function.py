@@ -1353,6 +1353,56 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("disable", {"enabled": False}),
+            ("delete", {"deleted": True}),
+            ("rename", {"name": "Renamed"}),
+            ("resend_unchanged", {"inputs": {"note": {"value": "Hi {{ event.event }}", "templating": "liquid"}}}),
+        ]
+    )
+    def test_stored_liquid_on_a_literal_input_does_not_block_updates(self, _name: str, payload: dict) -> None:
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy liquid",
+            type="destination",
+            enabled=True,
+            hog="print(inputs.note)",
+            inputs_schema=[{"key": "note", "type": "string", "templating": False}],
+            inputs={"note": {"value": "Hi {{ event.event }}", "templating": "liquid"}},
+        )
+
+        res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=payload)
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        function.refresh_from_db()
+        assert function.inputs == {"note": {"value": "Hi {{ event.event }}", "order": 0}}
+
+    def test_stored_liquid_on_a_literal_mapping_input_does_not_block_a_resend(self) -> None:
+        mapping = {
+            "name": "Literal note",
+            "filters": {},
+            "inputs_schema": [{"key": "note", "type": "string", "templating": False}],
+            "inputs": {"note": {"value": "Hi {{ event.event }}", "templating": "liquid"}},
+        }
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Legacy liquid mapping",
+            type="destination",
+            hog="print(inputs.note)",
+            inputs_schema=[],
+            inputs={},
+            mappings=[mapping],
+        )
+
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function.id}", data={"mappings": [mapping]}
+        )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        function.refresh_from_db()
+        assert (function.mappings or [])[0]["inputs"] == {"note": {"value": "Hi {{ event.event }}", "order": 0}}
+
+    @parameterized.expand(
+        [
             ("resend_stored_mapping", [], False, status.HTTP_200_OK),
             ("add_duplicate_to_mapping", [{"key": "added", "type": "string"}] * 2, False, status.HTTP_400_BAD_REQUEST),
             ("add_third_copy", [{"key": "click_id", "type": "string"}], False, status.HTTP_400_BAD_REQUEST),

@@ -1016,6 +1016,24 @@ def _existing_email_from_by_action(instance: WorkflowEditState) -> dict[str, lis
     return result
 
 
+def _existing_inputs_by_action(instance: WorkflowEditState) -> dict[str, list[dict]]:
+    """Stored function inputs and secrets keyed by action id, live and draft variants each kept, like sender overrides."""
+    result: dict[str, list[dict]] = {}
+    draft = instance.draft if isinstance(instance.draft, dict) else {}
+    for actions in (instance.actions, draft.get("actions")):
+        for stored_action in actions or []:
+            if not isinstance(stored_action, dict) or not stored_action.get("id"):
+                continue
+            inputs = (stored_action.get("config") or {}).get("inputs")
+            if isinstance(inputs, dict):
+                result.setdefault(stored_action["id"], []).append(inputs)
+    for secrets in (instance.encrypted_inputs, instance.draft_encrypted_inputs):
+        for action_id, inputs in (secrets or {}).items():
+            if isinstance(inputs, dict):
+                result.setdefault(action_id, []).append(inputs)
+    return result
+
+
 def _event_config_has_event_or_action(event_config: dict) -> bool:
     # An "events to wait for" / conversion entry that targets neither events nor actions compiles to
     # always-true bytecode and would fire on every incoming event. Action-based entries (events empty,
@@ -1807,6 +1825,7 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "existing_email_from": (self.context.get("existing_action_email_from") or {}).get(
                             data.get("id")
                         ),
+                        "stored_inputs": (self.context.get("existing_action_inputs") or {}).get(data.get("id")) or [],
                         # Request-scoped: a drip sequence's steps share senders, and the actions
                         # list validates one action at a time (mirrors _message_template_cache).
                         "email_integration_domain_cache": self.context.setdefault(
@@ -3081,6 +3100,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # newly written custom sender addresses to the verified-domain rule. Draft wins over
             # live for the same reason as secrets: it is the value the client last saw.
             self.context["existing_action_email_from"] = _existing_email_from_by_action(instance)
+            self.context["existing_action_inputs"] = _existing_inputs_by_action(instance)
 
         # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
         # synced row. Flag it before child action validation so function-input compilation rewrites it.

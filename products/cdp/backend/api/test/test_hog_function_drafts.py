@@ -552,6 +552,22 @@ class TestHogFunctionDrafts(DraftTestCase):
         # The staged secret is what gets exercised, not the live one it will replace.
         assert configuration["inputs"]["token"]["value"] == "new"
 
+    def test_invocations_use_draft_keeps_a_staged_liquid_secret_literal(self):
+        literal_token = {**BASE_FUNCTION["inputs_schema"][1], "templating": False}
+        function_id = self._create(inputs_schema=[BASE_FUNCTION["inputs_schema"][0], literal_token])
+        staged_inputs = {**BASE_FUNCTION["inputs"], "token": {"value": "Bearer {{ event.uuid }}"}}
+        self._stage(function_id, {"hog": EDITED_HOG, "inputs": staged_inputs})
+        function = HogFunction.objects.get(id=function_id)
+        function.draft_encrypted_inputs = {"token": {"value": "Bearer {{ event.uuid }}", "templating": "liquid"}}
+        function.save()
+
+        response, mock_invoke = self._test_invoke(function_id, {"use_draft": True})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        token = mock_invoke.call_args.kwargs["payload"]["configuration"]["inputs"]["token"]
+        assert token["value"] == "Bearer {{ event.uuid }}"
+        assert "templating" not in token
+
     def test_invocations_use_draft_recovers_unstaged_secrets_from_live(self):
         function_id = self._create()
         self._stage(function_id, {"hog": EDITED_HOG})

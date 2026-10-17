@@ -382,6 +382,21 @@ def _stored_mapping_for(mapping: dict, index: int, stored_mappings: list[dict]) 
     return candidates[0] if len(candidates) == 1 else None
 
 
+def _stored_input_variants(instance: Optional[HogFunction]) -> list[dict]:
+    if instance is None:
+        return []
+    draft = instance.draft if isinstance(instance.draft, dict) else {}
+    stored_mappings = [*(instance.mappings or []), *(draft.get("mappings") or [])]
+    variants = (
+        instance.inputs,
+        draft.get("inputs"),
+        instance.encrypted_inputs,
+        instance.draft_encrypted_inputs,
+        *(mapping.get("inputs") for mapping in stored_mappings if isinstance(mapping, dict)),
+    )
+    return [inputs for inputs in variants if isinstance(inputs, dict)]
+
+
 _AlertMarkers = tuple[frozenset[tuple[object, object]], frozenset[str]]
 
 
@@ -629,6 +644,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         ):
             raise serializers.ValidationError({"filters": "Select the materialized view to trigger on."})
         self.context["encrypted_inputs"] = instance.encrypted_inputs if instance else {}
+        self.context["stored_inputs"] = _stored_input_variants(instance)
 
         template = None
         if data["template_id"]:

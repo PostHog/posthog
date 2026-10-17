@@ -983,6 +983,16 @@ class InputsItemSerializer(serializers.Serializer):
         return attrs
 
 
+def _is_liquid(item: Any) -> bool:
+    return isinstance(item, dict) and item.get("templating") == HogFunctionTemplating.LIQUID
+
+
+def _adds_liquid_templating(submitted: Any, stored_values: list[Any]) -> bool:
+    return _is_liquid(submitted) and not any(
+        isinstance(stored, dict) and stored.get("value") == submitted.get("value") for stored in stored_values
+    )
+
+
 class InputsSerializer(serializers.DictField):
     """
     Provides the same typing as the DictField but with custom validation to only include the inputs that are in the schema
@@ -1036,6 +1046,18 @@ class InputsSerializer(serializers.DictField):
                 value = {"value": schema["default"]}
 
             self.context["schema"] = schema
+
+            if schema.get("templating") is False and isinstance(value, dict):
+                # Liquid would render event data into an input the template keeps literal, such as AI
+                # instructions. The worker runs it literally anyway, so Hog, and Liquid on a value already
+                # stored, are dropped instead: refusing those would leave a saved row impossible to edit.
+                stored_values = [
+                    stored.get(key) for stored in self.context.get("stored_inputs") or [] if isinstance(stored, dict)
+                ]
+                if _adds_liquid_templating(data.get(key), stored_values):
+                    errors[key] = "This input does not support templating."
+                    continue
+                value = {k: v for k, v in value.items() if k != "templating"}
 
             # Propagate templating from schema to input item, if set
             if "templating" in schema:

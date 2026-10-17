@@ -24,7 +24,7 @@ import {
 } from '../../../src/cdp/services/messaging/email-suppression.service'
 import { EmailTrackingCodeSigner } from '../../../src/cdp/services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../../../src/cdp/services/messaging/recipient-tokens.service'
-import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../../../src/cdp/types'
+import { CyclotronJobInvocationHogFunction, HogFunctionInputSchemaType, HogFunctionType } from '../../../src/cdp/types'
 import { Hub } from '../../../src/types'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -453,6 +453,61 @@ describe('Hog Executor', () => {
             expect(res.error).toBeUndefined()
             expect(res.execResult).toBe('INITIAL_TOKEN_ABC')
         })
+        const literalGclid: HogFunctionInputSchemaType = {
+            key: 'gclid',
+            type: 'string',
+            required: true,
+            templating: false,
+        }
+
+        it.each([
+            [
+                'the mapping that supplies it keeps it literal',
+                [literalGclid],
+                undefined,
+                '{{ person.properties.gclid }}',
+            ],
+            [
+                'only a later mapping that does not supply it declares it literal',
+                undefined,
+                [literalGclid],
+                'INITIAL_TOKEN_ABC',
+            ],
+        ])(
+            'on a rerun, renders a liquid mapping input unless %s',
+            async (_name, supplierSchema, laterSchema, expected) => {
+                const hog = `return inputs.gclid`
+                const mappingFn = createHogFunction({
+                    hog,
+                    bytecode: await compileHog(hog),
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                    inputs_schema: [],
+                    mappings: [
+                        {
+                            ...HOG_FILTERS_EXAMPLES.no_filters,
+                            inputs_schema: supplierSchema,
+                            inputs: {
+                                gclid: { order: 0, value: '{{ person.properties.gclid }}', templating: 'liquid' },
+                            },
+                        },
+                        { ...HOG_FILTERS_EXAMPLES.no_filters, inputs_schema: laterSchema, inputs: {} },
+                    ],
+                })
+                const invocation = createExampleInvocation(mappingFn, {
+                    person: {
+                        id: 'uuid',
+                        name: 'test',
+                        url: 'http://localhost:8000/persons/1',
+                        properties: { gclid: 'INITIAL_TOKEN_ABC' },
+                    },
+                })
+
+                const res = await executor.execute(invocation)
+
+                expect(res.error).toBeUndefined()
+                expect(res.execResult).toBe(expected)
+            }
+        )
     })
 
     describe('slow functions', () => {
