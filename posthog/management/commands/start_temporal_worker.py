@@ -251,6 +251,7 @@ from products.managed_warehouse.backend.facade.temporal import (
 )
 from products.metrics.backend.facade.temporal import (
     ACTIVITIES as METRICS_ACTIVITIES,
+    RENDER_ACTIVITIES as METRICS_RENDER_ACTIVITIES,
     WORKFLOWS as METRICS_WORKFLOWS,
 )
 from products.notebooks.backend.facade.temporal import (
@@ -476,7 +477,8 @@ _task_queue_specs = [
         + SUBSCRIPTION_ACTIVITIES
         + ALERT_ACTIVITIES
         + PULSE_ACTIVITIES
-        + SYNC_EVENTS_RETENTION_ACTIVITIES,
+        + SYNC_EVENTS_RETENTION_ACTIVITIES
+        + METRICS_RENDER_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,

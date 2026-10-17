@@ -6,7 +6,9 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import MetricsHistogramQuery, MetricsQuery
+from posthog.schema import MetricsHistogramQuery, MetricsQuery, MetricsQueryPoint, MetricsQuerySeries
+
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.models import Team
 
@@ -26,6 +28,8 @@ CATALOG = MetricCatalog(
         CatalogEntry(name="orders_total", metric_type="sum", unit=""),
         CatalogEntry(name="queue_depth", metric_type="gauge", unit=""),
         CatalogEntry(name="request_duration_seconds", metric_type="histogram", unit="s"),
+        CatalogEntry(name="errors_total", metric_type="sum", unit=""),
+        CatalogEntry(name="idle_total", metric_type="sum", unit=""),
     ],
     complete=True,
 )
@@ -163,7 +167,7 @@ class TestSuggestedDashboards(SimpleTestCase):
         assert "metricType" not in panels[0].query["clauses"][0]
         assert "dateRange" not in panels[0].query
 
-    def test_convert_drops_unknown_metrics_and_overlapping_boxes(self) -> None:
+    def test_convert_drops_failing_queries_and_overlapping_boxes(self) -> None:
         def draft(key: str, metric: str, x: int) -> DraftPanel:
             return DraftPanel(
                 key=key,
@@ -173,17 +177,34 @@ class TestSuggestedDashboards(SimpleTestCase):
                 layout=GridLayout(x=x, y=0, w=8, h=4),
             )
 
-        converted = _convert(
-            [
-                draft("orders", "orders_total", 0),
-                draft("invented", "invented_total", 0),
-                draft("queue", "queue_depth", 4),
-            ],
-            Team(id=1),
-            CATALOG,
-        )
+        def runner(query: MetricsQuery, team: Team) -> MagicMock:
+            metric = query.clauses[0].metricName
+            run = MagicMock()
+            if metric == "errors_total":
+                run.calculate.side_effect = ExposedHogQLError("Unknown clause b in the formula.")
+            else:
+                point = MetricsQueryPoint(time="2026-01-01T00:00:00Z", value=None if metric == "idle_total" else 1.0)
+                run.calculate.return_value.results = [MetricsQuerySeries(labels={}, points=[point], metricName=metric)]
+            return run
 
-        assert converted.dropped == ("invented",)
+        with patch("products.metrics.backend.suggested_dashboards.dashboards.MetricsQueryRunner", side_effect=runner):
+            converted = _convert(
+                [
+                    draft("orders", "orders_total", 0),
+                    draft("invented", "invented_total", 0),
+                    draft("broken", "errors_total", 0),
+                    draft("empty", "idle_total", 0),
+                    draft("queue", "queue_depth", 4),
+                ],
+                Team(id=1),
+                CATALOG,
+            )
+
+        assert converted.dropped == (
+            "invented: These metrics do not exist in this project: invented_total.",
+            "broken: Unknown clause b in the formula.",
+            "empty: The query returned no data in the last 24 hours.",
+        )
         assert [panel.key for panel in converted.panels] == ["orders", "queue"]
         first, second = (panel.layout for panel in converted.panels)
         assert first.x + first.w <= second.x or first.y + first.h <= second.y

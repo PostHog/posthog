@@ -39,7 +39,12 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.models import MetricsDashboardTemplate
 from products.metrics.backend.suggested_dashboards import prompts
-from products.metrics.backend.suggested_dashboards.dashboards import acting_user, create_dashboard, drop_preview
+from products.metrics.backend.suggested_dashboards.dashboards import (
+    acting_user,
+    create_dashboard,
+    drop_preview,
+    query_problems,
+)
 from products.metrics.backend.suggested_dashboards.llm import MODEL, ask_model, image_block, text_block
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import (
@@ -175,7 +180,7 @@ class _Converted:
 
 
 def _convert(drafts: Sequence[DraftPanel], team: Team, catalog: MetricCatalog) -> _Converted:
-    """Check each drafted query as PostHog would run it, and keep the panels that pass, with no overlapping boxes."""
+    """Run each drafted query as its insight would run, and keep the panels that show data, with no overlapping boxes."""
     validator = PanelValidator(team=team, catalog=catalog, promql_available=False)
     queries = {draft.key: PanelQuery(language="builder", builder=draft.query) for draft in drafts}
     checks = validator.check_all(queries, deadline_seconds=CHECK_DEADLINE_SECONDS)
@@ -184,17 +189,31 @@ def _convert(drafts: Sequence[DraftPanel], team: Team, catalog: MetricCatalog) -
     dropped: list[str] = []
     for draft in drafts:
         check = checks.get(draft.key)
-        if draft.key in queries_by_key or check is None or not check.ok:
-            dropped.append(draft.title)
+        if draft.key in queries_by_key:
+            dropped.append(f"{draft.title}: Another panel has the same key.")
+            continue
+        if check is None or not check.ok:
+            dropped.append(f"{draft.title}: {check.error if check and check.error else 'The query is not valid.'}")
             continue
         try:
             queries_by_key[draft.key] = insight_query(
                 queries[draft.key], draft.display, catalog=catalog, validator=validator, date_from=None
             )
-        except ValueError:
-            dropped.append(draft.title)
+        except ValueError as error:
+            dropped.append(f"{draft.title}: {str(error)[:200]}")
             continue
         accepted.append(draft)
+    problems = query_problems(
+        team,
+        [
+            TemplatePanel(key=draft.key, title=draft.title, query=queries_by_key[draft.key], layout=draft.layout)
+            for draft in accepted
+        ],
+        catalog,
+        need_data=True,
+    )
+    dropped.extend(f"{draft.title}: {problems[draft.key]}" for draft in accepted if draft.key in problems)
+    accepted = [draft for draft in accepted if draft.key not in problems]
     boxes = place_screenshot_boxes(
         [RequestedBox(key=draft.key, layout=draft.layout, min_w=2, min_h=2) for draft in accepted]
     )
@@ -276,7 +295,11 @@ def render_preview(template_id: str, round_number: int) -> int | None:
     context = _context(template_id)
     dashboard_id = _refresh_preview(context, round_number)
     user = acting_user(context.team)
-    if dashboard_id is None or user is None or not picture_available():
+    if not picture_available():
+        # Without a picture the AI checks do not run, so the template goes to review as drafted.
+        logger.warning("metrics_suggested_dashboards_picture_unavailable", template_id=template_id)
+        return None
+    if dashboard_id is None or user is None:
         return None
     asset, content = render_png_export(
         team=context.team,

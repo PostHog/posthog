@@ -7,9 +7,11 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getMetricsDashboardTemplatesPictureRetrieveUrl } from 'products/metrics/frontend/generated/api'
-import type {
-    MetricsDashboardTemplateApi,
-    MetricsDashboardTemplateRoundApi,
+import {
+    DashboardTemplateStatusEnumApi,
+    MetricsDashboardTemplateSourceEnumApi,
+    type MetricsDashboardTemplateApi,
+    type MetricsDashboardTemplateRoundApi,
 } from 'products/metrics/frontend/generated/api.schemas'
 
 function RoundVerdict({ round }: { round: MetricsDashboardTemplateRoundApi }): JSX.Element | null {
@@ -38,14 +40,23 @@ function RoundVerdict({ round }: { round: MetricsDashboardTemplateRoundApi }): J
 export function GenerationChecks({ template }: { template: MetricsDashboardTemplateApi }): JSX.Element | null {
     const { currentTeamId } = useValues(teamLogic)
 
-    if (!template.rounds.length) {
+    const lastRound = template.rounds.length ? template.rounds[template.rounds.length - 1] : null
+    const openProblems = lastRound && lastRound.looks_good === false && !lastRound.revised ? lastRound.problems : []
+    const uncheckedPictures =
+        !lastRound &&
+        template.source === MetricsDashboardTemplateSourceEnumApi.Generated &&
+        template.status !== DashboardTemplateStatusEnumApi.Generating
+    if (!lastRound && !uncheckedPictures && !template.dropped_panels.length) {
         return null
     }
-    const lastRound = template.rounds[template.rounds.length - 1]
-    const openProblems = lastRound.looks_good === false && !lastRound.revised ? lastRound.problems : []
 
     return (
         <div className="flex flex-col gap-2">
+            {uncheckedPictures && (
+                <LemonBanner type="info">
+                    The AI did not check a picture of this dashboard. Look at every panel before you approve it.
+                </LemonBanner>
+            )}
             <div className="flex flex-wrap gap-2">
                 {template.rounds.map((round) => {
                     const pictureUrl = getMetricsDashboardTemplatesPictureRetrieveUrl(
@@ -83,9 +94,14 @@ export function GenerationChecks({ template }: { template: MetricsDashboardTempl
                 </LemonBanner>
             )}
             {template.dropped_panels.length > 0 && (
-                <p className="text-xs text-secondary mb-0">
-                    Left out because the query failed: {template.dropped_panels.join(', ')}
-                </p>
+                <div className="text-xs text-secondary">
+                    <div>Left out because the query failed or showed no data:</div>
+                    <ul className="list-disc pl-4 mb-0">
+                        {template.dropped_panels.map((panel) => (
+                            <li key={panel}>{panel}</li>
+                        ))}
+                    </ul>
+                </div>
             )}
         </div>
     )
