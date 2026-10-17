@@ -23,7 +23,8 @@ use std::io::Write;
 use crate::kafka::KafkaSink;
 use metrics::counter;
 
-use tracing::{debug, error, instrument};
+use metrics::counter;
+use tracing::{debug, error, instrument, warn};
 
 // `patch_otel_json` normalises an OTLP/JSON payload so it can be deserialized by
 // upstream `opentelemetry-proto`'s generated types. This is a workaround layer
@@ -398,6 +399,60 @@ pub(crate) fn decode_body_if_gzip_magic(
     }
 }
 
+const DECODE_FAILED_COUNTER: &str = "capture_logs_decode_failed_total";
+
+/// A body that starts with the first gzip magic byte but not the second was gzip before
+/// something on the way changed it, most often a proxy that read it as text.
+fn is_corrupted_gzip(body: &[u8]) -> bool {
+    body.first() == Some(&0x1f) && !has_gzip_magic_header(body)
+}
+
+/// A body that is neither OTLP protobuf nor OTLP JSON is a client error, so it is logged as a
+/// warning and counted, not logged as a service error.
+pub(crate) fn reject_undecodable_body(
+    signal: Signal,
+    token: &str,
+    body: &[u8],
+    proto_err: prost::DecodeError,
+    json_err: anyhow::Error,
+) -> (StatusCode, Json<serde_json::Value>) {
+    // Keep the last failed body on disk to debug malformed senders.
+    let path = match signal {
+        Signal::Logs => "/tmp/last_failed_event.txt",
+        Signal::Traces => "/tmp/last_failed_trace_event.txt",
+        Signal::Metrics => "/tmp/last_failed_metric_event.txt",
+    };
+    if let Err(e) = File::create(path).and_then(|mut file| {
+        file.write_all(token.as_bytes())
+            .and_then(|_| file.write_all(body))
+    }) {
+        error!(
+            "Failed to write last failed {} event to file: {}",
+            signal.as_str(),
+            e
+        );
+    }
+
+    let corrupted_gzip = is_corrupted_gzip(body);
+    let reason = if corrupted_gzip {
+        "corrupted_gzip"
+    } else {
+        "malformed"
+    };
+    counter!(DECODE_FAILED_COUNTER, "reason" => reason, "signal" => signal.as_str()).increment(1);
+    warn!(
+        reason,
+        "Failed to decode JSON: {json_err} or Protobuf: {proto_err}"
+    );
+
+    let message = if corrupted_gzip {
+        "The request body is gzip data that was changed in transit. If a proxy forwards this request, make it forward the body as raw bytes, not as text.".to_string()
+    } else {
+        format!("Failed to decode JSON: {json_err} or Protobuf: {proto_err}")
+    };
+    (StatusCode::BAD_REQUEST, Json(json!({ "error": message })))
+}
+
 /// Protobuf clients can't decode a JSON body.
 pub fn export_success_response(headers: &HeaderMap) -> Response {
     let is_protobuf = headers
@@ -455,24 +510,12 @@ pub async fn export_logs_http(
         Err(proto_err) => match parse_otel_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
-                // Write last failed event to a file
-                // To make this super simple, we literally write a single event to /tmp/last_failed_event.txt
-                //
-                if let Err(e) = File::create("/tmp/last_failed_event.txt").and_then(|mut file|
-                    // write the raw message to a file prepended by the token for debugging
-                    file.write_all(token.as_bytes()).and_then(|_| file.write_all(&body)))
-                {
-                    error!("Failed to write last failed event to file: {}", e);
-                }
-                error!(
-                    "Failed to decode JSON: {} or Protobuf: {}",
-                    json_err, proto_err
-                );
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
-                    ),
+                return Err(reject_undecodable_body(
+                    Signal::Logs,
+                    token,
+                    &body,
+                    proto_err,
+                    json_err,
                 ));
             }
         },
@@ -610,23 +653,12 @@ pub async fn export_traces_http(
         Err(proto_err) => match parse_otel_traces_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
-                if let Err(e) =
-                    File::create("/tmp/last_failed_trace_event.txt").and_then(|mut file| {
-                        file.write_all(token.as_bytes())
-                            .and_then(|_| file.write_all(&body))
-                    })
-                {
-                    error!("Failed to write last failed trace event to file: {}", e);
-                }
-                error!(
-                    "Failed to decode JSON: {} or Protobuf: {}",
-                    json_err, proto_err
-                );
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
-                    ),
+                return Err(reject_undecodable_body(
+                    Signal::Traces,
+                    token,
+                    &body,
+                    proto_err,
+                    json_err,
                 ));
             }
         },
@@ -748,23 +780,12 @@ pub async fn export_metrics_http(
         Err(proto_err) => match parse_otel_metrics_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
-                if let Err(e) =
-                    File::create("/tmp/last_failed_metric_event.txt").and_then(|mut file| {
-                        file.write_all(token.as_bytes())
-                            .and_then(|_| file.write_all(&body))
-                    })
-                {
-                    error!("Failed to write last failed metric event to file: {}", e);
-                }
-                error!(
-                    "Failed to decode JSON: {} or Protobuf: {}",
-                    json_err, proto_err
-                );
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    Json(
-                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
-                    ),
+                return Err(reject_undecodable_body(
+                    Signal::Metrics,
+                    token,
+                    &body,
+                    proto_err,
+                    json_err,
                 ));
             }
         },
@@ -865,6 +886,32 @@ mod tests {
                 .await
                 .unwrap();
             assert_eq!(body.as_ref(), expected_body);
+        }
+    }
+
+    #[test]
+    fn reject_undecodable_body_names_gzip_that_a_proxy_read_as_text() {
+        let gzipped = gzip(br#"{"resourceLogs":[]}"#);
+        let read_as_text = Bytes::from(String::from_utf8_lossy(&gzipped).into_owned());
+        let cases = [
+            ("gzip read as text", read_as_text, true),
+            ("plain text", Bytes::from_static(b"not otlp"), false),
+        ];
+
+        for (case, body, expect_gzip_hint) in cases {
+            let proto_err = ExportLogsServiceRequest::decode(body.as_ref()).unwrap_err();
+            let json_err = parse_otel_message(&body).unwrap_err();
+
+            let (status, Json(response)) =
+                reject_undecodable_body(Signal::Logs, "phc_test", &body, proto_err, json_err);
+
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{case}");
+            let message = response["error"].as_str().unwrap();
+            assert_eq!(
+                message.contains("changed in transit"),
+                expect_gzip_hint,
+                "{case}: {message}"
+            );
         }
     }
 
