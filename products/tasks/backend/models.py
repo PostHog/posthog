@@ -1201,16 +1201,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
         # Every entry is cloned, so a private second repository fails the run just as surely
         # as a private first one.
         private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
+        team_github_installations = (
+            Integration.objects.filter(team=team, kind="github")
+            .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+            .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+        )
+        team_has_github_installation = team_github_installations.exists()
         github_integration = None
         if github_resolution_allowed and private_repositories:
             github_integration = team_github_integration_for_repositories(team.id, private_repositories)
         elif github_resolution_allowed:
-            github_integration = (
-                Integration.objects.filter(team=team, kind="github")
-                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-                .first()
-            )
+            github_integration = team_github_installations.first()
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1234,7 +1235,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             )
             if user_github_integration_is_usable(user_github_integration):
                 github_user_integration = user_github_integration.integration if user_github_integration else None
-        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None:
+        elif authorship_mode == PrAuthorshipMode.BOT and not team_has_github_installation:
             # If BOT starts a task, provides a repo, but there's no team GitHub Integration,
             # then use the user_id BOT provided and get user's GitHub Integration instead
             user_github_integration = resolve_user_github_integration_for_task(
@@ -1246,7 +1247,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 github_user_integration = user_github_integration.integration
 
         if private_repositories and not github_integration and github_user_integration is None:
-            if not Integration.objects.filter(team=team, kind="github").exists():
+            if not team_has_github_installation:
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
             raise ValueError(f"No GitHub installation of team {team.id} can access {', '.join(private_repositories)}")
 

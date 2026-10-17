@@ -39,6 +39,9 @@ from products.tasks.backend.models import (
 STALE_ACTIVITY_AT = datetime(2020, 1, 1, tzinfo=UTC)
 
 
+LIST_GITHUB_REPOSITORIES = "posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories"
+
+
 class TestTask(TestCase):
     organization: ClassVar[Organization]
     team: ClassVar[Team]
@@ -616,9 +619,10 @@ class TestTask(TestCase):
             ),
         ]
     )
+    @patch(LIST_GITHUB_REPOSITORIES, return_value=[])
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_non_public_repo_without_a_reaching_installation_raises(
-        self, _name, repositories, installation_repositories, expected_error, mock_execute_workflow
+        self, _name, repositories, installation_repositories, expected_error, mock_execute_workflow, _list_repositories
     ):
         user = User.objects.create(email="test@test.com")
         for index, reachable in enumerate(installation_repositories):
@@ -671,6 +675,65 @@ class TestTask(TestCase):
             )
 
         self.assertEqual(task.github_integration, installations[expected_index])
+
+    @parameterized.expand(
+        [
+            (
+                "github_now_lists_the_repository",
+                {"return_value": [{"id": 9, "name": "posthog", "full_name": "PostHog/posthog"}]},
+            ),
+            ("github_listing_fails", {"side_effect": ConnectionError("GitHub unavailable")}),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_confirms_a_cache_miss_with_github(self, _name, github_listing, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        installation = self._create_github_installation("install-0", ["acme/other"])
+        Integration.objects.filter(id=installation.id).update(
+            repository_cache_updated_at=django_timezone.now() - timedelta(minutes=10)
+        )
+
+        with patch(LIST_GITHUB_REPOSITORIES, **github_listing), self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertEqual(task.github_integration, installation)
+
+    @patch(LIST_GITHUB_REPOSITORIES, return_value=[])
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_bot_task_keeps_off_personal_github_when_the_team_has_an_installation(
+        self, mock_execute_workflow, _list_repositories
+    ):
+        user = User.objects.create(email="signal-report@test.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        self._create_github_installation("install-0", ["acme/other"])
+        UserIntegration.objects.create(
+            user=user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="personal-install",
+            config={"installation_id": "personal-install"},
+            sensitive_config={"access_token": "ghs_user_install"},
+            repository_cache=[{"full_name": "posthog/posthog", "id": 1}],
+        )
+
+        with self.assertRaises(ValueError) as cm:
+            Task.create_and_run(
+                team=self.team,
+                title="Signal Report",
+                description="Research",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        self.assertIn("can access posthog/posthog", str(cm.exception))
+        mock_execute_workflow.assert_not_called()
 
     def _create_github_installation(self, installation_id: str, repositories: list[str] | None) -> Integration:
         return Integration.objects.create(
