@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
@@ -937,9 +937,41 @@ def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, rep
     cached = cache.get(cache_key)
     if isinstance(cached, str) and cached:
         return cached
-    token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    try:
+        token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    except GitHubIntegrationError as error:
+        if error.status_code != 422:
+            raise
+        names = _reachable_repository_names(github_integration, names)
+        if not names:
+            return None
+        token = github_integration.mint_scoped_installation_token(None, repositories=names)
     cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
     return token
+
+
+def _reachable_repository_names(github_integration: GitHubIntegrationBase, names: Sequence[str]) -> list[str]:
+    # GitHub refuses the whole mint (422) when one named repo is outside the installation's selection,
+    # or was renamed or deleted. Drop the public ones, which clone without credentials.
+    owner = github_integration.organization().lower()
+    installed = {
+        str(repository.get("name", "")).lower()
+        for repository in github_integration.sync_repository_cache()
+        if str(repository.get("full_name", "")).lower().rpartition("/")[0] == owner
+    }
+    reachable = [name for name in names if name in installed]
+    unreachable = [
+        f"{owner}/{name}"
+        for name in names
+        if name not in installed and not github_integration.installation_can_access_repository(f"{owner}/{name}")
+    ]
+    if unreachable:
+        raise CredentialUnavailableError(
+            f"The PostHog GitHub App can't access {', '.join(unreachable)}. "
+            "Add the repositories to the GitHub App installation, then start the task again.",
+            {"github_installation_id": github_integration.github_installation_id, "repositories": unreachable},
+        )
+    return reachable
 
 
 def get_github_token(github_integration_id: int, repositories: Sequence[str] = ()) -> Optional[str]:
