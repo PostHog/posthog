@@ -32,6 +32,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
 from products.signals.backend.inbox_summary import sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
@@ -734,6 +735,32 @@ def open_implementation_pr_for_review(team_id: int, report_id: str, pr_url: str)
     Unlike assignment, a retry could also fight a reviewer who redrafted the pull request in between.
     """
     open_pull_request_ready_for_review(team_id=team_id, report_id=report_id, pr_url=pr_url)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.send_report_visible_push",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def send_report_visible_push(team_id: int, report_id: str) -> None:
+    """Push a newly visible report to its suggested reviewers' mobile devices.
+
+    Never retried, because a retry after a partial fan-out would push twice to the reviewers it
+    already reached. The same holds for the pull request push below.
+    """
+    notify_report_visible(team_id=team_id, report_id=report_id)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.send_pull_request_ready_push",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def send_pull_request_ready_push(team_id: int, pull_request_id: str) -> None:
+    """Push a pull request that became ready for review to its reports' claimants and reviewers."""
+    notify_pull_request_ready(team_id=team_id, pull_request_id=pull_request_id)
 
 
 @shared_task(

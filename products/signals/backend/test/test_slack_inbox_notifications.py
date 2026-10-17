@@ -27,11 +27,11 @@ from products.signals.backend.slack_inbox_notifications import (
     _build_signal_thread_blocks,
     _meets_min_priority,
     _resolve_reviewer_mentions,
-    _resolve_suggested_reviewer_user_ids,
     _signal_source_line,
     _summary_excerpt,
     dispatch_inbox_item_notifications,
     dispatch_reviewer_added_notifications,
+    resolve_suggested_reviewer_user_ids,
 )
 from products.signals.backend.slack_report_threads import report_id_for_slack_thread
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
@@ -503,7 +503,7 @@ def test_reviewer_resolution_uses_only_the_latest_reviewer_row(
         content=json.dumps([{"user_uuid": str(current_reviewer.uuid)}]),
     )
 
-    assert _resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
+    assert resolve_suggested_reviewer_user_ids(report) == ({current_reviewer.id} if has_project_access else set())
 
 
 @pytest.mark.django_db
