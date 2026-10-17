@@ -4,8 +4,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team, User
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, Team, User
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.web_analytics.backend.achievements.tasks import team_local_today
 from products.web_analytics.backend.models import (
     WebAnalyticsAchievementProgress,
@@ -23,6 +27,22 @@ def _pending_keys(body: dict) -> set[tuple[str, int]]:
 
 
 class TestAchievementsAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.access_control = AccessControl.objects.create(
+            team=self.team,
+            resource="web_analytics",
+            access_level="viewer",
+            organization_member=self.organization_membership,
+        )
+
     def _url(self, action: str) -> str:
         return f"/api/projects/{self.team.id}/web_analytics_achievements/{action}/"
 
@@ -87,7 +107,14 @@ class TestAchievementsAPI(APIBaseTest):
         self.assertEqual(response.json()["user_progress"], [])
         self.assertEqual(WebAnalyticsAchievementProgress.objects.for_team(self.team.id).count(), 0)
 
-    def test_acknowledge_celebration_is_idempotent(self) -> None:
+    @parameterized.expand([("viewer",), ("editor",), ("admin",)])
+    def test_acknowledge_celebration_is_idempotent(self, access: str) -> None:
+        if access == "admin":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+        else:
+            self.access_control.access_level = access
+            self.access_control.save()
         WebAnalyticsAchievementProgress(
             team=self.team,
             user=self.user,
@@ -222,6 +249,75 @@ class TestAchievementsAPI(APIBaseTest):
         opt_in = self.client.post(self._url("preferences"), {"achievements_opt_out": False})
         self.assertFalse(opt_in.json()["achievements_opt_out"])
         self.assertFalse(self.client.get(self._url("preferences")).json()["achievements_opt_out"])
+
+    @parameterized.expand(
+        [
+            ("none", "record_visit", {}),
+            ("none", "record_interaction", {"interaction_kind": "data"}),
+            ("none", "acknowledge_celebration", {"track_key": "loyalty", "stage": 1}),
+            ("none", "preferences", {"achievements_opt_out": True}),
+            ("nonmember", "acknowledge_celebration", {"track_key": "loyalty", "stage": 1}),
+        ]
+    )
+    def test_personal_actions_require_project_and_resource_access(
+        self, access: str, action: str, payload: dict[str, object]
+    ) -> None:
+        if access == "none":
+            self.access_control.access_level = "none"
+            self.access_control.save()
+        else:
+            self.organization_membership.delete()
+        response = self.client.post(self._url(action), payload)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(WebAnalyticsVisit.objects.for_team(self.team.id).exists())
+        self.assertFalse(WebAnalyticsInteraction.objects.for_team(self.team.id).exists())
+        self.assertFalse(WebAnalyticsUserConfig.objects.for_team(self.team.id).exists())
+
+    @parameterized.expand(
+        [
+            ("record_visit", {}, "web_analytics:read"),
+            ("record_interaction", {"interaction_kind": "data"}, "web_analytics:read"),
+            ("preferences", {"achievements_opt_out": True}, "web_analytics:read"),
+            ("acknowledge_celebration", {"track_key": "loyalty", "stage": 1}, "web_analytics:read"),
+            ("acknowledge_celebration", {"track_key": "loyalty", "stage": 1}, "web_analytics:write"),
+            ("acknowledge_celebration", {"track_key": "loyalty", "stage": 1}, "*"),
+        ]
+    )
+    def test_personal_actions_remain_unavailable_to_api_keys(
+        self, action: str, payload: dict[str, object], scope: str
+    ) -> None:
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="achievement-test",
+            secure_value=hash_key_value(value),
+            scopes=[scope],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        response = self.client.post(self._url(action), payload, headers={"authorization": f"Bearer {value}"})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support personal API key access")
+
+    def test_personal_state_cannot_target_another_user(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        progress = WebAnalyticsAchievementProgress.objects.for_team(self.team.id).create(
+            team=self.team,
+            user=other,
+            track_key="loyalty",
+            current_stage=1,
+            state={"pending_celebrations": [1]},
+        )
+        ack = self.client.post(
+            self._url("acknowledge_celebration"), {"track_key": "loyalty", "stage": 1, "user_id": other.id}
+        )
+        self.assertEqual(ack.status_code, status.HTTP_200_OK)
+        self.assertFalse(ack.json()["acknowledged"])
+        progress.refresh_from_db()
+        self.assertEqual(progress.state["pending_celebrations"], [1])
+        response = self.client.post(self._url("preferences"), {"achievements_opt_out": True, "user_id": other.id})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(WebAnalyticsUserConfig.objects.for_team(self.team.id).filter(user=other).exists())
 
     def test_preferences_are_scoped_per_project(self) -> None:
         other_team = Team.objects.create(organization=self.organization, name="Other project")
