@@ -203,7 +203,13 @@ const captureSceneLoadFailure = (
     sceneId: string,
     stage: 'import' | 'logic_mount',
     extra: Record<string, unknown> = {}
-): SupportTicketExceptionEvent | undefined => posthog.captureException(error, { extra: { sceneId, stage, ...extra } })
+): SupportTicketExceptionEvent | undefined => {
+    // A rejection can be a bare value such as `undefined`. Without a wrap, error tracking gets a
+    // stack-less "Primitive value captured as exception" issue that does not name the scene.
+    const exception =
+        error instanceof Error ? error : new Error(`Scene ${sceneId} failed at ${stage}: ${String(error)}`)
+    return posthog.captureException(exception, { extra: { sceneId, stage, ...extra } })
+}
 
 const scrollMainContentToTop = (): void => {
     const element = document.getElementById('main-content')

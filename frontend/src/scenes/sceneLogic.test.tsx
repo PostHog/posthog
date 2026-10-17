@@ -80,6 +80,7 @@ const testScenes: Record<string, () => any> = {
     ScoutTrials: sceneImport,
     [Scene.ProjectFiles]: sceneImport,
     [Scene.Surveys]: (): any => Promise.reject(new Error('scene import failed')),
+    [Scene.Notebooks]: (): any => Promise.reject(undefined),
     [Scene.Cohorts]: (): any => ({ scene: { component: Component, logic: failingLogic } }),
     [Scene.Experiments]: (): any =>
         new Promise((_resolve, reject) => {
@@ -133,14 +134,27 @@ describe('sceneLogic', () => {
         })
 
         it.each([
-            ['its code cannot be imported', urls.surveys(), Scene.Surveys, 'import'],
-            ['its logic throws while mounting', urls.cohorts(), Scene.Cohorts, 'logic_mount'],
-        ])('shows the load error and reports it when %s', async (_desc, url, sceneId, stage) => {
+            ['its code cannot be imported', urls.surveys(), Scene.Surveys, 'import', 'scene import failed'],
+            [
+                'its import rejects with undefined',
+                urls.notebooks(),
+                Scene.Notebooks,
+                'import',
+                'Scene Notebooks failed at import: undefined',
+            ],
+            [
+                'its logic throws while mounting',
+                urls.cohorts(),
+                Scene.Cohorts,
+                'logic_mount',
+                'scene logic mount failed',
+            ],
+        ])('shows the load error and reports it when %s', async (_desc, url, sceneId, stage, message) => {
             router.actions.push(url)
             await expectLogic(logic).delay(1)
 
             expect(logic.values.activeSceneId).toEqual(Scene.ErrorSceneLoad)
-            expect(captureExceptionSpy).toHaveBeenCalledWith(expect.any(Error), {
+            expect(captureExceptionSpy).toHaveBeenCalledWith(expect.objectContaining({ message }), {
                 extra: expect.objectContaining({ sceneId, stage }),
             })
             // The support form needs this event, or a non-entitled organization cannot report the failure.
