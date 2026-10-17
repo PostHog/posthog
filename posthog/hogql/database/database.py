@@ -716,6 +716,11 @@ def _unentitled_system_tables(team: Team) -> set[str]:
     return {name for name, feature in required_features.items() if not organization.is_feature_available(feature)}
 
 
+def scoped_system_table_names() -> frozenset[str]:
+    """Bare names of the access-controlled system tables, for a userless `allowed_system_tables` override."""
+    return frozenset(_scoped_system_tables())
+
+
 def unentitled_system_tables(team: Team) -> frozenset[str]:
     """The system tables this team's organization is not entitled to.
 

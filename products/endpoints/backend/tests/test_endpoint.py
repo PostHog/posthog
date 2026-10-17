@@ -1744,6 +1744,14 @@ class TestExtractColumns(ClickhouseTestMixin, APIBaseTest):
                     {"name": "cnt", "type": "integer"},
                 ],
             ),
+            (
+                "access_controlled_system_table",
+                {"kind": "HogQLQuery", "query": "SELECT id, key FROM system.feature_flags"},
+                [
+                    {"name": "id", "type": "integer"},
+                    {"name": "key", "type": "string"},
+                ],
+            ),
         ]
     )
     def test_extract_columns(self, _name: str, query: dict, expected: list[dict]):

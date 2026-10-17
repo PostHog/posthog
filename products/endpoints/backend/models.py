@@ -351,6 +351,9 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         hogql_string = query.get("query", "")
         if not hogql_string:
             return []
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.database.database import Database, scoped_system_table_names
+        from posthog.hogql.modifiers import create_default_modifiers_for_team
         from posthog.hogql.query import HogQLQueryExecutor
 
         from posthog.clickhouse.client import sync_execute
@@ -359,11 +362,20 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         cleaned = _PLACEHOLDER_REPLACER.visit(parsed)
 
         team = Team.objects.get(pk=team_id)
-        # Bypass warehouse access control: DESCRIBE exposes only column names/types, never rows, and
-        # `columns` is a shared cache that must be the same for every reader.
-        executor = HogQLQueryExecutor(
-            query=cleaned, team=team, limit_context=None, bypass_warehouse_access_control=True
+        # Bypass warehouse and system table access control: DESCRIBE exposes only column names/types,
+        # never rows, and `columns` is a shared cache that must be the same for every reader.
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            bypass_warehouse_access_control=True,
+            database=Database.create_for(
+                team=team,
+                modifiers=create_default_modifiers_for_team(team),
+                bypass_warehouse_access_control=True,
+                allowed_system_tables=scoped_system_table_names(),
+            ),
         )
+        executor = HogQLQueryExecutor(query=cleaned, team=team, limit_context=None, context=context)
         clickhouse_sql, clickhouse_context = executor.generate_clickhouse_sql()
 
         if not clickhouse_sql:
