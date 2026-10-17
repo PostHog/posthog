@@ -49,6 +49,10 @@ tools:
             you want to see the computed results.
 
 
+            Load the creating-insights skill before you build the query. It covers which typed runner fits the question,
+            what the runners compute without SQL, and how to save a SQL insight as a chart rather than a table.
+
+
             Put the insight definition in `query.source`, under the wrapper node that matches it. Use
 
             `InsightVizNode` for a product analytics chart, `DataVisualizationNode` for a SQL visualization, and

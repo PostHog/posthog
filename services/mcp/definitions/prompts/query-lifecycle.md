@@ -1,5 +1,7 @@
 Run a lifecycle query to categorize users into lifecycle stages based on their activity pattern relative to a single event or action. Lifecycle insights break users into four mutually exclusive groups for each time period: new, returning, resurrecting, and dormant. They're useful for understanding the composition of your active users and diagnosing growth or churn patterns.
 
+Load the creating-insights skill before you build or change the query. It covers which runner fits the question, what the runners compute without SQL, and how to edit an answer without rewriting it in SQL.
+
 Use 'read-data-schema' to discover available events, actions, and properties for filters.
 
 Examples of use cases include:

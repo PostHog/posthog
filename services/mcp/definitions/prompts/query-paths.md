@@ -1,5 +1,7 @@
 Run a paths query to analyze the most common sequences of events or pages that users navigate through. Paths insights visualize user flows as a directed graph, showing how users move between steps and where they drop off.
 
+Load the creating-insights skill before you build or change the query. It covers which runner fits the question, what the runners compute without SQL, and how to edit an answer without rewriting it in SQL.
+
 Use 'read-data-schema' to discover available events, actions, and properties for filters.
 
 Examples of use cases include:

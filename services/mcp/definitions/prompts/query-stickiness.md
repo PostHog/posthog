@@ -1,5 +1,7 @@
 Run a stickiness query to measure how many intervals (e.g. days) within a date range users performed an event. Stickiness insights show user engagement intensity — the X-axis shows the number of intervals (1, 2, 3, ...) and the Y-axis shows how many users performed the event on exactly that many intervals. They're useful for understanding how deeply users engage with a feature.
 
+Load the creating-insights skill before you build or change the query. It covers which runner fits the question, what the runners compute without SQL, and how to edit an answer without rewriting it in SQL.
+
 Use 'read-data-schema' to discover available events, actions, and properties for filters.
 
 Examples of use cases include:

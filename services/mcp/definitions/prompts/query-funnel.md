@@ -1,5 +1,7 @@
 Run a funnel query to analyze conversion rates through a sequence of steps. Funnel insights help understand user behavior as users navigate through a product. A funnel consists of a sequence of at least two events or actions, where some users progress to the next step while others drop off. Funnels use percentages as the primary aggregation type.
 
+Load the creating-insights skill before you build or change the query. It covers which runner fits the question, what the runners compute without SQL, and how to edit an answer without rewriting it in SQL.
+
 Use 'read-data-schema' to discover available events, actions, and properties for filters and breakdowns.
 
 IMPORTANT: Funnels REQUIRE AT LEAST TWO series (events or actions).
