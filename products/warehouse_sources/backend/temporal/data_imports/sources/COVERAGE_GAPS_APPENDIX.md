@@ -1682,18 +1682,18 @@ Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 
 ## BlandAI — **thin**
 
-Today (8): `call_transcripts`, `calls`, `inbound_numbers`, `pathways`, `personas`, `sms_conversations`, `sms_messages`, `voices`
+Today (13): `call_events`, `call_transcripts`, `calls`, `eval_call_results`, `eval_runs`, `inbound_numbers`, `pathway_versions`, `pathways`, `personas`, `sms_conversations`, `sms_messages`, `voices`, `web_agents`
 
 Diffed against: <https://docs.bland.ai/llms.txt>
 
 - [x] `GET /v1/sms/conversations (and /v1/sms/conversations/{id})` — the entire SMS channel is missing; conversations and their messages sit alongside calls (high)
 - [x] `GET /v1/inbound` — phone number lookup resolving the numbers on every call row (high)
 - [x] `GET /v1/personas` — lookup resolving the persona that handled a call (high)
-- [ ] `GET /v1/calls/{id}/event-stream` — per-call event timeline (node transitions, tool calls) — finer grained than the transcript (medium)
-- [ ] `GET /v1/agents` — web agent lookup, the non-phone counterpart to pathways (medium)
-- [ ] `GET /v1/pathway_versions` — pathway version history so a call can be attributed to the version that served it (medium)
+- [x] `GET /v1/calls/{id}/event-stream` — per-call event timeline (node transitions, tool calls) — finer grained than the transcript (medium)
+- [x] `GET /v1/agents` — web agent lookup, the non-phone counterpart to pathways (medium)
+- [x] `GET /v1/pathway_versions` — pathway version history so a call can be attributed to the version that served it (medium)
 - [x] `GET /v1/voices` — lookup resolving voice IDs referenced by calls (medium)
-- [ ] `GET /v1/evals/runs and /v1/evals/runs/{id}/call-results` — per-call eval scores, the quality metric for voice agents (medium)
+- [x] `GET /v1/evals/runs and /v1/evals/runs/{id}/call-results` — per-call eval scores, the quality metric for voice agents (medium)
 - [ ] `GET /v1/agent-testing/runs (and /agent-testing/scenarios)` — regression test outcomes per pathway over time (medium)
 - [ ] `GET /v1/widget/{id}/threads` — web widget conversation threads, another engagement channel (medium)
 - [ ] `GET /v1/audit-logs` — account change history for compliance reporting (low)
@@ -2503,12 +2503,12 @@ Today (7): `component_versions`, `components`, `jobs`, `pipelines`, `projects`, 
 Diffed against: <https://circleci.com/api/v2/openapi.json>
 
 - [ ] `organizations/{org_id}/usage_export_job` — credit/usage export per project and job - CircleCI's headline cost metric, absent today (high)
-- [ ] `deploy/environments` — deploy environment registry that resolves environment IDs on deploy markers (medium)
+- [x] `deploy/environments` — deploy environment registry that resolves environment IDs on deploy markers (medium) — added as `environments`
 - [x] `deploy/components` — deployed component inventory, the join key for deploy tracking (medium) — added as `components`; the org UUID it requires is resolved from the configured org slug via `/me/collaborations`
 - [x] `deploy/components/{component_id}/versions` — version history per component - deploy frequency and lead-time analysis (medium) — added as `component_versions`, fanned out per component
 - [x] `user/{id}` — lookup resolving the actor/trigger user IDs carried on pipelines and workflows (medium) — added as `users`, resolved from the `started_by`/`canceled_by`/`errored_by` ids on workflows (pipeline trigger actors carry only a login, no id)
-- [ ] `organizations/{org_id}/groups` — org user groups for grouping build activity by team (low)
-- [ ] `me/collaborations` — org/slug lookup that enumerates the orgs a token can see (low)
+- [x] `organizations/{org_id}/groups` — org user groups for grouping build activity by team (low) — added as `groups`
+- [x] `me/collaborations` — org/slug lookup that enumerates the orgs a token can see (low) — added as `collaborations`
 - [ ] `projects/{project_id}/pipeline-definitions` — resolves the pipeline definition IDs attached to synced pipelines (low)
 
 Note: `organizations/{org_id}/usage_export_job` is POST-only job creation plus a separate polling GET that
@@ -2864,12 +2864,12 @@ Diffed against: <https://coda.io/apis/v1/openapi.json>
 
 - [x] `/docs/{docId}/tables/{tableIdOrName}/columns` — Column definitions (name, type, formula) that resolve the column IDs used as keys in every synced row - without it rows are unreadable (high)
 - [x] `/analytics/docs` — Per-doc usage analytics (views, active users) - the headline metric for measuring doc adoption across a workspace (high). `/analytics/docs/summary` skipped: it returns a single scalar (`totalSessions`) with no id or grain, not a table.
-- [ ] `/workspaces/{workspaceId}/users` — Workspace member lookup that resolves the owner/creator IDs on docs (medium)
-- [ ] `/docs/{docId}/pages` — Page hierarchy per doc - the structural dimension for content inventory and for joining page analytics (medium)
+- [x] `/workspaces/{workspaceId}/users` — Workspace member lookup that resolves the owner/creator IDs on docs (medium) — synced as `workspace_users`; only workspaces where the token user is an admin return rows
+- [x] `/docs/{docId}/pages` — Page hierarchy per doc - the structural dimension for content inventory and for joining page analytics (medium)
 - [x] `/analytics/docs/{docId}/pages` — Page-level view analytics, one grain below doc analytics (medium)
 - [x] `/folders` — Folder lookup resolving the folder reference each doc carries (medium)
-- [ ] `/docs/{docId}/acl/permissions` — Who a doc is shared with - needed for access and governance reporting over the docs table (low)
-- [ ] `/workspaces/{workspaceId}/roles` — Role lookup that segments workspace users by license/role type (low)
+- [x] `/docs/{docId}/acl/permissions` — Who a doc is shared with - needed for access and governance reporting over the docs table (low)
+- [x] `/workspaces/{workspaceId}/roles` — Role lookup that segments workspace users by license/role type (low) — synced as `workspace_role_activity`; the endpoint returns monthly active and inactive user counts per role, not a role lookup
 - [ ] `/docs/{docId}/controls and /docs/{docId}/formulas` — Remaining doc object types, completing the content inventory alongside tables and pages (low)
 - [ ] `/analytics/packs and /analytics/packs/summary` — Pack install and usage analytics, relevant only to workspaces that publish packs (low)
 
@@ -3931,10 +3931,10 @@ Diffed against: <https://docs.doppler.com/llms.txt>
 - [x] `GET /v3/projects/project/members (project_members)` — project↔user membership junction; projects and workplace_users sync today with nothing joining them (high)
 - [x] `GET /v3/projects/roles (project_roles)` — lookup resolving the role slug carried on every project member and invite (high)
 - [x] `GET /v3/workplace/roles (workplace_roles)` — lookup resolving the workplace role ID on synced workplace_users (medium)
-- [ ] `GET /v3/workplace/groups/{slug}/members` — group↔user membership; groups sync but their members do not (medium)
-- [ ] `GET /v3/change_requests` — approval-workflow records showing proposed vs applied secret changes (medium)
-- [ ] `GET /v3/configs/config/secrets/names` — secret-name inventory per config (names only, no values) for sprawl and coverage audits (medium)
-- [ ] `GET /v3/workplace` — single-row workplace metadata to attribute rows to a tenant (low)
+- [x] `GET /v3/workplace/groups/{slug}/members` — group↔user membership; groups sync but their members do not (medium)
+- [x] `GET /v3/change_requests` — approval-workflow records showing proposed vs applied secret changes (medium)
+- [x] `GET /v3/configs/config/secrets/names` — secret-name inventory per config (names only, no values) for sprawl and coverage audits (medium)
+- [x] `GET /v3/workplace` — single-row workplace metadata to attribute rows to a tenant (low)
 - [ ] `GET /v3/workplace/roles/role/{role}/permissions` — role→permission expansion for access reviews (low)
 
 Note: Doppler publishes no OpenAPI file; the resource list was read from the docs llms.txt index, which enumerates every reference page. Integrations, syncs, service tokens, service-account tokens/identities, webhooks, trusted IPs, and secret values were excluded as config/secret plumbing.
@@ -4377,8 +4377,8 @@ Diffed against: <https://everhour.docs.apiary.io/api-description-document>
 - [x] `GET /timesheets, GET /users/{user_id}/timesheets` — weekly timesheet approval state and transitions (medium)
 - [x] `GET /resource-planner/time-off-types` — lookup resolving time-off type ids on assignments/allocations (medium)
 - [x] `GET /allocations` — time-off and capacity allocations per user (medium)
-- [ ] `GET /projects/{project_id}/sections` — lookup resolving the section id on tasks (medium)
-- [ ] `GET /projects/{project_id}/fields` — custom field definitions needed to interpret task custom field values (medium)
+- [x] `GET /projects/{project_id}/sections` — lookup resolving the section id on tasks (medium)
+- [x] `GET /projects/{project_id}/fields` — custom field definitions needed to interpret task custom field values (medium)
 - [ ] `GET /dashboards/projects, /dashboards/clients, /dashboards/users` — prebuilt report aggregates by project, client and member (low)
 
 Note: Static endpoint list in get_schemas - no dynamic table discovery. Apiary blueprint is served as API Blueprint markdown, not JSON, at the /api-description-document path.
@@ -4953,8 +4953,8 @@ Diffed against: <https://developers.freshworks.com/crm/api/>
 - [x] `/api/selector/lifecycle_stages` — lookup resolving lifecycle_stage_id on contacts and accounts (high)
 - [x] `/api/selector/lead_sources` — lookup resolving lead_source_id - the core attribution dimension (high). Added as `lead_sources`.
 - [x] `/api/selector/sales_activity_types (+ /sales_activity_outcomes)` — lookups resolving type and outcome IDs on the sales_activities already synced (high). Added as `sales_activity_types` and `sales_activity_outcomes`.
-- [ ] `/api/selector/contact_statuses` — lookup resolving contact_status_id (medium)
-- [ ] `/api/selector/territories` — lookup resolving territory_id for regional breakdowns (medium)
+- [x] `/api/selector/contact_statuses` — lookup resolving contact_status_id (medium)
+- [x] `/api/selector/territories` — lookup resolving territory_id for regional breakdowns (medium)
 - [x] `/api/lists (+ /lists/{id} contacts)` — marketing lists and their contact membership (medium). Added as `lists` and `list_contacts` (fan-out over `lists` to `/api/contacts/lists/{id}`).
 - ~~`/api/cpq/products`~~ — not listable: the API reference documents create, view by id, update, delete and bulk actions on `/api/cpq/products`, but no endpoint that lists the catalog (medium)
 - [ ] `/api/cpq/cpq_documents (+ /{id}/related_products)` — quotes/documents with their product line items - quoted vs won revenue (medium)
@@ -6603,13 +6603,13 @@ Diffed against: <https://documenter.gw.postman.com/api/collections/3919598/S11Pp
 - [x] `/api1/payments` — cash actually collected, needed for AR and collection-rate reporting (high)
 - [x] `/api1/account/users` — lookup resolving the sales rep / owner / assignee IDs carried on jobs, contacts and tasks (high)
 - [x] `/api1/account/settings (workflows, statuses, lead sources)` — lookup resolving the workflow, status and lead-source IDs on jobs and contacts (high)
-- [ ] `/api1/account/settings (custom fields)` — not in the documented settings response (medium)
+- [ ] `/api1/account/settings (custom fields)` — not in the documented settings response (medium). Skipped: the documented settings response has no custom field list, and the API documents only a create call for custom fields.
 - [x] `/api1/v2/products` — product catalog that estimate and invoice line items reference (medium)
 - [x] `/api1/budgets` — job budget vs actual, the input to job-level profitability (medium)
-- [ ] `/api1/v2/workorders` — scheduled work per job, links crews to jobs (medium)
-- [ ] `/api1/v2/materialorders` — material cost and supplier ordering per job (medium)
+- [x] `/api1/v2/workorders` — scheduled work per job, links crews to jobs (medium). Added as `work_orders`.
+- [x] `/api1/v2/materialorders` — material cost and supplier ordering per job (medium). Added as `material_orders`.
 - [x] `/api1/account/settings?field=groups` — team/group lookup for rolling users up to crews or offices (medium)
-- [ ] `/api1/utility/uoms` — unit-of-measure lookup for product and order line items (low)
+- [x] `/api1/utility/uoms` — unit-of-measure lookup for product and order line items (low). Added as `units_of_measure` (one row per unit name).
 
 Note: The doc URL in the payload (documenter.getpostman.com/view/3919598/S11PpG7g) 404s; the live collection is S11PpG4x. The connector now covers invoices, budgets, estimates and payments; work orders and material orders remain the largest job-level gaps. File upload endpoints were excluded per the rules.
 
@@ -7762,7 +7762,7 @@ Note: Enumerated the official Python SDK resource directory and read resource me
 
 ## Mercury — gaps
 
-Today (15): `AccountStatements`, `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Merchants`, `Recipients`, `Transactions`, `TreasuryAccounts`, `TreasuryStatements`, `TreasuryTransactions`, `Users`
+Today (18): `AccountStatements`, `Accounts`, `Cards`, `Categories`, `CreditAccounts`, `Customers`, `Events`, `Invoices`, `Merchants`, `RecipientInvites`, `Recipients`, `SafeRequests`, `SendMoneyApprovalRequests`, `Transactions`, `TreasuryAccounts`, `TreasuryStatements`, `TreasuryTransactions`, `Users`
 
 Diffed against: <https://docs.mercury.com/reference/getaccounts>
 
@@ -7770,9 +7770,9 @@ Diffed against: <https://docs.mercury.com/reference/getaccounts>
 - [x] `account statements (GET /api/v1/account/{accountId}/statements)` — period-level opening/closing balances for reconciliation against Accounts (high). Added as `AccountStatements` (fan-out over `Accounts`). The API returns only the ending balance per period.
 - [x] `treasury transactions (GET /api/v1/treasury/{treasuryId}/transactions)` — we sync TreasuryAccounts but none of their activity, so treasury yield/flows are unqueryable (high). Added as `TreasuryTransactions` (fan-out over `TreasuryAccounts`).
 - [x] `treasury statements (GET /api/v1/treasury/{treasuryId}/statements)` — period balances for treasury accounts (medium). Added as `TreasuryStatements` (fan-out over `TreasuryAccounts`). Rows are statement documents (monthly statements, trade confirmations, tax forms) with no balance fields.
-- [ ] `send money approval requests (GET /api/v1/request-send-money)` — approval state/transition history for outbound payments (medium)
-- [ ] `recipient invites (GET /api/v1/recipient-invites)` — pending recipient onboarding state alongside synced Recipients (low)
-- [ ] `SAFE requests (GET /api/v1/safes)` — fundraising SAFE request records (low)
+- [x] `send money approval requests (GET /api/v1/request-send-money)` — approval state/transition history for outbound payments (medium). Added as `SendMoneyApprovalRequests`. Each row carries its `reviews` history; the endpoint documents no `order` param, so none is sent.
+- [x] `recipient invites (GET /api/v1/recipient-invites)` — pending recipient onboarding state alongside synced Recipients (low). Added as `RecipientInvites`. The real path is `GET /api/v1/recipients/invites`.
+- [x] `SAFE requests (GET /api/v1/safes)` — fundraising SAFE request records (low). Added as `SafeRequests`. The endpoint returns a bare array with no pagination.
 
 Note: Endpoint inventory read from the ReadMe nav slug list embedded in the reference page, then each candidate path confirmed by fetching its individual reference page.
 
@@ -9445,10 +9445,10 @@ Today (3): `customers`, `threads`, `timeline_entries`
 
 Diffed against: <https://core-api.uk.plain.com/graphql/v1/schema.graphql>
 
-- [ ] `companies` — account-level entity that customers hang off; lookup for the company IDs already on synced customers (high)
-- [ ] `users` — lookup resolving assignee and actor IDs carried on threads and timeline entries (high)
-- [ ] `labelTypes` — lookup resolving the label IDs attached to synced threads (high)
-- [ ] `tenants` — multi-tenant grouping dimension for customers and threads (high)
+- [x] `companies` — account-level entity that customers hang off; lookup for the company IDs already on synced customers (high)
+- [x] `users` — lookup resolving assignee and actor IDs carried on threads and timeline entries (high)
+- [x] `labelTypes` — lookup resolving the label IDs attached to synced threads (high)
+- [x] `tenants` — multi-tenant grouping dimension for customers and threads (high)
 - [ ] `customerSurveys` — CSAT responses, the headline support-quality metric (high)
 - [ ] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
 - [ ] `tasks` — work items attached to threads, needed for workload analysis (medium)
@@ -9466,10 +9466,10 @@ Today (6): `assets`, `companies`, `endusers`, `licenses`, `nps`, `users`
 
 Diffed against: <https://docs.planhat.com/developers/api/planhat-models>
 
-- [ ] `conversation` — customer conversation records, the core engagement signal in Planhat (high)
-- [ ] `ticket` — support tickets tied to companies, needed for health scoring (high)
-- [ ] `invoice` — billed revenue per company (high)
-- [ ] `sale` — closed revenue transactions (high)
+- [x] `conversation` — customer conversation records, the core engagement signal in Planhat (high)
+- [x] `ticket` — support tickets tied to companies, needed for health scoring (high)
+- [x] `invoice` — billed revenue per company (high)
+- [x] `sale` — closed revenue transactions (high)
 - [ ] `churn` — churn records, the headline customer-success metric (high)
 - [ ] `metrics` — time-series usage and health metrics per company; Planhat's central analytical object (high)
 - [ ] `product` — lookup resolving the product IDs carried on synced licenses and on line items (high)
@@ -11217,10 +11217,10 @@ Diffed against: <https://developers.smartsheet.com/sitemap.xml>
 
 - [x] `GET /reports/{reportId}/columns` — the columns of every report (title, type, index), fanned out across all reports (announced Jul-09-2026)
 - [x] `GET /reports/{reportId}/scope` — each report's source sheets and workspaces, fanned out across all reports (announced Jul-09-2026)
-- [ ] `GET /sheets/{sheetId} (rows + cells)` — the actual row/cell data inside every sheet - today only sheet metadata is synced, so no sheet content is queryable (high)
-- [ ] `GET /sheets/{sheetId}/columns` — lookup resolving the column ids that every cell references, including picklist options (high)
-- [ ] `GET /events (list-events, list-filtered-events)` — the org-wide activity event stream - who changed what and when (high)
-- [ ] `GET /groups and group members` — group membership lookup that resolves sharing and contact ids (high)
+- [x] `GET /sheets/{sheetId} (rows + cells)` — the actual row/cell data inside every sheet - today only sheet metadata is synced, so no sheet content is queryable (high)
+- [x] `GET /sheets/{sheetId}/columns` — lookup resolving the column ids that every cell references, including picklist options (high)
+- [x] `GET /events (list-events, list-filtered-events)` — the org-wide activity event stream - who changed what and when (high)
+- [x] `GET /groups and group members` — group membership lookup that resolves sharing and contact ids (high)
 - [ ] `GET /{assetType}/{assetId}/shares (list-asset-shares)` — who has access to each sheet/report/workspace; the access-control fact table (medium)
 - [ ] `GET /sheets/{sheetId}/discussions and comments` — collaboration threads attached to sheets and rows (medium)
 - [ ] `GET /sheets/{sheetId}/attachments (also row and discussion scoped)` — attachment metadata per sheet/row (medium)
@@ -11807,7 +11807,7 @@ Today (3): `questions`, `responses`, `surveys`
 
 Diffed against: <https://developers.survicate.com/llms-full.txt>
 
-- [ ] `Respondent attributes (GET /v2/respondents/{respondent_uuid}/attributes)` — segment survey scores by respondent attributes without maintaining a fixed attribute allowlist (medium)
+- [x] `Respondent attributes (GET /v2/respondents/{respondent_uuid}/attributes)` — segment survey scores by respondent attributes without maintaining a fixed attribute allowlist (medium)
 
 Note: The complete official Markdown export supplied every Data Export API operation for version 2. Surveys, questions, and survey responses are covered; responses already include attributes requested through the configured allowlist. A separate attributes table needs deduplicated respondent UUIDs from responses. Respondent response lists duplicate existing survey data, and personal-data export is excluded as privacy administration.
 

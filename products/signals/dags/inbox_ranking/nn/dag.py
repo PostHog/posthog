@@ -6,12 +6,12 @@ which runs on the image that carries torch:
 
     inbox_ranking_nn_examples/v1/dt=D/              rows, labels and holdout flags (`nn/examples.py`)
     inbox_ranking_models/v1/nn/dt=D/model.onnx      the refit that serves, + model.holdout.onnx and metadata.json
-    inbox_ranking_models/v1/nn/champion.json        pointer to the version the scoring sweep loads
+    (no object)                                     the champion asset grades the candidate and records the decision
 
 The main location's training job never fits `nn`, and this job never writes another family's
-objects. The main job's serving manifest and online grader walk every family in `MODEL_FAMILIES`,
-so they publish and grade an `nn` champion as an `onnx` entry with no change here. A champion that
-lands after that day's manifest is published by the next day's manifest.
+objects or any pointer. A person serves an `nn` version with `inbox_ranking_promote_job`. The main
+job's serving manifest and online grader then publish and grade it as an `onnx` entry with no
+change here. A candidate that lands after that day's manifest is paired by the next day's manifest.
 
 All three assets read the dt=D dataset partitions from the dataset bucket, as the main training job
 does. A partition whose snapshots are missing is logged and skipped, and the objects already under
@@ -30,7 +30,6 @@ from posthog import settings
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import Extras
-from products.signals.backend.ranking.overrides import read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import (
     S3_BUCKET_ENV,
@@ -181,7 +180,7 @@ def train_candidate(
 ) -> dict[str, dagster.MetadataValue]:
     """Fit the day's network, write its graphs and `metadata.json` under `nn/dt=D/`, and return the
     asset metadata. A partition without examples or snapshots keeps the objects it already holds,
-    because a `champion.json` can name them."""
+    because the served pointer can name them."""
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
     arrow = read_parquet_if_exists(client, bucket, partition_object_key(prefix, NN_EXAMPLES_TABLE, partition_key))
     if arrow is None:
@@ -274,14 +273,16 @@ def inbox_ranking_nn_model_champion(context: dagster.AssetExecutionContext) -> N
 def decide_champion(
     context: dagster.AssetExecutionContext, client, bucket: str, partition_key: str
 ) -> dict[str, dagster.MetadataValue] | None:
-    """The `nn` promotion decision, through the rule, the overrides and the
-    `INBOX_RANKING_AUTO_PROMOTE` gate every family shares. Only `nn/champion.json` is ever written."""
+    """The `nn` promotion decision, through the rule every family shares. Nothing is written: the
+    decision is recorded for the person who runs `inbox_ranking_promote_job`."""
     prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
 
     def grade_champion(champion: Mapping[str, Any]) -> dict[str, HoldoutGrade]:
         version = champion.get("model_version")
         if champion.get("model_kind") != ONNX_MODEL_KIND:
-            context.log.warning(f"nn champion {version} is not an {ONNX_MODEL_KIND} model; compared on its stored AUC")
+            context.log.warning(
+                f"served nn model {version} is not an {ONNX_MODEL_KIND} model; compared on its stored AUC"
+            )
             return {}
         holdout_model = _read_bytes_if_exists(
             client, bucket, model_object_key(prefix, NN_FAMILY.name, str(version), HOLDOUT_MODEL_FILE)
@@ -289,8 +290,8 @@ def decide_champion(
         arrow = read_parquet_if_exists(client, bucket, partition_object_key(prefix, NN_EXAMPLES_TABLE, partition_key))
         if holdout_model is None or arrow is None:
             context.log.warning(
-                f"no nn champion {HOLDOUT_MODEL_FILE} or no examples for dt={partition_key}; "
-                "the nn champion is compared on its stored AUC"
+                f"no served nn {HOLDOUT_MODEL_FILE} or no examples for dt={partition_key}; "
+                "the served nn model is compared on its stored AUC"
             )
             return {}
         day = _day_inputs(context, client, bucket, prefix, partition_key)
@@ -303,14 +304,7 @@ def decide_champion(
         )
 
     return decide_family_champion(
-        context,
-        client,
-        bucket,
-        prefix,
-        partition_key,
-        NN_FAMILY,
-        read_ranking_overrides(datetime.datetime.now(datetime.UTC)),
-        grade_champion=grade_champion,
+        context, client, bucket, prefix, partition_key, NN_FAMILY, grade_champion=grade_champion
     )
 
 
@@ -339,8 +333,8 @@ inbox_ranking_nn_training_job = dagster.define_asset_job(
 
 
 # After the dataset job's 2h budget (02:30 UTC start), so the dt=D-1 snapshots exist, and before the
-# main training job (05:00 UTC) where the run is short enough. A champion that lands after that
-# job's manifest is published by the next day's manifest.
+# main training job (05:00 UTC) where the run is short enough. A candidate that lands after that
+# job's manifest is paired by the next day's manifest.
 @dagster.schedule(
     cron_schedule="30 4 * * *",
     job=inbox_ranking_nn_training_job,

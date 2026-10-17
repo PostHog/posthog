@@ -796,6 +796,8 @@ function InfiniteListEmptyState(): JSX.Element {
                         Type at least {minSearchQueryLength} characters to search
                     </span>
                 </>
+            ) : group?.shouldSearch?.(searchQuery) === false && group.searchQueryHint ? (
+                <span className="text-secondary text-center">{group.searchQueryHint}</span>
             ) : hiddenEventSearched ? (
                 // Replaces the generic "no results" line and its recovery buttons: including stale
                 // events cannot bring back an excluded name, and the category jumps lead away from
@@ -941,7 +943,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
         trimmedSearchQuery,
         showSuggestedFiltersEmptyState,
     } = useValues(infiniteListLogic)
-    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem } = useActions(infiniteListLogic)
+    const { onRowsRendered, setIndex, togglePinnedRow, expand, updateRemoteItem, emptyResultShown } =
+        useActions(infiniteListLogic)
     const [highlightedItemElement, setHighlightedItemElement] = useState<HTMLDivElement | null>(null)
     const listRef = useListRef(null)
 
@@ -950,6 +953,12 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
             listRef.current.scrollToRow({ index, align: 'smart' })
         }
     }, [index, listRef])
+
+    useEffect(() => {
+        if (isSuggestedFilters && isActiveTab && showEmptyState && !showLoadingState && trimmedSearchQuery) {
+            emptyResultShown()
+        }
+    }, [isSuggestedFilters, isActiveTab, showEmptyState, showLoadingState, trimmedSearchQuery, emptyResultShown])
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
     const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false

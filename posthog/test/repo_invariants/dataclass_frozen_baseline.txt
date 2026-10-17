@@ -913,7 +913,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pipeliner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/plaid.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/plain/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/planhat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/platform_sh/platform_sh.py

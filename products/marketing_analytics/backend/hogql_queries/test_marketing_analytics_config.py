@@ -21,15 +21,9 @@ class TestMarketingAnalyticsConfig(BaseTest):
         return [call for call in mock_ff.call_args_list if call.args and call.args[0] == _MULTI_TOUCH_FLAG]
 
     def _set_attribution_mode(self, mode: AttributionMode) -> None:
-        # Access the cached_property to ensure the config exists, then update it
         ma_config = self.team.marketing_analytics_config
         ma_config.attribution_mode = mode.value
         ma_config.save()
-        # Invalidate the cached_property so from_team reads fresh data
-        try:
-            del self.team.marketing_analytics_config
-        except AttributeError:
-            pass
 
     def test_from_team_defaults_to_last_touch(self):
         config = MarketingAnalyticsConfig.from_team(self.team)
