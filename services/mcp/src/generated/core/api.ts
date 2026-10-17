@@ -3138,6 +3138,12 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
             .describe(
                 'Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.'
             ),
+        logo_media_id: zod
+            .string()
+            .nullish()
+            .describe(
+                "ID of an image uploaded to this project, shown as the project's logo. Set to null to show a lettermark instead."
+            ),
         product_description: zod
             .string()
             .max(organizationsProjectsPartialUpdateBodyProductDescriptionMax)
