@@ -78,6 +78,26 @@ The scratchpad has no tags — entries are durable per-team prose keyed by strin
 
 Full conventions (four-states classifier, cross-project noise patterns to recognize) live in [`references/conventions.md`](references/conventions.md).
 
+### Raise the bar while your reports pile up
+
+People open each additional general report on a project less often than the one before.
+A steady stream of new reports teaches the team to skip this scout.
+Before you author, list your own recent reports: `inbox-reports-list` with `scout=signals-scout-general`, `include_all_statuses=true`, and `created_after` set to 14 days ago.
+Read each row's `status`, `work_state`, `implementation_pr_url`, and the `dismissal_reason` on suppressed rows.
+
+When three or more of those reports are still `ready` or `pending_input`, `unclaimed`, and without an implementation PR, or when people dismissed recent ones as low value, the team is not keeping up with this scout.
+Until that changes:
+
+- Author a new report only for a finding that is P2 or higher, or a cross-product correlation that no specialist can see.
+  Keep anything else in `pattern:` memory.
+- Do not author a follow-up ("still failing", "persists after the fix") as a new report.
+  Edit the report that you filed before.
+  Author a new one only when that report is `resolved`, `suppressed`, or `failed`, because an edit cannot reopen it.
+- Do not author a single-product finding when a specialist for that product runs on this project.
+  Leave it to the specialist.
+
+Say in your close-out that the backlog rule held a finding back, so the next run knows why the inbox stayed quiet.
+
 ## Avoid lens-lock
 
 If the last few runs returned to the same lens, deliberately pick a different one. Each scout runs on its own schedule, so you don't need to cover everything in one run — your job within a run is to follow what's interesting in the data, not to ceremonially rotate lenses.
