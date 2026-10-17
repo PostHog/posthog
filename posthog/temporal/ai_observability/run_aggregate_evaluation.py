@@ -61,6 +61,11 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
     execute_trace_hog_eval_activity,
     execute_trace_llm_judge_activity,
 )
+from posthog.temporal.ai_observability.team_capture import (
+    EMIT_EVENT_RETRY_POLICY,
+    EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+    EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -694,8 +699,9 @@ class RunAggregateEvaluationWorkflow(PostHogWorkflow):
                     backfill_id=inputs.backfill_id,
                     event_timestamp=inputs.anchor_timestamp,
                 ),
-                schedule_to_close_timeout=timedelta(seconds=30),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                start_to_close_timeout=EMIT_EVENT_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=EMIT_EVENT_SCHEDULE_TO_CLOSE_TIMEOUT,
+                retry_policy=EMIT_EVENT_RETRY_POLICY,
             )
         except Exception:
             increment_errors("emit_evaluation_event_failed", provider=result.get("provider"))
