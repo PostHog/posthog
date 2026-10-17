@@ -11,6 +11,7 @@ from products.experiments.backend.health.context import (
     FlagHistory,
     FlagHistoryNotChecked,
     FlagState,
+    ReleaseCondition,
     Split,
 )
 from products.experiments.backend.health.exposure_inputs import ExposureInputs
@@ -40,6 +41,10 @@ def _health_inputs_flag(flag: FlagState) -> dict[str, Any]:
     }
 
 
+def _health_inputs_conditions(conditions: tuple[ReleaseCondition, ...]) -> list[dict[str, Any]]:
+    return [{"criteria": condition.criteria, "variant": condition.variant} for condition in conditions]
+
+
 def _health_inputs_bucketing_value(value: str | int | bool | None) -> str | None:
     if value is None or isinstance(value, str):
         return value
@@ -54,10 +59,13 @@ def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) ->
         exposed_between = {
             "split_exposed_between": history.split_exposed_between,
             "bucketing_exposed_between": history.bucketing_exposed_between,
+            "conditions_exposed_between": history.conditions_exposed_between,
         }
     else:
         counted_since, reason, exposed_before_first = None, history.reason.value, None
-        exposed_between = dict.fromkeys(("split_exposed_between", "bucketing_exposed_between"))
+        exposed_between = dict.fromkeys(
+            ("split_exposed_between", "bucketing_exposed_between", "conditions_exposed_between")
+        )
 
     def counted(changed_at: datetime) -> bool:
         return counted_since is not None and changed_at >= counted_since
@@ -85,6 +93,15 @@ def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) ->
                 "counted": counted(change.changed_at),
             }
             for change in history.bucketing_changes
+        ],
+        "conditions_changes": [
+            {
+                "changed_at": change.changed_at,
+                "before": _health_inputs_conditions(change.before),
+                "after": _health_inputs_conditions(change.after),
+                "counted": counted(change.changed_at),
+            }
+            for change in history.conditions_changes
         ],
         "exposed_before_first": exposed_before_first,
         **exposed_between,

@@ -74,9 +74,11 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
             { changed_at: '2025-01-20T14:30:00Z', before: SPLIT_BEFORE, after: SPLIT_AFTER, counted: true },
         ],
         bucketing_changes: [],
+        conditions_changes: [],
         exposed_before_first: true,
         split_exposed_between: null,
         bucketing_exposed_between: null,
+        conditions_exposed_between: null,
     },
     condition_set_traffic_status: 'read',
     condition_set_traffic: {

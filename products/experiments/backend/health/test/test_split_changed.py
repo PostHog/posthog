@@ -81,10 +81,12 @@ def _context(
             team_timezone="Europe/Berlin",
             split_changes=changes,
             bucketing_changes=(),
+            conditions_changes=(),
             counted_since=changes[0].changed_at if changes else None,
             exposed_before_first=exposed_before_first,
             split_exposed_between=exposed_between,
             bucketing_exposed_between=None,
+            conditions_exposed_between=None,
         )
         if not_checked is None
         else FlagHistoryNotChecked(
@@ -93,6 +95,7 @@ def _context(
             team_timezone="Europe/Berlin",
             split_changes=changes,
             bucketing_changes=(),
+            conditions_changes=(),
         ),
         condition_set_traffic=None,
         excluded_variant_keys=frozenset(),
@@ -317,9 +320,9 @@ class TestSplitChangedMidRun(TestCase):
             (
                 "no_history_access",
                 _context(EVEN, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS),
-                "This check can't see whether the flag's variant split, key or bucketing changed after launch, because "
-                "you can't view the linked feature flag's history. Viewing the history needs viewer access to the "
-                "flag and, with an API key, the activity_log:read scope.",
+                "This check can't see whether the flag's variant split, key, bucketing or release conditions changed "
+                "after launch, because you can't view the linked feature flag's history. Viewing the history needs "
+                "viewer access to the flag and, with an API key, the activity_log:read scope.",
                 (),
                 "The flag history was not checked",
             ),

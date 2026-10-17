@@ -3182,6 +3182,29 @@ class ExperimentHealthInputsBucketingChangeSerializer(serializers.Serializer):
     counted = serializers.BooleanField(help_text=_COUNTED_HELP)
 
 
+class ExperimentHealthInputsReleaseConditionCriteriaSerializer(serializers.Serializer):
+    criteria = serializers.CharField(
+        help_text=(
+            "The condition's group type and property filters, as the signature the check compares. Two conditions "
+            "with the same signature match the same people."
+        )
+    )
+    variant = serializers.CharField(
+        allow_null=True, help_text="The variant that the condition's override names. Null without an override."
+    )
+
+
+class ExperimentHealthInputsConditionsChangeSerializer(serializers.Serializer):
+    changed_at = serializers.DateTimeField(help_text="When the release conditions changed.")
+    before = ExperimentHealthInputsReleaseConditionCriteriaSerializer(
+        many=True, help_text="The release conditions before the change, in evaluation order."
+    )
+    after = ExperimentHealthInputsReleaseConditionCriteriaSerializer(
+        many=True, help_text="The release conditions after the change, in evaluation order."
+    )
+    counted = serializers.BooleanField(help_text=_COUNTED_HELP)
+
+
 class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
     checked = serializers.BooleanField(
         help_text="Whether the changes were compared with the exposures. False when not_checked_reason is set."
@@ -3206,6 +3229,13 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
             "for 'no_history_access'."
         ),
     )
+    conditions_changes = ExperimentHealthInputsConditionsChangeSerializer(
+        many=True,
+        help_text=(
+            "Every change since launch of the release conditions' criteria or variant overrides. A rollout change "
+            "alone is not one. Empty for 'no_history_access'."
+        ),
+    )
     exposed_before_first = serializers.BooleanField(
         allow_null=True,
         help_text="Whether anyone was exposed before the first counted change. Null when unknown or not checked.",
@@ -3222,6 +3252,13 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
         help_text=(
             "Whether anyone was exposed between the first and the last counted bucketing change. Asked only when "
             "every setting was set back. Null when not asked or unknown."
+        ),
+    )
+    conditions_exposed_between = serializers.BooleanField(
+        allow_null=True,
+        help_text=(
+            "Whether anyone was exposed between the first and the last counted release-condition change. Asked "
+            "only when the last restores the conditions from before the first. Null when not asked or unknown."
         ),
     )
 
@@ -3258,8 +3295,8 @@ class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
     denied_event_properties = serializers.ListField(
         child=serializers.CharField(),
         help_text=(
-            "Event properties the reader is denied. The forced-variant check skips its scan when one of them is a "
-            "flag call property it reads."
+            "Event properties the reader is denied. The forced-variant and release-condition checks skip their scan "
+            "when one of them is a flag call property it reads."
         ),
     )
 
@@ -3352,7 +3389,8 @@ class ExperimentHealthInputsSerializer(serializers.Serializer):
         help_text=(
             "Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the "
             "experiment is launched and some but not all release conditions pin a variant that has a share of the "
-            "split and is not excluded from the analysis."
+            "split and is not excluded from the analysis. The release-condition check needs it when such an "
+            "override was removed after launch."
         ),
     )
     condition_set_traffic = ExperimentHealthInputsConditionSetTrafficSerializer(

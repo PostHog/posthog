@@ -6,6 +6,7 @@ import type {
     ExperimentHealthInputsApi,
     ExperimentHealthInputsExposuresApi,
     ExperimentHealthInputsFlagHistoryApi,
+    ExperimentHealthInputsReleaseConditionCriteriaApi,
     ExperimentHealthInputsTrafficStatusEnumApi,
     ExperimentHealthInputsVariantApi,
     HealthExposureInputsStatusEnumApi,
@@ -31,7 +32,7 @@ export interface HealthDebugReleaseCondition {
 
 export interface HealthDebugFlagChange {
     changedAt: string
-    /** What changed: the split, or a setting that decides the variant draw. */
+    /** What changed: the split, a setting that decides the variant draw, or the release conditions. */
     changed: string
     before: string
     after: string
@@ -153,7 +154,7 @@ export function buildReleaseConditions(inputs: ExperimentHealthInputsApi | null)
 }
 
 function allFlagChanges(history: ExperimentHealthInputsFlagHistoryApi): { counted: boolean }[] {
-    return [...history.split_changes, ...history.bucketing_changes]
+    return [...history.split_changes, ...history.bucketing_changes, ...history.conditions_changes]
 }
 
 function describeFlagHistoryStatus(inputs: ExperimentHealthInputsApi): string {
@@ -196,6 +197,11 @@ const SET_BACK_FACTS = [
         field: 'bucketing_exposed_between',
         label: 'Exposed between the first and last bucketing change',
     },
+    {
+        kind: 'conditions_changes',
+        field: 'conditions_exposed_between',
+        label: 'Exposed between the first and last release-condition change',
+    },
 ] as const
 
 export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
@@ -235,6 +241,14 @@ const BUCKETING_SETTING_LABELS: Record<string, string> = {
     experience_continuity: 'Persist across authentication',
 }
 
+function describeConditions(conditions: ExperimentHealthInputsReleaseConditionCriteriaApi[]): string {
+    const overrides = conditions.flatMap((condition, index) =>
+        condition.variant ? [`set ${index + 1} overrides to ${condition.variant}`] : []
+    )
+    const count = `${conditions.length} ${conditions.length === 1 ? 'condition' : 'conditions'}`
+    return [count, ...overrides].join(', ')
+}
+
 export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): HealthDebugFlagChange[] {
     const history = inputs?.flag_history
     if (!history) {
@@ -255,6 +269,13 @@ export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): Heal
             after: change.after ?? 'none',
             counted: change.counted,
         })),
+        ...history.conditions_changes.map((change) => ({
+            at: change.changed_at,
+            changed: 'Release conditions',
+            before: describeConditions(change.before),
+            after: describeConditions(change.after),
+            counted: change.counted,
+        })),
     ]
     return changes
         .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
@@ -263,7 +284,7 @@ export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): Heal
 
 const TRAFFIC_STATUS_LABELS: Record<ExperimentHealthInputsTrafficStatusEnumApi, string> = {
     read: 'Read',
-    not_needed: 'Not read: the forced-variant check does not need it',
+    not_needed: 'Not read: no check needs it',
     no_query_access: 'Not read: you may not query events',
     denied_properties: 'Not read: you are denied a flag call property that the scan reads',
     no_flag_version: "Not read: the flag has no version, so its calls can't be matched to it",
@@ -277,7 +298,7 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
         {
             label: 'Status',
             value: serverValue(state, (inputs) => TRAFFIC_STATUS_LABELS[inputs.condition_set_traffic_status]),
-            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis.',
+            help: 'The forced-variant check reads the calls when the experiment is launched and some, but not all, release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check reads them when such an override was removed after launch.',
         },
         ...(traffic
             ? [

@@ -46,6 +46,21 @@ class BucketingChange:
 
 
 @frozen
+class ReleaseCondition:
+    # The group type and property filters of the condition, as a signature that is equal for two conditions
+    # that match the same people. The rollout is not part of it.
+    criteria: str
+    variant: str | None
+
+
+@frozen
+class ConditionsChange:
+    changed_at: datetime
+    before: tuple[ReleaseCondition, ...]
+    after: tuple[ReleaseCondition, ...]
+
+
+@frozen
 class FlagHistory:
     """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
     before them. A change before the first exposure moved nobody, so it does not count."""
@@ -54,6 +69,7 @@ class FlagHistory:
     team_timezone: str
     split_changes: tuple[SplitChange, ...]
     bucketing_changes: tuple[BucketingChange, ...]
+    conditions_changes: tuple[ConditionsChange, ...]
     # The time of the first change, of any kind, with an exposure before it or an unknown answer. Every change
     # from then on counts. None when nobody was exposed before any change.
     counted_since: datetime | None
@@ -63,6 +79,7 @@ class FlagHistory:
     # or unknown.
     split_exposed_between: bool | None
     bucketing_exposed_between: bool | None
+    conditions_exposed_between: bool | None
 
     @property
     def counted_split_changes(self) -> tuple[SplitChange, ...]:
@@ -72,8 +89,14 @@ class FlagHistory:
     def counted_bucketing_changes(self) -> tuple[BucketingChange, ...]:
         return _counted(self.bucketing_changes, self.counted_since)
 
+    @property
+    def counted_conditions_changes(self) -> tuple[ConditionsChange, ...]:
+        return _counted(self.conditions_changes, self.counted_since)
 
-def _counted[C: (SplitChange, BucketingChange)](changes: tuple[C, ...], since: datetime | None) -> tuple[C, ...]:
+
+def _counted[C: (SplitChange, BucketingChange, ConditionsChange)](
+    changes: tuple[C, ...], since: datetime | None
+) -> tuple[C, ...]:
     return () if since is None else tuple(change for change in changes if change.changed_at >= since)
 
 
@@ -96,6 +119,7 @@ class FlagHistoryNotChecked:
     # Every change since launch. Empty for NO_HISTORY_ACCESS, which does not read them.
     split_changes: tuple[SplitChange, ...]
     bucketing_changes: tuple[BucketingChange, ...]
+    conditions_changes: tuple[ConditionsChange, ...]
 
 
 @frozen

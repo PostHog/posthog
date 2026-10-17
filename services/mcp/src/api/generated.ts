@@ -44571,6 +44571,7 @@ export namespace Schemas {
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum = typeof ExperimentHealthFindingCodeEnum[keyof typeof ExperimentHealthFindingCodeEnum];
 
@@ -44588,6 +44589,7 @@ export namespace Schemas {
       FlagVariantsMismatch: 'flag_variants_mismatch',
       SplitChangedMidRun: 'split_changed_mid_run',
       BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
     } as const;
 
     /**
@@ -44647,7 +44649,8 @@ export namespace Schemas {
        * * `forced_variant_release_condition` - Forced Variant Release Condition
        * * `flag_variants_mismatch` - Flag Variants Mismatch
        * * `split_changed_mid_run` - Split Changed Mid Run
-       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run */
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run */
       code: ExperimentHealthFindingCodeEnum;
       /**
          * The case within the code, when a code covers several, for example 'running_but_no_rollout' within 'flag_off_while_running'. Null when the code has one case.
@@ -45289,6 +45292,27 @@ export namespace Schemas {
       counted: boolean;
     }
 
+    export interface ExperimentHealthInputsReleaseConditionCriteria {
+      /** The condition's group type and property filters, as the signature the check compares. Two conditions with the same signature match the same people. */
+      criteria: string;
+      /**
+         * The variant that the condition's override names. Null without an override.
+         * @nullable
+         */
+      variant: string | null;
+    }
+
+    export interface ExperimentHealthInputsConditionsChange {
+      /** When the release conditions changed. */
+      changed_at: string;
+      /** The release conditions before the change, in evaluation order. */
+      before: ExperimentHealthInputsReleaseConditionCriteria[];
+      /** The release conditions after the change, in evaluation order. */
+      after: ExperimentHealthInputsReleaseConditionCriteria[];
+      /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
+      counted: boolean;
+    }
+
     export interface ExperimentHealthInputsFlagHistory {
       /** Whether the changes were compared with the exposures. False when not_checked_reason is set. */
       checked: boolean;
@@ -45305,6 +45329,8 @@ export namespace Schemas {
       split_changes: ExperimentHealthInputsSplitChange[];
       /** Every change since launch of a setting that decides the variant draw, one per setting and save. Empty for 'no_history_access'. */
       bucketing_changes: ExperimentHealthInputsBucketingChange[];
+      /** Every change since launch of the release conditions' criteria or variant overrides. A rollout change alone is not one. Empty for 'no_history_access'. */
+      conditions_changes: ExperimentHealthInputsConditionsChange[];
       /**
          * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
          * @nullable
@@ -45320,6 +45346,11 @@ export namespace Schemas {
          * @nullable
          */
       bucketing_exposed_between: boolean | null;
+      /**
+         * Whether anyone was exposed between the first and the last counted release-condition change. Asked only when the last restores the conditions from before the first. Null when not asked or unknown.
+         * @nullable
+         */
+      conditions_exposed_between: boolean | null;
     }
 
     /**
@@ -45367,7 +45398,7 @@ export namespace Schemas {
       can_read_flag_history: boolean;
       /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
       can_query_events: boolean;
-      /** Event properties the reader is denied. The forced-variant check skips its scan when one of them is a flag call property it reads. */
+      /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads. */
       denied_event_properties: string[];
     }
 
@@ -45642,7 +45673,7 @@ export namespace Schemas {
       flag: ExperimentHealthInputsFlag | null;
       /** The changes of the flag since launch that can move exposed people. Null when the experiment is not running, is archived, its flag is missing or deleted, or the read failed. */
       flag_history: ExperimentHealthInputsFlagHistory | null;
-      /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis.
+      /** Whether the condition-set traffic was read, or why not. The forced-variant check needs it when the experiment is launched and some but not all release conditions pin a variant that has a share of the split and is not excluded from the analysis. The release-condition check needs it when such an override was removed after launch.
        *
        * * `read` - Read
        * * `not_needed` - Not Needed
