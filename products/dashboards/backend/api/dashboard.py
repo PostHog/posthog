@@ -142,7 +142,7 @@ from products.dashboards.backend.constants import (
     RUN_INSIGHTS_MAX_TOTAL_CHARS,
     RUN_INSIGHTS_MIN_TILE_CHARS,
 )
-from products.dashboards.backend.facade.api import DashboardTileBasicSerializer
+from products.dashboards.backend.facade.api import DashboardTileBasicSerializer, tile_ids_prefetch
 from products.dashboards.backend.facade.enums import PrivilegeLevel, RestrictionLevel
 from products.dashboards.backend.feature_flags import dashboard_widgets_enabled
 from products.dashboards.backend.models.dashboard import (
@@ -461,6 +461,9 @@ def tile_insight_prefetches() -> list[Prefetch]:
     prefetch silently serializes `alerts: []` for every tile, hiding alert threshold lines on
     dashboards."""
     return [
+        # InsightSerializer builds `dashboard_tiles` and `dashboards` from each insight's tiles. Without
+        # this, every tile on the dashboard costs a query for each field that reads them.
+        tile_ids_prefetch("insight__dashboard_tiles"),
         Prefetch(
             "insight__tagged_items",
             queryset=TaggedItem.objects.select_related("tag"),
@@ -3189,34 +3192,6 @@ class DashboardsViewSet(
             queryset = queryset.exclude(deleted=True)
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related("created_by")
-
-        if self.action != "list":
-            tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
-                DashboardTile.objects.prefetch_related(
-                    Prefetch(
-                        "insight__dashboards",
-                        # nosemgrep: idor-lookup-without-team (scoped via prefetch on team-scoped queryset)
-                        queryset=Dashboard.objects.filter(
-                            id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
-                        ),
-                    ),
-                    "insight__dashboard_tiles__dashboard",
-                )
-            )
-            try:
-                dashboard_id = self.kwargs["pk"]
-                tiles_prefetch_queryset = tiles_prefetch_queryset.filter(dashboard_id=dashboard_id)
-            except KeyError:
-                # in case there are endpoints that hit this branch but don't have a pk
-                pass
-
-            queryset = queryset.prefetch_related(
-                # prefetching tiles saves 25 queries per tile on the dashboard
-                Prefetch(
-                    "tiles",
-                    queryset=tiles_prefetch_queryset,
-                ),
-            )
 
         # Add access level filtering for list actions
         queryset = self._filter_queryset_by_access_level(queryset)
