@@ -466,6 +466,16 @@ export async function performQuery<N extends DataNode>(
             ...logParams,
             ...submitTelemetry,
         })
+        const historySources = warehouseSources.filter((s) => s.uses_history_table)
+        if (historySources.length > 0) {
+            posthog.capture('data warehouse history table queried', {
+                query_kind: queryNode.kind,
+                queryId,
+                is_cached: response?.is_cached,
+                data_warehouse_source_ids: historySources.map((s) => s.id),
+                data_warehouse_source_types: historySources.map((s) => s.source_type).filter(Boolean),
+            })
+        }
         return response
     } catch (e) {
         // A superseded query or navigating away mid-request aborts, not fails — skip so the

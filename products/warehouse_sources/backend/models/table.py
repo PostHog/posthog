@@ -549,6 +549,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self.deleted_at = timezone.now()
         self.save()
 
+    @property
+    def is_history_table(self) -> bool:
+        # The names repeat the CDC batcher's constants, because importing it loads pyarrow with this model.
+        if not self.external_data_source_id or not self.name.endswith("_cdc"):
+            return False
+        columns = self.columns or {}
+        return "valid_from" in columns and "valid_to" in columns
+
     def table_name_without_prefix(self) -> str:
         if self.external_data_source is not None and self.external_data_source.prefix is not None:
             prefix = self.external_data_source.prefix
@@ -1216,6 +1224,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             table_id=str(self.id),
             external_data_source_id=str(self.external_data_source_id) if self.external_data_source_id else None,
             source_type=self.external_data_source.source_type if self.external_data_source else None,
+            is_history_table=self.is_history_table,
         )
 
         # Must resolve an unset option the same way _describe_settings does, by sending no setting.

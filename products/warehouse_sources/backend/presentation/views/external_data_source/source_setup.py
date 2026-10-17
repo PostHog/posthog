@@ -75,6 +75,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
     set_source_destinations,
@@ -1346,6 +1347,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 )
 
         active_schemas: list[ExternalDataSchema] = []
+        history_schemas: list[ExternalDataSchema] = []
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
@@ -1734,6 +1736,8 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             if should_sync and new_source_model.supports_scheduled_sync:
                 active_schemas.append(schema_model)
+            if schema_model.keeps_history:
+                history_schemas.append(schema_model)
 
         # Attach destinations before any schedule starts. Extraction snapshots the set onto the
         # run, so a source whose destinations arrive after its first sync began writes that run
@@ -1821,6 +1825,15 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             team=self.team,
             request=request,
         )
+
+        for schema_model in history_schemas:
+            report_history_toggled(
+                cast(User, request.user),
+                schema_model,
+                enabled=True,
+                table_mode=schema_model.cdc_table_mode,
+                request=request,
+            )
 
         return Response(
             status=status.HTTP_201_CREATED,

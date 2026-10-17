@@ -33,7 +33,11 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
 )
 from posthog.hogql.database.schema.information_schema import InformationSchemaTable
 from posthog.hogql.database.schema.logs import get_hogql_max_bytes_to_read_for_logs_user_queries
-from posthog.hogql.database.warehouse_usage import WarehouseSourceUsage, extract_warehouse_sources
+from posthog.hogql.database.warehouse_usage import (
+    WarehouseSourceUsage,
+    extract_warehouse_sources,
+    merge_warehouse_sources,
+)
 from posthog.hogql.direct_connection import (
     INVALID_CONNECTION_ID_ERROR,
     RAW_QUERY_TABLE_DENIED_ERROR,
@@ -613,7 +617,7 @@ class HogQLQueryExecutor:
         except Exception:
             sources = []
         # jev source queries read their tables in separate executions.
-        sources = list({source.id: source for source in [*sources, *self._prompt_jev_warehouse_sources]}.values())
+        sources = merge_warehouse_sources([*sources, *self._prompt_jev_warehouse_sources])
         self.used_data_warehouse_sources = sources
         return sources
 
@@ -1111,7 +1115,12 @@ class HogQLQueryExecutor:
         if self.user is None or not self.user.is_authenticated:
             return None
         return [
-            DataWarehouseSourceUsage(id=s.id, source_type=s.source_type, table_name=s.table_name)
+            DataWarehouseSourceUsage(
+                id=s.id,
+                source_type=s.source_type,
+                table_name=s.table_name,
+                uses_history_table=s.uses_history_table or None,
+            )
             for s in self.used_data_warehouse_sources
         ]
 

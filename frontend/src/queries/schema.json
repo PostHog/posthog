@@ -21054,6 +21054,10 @@
                 "table_name": {
                     "description": "Warehouse table name that was referenced",
                     "type": "string"
+                },
+                "uses_history_table": {
+                    "description": "Whether the query read a history table of this source",
+                    "type": "boolean"
                 }
             },
             "required": ["id", "table_name"],

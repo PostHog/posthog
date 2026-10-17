@@ -85,6 +85,7 @@ from products.warehouse_sources.backend.facade.types import (
     IncrementalFieldType,
     IncrementalSyncBlockedReason,
 )
+from products.warehouse_sources.backend.presentation.history_tracking import report_history_change
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     DestinationLinkSerializer,
     SchemaDestinationsSerializer,
@@ -945,6 +946,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
         # Capture the previous cdc_table_mode before any mutation so the post-save hook below can decide
         # whether the change adds a new physical write target (and therefore needs a re-snapshot).
         previous_cdc_table_mode = instance.cdc_table_mode
+        history_mode_before = previous_cdc_table_mode if instance.keeps_history else None
 
         api_version_changed = "api_version" in validated_data and validated_data["api_version"] != instance.api_version
 
@@ -1583,6 +1585,12 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     new_cdc_table_mode=new_cdc_table_mode,
                 )
                 self._run_temporal_side_effect(lambda: _reset_cdc_for_full_resnapshot(updated_instance))
+
+        request = self.context.get("request")
+        if request is not None:
+            report_history_change(
+                request.user, updated_instance, history_mode_before=history_mode_before, request=request
+            )
 
         return updated_instance
 
