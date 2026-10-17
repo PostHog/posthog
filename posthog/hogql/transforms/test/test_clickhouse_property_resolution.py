@@ -99,6 +99,40 @@ class TestMaterializedLikePatternLimit(SimpleTestCase):
 
 
 @pytest.mark.usefixtures("clickhouse_database")
+class TestEventJSONStringExtractionContract(SimpleTestCase):
+    @parameterized.expand([("untyped", False, False), ("numeric", True, False), ("restricted", False, True)])
+    def test_string_extraction_preserves_json_values(self, _name: str, numeric: bool, restricted: bool) -> None:
+        key = "example_value"
+        metadata = PropertyMetadata(event_properties={key: {"type": "Numeric"}} if numeric else {})
+        context = HogQLContext(
+            use_new_events_schema=False,
+            property_metadata=metadata,
+            database=Database(),
+            restricted_properties={RestrictedProperty(name=key, property_type=PropertyDefinition.Type.EVENT)}
+            if restricted
+            else set(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper("UTC", metadata.event_properties, {}, {}, context, False)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT JSONExtractString(properties, 'example_value') FROM events"), context, "clickhouse"
+        )
+        assert isinstance(prepared, ast.SelectQuery)
+        expression = print_prepared_ast(prepared.select[0], context, "clickhouse")
+        values: list[object] = [None, "", "07", 7, False, [1], {"child": 1}, 'quoted"\\text\n雪']
+        documents = [{}, *[{key: value} for value in values]]
+        rows = sync_execute(
+            f"SELECT {expression}, toTypeName({expression}) "
+            "FROM (SELECT arrayJoin(%(documents)s) AS properties) AS events",
+            {**context.values, "documents": [json.dumps(document) for document in documents]},
+        )
+        expected = ["", "", "", "07", "7", "false", "[1]", '{"child":1}', values[-1]]
+        if restricted:
+            expected = [""] * len(documents)
+        assert rows == [(value, "String") for value in expected]
+
+
+@pytest.mark.usefixtures("clickhouse_database")
 class TestNativeJSONPropertyComparisons(SimpleTestCase):
     @parameterized.expand(
         [
