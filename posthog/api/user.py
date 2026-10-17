@@ -235,7 +235,7 @@ class OnboardingSkipRequestSerializer(serializers.Serializer):
     )
 
 
-def _person_properties_refresh_due(user: User) -> bool:
+def _reserve_person_properties_refresh_if_due(user: User) -> bool:
     # Store the last refreshed project, not one key per project. A project switch through
     # AutoProjectMiddleware sends no "user updated", so a switch back to an earlier project
     # must refresh too.
@@ -846,7 +846,7 @@ class UserSerializer(serializers.ModelSerializer):
         # was the whole reason for moving away from it. Server-side capture also keeps
         # working for clients running ad blockers, which a frontend-side identify would
         # silently miss.
-        if _person_properties_refresh_due(instance):
+        if _reserve_person_properties_refresh_if_due(instance):
             with tracer.start_as_current_span("user_serializer.identify"):
                 posthoganalytics.capture(
                     distinct_id=instance.distinct_id,
