@@ -2,7 +2,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { FEATURE_FLAGS } from 'lib/constants'
+import type { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -15,6 +15,8 @@ import { errorTrackingEmptyState } from 'products/error_tracking/frontend/emptyS
 
 import { ProductEmptyState } from './ProductEmptyState'
 import type { ProductEmptyStateConfig } from './types'
+
+const TEST_FLAG = 'product-empty-state-test-flag' as FeatureFlagKey
 
 const Hedgehog = pngHoggie({ src: 'hedgehog.png', aspectRatio: 1 })
 
@@ -141,12 +143,12 @@ describe('ProductEmptyState', () => {
         preflightLogic.actions.loadPreflight()
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], flagOn ? { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true } : {})
+        featureFlagLogic.actions.setFeatureFlags([], flagOn ? { [TEST_FLAG]: true } : {})
         const overriddenConfig: ProductEmptyStateConfig = {
             ...config,
             text: { 'needs-setup': { headline: 'Headline', lead: 'Lead', hint: 'Base hint' } },
             featureFlagOverrides: {
-                [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: {
+                [TEST_FLAG]: {
                     text: { 'needs-setup': { hint: 'Override hint' } },
                     wizard: { slug: 'experiments' },
                     primaryAction: undefined,
@@ -168,46 +170,30 @@ describe('ProductEmptyState', () => {
     })
 
     it.each([
-        [false, true, false],
-        [true, true, true],
-        [true, false, false],
-    ])(
-        'in error tracking waiting mode with new wizard flag on=%s and cloud=%s renders the command: %s',
-        async (flagOn, cloud, expected) => {
-            useMocks({ get: { '/_preflight/': { cloud } } })
-            preflightLogic.actions.loadPreflight()
-            await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-            featureFlagLogic.mount()
-            featureFlagLogic.actions.setFeatureFlags(
-                [],
-                flagOn ? { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true } : {}
-            )
+        [true, true],
+        [false, false],
+    ])('in error tracking waiting mode with cloud=%s renders the command: %s', async (cloud, expected) => {
+        useMocks({ get: { '/_preflight/': { cloud } } })
+        preflightLogic.actions.loadPreflight()
+        await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
 
-            render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="waiting-for-data" />)
+        render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="waiting-for-data" />)
 
-            if (expected) {
-                expect(await screen.findByLabelText(/Copy command/)).toBeTruthy()
-                expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
-                expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
-            } else {
-                expect(screen.queryByLabelText(/Copy command/)).toBeNull()
-                if (flagOn) {
-                    expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
-                    expect(screen.getByText(/Check that your app is configured to capture exceptions/)).toBeTruthy()
-                    expect(screen.queryByText(/Run Wizard/)).toBeNull()
-                } else {
-                    expect(screen.getByText("You're set up. Waiting for the first exception")).toBeTruthy()
-                }
-            }
+        expect(screen.getByText('Waiting for the first exception')).toBeTruthy()
+        if (expected) {
+            expect(await screen.findByLabelText(/Copy command/)).toBeTruthy()
+            expect(screen.getByText(/Check your SDK integration/)).toBeTruthy()
+        } else {
+            expect(screen.queryByLabelText(/Copy command/)).toBeNull()
+            expect(screen.getByText(/Check that your app is configured to capture exceptions/)).toBeTruthy()
+            expect(screen.queryByText(/Run Wizard/)).toBeNull()
         }
-    )
+    })
 
     it('offers manual setup without Wizard guidance on self-hosted instances', async () => {
         useMocks({ get: { '/_preflight/': { cloud: false } } })
         preflightLogic.actions.loadPreflight()
         await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.ERROR_TRACKING_NEW_WIZARD]: true })
 
         render(<ProductEmptyState config={errorTrackingEmptyState.config} mode="needs-setup" />)
 
