@@ -76593,26 +76593,39 @@ export namespace Schemas {
     } as const;
 
     /**
-     * @nullable
+     * The user a ticket is assigned to.
      */
-    export type TicketAssignmentUser = {[key: string]: string} | null;
+    export interface TicketAssignmentUser {
+      /** Numeric user id. Send this value back as the assignee id. */
+      id: number;
+      /** Email address of the assigned user. */
+      email: string;
+      /** Name of the assigned user, for display. The email address when the user has no name. */
+      name: string;
+    }
 
     /**
-     * @nullable
+     * The role a ticket is assigned to.
      */
-    export type TicketAssignmentRole = {[key: string]: string} | null;
+    export interface TicketAssignmentRole {
+      /** Role uuid. Send this value back as the assignee id. */
+      id: string;
+      /** Name of the assigned role. */
+      name: string;
+    }
 
     /**
      * Serializer for ticket assignment (user or role).
      */
     export interface TicketAssignment {
-      /** @nullable */
-      readonly id: string | null;
+      /** The numeric user id for a user assignee, the role uuid for a role assignee. */
+      readonly id: number | string | null;
+      /** Kind of assignee that holds the ticket: 'user' or 'role'. */
       readonly type: string;
-      /** @nullable */
-      readonly user: TicketAssignmentUser;
-      /** @nullable */
-      readonly role: TicketAssignmentRole;
+      /** The assigned user. Null when a role holds the ticket. */
+      readonly user: TicketAssignmentUser | null;
+      /** The assigned role. Null when a user holds the ticket. */
+      readonly role: TicketAssignmentRole | null;
     }
 
     export type TicketPersonProperties = { [key: string]: unknown };

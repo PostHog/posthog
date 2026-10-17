@@ -14,36 +14,61 @@ from products.conversations.backend.models import TicketAssignment
 from products.conversations.backend.models.constants import Status
 
 
+class TicketAssignmentUserSerializer(serializers.Serializer):
+    """The user a ticket is assigned to."""
+
+    id = serializers.IntegerField(help_text="Numeric user id. Send this value back as the assignee id.")
+    email = serializers.EmailField(help_text="Email address of the assigned user.")
+    name = serializers.CharField(
+        help_text="Name of the assigned user, for display. The email address when the user has no name."
+    )
+
+
+class TicketAssignmentRoleSerializer(serializers.Serializer):
+    """The role a ticket is assigned to."""
+
+    id = serializers.CharField(help_text="Role uuid. Send this value back as the assignee id.")
+    name = serializers.CharField(help_text="Name of the assigned role.")
+
+
 class TicketAssignmentSerializer(serializers.ModelSerializer):
     """Serializer for ticket assignment (user or role)."""
 
-    id = serializers.SerializerMethodField()
-    type = serializers.SerializerMethodField()
-    user = serializers.SerializerMethodField()
-    role = serializers.SerializerMethodField()
+    id = serializers.SerializerMethodField(
+        help_text="The numeric user id for a user assignee, the role uuid for a role assignee."
+    )
+    type = serializers.SerializerMethodField(help_text="Kind of assignee that holds the ticket: 'user' or 'role'.")
+    user = serializers.SerializerMethodField(help_text="The assigned user. Null when a role holds the ticket.")
+    role = serializers.SerializerMethodField(help_text="The assigned role. Null when a user holds the ticket.")
 
     class Meta:
         model = TicketAssignment
         fields = ["id", "type", "user", "role"]
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
-    def get_id(self, obj):
+    # A user assignee carries an integer id and a role assignee a uuid string. A CharField here
+    # promises a string for both, while the response still holds the integer for a user.
+    @extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string"}], "nullable": True})
+    def get_id(self, obj) -> int | str | None:
         return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 
     @extend_schema_field(serializers.CharField())
     def get_type(self, obj):
         return "role" if obj.role_id else "user"
 
-    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    @extend_schema_field(TicketAssignmentUserSerializer(allow_null=True))
     def get_user(self, obj):
         if obj.user_id and obj.user:
-            return {"email": obj.user.email}
+            return {
+                "id": obj.user_id,
+                "email": obj.user.email,
+                "name": obj.user.get_full_name() or obj.user.email,
+            }
         return None
 
-    @extend_schema_field(serializers.DictField(child=serializers.CharField(), allow_null=True))
+    @extend_schema_field(TicketAssignmentRoleSerializer(allow_null=True))
     def get_role(self, obj):
         if obj.role_id and obj.role:
-            return {"name": obj.role.name}
+            return {"id": str(obj.role_id), "name": obj.role.name}
         return None
 
 

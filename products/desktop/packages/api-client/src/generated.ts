@@ -21434,13 +21434,55 @@ export namespace Schemas {
         channel: string | null;
     }>;
     /**
+     * The user a ticket is assigned to.
+     */
+    export type TicketAssignmentUser = {
+        /**
+         * Numeric user id. Send this value back as the assignee id.
+         */
+        id: number;
+        /**
+         * Email address of the assigned user.
+         */
+        email: string;
+        /**
+         * Name of the assigned user, for display. The email address when the user has no name.
+         */
+        name: string;
+    };
+    /**
+     * The role a ticket is assigned to.
+     */
+    export type TicketAssignmentRole = {
+        /**
+         * Role uuid. Send this value back as the assignee id.
+         */
+        id: string;
+        /**
+         * Name of the assigned role.
+         */
+        name: string;
+    };
+    /**
      * Serializer for ticket assignment (user or role).
      */
     export type TicketAssignment = {
-        id: string | null;
+        /**
+         * The numeric user id for a user assignee, the role uuid for a role assignee.
+         */
+        id: number | string | null;
+        /**
+         * Kind of assignee that holds the ticket: 'user' or 'role'.
+         */
         type: string;
-        user: Record<string, string> | null;
-        role: Record<string, string> | null;
+        /**
+         * The assigned user. Null when a role holds the ticket.
+         */
+        user: TicketAssignmentUser | null;
+        /**
+         * The assigned role. Null when a user holds the ticket.
+         */
+        role: TicketAssignmentRole | null;
     };
     /**
      * Minimal person serializer for embedding in ticket responses.

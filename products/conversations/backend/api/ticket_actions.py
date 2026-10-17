@@ -26,6 +26,7 @@ from posthog.models.activity_logging.model_activity import ActivityTriggerContex
 from posthog.models.comment import Comment
 from posthog.models.tag import tagify
 
+from products.conversations.backend.api.serializers import TicketAssignmentSerializer
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
@@ -313,15 +314,10 @@ def handle_ticket_get(
     except Ticket.DoesNotExist:
         return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
 
-    assignee = None
     assignment = getattr(ticket, "assignment", None)
-    if assignment:
-        assignee = {
-            "id": assignment.user_id if assignment.user_id else str(assignment.role_id) if assignment.role_id else None,
-            "type": "role" if assignment.role_id else "user",
-            "user": {"email": assignment.user.email} if assignment.user_id and assignment.user else None,
-            "role": {"name": assignment.role.name} if assignment.role_id and assignment.role else None,
-        }
+    # The assignee comes from the API serializer, because these routes must answer with the
+    # same assignee shape as the ticket API. It holds no datetime, so the shape is safe here.
+    assignee = TicketAssignmentSerializer(assignment).data if assignment else None
 
     session_context = ticket.session_context or {}
     tags = list(ticket.tagged_items.values_list("tag__name", flat=True))
