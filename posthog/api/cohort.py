@@ -377,6 +377,20 @@ class BehavioralFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     explicit_datetime: str | None = None
     explicit_datetime_to: str | None = None
 
+    @model_validator(mode="after")
+    def _validate_min_periods_within_total_periods(self) -> "BehavioralFilter":
+        # The cohort query rejects this only at calculation time, so the cohort would save but never compute.
+        if (
+            self.value == "performed_event_regularly"
+            and self.min_periods is not None
+            and self.total_periods is not None
+            and self.min_periods > self.total_periods
+        ):
+            raise ValueError(
+                f"min_periods ({self.min_periods}) cannot be greater than total_periods ({self.total_periods})"
+            )
+        return self
+
 
 class CohortFilter(FilterBytecodeMixin, BaseModel, extra="forbid"):
     type: Literal["cohort"]

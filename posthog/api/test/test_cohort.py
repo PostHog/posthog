@@ -4586,8 +4586,22 @@ email@example.org,
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["detail"], "Missing required keys for person filter: value")
 
+    @parameterized.expand(
+        [
+            (
+                "missing_event_type",
+                {"value": "performed_event"},
+                "Missing required keys for behavioral filter: event_type",
+            ),
+            (
+                "min_periods_above_total_periods",
+                {"value": "performed_event_regularly", "event_type": "events", "min_periods": 5, "total_periods": 3},
+                "min_periods (5) cannot be greater than total_periods (3)",
+            ),
+        ]
+    )
     @patch("posthog.api.cohort.report_user_action")
-    def test_cohort_property_validation_behavioral_filter(self, patch_capture):
+    def test_cohort_property_validation_behavioral_filter(self, _name, filter_fields, expected_error, patch_capture):
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
@@ -4595,23 +4609,13 @@ email@example.org,
                 "filters": {
                     "properties": {
                         "type": "OR",
-                        "values": [
-                            {
-                                "key": "$pageview",
-                                "type": "behavioral",
-                                "value": "performed_event",
-                                # Missing event_type
-                            }
-                        ],
+                        "values": [{"key": "$pageview", "type": "behavioral", **filter_fields}],
                     }
                 },
             },
         )
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json()["detail"],
-            "Missing required keys for behavioral filter: event_type",
-        )
+        self.assertIn(expected_error, response.json()["detail"])
 
     @parameterized.expand(
         [
