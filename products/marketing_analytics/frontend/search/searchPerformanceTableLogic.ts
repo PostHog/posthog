@@ -1,5 +1,20 @@
-import { LogicWrapper, MakeLogicType, connect, kea, key, listeners, path, props, propsChanged, selectors } from 'kea'
+import {
+    LogicWrapper,
+    MakeLogicType,
+    actions,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic'
 import { MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
 
@@ -57,10 +72,15 @@ export interface searchPerformanceTableLogicValues extends Pick<
     conversionsResponse: MarketingAnalyticsSearchQueryResponse | null
     goals: MarketingAnalyticsSearchConversionGoal[]
     rows: MarketingAnalyticsSearchRow[]
+    featureFlags: Record<string, boolean | string | undefined>
+    recommendationSource: string | null
+    recommendationGoalId: string | null
+    recommendationsEnabled: boolean
 }
 
 export interface searchPerformanceTableLogicActions extends Pick<dataNodeLogicActions, 'loadData'> {
     loadConversions: dataNodeLogicActions['loadData']
+    setRecommendationSource: (source: string) => { source: string }
 }
 
 export type searchPerformanceTableLogicType = MakeLogicType<
@@ -76,6 +96,8 @@ export const searchPerformanceTableLogic: LogicWrapper<searchPerformanceTableLog
         path((key) => ['products', 'marketingAnalytics', 'searchPerformanceTableLogic', key]),
         connect((props: SearchPerformanceTableLogicProps) => ({
             values: [
+                featureFlagLogic,
+                ['featureFlags'],
                 dataNodeLogic(dataProps(props, false)),
                 ['response as rawResponse', 'responseLoading', 'responseError', 'responseErrorObject', 'queryId'],
                 dataNodeLogic(dataProps(props, true)),
@@ -96,7 +118,28 @@ export const searchPerformanceTableLogic: LogicWrapper<searchPerformanceTableLog
                 ['loadData as loadConversions'],
             ],
         })),
+        actions({ setRecommendationSource: (source: string) => ({ source }) }),
+        reducers({
+            recommendationSource: [null as string | null, { setRecommendationSource: (_, { source }) => source }],
+        }),
         selectors({
+            recommendationsEnabled: [
+                (s) => [s.featureFlags],
+                (flags): boolean => !!flags[FEATURE_FLAGS.MARKETING_ANALYTICS_SEARCH_RECOMMENDATIONS],
+            ],
+            recommendationGoalId: [
+                (s) => [s.recommendationSource, s.conversionsEnabled, s.goals],
+                (
+                    source: string | null,
+                    enabled: boolean,
+                    goals: MarketingAnalyticsSearchConversionGoal[]
+                ): string | null =>
+                    !enabled || source === 'platform'
+                        ? null
+                        : source
+                          ? (goals.find((goal) => goal.id === source)?.id ?? null)
+                          : (goals[0]?.id ?? null),
+            ],
             baseDataNodeProps: [
                 (_, p) => [p.query, p.queryKey],
                 (query, queryKey): DataNodeLogicProps => dataProps({ query, queryKey }, false),

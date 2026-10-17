@@ -29,6 +29,7 @@ import {
 } from './searchPerformance'
 import { searchPerformanceTableLogic } from './searchPerformanceTableLogic'
 import { SearchPositionCell } from './SearchPositionCell'
+import { SearchRecommendations } from './SearchRecommendations'
 
 export function SearchPerformanceTable({
     query,
@@ -141,6 +142,7 @@ export function SearchPerformanceTable({
                     project admin for help. Traffic data is available.
                 </LemonBanner>
             )}
+            <SearchRecommendations query={query} queryKey={queryKey} onSelect={onSelect} />
             <LemonTable<MarketingAnalyticsSearchRow>
                 size="small"
                 tableLayout="fixed"

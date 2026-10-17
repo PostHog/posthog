@@ -9768,6 +9768,21 @@
         },
         "feature_flag": "marketing-analytics-mcp"
     },
+    "marketing-analytics-search-recommendations": {
+        "description": "Compare search report rows with the previous period and return up to five suggestions to investigate, with the observed metrics. Choose one PostHog conversion goal or ad platform conversions. Does not change campaigns or infer profitability.",
+        "category": "Marketing analytics",
+        "feature": "marketing_analytics",
+        "summary": "Get search performance suggestions",
+        "title": "Get search performance suggestions",
+        "required_scopes": ["marketing_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "marketing-analytics-search-recommendations"
+    },
     "marketing-analytics-setup-plan": {
         "description": "Scan the project's marketing analytics setup and return ranked recommendations. Use when the user asks which data sources or ad platforms to connect, or what to fix next. Suggestions with kind connect_source identify missing integrations inferred from observed traffic, with evidence, confidence, event volume, and a optional deep_link to the connection flow. Present these as recommendations, not proof that the user owns an account on that platform. Other suggestions cover existing integration health, UTM mappings, and conversion goals. This tool only reads data; it does not connect a platform or apply changes. Direct the user to the returned connection link, when provided, to complete authorization. Use refresh=true for an explicit rescan. If degraded is non-empty, explain that some checks failed. If truncated is true, describe totals as approximate. Requires a project with the Marketing analytics setup plan enabled.",
         "category": "Marketing analytics",

@@ -101874,6 +101874,63 @@ export namespace Schemas {
       model_query: string | null;
     }
 
+    export type SearchRecommendationKindEnum = typeof SearchRecommendationKindEnum[keyof typeof SearchRecommendationKindEnum];
+
+
+    export const SearchRecommendationKindEnum = {
+      SpendWithoutConversions: 'spend_without_conversions',
+      HigherCpa: 'higher_cpa',
+      LowerOrganicCtr: 'lower_organic_ctr',
+    } as const;
+
+    export interface SearchRecommendation {
+      row: MarketingAnalyticsSearchRow;
+      kind: SearchRecommendationKindEnum;
+      current: number;
+      previous: number;
+    }
+
+    export interface SearchRecommendations {
+      recommendations?: SearchRecommendation[];
+      goal_id?: string | null;
+      warning?: string | null;
+    }
+
+    export type SearchRecommendationsQueryBreakdown = typeof SearchRecommendationsQueryBreakdown[keyof typeof SearchRecommendationsQueryBreakdown] | null;
+
+
+    export const SearchRecommendationsQueryBreakdown = {
+      Keyword: 'keyword',
+      Page: 'page',
+    } as const;
+
+    export interface SearchRecommendationsQuery {
+      /** Connected search source tables from the search report. */
+      sources: MarketingAnalyticsSearchSource[];
+      breakdown?: SearchRecommendationsQueryBreakdown;
+      compareFilter?: CompareFilter | null;
+      dateRange?: DateRange | null;
+      keyword?: string | null;
+      page?: string | null;
+      search?: string | null;
+      normalizePageUrls?: boolean | null;
+    }
+
+    export interface SearchRecommendationsRequest {
+      /** Search report filters and connected source tables to analyze. */
+      query: SearchRecommendationsQuery;
+      /**
+         * PostHog conversion goal ID. Omit to use ad platform conversions. Goals are never combined or substituted.
+         * @nullable
+         */
+      goal_id?: string | null;
+    }
+
+    export interface SearchRecommendationsResponse {
+      /** Up to five investigation suggestions with comparison evidence and the selected conversion source. These are heuristics, not profitability or significance estimates. */
+      result: SearchRecommendations;
+    }
+
     export interface SearchSuggestionsQuery {
       /** Scope to a single scanner's observations. Defaults to every scanner you can read. */
       scanner_id?: string;

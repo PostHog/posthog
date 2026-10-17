@@ -2235,6 +2235,134 @@ export interface GoalExplanationApi {
     notes: string[]
 }
 
+export type SourceTypeApi = (typeof SourceTypeApi)[keyof typeof SourceTypeApi]
+
+export const SourceTypeApi = {
+    GoogleAds: 'GoogleAds',
+    BingAds: 'BingAds',
+    GoogleSearchConsole: 'GoogleSearchConsole',
+} as const
+
+export interface MarketingAnalyticsSearchSourceApi {
+    keywordTable?: string | null
+    placementTable?: string | null
+    queryPageTable?: boolean | null
+    sourceType: SourceTypeApi
+    statsTable: string
+}
+
+export type SearchRecommendationsQueryApiBreakdown =
+    | (typeof SearchRecommendationsQueryApiBreakdown)[keyof typeof SearchRecommendationsQueryApiBreakdown]
+    | null
+
+export const SearchRecommendationsQueryApiBreakdown = {
+    Keyword: 'keyword',
+    Page: 'page',
+} as const
+
+export interface SearchRecommendationsQueryApi {
+    /** Connected search source tables from the search report. */
+    sources: MarketingAnalyticsSearchSourceApi[]
+    breakdown?: SearchRecommendationsQueryApiBreakdown
+    compareFilter?: CompareFilterApi | null
+    dateRange?: DateRangeApi | null
+    keyword?: string | null
+    page?: string | null
+    search?: string | null
+    normalizePageUrls?: boolean | null
+}
+
+export interface SearchRecommendationsRequestApi {
+    /** Search report filters and connected source tables to analyze. */
+    query: SearchRecommendationsQueryApi
+    /**
+     * PostHog conversion goal ID. Omit to use ad platform conversions. Goals are never combined or substituted.
+     * @nullable
+     */
+    goal_id?: string | null
+}
+
+export type PlatformApi = (typeof PlatformApi)[keyof typeof PlatformApi]
+
+export const PlatformApi = {
+    GoogleAds: 'GoogleAds',
+    BingAds: 'BingAds',
+    GoogleSearchConsole: 'GoogleSearchConsole',
+} as const
+
+export interface MarketingAnalyticsSearchConversionApi {
+    conversions?: number | null
+    costPerConversion?: number | null
+    id: string
+    name: string
+    previousConversions?: number | null
+    previousCostPerConversion?: number | null
+}
+
+export interface MarketingAnalyticsSearchMetricsApi {
+    /** Fraction of Google Search ad impressions shown as the first ad. */
+    absoluteTopImpressionRate?: number | null
+    clicks: number
+    conversions?: number | null
+    cost?: number | null
+    cpa?: number | null
+    cpc?: number | null
+    ctr?: number | null
+    impressions: number
+    position?: number | null
+    /** Fraction of Google Search ad impressions shown among the top ads. */
+    topImpressionRate?: number | null
+}
+
+export interface MarketingAnalyticsSearchRowApi {
+    /** Fraction of Google Search ad impressions shown as the first ad. */
+    absoluteTopImpressionRate?: number | null
+    clicks: number
+    conversions?: number | null
+    cost?: number | null
+    cpa?: number | null
+    cpc?: number | null
+    ctr?: number | null
+    currency?: string | null
+    impressions: number
+    keyword?: string | null
+    matchType?: string | null
+    page?: string | null
+    platform: PlatformApi
+    position?: number | null
+    posthogConversions?: MarketingAnalyticsSearchConversionApi[] | null
+    previous?: MarketingAnalyticsSearchMetricsApi | null
+    /** Fraction of Google Search ad impressions shown among the top ads. */
+    topImpressionRate?: number | null
+}
+
+export type SearchRecommendationKindEnumApi =
+    (typeof SearchRecommendationKindEnumApi)[keyof typeof SearchRecommendationKindEnumApi]
+
+export const SearchRecommendationKindEnumApi = {
+    SpendWithoutConversions: 'spend_without_conversions',
+    HigherCpa: 'higher_cpa',
+    LowerOrganicCtr: 'lower_organic_ctr',
+} as const
+
+export interface SearchRecommendationApi {
+    row: MarketingAnalyticsSearchRowApi
+    kind: SearchRecommendationKindEnumApi
+    current: number
+    previous: number
+}
+
+export interface SearchRecommendationsApi {
+    recommendations?: SearchRecommendationApi[]
+    goal_id?: string | null
+    warning?: string | null
+}
+
+export interface SearchRecommendationsResponseApi {
+    /** Up to five investigation suggestions with comparison evidence and the selected conversion source. These are heuristics, not profitability or significance estimates. */
+    result: SearchRecommendationsApi
+}
+
 export interface SuggestionApi {
     /** Stable identifier for this finding. Deterministic across scans, so clients can dedupe and remember dismissals by it. */
     id: string

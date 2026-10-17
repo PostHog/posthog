@@ -31,6 +31,7 @@ from posthog.schema import (
     ConversionGoalFilter2,
     ConversionGoalFilter3,
     DateRange,
+    MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     SourceMap,
 )
@@ -66,6 +67,9 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import Ext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import SelfManagedAdapter
 from products.marketing_analytics.backend.hogql_queries.constants import CONVERSION_GOAL_KIND_CHOICES
+from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
+    MarketingAnalyticsSearchQueryRunner,
+)
 from products.marketing_analytics.backend.hogql_queries.utils import map_url_to_provider
 from products.marketing_analytics.backend.services.conversion_goals_inspector import (
     explain_conversion_goal,
@@ -76,6 +80,11 @@ from products.marketing_analytics.backend.services.data_source_health import get
 from products.marketing_analytics.backend.services.event_suggestions import suggest_conversion_goals
 from products.marketing_analytics.backend.services.mapping_suggester import suggest_utm_mappings
 from products.marketing_analytics.backend.services.marketing_diagnostic import get_marketing_diagnostic
+from products.marketing_analytics.backend.services.search_recommendations import (
+    SearchRecommendations,
+    SearchRecommendationsQuery,
+    search_recommendations,
+)
 from products.marketing_analytics.backend.services.setup_plan import get_setup_plan
 from products.marketing_analytics.backend.services.setup_types import (
     APPLICABLE_OPS,
@@ -1185,6 +1194,36 @@ class ConversionRecordingsResponseSerializer(serializers.Serializer):
     preparing = serializers.BooleanField(help_text="Whether the conversion data is still being prepared.")
 
 
+@extend_schema_field(SearchRecommendationsQuery)  # type: ignore[arg-type]
+class SearchRecommendationsQueryField(serializers.JSONField):
+    def to_internal_value(self, data: object) -> dict[str, object]:
+        try:
+            return SearchRecommendationsQuery.model_validate(data).model_dump(mode="json")
+        except PydanticValidationError:
+            raise serializers.ValidationError("Provide a valid Search performance query.")
+
+
+class SearchRecommendationsRequestSerializer(serializers.Serializer):
+    query = SearchRecommendationsQueryField(help_text="Search report filters and connected source tables to analyze.")
+    goal_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="PostHog conversion goal ID. Omit to use ad platform conversions. Goals are never combined or substituted.",
+    )
+
+
+@extend_schema_field(SearchRecommendations)  # type: ignore[arg-type]
+class SearchRecommendationsResultField(serializers.JSONField):
+    pass
+
+
+class SearchRecommendationsResponseSerializer(serializers.Serializer):
+    result = SearchRecommendationsResultField(
+        help_text="Up to five investigation suggestions with comparison evidence and the selected conversion source. These are heuristics, not profitability or significance estimates."
+    )
+
+
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     # `marketing_analytics` is gated by the API scope of the same name and inherits
     # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
@@ -1193,6 +1232,50 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     scope_object = "marketing_analytics"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
+
+    @validated_request(
+        operation_id="marketing_analytics_search_recommendations_create",
+        request_serializer=SearchRecommendationsRequestSerializer,
+        responses={200: SearchRecommendationsResponseSerializer},
+    )
+    @action(
+        methods=["POST"],
+        detail=False,
+        required_scopes=["marketing_analytics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def search_recommendations(self, request: Request, *args: object, **kwargs: object) -> Response:
+        if not feature_enabled_or_false(
+            "marketing-analytics-search-recommendations",
+            getattr(request.user, "distinct_id", None) or str(self.team.uuid),
+            groups={"organization": str(self.team.organization_id)},
+            person_properties={"email": getattr(request.user, "email", "")},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+        ):
+            raise NotFound()
+        data = request.validated_data
+        query = MarketingAnalyticsSearchQuery.model_validate(data["query"])
+        query.response = None
+        query.includePostHogConversions = data["goal_id"] is not None
+        if not query.compareFilter or not query.compareFilter.compare:
+            result = SearchRecommendations(
+                goal_id=data["goal_id"], warning="Turn on period comparison to check for changes."
+            )
+            return Response(SearchRecommendationsResponseSerializer({"result": result.model_dump(mode="json")}).data)
+        runner = MarketingAnalyticsSearchQueryRunner(query=query, team=self.team, user=cast(User, request.user))
+        tag_queries(team_id=self.team_id, product=Product.MARKETING_ANALYTICS, feature=Feature.QUERY)
+        is_api = is_api_key_access_method(get_query_tag_value("access_method"))
+        try:
+            with (
+                get_api_team_rate_limiter().run(
+                    team_id=self.team_id, is_api=is_api, limit=runner.get_api_queries_concurrency_limit()
+                ),
+                app_org_concurrency_slot(self.team),
+            ):
+                result = search_recommendations(runner.calculate(), data["goal_id"])
+        except ConcurrencyLimitExceeded as error:
+            raise Throttled(detail="Too many queries are running. Try again in a moment.") from error
+        return Response(SearchRecommendationsResponseSerializer({"result": result.model_dump(mode="json")}).data)
 
     @validated_request(
         operation_id="marketing_analytics_conversion_recordings_list",
