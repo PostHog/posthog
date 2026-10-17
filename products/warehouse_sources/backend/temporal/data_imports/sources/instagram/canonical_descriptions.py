@@ -58,7 +58,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "media_comments": {
-        "description": "Comments on the account's media, one row per comment. Keyed by media and comment, because the table aggregates comments across every post.",
+        "description": "Comments and comment replies on the account's media, one row per comment. Keyed by media and comment, because the table aggregates comments across every post. Replies have parent_id set, so the row count per media matches comments_count on media.",
         "docs_url": _COMMENT_DOCS,
         "columns": {
             "id": "Comment identifier.",
@@ -68,6 +68,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "username": "Username of the account that left the comment.",
             "like_count": "Number of likes on the comment.",
             "hidden": "Whether the comment is hidden on the media.",
+            "parent_id": "Identifier of the top-level comment this row replies to. Null for top-level comments.",
+            "from": "The account that left the comment, as an object with id and username.",
         },
     },
     "media_insights": {

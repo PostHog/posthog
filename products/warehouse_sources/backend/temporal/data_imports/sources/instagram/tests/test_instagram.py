@@ -424,6 +424,34 @@ class TestInstagramFanOut:
         assert [(row["media_id"], row["id"]) for row in result.rows] == [("m1", "c1"), ("m2", "c2")]
         assert result.rows[0]["timestamp"] == "2024-03-01T18:10:00+00:00"
 
+    def test_replies_are_written_under_their_parent_comment_including_overflow_pages(self) -> None:
+        result = _drive(
+            "media_comments",
+            [
+                ScriptedResponse(json=_page([{"id": "m1"}])),
+                ScriptedResponse(
+                    json=_page(
+                        [
+                            {"id": "c1", "replies": _page([{"id": "r1"}], "RCUR")},
+                            {"id": "c2", "replies": _page([])},
+                        ]
+                    )
+                ),
+                ScriptedResponse(json=_page([{"id": "r2"}])),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["id"], row.get("parent_id")) for row in result.rows] == [
+            ("c1", None),
+            ("r1", "c1"),
+            ("r2", "c1"),
+            ("c2", None),
+        ]
+        assert all("replies" not in row and row["media_id"] == "m1" for row in result.rows)
+        assert result.paths[2] == "/v23.0/c1/replies"
+        assert result.requests[2].param("after") == "RCUR"
+
     def test_a_post_with_comments_disabled_is_skipped_rather_than_failing_the_table(self) -> None:
         result = _drive(
             "media_comments",

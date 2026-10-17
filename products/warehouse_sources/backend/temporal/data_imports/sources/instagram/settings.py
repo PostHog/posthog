@@ -18,7 +18,11 @@ MEDIA_FIELDS = (
     "timestamp,username,shortcode,like_count,comments_count,is_comment_enabled"
 )
 STORY_FIELDS = "id,caption,media_type,media_product_type,media_url,permalink,thumbnail_url,timestamp,username"
-COMMENT_FIELDS = "id,text,timestamp,username,like_count,hidden"
+COMMENT_FIELDS = "id,text,timestamp,username,like_count,hidden,parent_id,from"
+# The media comments edge lists top-level comments only. Expanding `replies` inline brings
+# the first page of each thread back on the same request, so a thread costs an extra call
+# only when it overflows that page.
+TOP_LEVEL_COMMENT_FIELDS = f"{COMMENT_FIELDS},replies.limit(100){{{COMMENT_FIELDS}}}"
 # Parent listing for the fan-out endpoints — only what the child rows need to be keyed
 # and partitioned, so the fan-out doesn't pay for the full media projection.
 MEDIA_PARENT_FIELDS = "id,timestamp,media_product_type"
@@ -122,7 +126,8 @@ INSTAGRAM_ENDPOINTS: dict[str, InstagramEndpointConfig] = {
         timestamp_fields=("timestamp",),
     ),
     # Comments have no server-side time filter, so the fan-out is a full refresh. The
-    # media id is part of the key: the table aggregates comments from every post.
+    # media id is part of the key: the table aggregates comments from every post. Replies
+    # land in the same table with `parent_id` set to the top-level comment.
     "media_comments": InstagramEndpointConfig(
         name="media_comments",
         edge="media",
