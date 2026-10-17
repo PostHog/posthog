@@ -593,6 +593,97 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
             })
 
+            describe('idempotency key', () => {
+                const postWithKey = (webhookId: string, idempotencyKey: string) =>
+                    doPostRequest({
+                        webhookId,
+                        headers: { 'Idempotency-Key': idempotencyKey },
+                        body: { distinct_id: 'test-distinct-id' },
+                    })
+
+                const insertSecondHogFlow = async (): Promise<HogFlow> => {
+                    const other = new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withSimpleWorkflow({ trigger: hogFlow.trigger })
+                        .build()
+                    await insertHogFlow(hub.postgres, other)
+                    return other
+                }
+
+                it('queues one run and answers duplicate for a repeated key on the same workflow', async () => {
+                    hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                    const first = await postWithKey(hogFlow.id, 'escalation-1')
+                    const second = await postWithKey(hogFlow.id, 'escalation-1')
+
+                    expect(first.status).toEqual(201)
+                    expect(first.body.status).toEqual('queued')
+                    expect(second.status).toEqual(200)
+                    expect(second.body.status).toEqual('duplicate')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+
+                    await waitForBackgroundTasks()
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                    ).toHaveLength(1)
+                    expect(getLogs()).toContainEqual(
+                        expect.stringContaining('Skipped duplicate request for Idempotency-Key "escalation-1"')
+                    )
+                })
+
+                it('queues a run on each workflow that receives the same key', async () => {
+                    const otherHogFlow = await insertSecondHogFlow()
+
+                    const first = await postWithKey(hogFlow.id, 'escalation-2')
+                    const second = await postWithKey(otherHogFlow.id, 'escalation-2')
+
+                    expect(first.status).toEqual(201)
+                    expect(second.status).toEqual(201)
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                })
+
+                it('releases the key when queueing fails so a retry queues the run', async () => {
+                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                    const failed = await postWithKey(hogFlow.id, 'escalation-3')
+                    const retried = await postWithKey(hogFlow.id, 'escalation-3')
+
+                    expect(failed.status).toEqual(500)
+                    expect(retried.status).toEqual(201)
+                    expect(retried.body.status).toEqual('queued')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                })
+
+                it('queues the run when the redis claim never answers, and releases it if queueing fails', async () => {
+                    const redis = api['cdpSourceWebhooksConsumer']['redis']
+                    const useClient = redis.useClient
+                    let claims = 0
+                    jest.spyOn(redis, 'useClient').mockImplementation((options, callback) => {
+                        if (options.name === 'hogflow-webhook-idempotency-claim' && claims++ === 0) {
+                            void useClient(options, callback)
+                            return new Promise(() => {})
+                        }
+                        return useClient(options, callback)
+                    })
+                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                    const failed = await postWithKey(hogFlow.id, 'escalation-4')
+                    const retried = await postWithKey(hogFlow.id, 'escalation-4')
+
+                    expect(failed.status).toEqual(500)
+                    expect(retried.status).toEqual(201)
+                    expect(retried.body.status).toEqual('queued')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                })
+
+                it('rejects a key longer than 255 characters without queueing', async () => {
+                    const res = await postWithKey(hogFlow.id, 'a'.repeat(256))
+
+                    expect(res.status).toEqual(400)
+                    expect(res.body.error).toEqual('Idempotency-Key must be 255 characters or fewer')
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+            })
+
             it('does not report a workflow trigger as CDP usage', async () => {
                 const reportBillableInvocation = jest.spyOn(
                     api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
