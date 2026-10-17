@@ -76,6 +76,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_query_metric,
     get_teams_with_sdk_logs_records_in_period,
     has_non_zero_usage,
+    iter_billable_teams,
     send_all_org_usage_reports,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
@@ -5673,8 +5674,16 @@ class TestSendUsageNoLicense(APIBaseTest):
 
 
 class TestBillableTeams(TestCase):
-    @parameterized.expand([(1, None), (2, None), (10, []), (2, [str(UUID(int=3))])])
-    def test_get_teams_for_usage_reports(self, batch_size: int, organization_ids: list[str] | None) -> None:
+    @parameterized.expand(
+        [
+            (batch_size, organization_ids, buffer_teams)
+            for batch_size, organization_ids in [(1, None), (2, None), (10, []), (2, [str(UUID(int=3))])]
+            for buffer_teams in (False, True)
+        ]
+    )
+    def test_get_teams_for_usage_reports(
+        self, batch_size: int, organization_ids: list[str] | None, buffer_teams: bool
+    ) -> None:
         org_last = Organization.objects.create(id=UUID(int=3), name="Last")
         org_first = Organization.objects.create(id=UUID(int=1), name="First")
         org_demo = Organization.objects.create(id=UUID(int=2), name="Demo only")
@@ -5692,7 +5701,16 @@ class TestBillableTeams(TestCase):
             patch("posthog.tasks.usage_report.BILLING_ORGANIZATION_BATCH_SIZE", batch_size),
             self.assertNumQueries(expected_queries),
         ):
-            teams = list(_get_teams_for_usage_reports(organization_ids=organization_ids))
+            teams = list(
+                iter_billable_teams(
+                    team_fields=("id", "name"),
+                    organization_fields=("id", "name", "created_at"),
+                    organization_ids=organization_ids,
+                    buffer_teams=True,
+                )
+                if buffer_teams
+                else _get_teams_for_usage_reports(organization_ids=organization_ids)
+            )
 
         expected_teams = [last_team] if organization_ids else [first_team, second_team, last_team]
         assert [team.id for team in teams] == [team.id for team in expected_teams]
@@ -5707,6 +5725,20 @@ class TestBillableTeams(TestCase):
 
         with self.assertNumQueries(1):
             assert teams[0].organization.for_internal_metrics is False
+
+    def test_buffered_teams_survive_closed_server_cursors(self) -> None:
+        org = Organization.objects.create()
+        first_team = Team.objects.create(organization=org)
+        second_team = Team.objects.create(organization=org)
+
+        with patch.dict(connection.settings_dict, DISABLE_SERVER_SIDE_CURSORS=False):
+            teams = iter_billable_teams(team_fields=("id",), organization_fields=("id",), buffer_teams=True)
+            first = next(teams)
+            with connection.cursor() as cursor:
+                cursor.execute("CLOSE ALL")
+            rest = list(teams)
+
+        assert [team.id for team in [first, *rest]] == [first_team.id, second_team.id]
 
     def test_team_moved_to_a_later_organization_during_the_scan_is_reported_once(self) -> None:
         org_first = Organization.objects.create(id=UUID(int=1), name="First")
