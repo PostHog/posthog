@@ -1,3 +1,6 @@
+import { CustomFacetSourceType } from 'lib/components/FacetRail/customFacetsLogic'
+import { FacetOption } from 'lib/components/FacetRail/Facet'
+
 import {
     FilterLogicalOperator,
     PropertyFilterType,
@@ -5,13 +8,6 @@ import {
     PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
-
-/** One selectable row in a facet: a value with its span count. */
-export interface FacetOption {
-    value: string
-    label: string
-    count: number
-}
 
 /**
  * Whether a facet's value set is known ahead of time or discovered from the data.
@@ -431,21 +427,6 @@ export function resolveFacets(facets: FacetConfig[], presentResourceKeys: string
 }
 
 /**
- * Filter facets by a free-text query matching the field name or its group (case-insensitive
- * substring) — powers the rail's "search facets" box. A blank query returns everything, so
- * `facetsByGroup` then drops any group left with no matching facets for free.
- */
-export function filterFacetsByName(facets: FacetConfig[], query: string): FacetConfig[] {
-    const needle = query.trim().toLowerCase()
-    if (!needle) {
-        return facets
-    }
-    return facets.filter(
-        (facet) => facet.title.toLowerCase().includes(needle) || facet.group.toLowerCase().includes(needle)
-    )
-}
-
-/**
  * Ensure every selected value of a dynamic facet renders even when absent from the fetched list —
  * a filter from a URL or saved view can reference a value with no matches in the current scope
  * (or one below the top-N cutoff), and without a visible row it can't be seen or toggled off.
@@ -467,23 +448,6 @@ export function mergeSelectedIntoOptions(fetched: FacetOption[], selected: strin
     }
     return missing.length > 0 ? [...missing, ...fetched] : fetched
 }
-
-/** Group facets by `group`, preserving first-appearance order of both groups and facets. */
-export function facetsByGroup(facets: FacetConfig[]): [string, FacetConfig[]][] {
-    const groups: [string, FacetConfig[]][] = []
-    for (const facet of facets) {
-        const existing = groups.find(([group]) => group === facet.group)
-        if (existing) {
-            existing[1].push(facet)
-        } else {
-            groups.push([facet.group, [facet]])
-        }
-    }
-    return groups
-}
-
-/** A custom facet's source kind, as persisted per-user — mirrors the backend's `source_type` choices. */
-export type CustomFacetSourceType = 'attribute' | 'resourceAttribute'
 
 /** Builds a rail-renderable FacetConfig for a user-added custom facet — always dynamic, with a remove control. */
 export function buildCustomFacet(key: string, sourceType: CustomFacetSourceType): FacetConfig {
