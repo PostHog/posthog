@@ -228,8 +228,10 @@ def _warnings_for_unknown_references(
         return []
 
     # A project with no definitions yet must not warn on every name. Only ask when nothing was
-    # found, because a hit above already proves the taxonomy has rows.
-    if not found_names and not taxonomy.exists():
+    # found, because a hit above already proves the taxonomy has rows. `exists()` drops any ORDER BY,
+    # and without one Postgres may satisfy the LIMIT with a scan. Ordering by `name` keeps the check
+    # on the project-scoped unique index, the same as `bounded_count_sql`.
+    if not found_names and not taxonomy.order_by("name").values_list("name", flat=True)[:1]:
         return []
 
     suggestions = _suggestions_for(taxonomy, unknown_names[:MAX_SUGGESTED_NAMES])
