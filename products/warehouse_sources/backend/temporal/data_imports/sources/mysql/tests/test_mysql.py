@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_too_many_connections,
     _is_transient_vitess_dial_timeout,
     _is_transient_vitess_reparent,
+    _pinned_addresses,
     _reconnect_pinned,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
@@ -3335,3 +3336,22 @@ class TestConnectCertificateVerification:
         else:
             connection._request_authentication()
             delegate.assert_called_once()
+
+
+class TestOOBDomainDetection:
+    def test_the_pinned_path_logs_before_it_resolves(self, mocker):
+        mysql_module = "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql"
+        mixins_module = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+        mocker.patch(f"{mixins_module}.is_cloud", return_value=True)
+        mocker.patch(f"{mysql_module}.host_lookup_is_skipped", return_value=False)
+        mocker.patch(
+            f"{mysql_module}.resolve_psycopg_hostaddr_with_timeout",
+            side_effect=AssertionError("resolved before the detection log"),
+        )
+        log_host_check = mocker.patch(f"{mixins_module}._log_host_check")
+
+        with pytest.raises(AssertionError):
+            _pinned_addresses("abc.oast.live", 3306, 5, 2)
+
+        stages = [call.args[3] for call in log_host_check.call_args_list]
+        assert "oob_domain" in stages
