@@ -1,1 +1,1 @@
-0012_move_platform_models_to_alerts_platform
+0013_insight_anomaly_config_and_state

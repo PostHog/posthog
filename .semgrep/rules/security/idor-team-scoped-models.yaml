@@ -253,6 +253,8 @@ rules:
                               |HogFunctionRevision
                               |Hook
                               |Insight
+                              |InsightAnomalyConfig
+                              |InsightAnomalyState
                               |InsightVariable
                               |Integration
                               |IntegrationRepositoryCacheEntry
@@ -722,6 +724,8 @@ rules:
                         |HogFunctionRevision
                         |Hook
                         |Insight
+                        |InsightAnomalyConfig
+                        |InsightAnomalyState
                         |InsightVariable
                         |Integration
                         |IntegrationRepositoryCacheEntry
