@@ -605,6 +605,20 @@ def test_the_size_bound_counts_both_escapes() -> None:
     assert TemplateVariables.from_templating([dots, job]).definitions() == []
 
 
+def test_a_custom_list_reads_grafana_text_and_value_items() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "env", "type": "custom", "query": "Production : prod, Development : dev, a\\,b", "current": {}}]
+    )
+
+    assert [definition.customValues for definition in variables.definitions()] == [["prod", "dev", "a,b"]]
+
+
+def test_only_the_first_variables_stay_live() -> None:
+    items = [{"name": f"v{index}", "type": "custom", "query": "a,b", "current": {"value": "a"}} for index in range(60)]
+
+    assert len(TemplateVariables.from_templating(items).definitions()) == 50
+
+
 def test_a_long_chain_of_unresolvable_variables_stays_static() -> None:
     chain = [
         {"name": f"v{index}", "type": "query", "query": f'label_values(up{{x="$v{index + 1}"}}, y)'}

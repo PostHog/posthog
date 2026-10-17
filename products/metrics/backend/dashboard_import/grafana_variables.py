@@ -31,6 +31,10 @@ MAX_NAME_LENGTH = 128
 MAX_QUERY_LENGTH = 10_000
 MAX_VALUE_LENGTH = 1024
 MAX_VALUES = 1000
+# Each change to a selection walks the variables that depend on it, so a dashboard keeps a practical number live.
+MAX_LIVE_VARIABLES = 50
+_CUSTOM_ITEM = re.compile(r"(?:\\,|[^,])+")
+_CUSTOM_KEY_VALUE = re.compile(r"^\s*(.+)\s:\s(.+)$")
 # Private use characters, which stand for variables while dependencies are checked.
 _MARKER_START = 0xF0000
 _MAX_MARKERS = 0xFFFD
@@ -60,6 +64,18 @@ def _regex(item: dict[str, Any]) -> str | None:
     if not isinstance(regex, str) or not regex.strip():
         return None
     return regex.strip()
+
+
+def _custom_values(query: str) -> list[str]:
+    """The values of a Grafana custom list. An item is `value` or `text : value`, and `\\,` is a literal comma."""
+    values = []
+    for item in _CUSTOM_ITEM.findall(query):
+        text = item.replace("\\,", ",")
+        key_value = _CUSTOM_KEY_VALUE.match(text)
+        value = (key_value.group(2) if key_value else text).strip()
+        if value:
+            values.append(value)
+    return values
 
 
 def _within_limits(values: list[str]) -> bool:
@@ -109,11 +125,7 @@ def _live_definition(
             return None
         source = MetricsDashboardVariableSource.PROMQL
     elif kind == "custom":
-        custom_values = (
-            list(variable.options)
-            or [part.strip() for part in _query_text(item).split(",") if part.strip()]
-            or list(variable.values)
-        )
+        custom_values = list(variable.options) or _custom_values(_query_text(item)) or list(variable.values)
         if not _within_limits(custom_values):
             return None
         if include_all and all_value is None:
@@ -257,7 +269,8 @@ class TemplateVariables:
             definition = _live_definition(item["name"], kind, item, variable, datasource_type(item.get("datasource")))
             if definition is not None:
                 live[item["name"]] = definition
-        return cls(variables, _resolvable(live, variables))
+        kept = dict(list(live.items())[:MAX_LIVE_VARIABLES])
+        return cls(variables, _resolvable(kept, variables))
 
     def summary(self) -> dict[str, str]:
         return {
