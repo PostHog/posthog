@@ -92,7 +92,9 @@ class EndpointCrudService:
 
             # Column extraction hits ClickHouse — do it outside the transaction.
             try:
-                columns: list[dict] | None = EndpointVersion.extract_columns(query_dict, team_id=self.team.pk)
+                columns: list[dict] | None = EndpointVersion.extract_columns(
+                    query_dict, team_id=self.team.pk, user=self.user
+                )
             except Exception as e:
                 capture_exception(
                     e,
