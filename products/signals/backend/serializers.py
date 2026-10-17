@@ -1885,8 +1885,8 @@ class SignalReportListSerializer(SignalReportSerializer):
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
-        return inbox_merge_key(score, getattr(obj, "priority_sort_rank", None))
+        decile = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score_decile", None)
+        return inbox_merge_key(decile, getattr(obj, "priority_sort_rank", None))
 
 
 class SignalReportListQuerySerializer(serializers.Serializer):

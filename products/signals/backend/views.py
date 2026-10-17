@@ -1894,6 +1894,7 @@ class SignalReportViewSet(
         # The guard is in the CASE, not the filter: the latest artefact decides, as it does for the
         # `ranking` field, so a bad latest row makes the report unscored rather than older-scored.
         # A stale score (the report was edited after the text it scored) also sorts as unscored.
+        # The recommended preset sorts by the score decile alone, so the subquery returns the decile.
         ordered_fields = {clause.lstrip("-") for clause in self._parse_signal_report_ordering()}
         for field, head in self._RANKING_ORDERING_HEADS.items():
             annotation = self._SIGNAL_REPORT_ORDERING_FIELDS[field]
@@ -1903,7 +1904,7 @@ class SignalReportViewSet(
             served_key = Func(
                 content, Value("served_key"), function="jsonb_extract_path_text", output_field=CharField()
             )
-            latest_score = Subquery(
+            latest_score = (
                 annotate_stale_score(
                     SignalReportArtefact.objects.filter(
                         report_id=OuterRef("id"),
@@ -1940,11 +1941,22 @@ class SignalReportViewSet(
                         output_field=FloatField(),
                     )
                 )
-                .values("_score_value")[:1],
-                output_field=FloatField(),
             )
-            queryset = queryset.annotate(**{annotation: latest_score})
+            if self._inbox_ranker is not None:
+                latest_decile = Subquery(
+                    latest_score.annotate(_score_decile=score_decile(F("_score_value"))).values("_score_decile")[:1],
+                    output_field=IntegerField(),
+                )
+                queryset = queryset.annotate(**{self._ranking_decile_annotation(annotation): latest_decile})
+            else:
+                queryset = queryset.annotate(
+                    **{annotation: Subquery(latest_score.values("_score_value")[:1], output_field=FloatField())}
+                )
         return queryset
+
+    @staticmethod
+    def _ranking_decile_annotation(score_annotation: str) -> str:
+        return f"{score_annotation}_decile"
 
     def _needs_priority_annotation(self) -> bool:
         # The priority value is a correlated subquery too, and the serializer renders priority from
@@ -2116,7 +2128,7 @@ class SignalReportViewSet(
             name = clause.lstrip("-")
             if name in ranking_annotations:
                 # The recommended preset sorts by the score decile, so the order shows no more than `inbox_merge_key`.
-                expression = score_decile(name) if self._inbox_ranker is not None else F(name)
+                expression = F(self._ranking_decile_annotation(name) if self._inbox_ranker is not None else name)
                 # Unscored reports sort after every scored report, in both directions.
                 order_by.append(
                     expression.desc(nulls_last=True) if clause.startswith("-") else expression.asc(nulls_last=True)

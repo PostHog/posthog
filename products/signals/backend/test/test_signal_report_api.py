@@ -1469,9 +1469,19 @@ class TestSignalReportListAPI(APIBaseTest):
         with patch(
             "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag", return_value=head
         ) as get_flag:
-            response = self.client.get(self._list_url(status="ready", sort="recommended"))
+            with CaptureQueriesContext(connection) as ctx:
+                response = self.client.get(self._list_url(status="ready", sort="recommended"))
 
         assert response.status_code == status.HTTP_200_OK
+        list_sql = [
+            query["sql"]
+            for query in ctx.captured_queries
+            if query["sql"].startswith('SELECT "signals_signalreport"."id"') and "ORDER BY" in query["sql"]
+        ]
+        assert len(list_sql) == 1
+        # The sort reads every matching report, so a score subquery repeated in the ORDER BY
+        # multiplies the artefact walks for the whole team.
+        assert list_sql[0].count("'ranking_score'") == 1
         assert get_flag.call_args.args[1] == self.user.distinct_id
         body = response.json()
         assert body["ranker"] == head
