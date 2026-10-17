@@ -102,7 +102,9 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
     """
     Determines the maximum number of tool calls allowed in a single generation.
     """
-    THINKING_CONFIG = {"type": "enabled", "budget_tokens": 10240}
+    # Sonnet 5.5 rejects `budget_tokens`; `output_config.effort` in `_get_model` sets the thinking depth.
+    # The model hides thinking text by default, and "summarized" keeps the reasoning visible in the UI.
+    THINKING_CONFIG = {"type": "adaptive", "display": "summarized"}
     """
     Determines the thinking configuration for the model.
     """
@@ -275,13 +277,12 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
         model_kwargs: dict[str, Any] = {
-            "model": "claude-sonnet-4-6",
+            "model": "claude-sonnet-5-5",
             "streaming": True,
             "stream_usage": True,
             "user": self._user,
             "team": self._team,
             "betas": [
-                "interleaved-thinking-2025-05-14",
                 "fine-grained-tool-streaming-2025-05-14",
             ],
             "max_tokens": 16384,
