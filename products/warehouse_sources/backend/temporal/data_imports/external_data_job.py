@@ -616,7 +616,13 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
 
         internal_error_normalized = re.sub("[\n\r\t]", " ", inputs.internal_error)
 
-        source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
+        try:
+            source = await database_sync_to_async_pool(ExternalDataSource.objects.get)(pk=inputs.source_id)
+        except ExternalDataSource.DoesNotExist:
+            # Source deletion is soft, so a missing row means a hard delete (e.g. a team deletion)
+            # landed mid-run. Nothing is left to record the failure on.
+            logger.warning("Source no longer exists, skipping job status update", source_id=inputs.source_id)
+            return
         source_cls = SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
         non_retryable_errors = source_cls.get_non_retryable_errors()
 

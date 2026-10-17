@@ -1,3 +1,4 @@
+import uuid
 import asyncio
 
 import pytest
@@ -281,6 +282,36 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
     assert schema.latest_error == "could not create the sync job"
+
+
+@pytest.mark.django_db(transaction=True)
+def test_failed_finalization_skips_the_status_update_when_the_source_was_hard_deleted() -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(uuid.uuid4()),
+        schema_id=str(uuid.uuid4()),
+        source_id=str(uuid.uuid4()),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error="connection failed",
+        latest_error="connection failed",
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    mock_update_job_status.assert_not_called()
 
 
 # transaction=True for the same reason as the test above: the activity resolves the source through
