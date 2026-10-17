@@ -177,6 +177,12 @@ class TeamManager(models.Manager):
         else:
             star_default_products_for_new_team(team.id)
 
+        from products.alerts.backend.facade.onboarding import (  # noqa: PLC0415 — breaks the team model import cycle
+            create_default_ingestion_alert,
+        )
+
+        transaction.on_commit(lambda: create_default_ingestion_alert(team, initiating_user))
+
         return team
 
     def create(self, **kwargs):
