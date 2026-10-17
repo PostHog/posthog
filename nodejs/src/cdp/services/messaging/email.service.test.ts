@@ -1074,6 +1074,31 @@ describe('EmailService', () => {
                 expect(result.metrics.map((m) => m.metric_name)).not.toContain('email_sent')
             })
 
+            it('moves the first deliverable cc address to To when the To address is suppressed', async () => {
+                const suppressed = new Set(['test@example.com', 'cc-bounced@example.com', 'bcc-bounced@example.com'])
+                jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockImplementation((_teamId, email) =>
+                    Promise.resolve(suppressed.has(email))
+                )
+                sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    cc: '"Bounced" <cc-bounced@example.com>, cc-1@example.com, cc-2@example.com',
+                    bcc: 'bcc-bounced@example.com',
+                })
+
+                const result = await service.executeSendEmail(invocation)
+
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.Destination).toEqual({
+                    ToAddresses: ['cc-1@example.com'],
+                    CcAddresses: ['cc-2@example.com'],
+                })
+                expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
+                expect(result.logs.map((l) => l.message).join(' ')).toContain(
+                    'test@example.com, cc-bounced@example.com, bcc-bounced@example.com'
+                )
+            })
+
             it('calls SES when the recipient is not suppressed', async () => {
                 jest.spyOn(service['emailSuppressionService'], 'isSuppressed').mockResolvedValue(false)
                 sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
