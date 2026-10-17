@@ -1098,6 +1098,46 @@ class TestQueryTransformation(APIBaseTest):
         with pytest.raises(MaterializationNotSupportedError, match="conflicts with an existing SELECT alias"):
             transform_query_for_materialization(query, var_infos, self.team)
 
+    def test_top_level_variable_skips_joined_union_subquery_with_same_alias(self):
+        # Regression: pre-flight checked only the top-level SELECT, but the transform also added the
+        # variable column to each UNION member of the joined subquery, where `segment` already
+        # names a different expression. Enabling then failed after pre-flight had passed.
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "SELECT e.event AS event, count() AS total "
+                "FROM events AS e "
+                "JOIN ("
+                "SELECT distinct_id, 'a' AS segment FROM events "
+                "UNION ALL "
+                "SELECT distinct_id, 'b' AS segment FROM events"
+                ") AS s ON e.distinct_id = s.distinct_id "
+                "WHERE e.properties.segment = {variables.segment} "
+                "GROUP BY event"
+            ),
+            "variables": {
+                "var-1": {"variableId": "var-1", "code_name": "segment", "value": ""},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+        assert can_materialize is True, reason
+
+        transformed = transform_query_for_materialization(query, var_infos, self.team)
+
+        transformed_ast = parse_select(transformed["query"])
+        assert isinstance(transformed_ast, ast.SelectQuery)
+        top_level_aliases = [expr.alias for expr in transformed_ast.select if isinstance(expr, ast.Alias)]
+        assert top_level_aliases == ["event", "total", "segment"]
+
+        assert transformed_ast.select_from is not None and transformed_ast.select_from.next_join is not None
+        union = transformed_ast.select_from.next_join.table
+        assert isinstance(union, ast.SelectSetQuery)
+        for member in union.select_queries():
+            assert isinstance(member, ast.SelectQuery)
+            assert len(member.select) == 2
+            assert member.group_by is None
+
     def test_transform_preserves_order_by(self):
         query = {
             "kind": "HogQLQuery",

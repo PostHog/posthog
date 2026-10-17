@@ -298,6 +298,12 @@ def analyze_variables_for_materialization(
     if not finder.variable_placeholders:
         return False, "No variables found", []
 
+    # Runs before the per-variable analysis. That analysis reads only the WHERE clause of a
+    # context root, so it reports a variable nested in a subquery as unused.
+    rejection = _nested_variable_rejection(ast_node)
+    if rejection is not None:
+        return False, rejection, []
+
     result_vars, reason = _collect_materializable_variables(
         ast_node, finder.variable_placeholders, hogql_query.get("variables", {})
     )
@@ -441,6 +447,15 @@ def _context_rejection(cte_names: set[Optional[str]]) -> Optional[str]:
     if None in cte_names:
         return "Variable used in both CTE and top-level query is not yet supported"
     return "Variable used in multiple CTEs is not yet supported"
+
+
+def _nested_variable_rejection(ast_node: ast.SelectQuery | ast.SelectSetQuery) -> Optional[str]:
+    """Reject a variable inside a subquery. The transform leaves it in place as a placeholder."""
+    finder = _NestedVariableFinder()
+    finder.visit(ast_node)
+    if finder.found:
+        return "Variable used inside a subquery is not yet supported for materialization"
+    return None
 
 
 def _reaggregation_rejection(
@@ -1054,6 +1069,41 @@ class VariablePlaceholderFinder(TraversingVisitor):
             self.variable_placeholders.append(node)
 
 
+class _NestedVariableFinder(TraversingVisitor):
+    """Find a variable placeholder in a SELECT that is not a materialization context root.
+
+    Mirrors the context-root rule in ``MaterializationTransformer.visit_select_query``. The
+    transform skips a nested SELECT, so a variable in one stays as a placeholder and printing
+    the materialized query fails on it.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+        self._select_depth = 0
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        if self._select_depth > 0:
+            finder = VariablePlaceholderFinder()
+            finder.visit(node)
+            self.found = self.found or bool(finder.variable_placeholders)
+            return
+
+        if node.ctes:
+            for cte in node.ctes.values():
+                self.visit(cte.expr)
+
+        # Detach the CTEs so the loop above is their only visit. A second visit here would count them as nested.
+        original_ctes = node.ctes
+        node.ctes = None
+        self._select_depth += 1
+        try:
+            super().visit_select_query(node)
+        finally:
+            self._select_depth -= 1
+            node.ctes = original_ctes
+
+
 def _contains_placeholder(node: ast.Expr) -> bool:
     found = find_placeholders(node)
     return bool(found.has_filters or found.placeholder_fields or found.placeholder_expressions)
@@ -1419,20 +1469,28 @@ class MaterializationTransformer(CloningVisitor):
         super().__init__()
         self.variable_infos = variable_infos
         self._current_cte_name: Optional[str] = None
+        # SELECT nesting inside the current context. 0 is the SELECT that _context_select picks
+        # (or a UNION member at that level), which is the only SELECT pre-flight checks.
+        self._select_depth = 0
 
     def visit_select_query(self, node: ast.SelectQuery):
+        is_context_root = self._select_depth == 0
         new_ctes = self._process_ctes(node)
 
         # Visit the select query itself (without re-visiting CTEs)
         original_ctes = node.ctes
         node.ctes = None
-        new_node = super().visit_select_query(node)
-        node.ctes = original_ctes  # Restore original
+        self._select_depth += 1
+        try:
+            new_node = super().visit_select_query(node)
+        finally:
+            self._select_depth -= 1
+            node.ctes = original_ctes  # Restore original
         new_node.ctes = new_ctes
 
         # Add variable columns + remove variable WHERE clauses for current context
         vars_for_context = self._vars_for_current_context()
-        if vars_for_context:
+        if vars_for_context and is_context_root:
             self._add_variable_columns(new_node, vars_for_context)
 
         # Top-level query: add passthrough columns for CTE variables
@@ -1448,10 +1506,10 @@ class MaterializationTransformer(CloningVisitor):
             return None
         new_ctes: dict[str, ast.CTE] = {}
         for cte_name, cte in node.ctes.items():
-            prev_cte = self._current_cte_name
-            self._current_cte_name = cte_name
+            prev_cte, prev_depth = self._current_cte_name, self._select_depth
+            self._current_cte_name, self._select_depth = cte_name, 0
             new_expr = self.visit(cte.expr)
-            self._current_cte_name = prev_cte
+            self._current_cte_name, self._select_depth = prev_cte, prev_depth
 
             # After the CTE body has been cloned/visited, propagate any variable
             # whose plan targets this CTE. Definition order is also topological,
