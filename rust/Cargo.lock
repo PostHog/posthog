@@ -10927,6 +10927,7 @@ dependencies = [
  "hmac 0.12.1",
  "md5",
  "moka",
+ "rand 0.8.5",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.18",
