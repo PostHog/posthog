@@ -56,7 +56,7 @@ Cascades and seeds have one when those features are enabled.
 No consumer subscribes to its group.
 At startup each one is assigned the owned partitions, resuming at its group's committed offsets.
 So the pod owns partition N on every input topic at once, which is what [partition affinity](event-routing.md#partition-affinity) needs, and no rebalance moves a partition while the pod runs.
-The consumer groups have no members and only hold the committed offsets.
+The consumer groups have no members and only hold the committed offsets and their [stamps](#ownership-and-the-single-pod-deployment).
 A broker can expire the offsets of a group without members, so every consumer resets to `earliest`: a partition that lost its offset replays instead of skipping to the tail.
 A commit from a client outside the group is refused while the group has a live member, such as the static member an older build left behind until its session expires.
 librdkafka logs each refused commit as a `COMMITFAIL` warning, and the next commit retries it.
@@ -186,10 +186,31 @@ A store from before that record takes the configured split as its own the first 
 A store written under another split refuses to open, so the pod crash-loops instead of reading slices that another pod may have changed since.
 With durable restore enabled, boot deletes the slices of partitions the pod does not own, so a single pod deletes nothing.
 
+The store record cannot stop a pod on an empty volume, so the **ownership fence** keeps a second record on the broker.
+Every offset commit on every input group carries the committer's split as Kafka commit metadata, for example `cohort-split/1:2:0:64` for pod 0 of 2 over 64 partitions.
+The pod reads these stamps three times:
+
+1. Before the store opens, it reads the last commit of every group on each partition it owns.
+   A stamp from another split, or metadata it cannot read, holds the boot.
+   The pod retries after 30 seconds, doubling the wait up to 5 minutes, and meanwhile `/_ready` reads not ready and `ownership_fence_blocked{reason}` is 1.
+   A commit without a stamp passes, because older builds and standard Kafka tools, such as an offset reset, write none.
+   A checkpoint restore waits for the same check again before it commits the follower positions.
+2. After the store opens, it checks the stamps again, commits every owned partition on every group with its own stamp, and reads the stamps back.
+   Another split's stamp, or a stamp that reads back empty, stops the pod with an error.
+   An empty read-back means the broker does not keep commit metadata, so the fence cannot work on it.
+3. Every 30 seconds, an audit reads the stamps on the owned partitions.
+   Another split's stamp, or metadata it cannot read, increments `ownership_fence_violations_total{topic}`, makes every later commit of the pod fail, and stops the pod.
+   So the final commits of that stop fail and leave the foreign stamp in place, and the next boot holds at step 1.
+
+Two processes of the same split, such as two pods with the same ordinal, write the same stamp, so the fence cannot tell them apart.
+
 So changing `COHORT_POD_COUNT` requires wiping every store, including the volume of an ordinal that a scale-down removed.
 That volume keeps its old record, so when a later change brings that split back, it opens with slices another pod has moved past.
 With checkpoints enabled, also delete every pod's checkpoints, local and in S3.
 A checkpoint from the old split restores and then refuses to open, so every boot fails the same way.
+The old split's stamps also hold every pod of the new split at boot.
+An offset reset of each input group to its current offsets clears them, because it commits without a stamp.
+Run it only after every pod of the old split has stopped, or the fence admits the new split while the old one still commits.
 Each slice then begins again behind the coverage fence and holds no history until a backfill runs.
 Nothing moves a slice between pods yet, so one pod that owns every partition is the supported deployment.
 
@@ -200,11 +221,13 @@ At boot the processor:
 1. validates its configuration, refuses unsafe combinations, and works out the partitions it owns,
 2. binds the health server, so `/_health` answers from here on and `/_ready` reads not ready,
 3. loads the catalog once,
-4. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
+4. checks the partition counts of the co-partitioned topics against broker metadata,
+5. waits until the [ownership fence](#ownership-and-the-single-pod-deployment) admits its split,
+6. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
    A checkpoint restore that cannot finish blocks here and retries, as [a blocked restore](state-store-and-durability.md#a-blocked-restore) describes.
    A store written under another split of the partitions refuses to open, as [ownership](#ownership-and-the-single-pod-deployment) explains,
-5. checks the partition counts of the co-partitioned topics against broker metadata,
-6. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
+7. stamps every owned partition on every input group, and reads the stamps back,
+8. starts the timer loops and the events consumer, and starts the followers and the checkpoint loop once the catalog has loaded and boot recovery has ended.
 
 By default the store is wiped at boot, so there is nothing to recover, and the events consumer dispatches from its first poll.
 

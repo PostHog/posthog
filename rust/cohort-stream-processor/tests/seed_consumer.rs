@@ -26,6 +26,7 @@ use cohort_core::seed::{
     BehavioralShapeHash, ClaimEpoch, ConditionHash, CoverageStartMs, ReconcileMarker,
     ReconcileScope, ReconcileTile, RunBoundaryMs, RunId, SChunkMs, SeedTile, WithheldReason,
 };
+use cohort_stream_processor::config::Config;
 use cohort_stream_processor::consumers::{
     CascadeRoute, CohortStreamEventsConsumer, EventDispatcher, FollowerConsumer, MergeRoute,
     SeedFollowerConsumer, TransferRoute,
@@ -35,9 +36,10 @@ use cohort_stream_processor::filters::{
 };
 use cohort_stream_processor::observability::disk::SharedDiskUtilization;
 use cohort_stream_processor::partitions::{
-    merge_partition_key, partition_for, partition_of, CohortConsumerContext, ConsumerPauser,
-    Follower, FollowerSet, LiveWatermarks, OffsetTracker, PartitionOwnership, PartitionPauser,
-    PartitionRouter, SeedPacingConfig, COHORT_PARTITION_COUNT,
+    merge_partition_key, partition_for, partition_of, AdmittedSplit, ClaimedSplit,
+    CohortConsumerContext, ConsumerPauser, Follower, FollowerSet, InputGroups, LiveWatermarks,
+    OffsetTracker, PartitionOwnership, PartitionPauser, PartitionRouter, SeedPacingConfig,
+    COHORT_PARTITION_COUNT,
 };
 use cohort_stream_processor::producer::{
     CascadeSink, ChangeOrigin, CohortMembershipChange, KafkaCascadeSink, KafkaMembershipSink,
@@ -57,6 +59,7 @@ use cohort_stream_processor::workers::{
     DEFAULT_MERGE_GC_SCAN_LIMIT,
 };
 use common_kafka::config::KafkaConfig;
+use envconfig::Envconfig;
 use futures::FutureExt;
 use lifecycle::{ComponentOptions, Handle, Manager};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
@@ -527,6 +530,39 @@ impl Groups {
             seeds: format!("cohort-stream-seeds-{suffix}"),
         }
     }
+
+    /// The processor config that reads `topics` through these groups.
+    fn config(&self, topics: &Topics) -> Config {
+        let mut config = Config::init_from_hashmap(&HashMap::new()).expect("default config");
+        config.kafka_hosts = bootstrap_servers();
+        config.cohort_stream_events_topic = topics.events.clone();
+        config.kafka_consumer_group = self.events.clone();
+        config.person_merge_events_topic = topics.merges.clone();
+        config.kafka_merge_consumer_group = self.merges.clone();
+        config.cohort_merge_state_transfer_topic = topics.transfers.clone();
+        config.kafka_merge_apply_consumer_group = self.transfers.clone();
+        config.cohort_cascade_enabled = true;
+        config.cohort_cascade_events_topic = topics.cascade.clone();
+        config.kafka_cascade_consumer_group = self.cascade.clone();
+        config.cohort_seed_consumer_enabled = true;
+        config.cohort_stream_seed_events_topic = topics.seeds.clone();
+        config.kafka_seed_consumer_group = self.seeds.clone();
+        config
+    }
+}
+
+/// Admits and claims `ownership` through the ownership fence on the groups `config` names, as the
+/// processor does at boot.
+async fn claim(config: Config, ownership: PartitionOwnership) -> ClaimedSplit {
+    tokio::task::spawn_blocking(move || {
+        let groups = InputGroups::new(&config);
+        AdmittedSplit::try_admit(ownership, &groups)
+            .expect("the fence admits the split")
+            .claim(&groups)
+            .expect("claim the owned partitions")
+    })
+    .await
+    .expect("the claim panicked")
 }
 
 fn register_instance(manager: &mut Manager) -> [Handle; 5] {
@@ -739,13 +775,14 @@ async fn spawn_instance(
             .create()
             .expect("create seed follower consumer"),
     );
+    let claimed = claim(groups.config(topics), ownership).await;
     FollowerSet::new([
         Follower::new(merges_consumer.clone(), topics.merges.clone()),
         Follower::new(transfers_consumer.clone(), topics.transfers.clone()),
         Follower::new(cascade_consumer.clone(), topics.cascade.clone()),
         Follower::new(seeds_consumer.clone(), topics.seeds.clone()),
     ])
-    .assign(&ownership)
+    .assign(&claimed)
     .expect("assign the followers");
     let follower_assignments = [
         assigned(&merges_consumer),
@@ -764,6 +801,7 @@ async fn spawn_instance(
     let merge_follower = FollowerConsumer::<MergeRoute>::new(
         merges_consumer,
         topics.merges.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         merge_handle,
         100,
@@ -775,6 +813,7 @@ async fn spawn_instance(
     let transfer_follower = FollowerConsumer::<TransferRoute>::new(
         transfers_consumer,
         topics.transfers.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         transfer_handle,
         100,
@@ -786,6 +825,7 @@ async fn spawn_instance(
     let cascade_follower = FollowerConsumer::<CascadeRoute>::new(
         cascade_consumer,
         topics.cascade.clone(),
+        claimed.stamp(),
         dispatcher.clone(),
         cascade_handle,
         100,
@@ -801,6 +841,7 @@ async fn spawn_instance(
     let seed_follower = SeedFollowerConsumer::new(
         seeds_consumer.clone(),
         topics.seeds.clone(),
+        claimed.stamp(),
         events_client.clone(),
         topics.events.clone(),
         dispatcher.clone(),
@@ -826,7 +867,7 @@ async fn spawn_instance(
         100,
         RECV_TIMEOUT,
         COMMIT_INTERVAL,
-        ownership,
+        &claimed,
         None,
     )
     .expect("assign cohort_stream_events");
@@ -1309,10 +1350,11 @@ async fn reconcile_snapshot_repairs_stale_state_and_commits_after_markers() {
             || instance.reconcile_backlog.len() == i64::from(NUM_PARTITIONS),
         )
         .await;
+        // The claim committed every partition at its start, offset zero.
         let before_first_tick = seed_group_committed_offsets(&groups.seeds, &topics.seeds);
         assert!(
-            before_first_tick.is_empty(),
-            "no reconcile control commits before draining starts",
+            (0..NUM_PARTITIONS).all(|partition| before_first_tick.get(&partition) == Some(&0)),
+            "no reconcile control commits before draining starts: {before_first_tick:?}",
         );
         assert!((0..NUM_PARTITIONS)
             .all(|partition| { instance.seed_committable(partition as u16).is_none() }));
@@ -1629,8 +1671,8 @@ async fn fence_holds_a_fresh_tile_until_live_consumption_passes_its_scan_point()
         );
         assert_eq!(
             seed_group_committed(&groups.seeds, &topics.seeds, part(alice) as i32),
-            None,
-            "a held tile's offset must never commit",
+            Some(0),
+            "a held tile's offset must never commit: the commit stays where the claim put it",
         );
         assert!(
             instance.reconcile_backlog.is_empty(),

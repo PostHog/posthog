@@ -10,10 +10,9 @@
 use std::collections::{BTreeMap, HashSet};
 
 use rdkafka::error::KafkaResult;
-use rdkafka::{Offset, TopicPartitionList};
 
 use crate::consumers::events::ConsumedEvent;
-use crate::partitions::ResumeOffset;
+use crate::partitions::{CommitStamp, ResumeOffset, StampedList};
 use crate::store::durability::PendingRestore;
 
 /// The lowest offset per events partition that boot polled and did not fold. A seek there fetches
@@ -38,20 +37,25 @@ impl ResumePoints {
         }
     }
 
-    /// The seek list for the partitions still owned, or `None` when nothing needs a seek. Fails only
-    /// on a negative offset, which a polled message never carries.
+    /// The seek list for the partitions still owned, stamped for the restore's commit, or `None`
+    /// when nothing needs a seek. Fails only on a negative offset, which a polled message never
+    /// carries.
     pub(crate) fn seek_list(
         &self,
+        stamp: &CommitStamp,
         topic: &str,
         owned: &HashSet<i32>,
-    ) -> KafkaResult<Option<TopicPartitionList>> {
-        let mut tpl = TopicPartitionList::new();
-        for (&partition, &offset) in &self.0 {
-            if owned.contains(&partition) {
-                tpl.add_partition_offset(topic, partition, Offset::Offset(offset))?;
-            }
+    ) -> KafkaResult<Option<StampedList>> {
+        let positions: Vec<(i32, i64)> = self
+            .0
+            .iter()
+            .filter(|(partition, _)| owned.contains(partition))
+            .map(|(&partition, &offset)| (partition, offset))
+            .collect();
+        if positions.is_empty() {
+            return Ok(None);
         }
-        Ok((tpl.count() > 0).then_some(tpl))
+        stamp.list(topic, positions).map(Some)
     }
 
     fn lower(&mut self, partition: i32, offset: i64) {
@@ -79,7 +83,10 @@ pub(crate) enum BootPhase {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rdkafka::Offset;
+
     use crate::consumers::events::CohortStreamEvent;
+    use crate::partitions::PartitionOwnership;
 
     const TOPIC: &str = "cohort_stream_events";
 
@@ -106,9 +113,10 @@ mod tests {
         }
     }
 
-    fn sought(seek_list: Option<TopicPartitionList>) -> Option<BTreeMap<i32, i64>> {
-        seek_list.map(|tpl| {
-            tpl.elements_for_topic(TOPIC)
+    fn sought(seek_list: Option<StampedList>) -> Option<BTreeMap<i32, i64>> {
+        seek_list.map(|list| {
+            list.as_list()
+                .elements_for_topic(TOPIC)
                 .iter()
                 .map(|elem| match elem.offset() {
                     Offset::Offset(offset) => (elem.partition(), offset),
@@ -186,8 +194,9 @@ mod tests {
                 resume.rewind_to(&positions);
             }
 
+            let stamp = CommitStamp::for_test(PartitionOwnership::single(4));
             assert_eq!(
-                sought(resume.seek_list(TOPIC, &owned).unwrap()),
+                sought(resume.seek_list(&stamp, TOPIC, &owned).unwrap()),
                 case.expected
                     .map(|offsets| offsets.iter().copied().collect()),
                 "{}",

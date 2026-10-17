@@ -21,7 +21,7 @@ use metrics::{counter, gauge, histogram};
 use rdkafka::consumer::{CommitMode, Consumer, ConsumerContext, StreamConsumer};
 use rdkafka::error::KafkaResult;
 use rdkafka::message::Message;
-use rdkafka::{Offset, TopicPartitionList};
+use rdkafka::Offset;
 use tracing::{debug, error, info, warn};
 
 pub use cohort_core::events::CohortStreamEvent;
@@ -51,7 +51,7 @@ use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::CohortConsumerContext;
 use crate::partitions::router::{PartitionRouter, SeedRefusal, SeedSendOutcome, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
-use crate::partitions::{list_offsets, InputTopic, PartitionOwnership};
+use crate::partitions::{list_offsets, ClaimedSplit, CommitStamp, InputTopic, PartitionOwnership};
 use crate::producer::MembershipSink;
 use crate::store::durability::{FinishError, PendingRestore};
 use crate::store::StoreHandle;
@@ -881,15 +881,15 @@ pub struct CohortStreamEventsConsumer {
     recv_batch_size: usize,
     recv_batch_timeout: Duration,
     offset_commit_interval: Duration,
-    ownership: PartitionOwnership,
+    claimed: ClaimedSplit,
     /// A checkpoint restore boot must finish. Boot rewinds every owned partition the restore keeps
     /// to its restored position, commits, and finishes it before anything folds.
     restore: Option<PendingRestore>,
 }
 
 impl CohortStreamEventsConsumer {
-    /// Takes the partitions `ownership` owns for the life of the process: the consumer is
-    /// assigned them at its group's committed offsets, and the dispatcher owns them.
+    /// Takes the partitions `claimed` owns for the life of the process: the consumer is assigned
+    /// them at its group's committed offsets, and the dispatcher owns them.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         consumer: Arc<StreamConsumer<CohortConsumerContext>>,
@@ -899,9 +899,10 @@ impl CohortStreamEventsConsumer {
         recv_batch_size: usize,
         recv_batch_timeout: Duration,
         offset_commit_interval: Duration,
-        ownership: PartitionOwnership,
+        claimed: &ClaimedSplit,
         restore: Option<PendingRestore>,
     ) -> KafkaResult<Self> {
+        let ownership = claimed.ownership();
         consumer.assign(&ownership.assignment(&topic)?)?;
         for partition in ownership.partitions() {
             dispatcher.assign_partition(i32::from(partition));
@@ -923,7 +924,7 @@ impl CohortStreamEventsConsumer {
             recv_batch_size,
             recv_batch_timeout,
             offset_commit_interval,
-            ownership,
+            claimed: claimed.clone(),
             restore,
         })
     }
@@ -944,6 +945,7 @@ impl CohortStreamEventsConsumer {
         let commit_task = tokio::spawn(run_commit_loop(
             self.consumer.clone(),
             self.dispatcher.clone(),
+            self.claimed.stamp(),
             self.topic.clone(),
             self.offset_commit_interval,
             self.handle.clone(),
@@ -971,7 +973,7 @@ impl CohortStreamEventsConsumer {
                 self.recover().await;
                 let mut resume = ResumePoints::default();
                 let topic = InputTopic::new(self.topic.as_str());
-                resume.rewind_to(&restore.plan().positions(&topic, &self.ownership));
+                resume.rewind_to(&restore.plan().positions(&topic, &self.claimed.ownership()));
                 BootPhase::Rewinding {
                     resume,
                     restore: Box::new(restore),
@@ -1033,6 +1035,7 @@ impl CohortStreamEventsConsumer {
         fsync_then_commit(
             self.dispatcher.handle(),
             &self.consumer,
+            &self.claimed.stamp(),
             offsets,
             &self.topic,
             CommitMode::Sync,
@@ -1045,7 +1048,7 @@ impl CohortStreamEventsConsumer {
     /// the partitions this pod does not own, and re-produce the merge outbox of those it owns.
     async fn recover(&self) {
         self.dispatcher
-            .reclaim_unowned_slices(&self.ownership)
+            .reclaim_unowned_slices(&self.claimed.ownership())
             .await;
         self.dispatcher
             .eager_redrive_pending_transfers_on_boot(&self.dispatcher.owned_set())
@@ -1066,7 +1069,7 @@ impl CohortStreamEventsConsumer {
         boot_started: Instant,
     ) -> BootPhase {
         let owned = self.dispatcher.owned_set();
-        let seek_list = match resume.seek_list(&self.topic, &owned) {
+        let seek_list = match resume.seek_list(&self.claimed.stamp(), &self.topic, &owned) {
             Ok(seek_list) => seek_list,
             Err(err) => {
                 warn!(
@@ -1077,12 +1080,14 @@ impl CohortStreamEventsConsumer {
                 return BootPhase::Rewinding { resume, restore };
             }
         };
-        let sought = seek_list.as_ref().map_or(0, TopicPartitionList::count);
+        let sought = seek_list
+            .as_ref()
+            .map_or(0, |seek_list| seek_list.as_list().count());
 
         if let Some(seek_list) = &seek_list {
             let failed: Vec<i32> = match self
                 .consumer
-                .seek_partitions(seek_list.clone(), BOOT_SEEK_TIMEOUT)
+                .seek_partitions(seek_list.as_list().clone(), BOOT_SEEK_TIMEOUT)
             {
                 Ok(result) => result
                     .elements_for_topic(&self.topic)
@@ -1114,7 +1119,7 @@ impl CohortStreamEventsConsumer {
             list_offsets(self.consumer.as_ref(), partitions, Offset::Beginning)
         };
         let commit_events = || match &seek_list {
-            Some(seek_list) => self.consumer.commit(seek_list, CommitMode::Sync),
+            Some(seek_list) => seek_list.commit(self.consumer.as_ref(), CommitMode::Sync),
             None => Ok(()),
         };
         // A sync commit waits until the group coordinator answers. `block_in_place` hands this
@@ -1274,18 +1279,9 @@ struct ConsumeOutcome {
     transport_error: bool,
 }
 
-pub(crate) fn build_commit_tpl(topic: &str, offsets: &HashMap<i32, i64>) -> TopicPartitionList {
-    let mut tpl = TopicPartitionList::new();
-    for (&partition, &next_offset) in offsets {
-        if let Err(err) = tpl.add_partition_offset(topic, partition, Offset::Offset(next_offset)) {
-            warn!(topic, partition, next_offset, error = %err, "skipping partition in commit list");
-        }
-    }
-    tpl
-}
-
 pub(crate) fn commit_offsets<C: ConsumerContext>(
     consumer: &StreamConsumer<C>,
+    stamp: &CommitStamp,
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
@@ -1293,8 +1289,10 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
     if offsets.is_empty() {
         return;
     }
-    let tpl = build_commit_tpl(topic, &offsets);
-    match consumer.commit(&tpl, mode) {
+    match stamp
+        .list(topic, offsets)
+        .and_then(|list| list.commit(consumer, mode))
+    {
         Ok(()) => counter!(COHORT_STREAM_OFFSET_COMMITS).increment(1),
         Err(err) => {
             counter!(COHORT_STREAM_OFFSET_COMMIT_ERRORS).increment(1);
@@ -1312,6 +1310,7 @@ pub(crate) fn commit_offsets<C: ConsumerContext>(
 pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     handle: &StoreHandle,
     consumer: &StreamConsumer<C>,
+    stamp: &CommitStamp,
     offsets: HashMap<i32, i64>,
     topic: &str,
     mode: CommitMode,
@@ -1322,7 +1321,7 @@ pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
     if handle.flush_wal_sync().await.is_err() {
         return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
-    commit_offsets(consumer, offsets, topic, mode);
+    commit_offsets(consumer, stamp, offsets, topic, mode);
 }
 
 /// Flushes the store's WAL and commits the owned committable offsets on a fixed interval, independent
@@ -1330,6 +1329,7 @@ pub(crate) async fn fsync_then_commit<C: ConsumerContext>(
 async fn run_commit_loop(
     consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     dispatcher: Arc<EventDispatcher>,
+    stamp: CommitStamp,
     topic: String,
     interval: Duration,
     handle: Handle,
@@ -1344,6 +1344,7 @@ async fn run_commit_loop(
                 fsync_then_commit(
                     dispatcher.handle(),
                     &consumer,
+                    &stamp,
                     dispatcher.owned_committable_offsets(),
                     &topic,
                     CommitMode::Async,
@@ -1648,35 +1649,6 @@ mod tests {
         assert_eq!(event.source_offset, 99);
         assert_eq!(event.source_partition, 3);
         assert!(event.person_properties.is_none());
-    }
-
-    #[test]
-    fn build_commit_tpl_maps_each_partition_to_its_next_offset() {
-        let mut offsets = HashMap::new();
-        offsets.insert(3, 100);
-        offsets.insert(7, 250);
-
-        let tpl = build_commit_tpl("cohort_stream_events", &offsets);
-
-        assert_eq!(tpl.count(), 2);
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 3)
-                .unwrap()
-                .offset(),
-            Offset::Offset(100),
-        );
-        assert_eq!(
-            tpl.find_partition("cohort_stream_events", 7)
-                .unwrap()
-                .offset(),
-            Offset::Offset(250),
-        );
-    }
-
-    #[test]
-    fn build_commit_tpl_for_no_offsets_is_empty() {
-        let tpl = build_commit_tpl("cohort_stream_events", &HashMap::new());
-        assert_eq!(tpl.count(), 0);
     }
 
     fn temp_store() -> (TempDir, CohortStore) {
