@@ -3236,6 +3236,13 @@ class TestQueueDbRetry:
         [
             (psycopg.OperationalError("consuming input failed: server closed the connection unexpectedly"), True, True),
             (psycopg.OperationalError("the connection is closed"), True, True),
+            (
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.5", port 5432 failed: Connection refused'
+                ),
+                True,
+                True,
+            ),
             (psycopg.errors.ConnectionTimeout("connection timeout expired"), True, True),
             (psycopg.errors.AdminShutdown("terminating connection due to administrator command"), True, True),
             (psycopg.errors.ProtocolViolation("query_wait_timeout"), True, True),
@@ -3603,7 +3610,7 @@ class TestUnlockGroup:
         fresh_conn = _make_healthy_conn()
         batches = [_make_batch()]
 
-        retry_error = psycopg.OperationalError("connection refused")
+        retry_error = psycopg.OperationalError("relation permission denied")
         mock_unlock = AsyncMock(
             side_effect=[psycopg.OperationalError("another command is already in progress"), retry_error]
         )

@@ -110,6 +110,19 @@ def _is_server_not_ready_error(error: BaseException) -> bool:
     return any(substring in message for substring in _SERVER_NOT_READY_ERROR_SUBSTRINGS)
 
 
+# libpq's "Connection refused" (ECONNREFUSED): nothing listens on the queue DB port, as when the
+# server or its pooler restarts or fails over. The host was reachable moments earlier, so this is
+# the same self-healing blip as the server-not-ready refusals above. A queue DB that stays down
+# still trips the poll-failure liveness check and the queue-freshness gauge.
+_CONNECTION_REFUSED_MARKER = "connection refused"
+
+
+def _is_connection_refused_error(error: BaseException) -> bool:
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    return _CONNECTION_REFUSED_MARKER in str(error).lower()
+
+
 # psycopg raises ConnectionTimeout only while *establishing* a connection, never mid-query. Every
 # caller here reconnects to a queue DB it (or a sibling pod) was already talking to moments earlier,
 # so a connect-time timeout is the queue DB being momentarily slow to accept, not a config problem —
@@ -225,6 +238,7 @@ def _is_transient_queue_db_error(error: BaseException) -> bool:
     return (
         _is_dns_resolution_transient_error(error)
         or _is_server_not_ready_error(error)
+        or _is_connection_refused_error(error)
         or _is_connect_timeout_error(error)
         or _is_admin_shutdown_error(error)
         or _is_connection_dropped_error(error)
@@ -596,7 +610,7 @@ class BatchConsumer:
         blip mid-run, where the poll and recovery loops simply redial on the next cycle, but
         not for the queue DB still being unreachable the moment this process starts. Raising
         here crashes the whole consumer before `_poll_conn`/`_recovery_conn` even exist, for
-        the same DNS, server-not-ready, connect-timeout, and admin-shutdown shapes the running
+        the same DNS, server-not-ready, connection-refused, connect-timeout, and admin-shutdown shapes the running
         consumer already treats as self-healing everywhere else.
         """
         attempt = 0
