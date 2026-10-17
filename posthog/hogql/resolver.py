@@ -2418,7 +2418,7 @@ class Resolver(CloningVisitor):
         type: Optional[ast.Type] = None
 
         # If the field contains at least two parts, the first might be a table.
-        type = lookup_table_by_name(scope, self.ctes, node)
+        type = lookup_table_by_name(scope, node)
 
         # If it's a wildcard
         if name == "*" and len(node.chain) == 1:
@@ -2447,7 +2447,7 @@ class Resolver(CloningVisitor):
 
         # If scope is a lambda, check with the parent scope
         if not type and scope.is_lambda_type and len(self.scopes) > 1:
-            type = lookup_table_by_name(self.scopes[-2], self.ctes, node)
+            type = lookup_table_by_name(self.scopes[-2], node)
 
             if not type:
                 type = lookup_field_by_name(self.scopes[-2], name, self.context)
@@ -2458,6 +2458,13 @@ class Resolver(CloningVisitor):
             nested_match = lookup_table_by_nested_name(scope, node)
             if nested_match:
                 type, qualifier_length = nested_match
+
+        if not type and len(node.chain) > 1 and any(name in outer.tables for outer in self.scopes[:-1]):
+            raise QueryError(
+                f"Unable to resolve field: {name}. Correlated subqueries are not supported, so a subquery "
+                f"can't read table {name} of an outer query. Join the outer query to a grouped subquery instead.",
+                node=node,
+            )
 
         if not type:
             cte = self.ctes.get(name, None)
