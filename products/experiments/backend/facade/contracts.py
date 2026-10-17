@@ -292,3 +292,18 @@ class DailyMetricCalculation:
     metric_uuid: str
     # The key that files the metric's daily result.
     calculation_key: str
+
+
+@frozen
+class EndedExperiment:
+    id: int
+    name: str
+    ended_at: datetime
+
+
+@frozen
+class RunningExperiment:
+    id: int
+    name: str
+    started_at: datetime
+    flag_key: str

@@ -5,15 +5,19 @@ This module provides the public interface for creating and managing experiments
 using framework-free DTOs, wrapping the existing ExperimentService.
 """
 
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+import pydantic
+import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
 from products.experiments.backend.health.loader import load_experiment_health_context, load_experiment_health_inputs
 from products.experiments.backend.health.registry import (
@@ -23,11 +27,22 @@ from products.experiments.backend.health.registry import (
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     get_exposure_event_and_property,
+    is_default_exposure_config,
+    normalize_to_exposure_criteria,
     resolve_default_exposure_event,
 )
 from products.experiments.backend.models.experiment import Experiment as ExperimentModel
 
-from .contracts import CreateExperimentInput, Experiment, ExperimentHealthFinding, ExperimentHealthReaderAccess
+from .contracts import (
+    CreateExperimentInput,
+    EndedExperiment,
+    Experiment,
+    ExperimentHealthFinding,
+    ExperimentHealthReaderAccess,
+    RunningExperiment,
+)
+
+logger = structlog.get_logger(__name__)
 
 
 def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInput) -> Experiment:
@@ -146,6 +161,63 @@ def get_experiment_health_inputs(
         team_id=team_id, experiment_id=experiment_id, reader_access=reader_access, user=user
     )
     return health_inputs_payload(inputs)
+
+
+def list_ended_experiments_without_conclusion(
+    *, team_id: int, user_id: int, since: datetime, limit: int
+) -> list[EndedExperiment]:
+    rows = (
+        ExperimentModel.objects.filter(
+            team_id=team_id,
+            created_by_id=user_id,
+            end_date__gte=since,
+            conclusion__isnull=True,
+            archived=False,
+        )
+        .exclude(deleted=True)
+        .order_by("-end_date")
+        .values_list("id", "name", "end_date")[:limit]
+    )
+    return [EndedExperiment(id=id, name=name, ended_at=ended_at) for id, name, ended_at in rows]
+
+
+def _exposes_on_flag_calls(experiment_id: int, exposure_criteria: dict | None) -> bool:
+    try:
+        criteria = normalize_to_exposure_criteria(exposure_criteria)
+    except pydantic.ValidationError:
+        logger.warning("experiment_exposure_criteria_invalid", experiment_id=experiment_id, exc_info=True)
+        return False
+    return criteria is None or (
+        criteria.activation_config is None
+        and is_default_exposure_config(criteria.exposure_config)
+        and not (criteria.exposure_config and criteria.exposure_config.properties)
+    )
+
+
+def list_running_experiments(
+    *, team_id: int, user_id: int, started_after: datetime | None, started_before: datetime, limit: int
+) -> list[RunningExperiment]:
+    experiments = ExperimentModel.objects.filter(
+        team_id=team_id,
+        created_by_id=user_id,
+        start_date__lte=started_before,
+        end_date__isnull=True,
+        archived=False,
+    ).exclude(deleted=True)
+    if started_after is not None:
+        experiments = experiments.filter(start_date__gt=started_after)
+    rows = experiments.order_by("-start_date").values_list(
+        "id", "name", "start_date", "feature_flag__key", "exposure_criteria"
+    )[:limit]
+    return [
+        RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
+        for id, name, started_at, flag_key, exposure_criteria in rows
+        if _exposes_on_flag_calls(id, exposure_criteria)
+    ]
+
+
+def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:
+    return enrolled_people_by_flag(team, user, flag_keys)
 
 
 def _experiment_model_to_dto(experiment: ExperimentModel) -> Experiment:
