@@ -5,7 +5,7 @@ import hashlib
 from contextlib import nullcontext
 from datetime import timedelta
 from typing import Any, cast
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from uuid import uuid4
 
 import pytest
@@ -7759,6 +7759,36 @@ class TestPosthogConnectAuthorize:
         # Only :read scopes plus the auto-added identity scopes; no :write.
         assert not any(s.endswith(":write") for s in requested)
         assert "openid" in requested and "email" in requested
+
+
+class TestSlackReconnectAuthorize(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("same_team_install_pins_workspace", True, "T0WORKSPACE"),
+            ("other_team_install_is_ignored", False, None),
+        ]
+    )
+    def test_reconnect_pins_slack_workspace(self, _name, same_team, expected_team):
+        owner = self.team if same_team else Team.objects.create(organization=self.organization, name="Other")
+        integration = Integration.objects.create(
+            team=owner, kind="slack", integration_id="T0WORKSPACE", config={"team": {"name": "Acme"}}
+        )
+        with patch(
+            "posthog.models.integration.oauth.get_instance_settings",
+            return_value={
+                "SLACK_APP_CLIENT_ID": "test-client-id",
+                "SLACK_APP_CLIENT_SECRET": "test-client-secret",
+                "SLACK_APP_SIGNING_SECRET": "test-signing-secret",
+            },
+        ):
+            response = self.client.get(
+                f"/api/environments/{self.team.pk}/integrations/authorize/",
+                {"kind": "slack", "integration_id": str(integration.id)},
+            )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        query = parse_qs(urlparse(response.headers["Location"]).query)
+        assert query.get("team", [None])[0] == expected_team
 
 
 class TestPosthogConnectionListScoping:

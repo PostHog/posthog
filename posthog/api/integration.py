@@ -1684,9 +1684,23 @@ class IntegrationViewSet(
                     invalid = [s for s in scopes if s not in POSTHOG_CONNECT_GRANTABLE_SCOPES]
                     if invalid:
                         raise ValidationError(f"Unsupported connection scopes: {', '.join(invalid)}")
+            slack_team_id: str | None = None
+            reconnect_id = request.GET.get("integration_id", "")
+            if kind == "slack" and reconnect_id.isdigit():
+                slack_team_id = (
+                    Integration.objects.filter(team_id=self.team_id, kind=kind, id=int(reconnect_id))
+                    .values_list("integration_id", flat=True)
+                    .first()
+                )
             try:
                 auth_url = OauthIntegration.authorize_url(
-                    kind, next=next, token=token, region=region, scopes=scopes, team_id=self.team_id
+                    kind,
+                    next=next,
+                    token=token,
+                    region=region,
+                    scopes=scopes,
+                    team_id=self.team_id,
+                    slack_team_id=slack_team_id,
                 )
                 # Capture the hand-off to the provider's authorize page. A rejection there (e.g.
                 # TikTok's "app has been blocked") never returns to us, so this is the only leg we
