@@ -76,6 +76,7 @@ the row lists both.
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
+| amazon_cloudwatch                | HTTP                        | requests + botocore (SigV4 signing, model-driven serializer)    | ✅                          |
 | amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
@@ -1007,7 +1008,6 @@ doesn't conflict with concurrent PRs.
 - allegro
 - alpaca_broker_api
 - amazon_ads
-- amazon_cloudwatch
 - amazon_eventbridge
 - amazon_kinesis
 - amazon_s3
