@@ -282,3 +282,5 @@ export type McpRegistryServersDiscoverRetrieveParams = {
      */
     version?: string
 }
+
+export type McpRegistryServersDiscoverRetrieve503 = { [key: string]: unknown }

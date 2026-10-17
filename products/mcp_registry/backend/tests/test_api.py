@@ -4,12 +4,14 @@ from typing import Any
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connections
 from django.utils import timezone
 
 from posthog.models import PersonalAPIKey
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.mcp_registry.backend.facade import api as registry_api
 from products.mcp_registry.backend.models import MCPMeasuredStats, MCPRegistryServer, MCPRegistryTool
 from products.mcp_registry.backend.ranking import compute_ranking_run
 
@@ -471,6 +473,21 @@ class TestMCPRegistryAPI(APIBaseTest):
 
     def test_discover_requires_an_intent(self) -> None:
         assert self.client.get(self._url("discover/")).status_code == 400
+
+    def test_a_slow_discover_answers_a_retryable_503(self) -> None:
+        def slow_discover(**_kwargs: object) -> list:
+            with connections[registry_api.read_db_alias()].cursor() as cursor:
+                cursor.execute("SELECT pg_sleep(3)")
+            return []
+
+        with (
+            patch.object(registry_api, "discover_servers", side_effect=slow_discover),
+            patch("products.mcp_registry.backend.presentation.views.DISCOVER_STATEMENT_TIMEOUT_MS", 250),
+        ):
+            response = self.client.get(self._url("discover/"), {"intent": "GitHub pull requests"})
+
+        assert response.status_code == 503
+        assert response.json()["code"] == "mcp_registry_discover_timeout"
 
     def test_discover_surfaces_tools_that_matched_the_intent(self) -> None:
         self._seed_index()
