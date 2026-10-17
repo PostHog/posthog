@@ -4706,6 +4706,33 @@ class TestWatchFeedAPI(_VisionAPITestCase):
         self.assertEqual(items[2]["reason"], {"kind": "friction"})
         assert plain_new and hit and signal and plain_old
 
+    @parameterized.expand(
+        [
+            ("negated_list", "No errors, validation messages, or crashes were observed.", "unviewed_recent"),
+            ("contraction", "The user didn't get stuck and finished checkout.", "unviewed_recent"),
+            ("without", "Signed up without any confusion.", "unviewed_recent"),
+            ("contrast_clause", "No errors on the form, but the payment failed twice.", "friction"),
+            ("cause_clause", "The user could not pay because of a card error.", "friction"),
+            ("later_sentence", "No crashes. The user got stuck on the address step.", "friction"),
+            ("friction_word_is_the_negation", "The user couldn't find the export button.", "friction"),
+        ]
+    )
+    def test_summarizer_friction_skips_negated_words(self, _name: str, summary: str, expected_kind: str) -> None:
+        scanner = self._create_scanner(
+            name="s", scanner_type=ScannerType.SUMMARIZER, scanner_config={"prompt": "p", "length": "short"}
+        )
+        self._succeeded_observation(
+            scanner,
+            "sess",
+            1,
+            {
+                "model_output": {"scanner_type": "summarizer", "summary": summary, "confidence": 0.9},
+                "signals_count": 0,
+            },
+        )
+        resp = self.client.get(self.feed_url)
+        self.assertEqual(resp.json()["results"][0]["reason"], {"kind": expected_kind})
+
     def test_signal_reason_carries_the_persisted_problem_types(self) -> None:
         # The card counts what kinds of issue a signal row carries, so the reason must surface one entry
         # per signal in order, repeats kept — not a deduplicated set.
