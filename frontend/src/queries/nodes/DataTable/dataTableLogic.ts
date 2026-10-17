@@ -15,7 +15,7 @@ import {
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
+import { ExpandedRowKey, tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { objectsEqual, sortedKeys } from 'lib/utils/objects'
 import { RequiredExcept } from 'lib/utils/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -93,14 +93,14 @@ export interface dataTableLogicValues {
     responseError: string | null // dataNodeLogic
     responseLoading: boolean // dataNodeLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
-    expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[] // tabUiStateLogic
+    expandedRowsFor: (tabId: string | undefined, vizKey: string) => ExpandedRowKey[] // tabUiStateLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
     canSort: boolean
     columnsInQuery: string[]
     columnsInResponse: string[] | null
     context: any
     dataTableRows: DataTableRow[] | null
-    expandedRows: number[]
+    expandedRows: ExpandedRowKey[]
     orderBy: string[] | null
     queryWithDefaults: RequiredExcept<
         Omit<DataTableNode, 'response'>,
@@ -115,17 +115,17 @@ export interface dataTableLogicActions {
     toggleExpandedRow: (
         tabId: string | undefined,
         vizKey: string,
-        rowIndex: number
+        rowIndex: ExpandedRowKey
     ) => {
-        rowIndex: number
+        rowIndex: ExpandedRowKey
         tabId: string
         vizKey: string
     } // tabUiStateLogic
     setColumnsInQuery: (columns: HogQLExpression[]) => {
         columns: string[]
     }
-    toggleRowExpanded: (rowIndex: number) => {
-        rowIndex: number
+    toggleRowExpanded: (rowIndex: ExpandedRowKey) => {
+        rowIndex: ExpandedRowKey
     }
 }
 
@@ -134,7 +134,10 @@ export interface dataTableLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         context: (arg: any) => any
-        expandedRows: (expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[], arg: any) => number[]
+        expandedRows: (
+            expandedRowsFor: (tabId: string | undefined, vizKey: string) => ExpandedRowKey[],
+            arg: any
+        ) => ExpandedRowKey[]
         sourceKind: (query: DataTableNode) => NodeKind | null
         sourceFeatures: (query: DataTableNode, arg: any) => Set<QueryFeature>
         orderBy: (query: DataTableNode, sourceFeatures: Set<QueryFeature>) => string[] | null
@@ -216,7 +219,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({
         setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }),
-        toggleRowExpanded: (rowIndex: number) => ({ rowIndex }),
+        toggleRowExpanded: (rowIndex: ExpandedRowKey) => ({ rowIndex }),
     }),
     reducers(({ props }) => ({
         columnsInQuery: [getColumnsForQuery(props.query), { setColumnsInQuery: (_, { columns }) => columns }],
@@ -252,8 +255,10 @@ export const dataTableLogic = kea<dataTableLogicType>([
         context: [() => [(_, props) => props.context], (context) => context],
         expandedRows: [
             (s) => [s.expandedRowsFor, (_, p) => p.vizKey],
-            (expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[], vizKey: string): number[] =>
-                expandedRowsFor(undefined, vizKey),
+            (
+                expandedRowsFor: (tabId: string | undefined, vizKey: string) => ExpandedRowKey[],
+                vizKey: string
+            ): ExpandedRowKey[] => expandedRowsFor(undefined, vizKey),
             { resultEqualityCheck: objectsEqual },
         ],
         sourceKind: [(_, p) => [p.query], (query: DataTableNode): NodeKind | null => query.source?.kind],

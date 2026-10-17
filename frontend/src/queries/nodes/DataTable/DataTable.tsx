@@ -98,6 +98,7 @@ import { GroupsSearch } from '../GroupsQuery/GroupsSearch'
 import { DataTableOpenEditor } from './DataTableOpenEditor'
 import { DataTableViewReplays } from './DataTableViewReplays'
 import { ExpandedEventRow } from './ExpandedEventRow'
+import { getRowExpansionKey } from './rowExpansion'
 import { TableViewSupportedQueryType } from './TableView/tableViewLogic'
 
 export enum ColumnFeature {
@@ -754,9 +755,18 @@ export function DataTable({
                 ? contextExpandable
                 : expandable && columnsInResponse?.includes('*')
                   ? {
-                        isRowExpanded: (_: DataTableRow, rowIndex: number) => expandedRows.includes(rowIndex),
-                        onRowExpand: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
-                        onRowCollapse: (_: DataTableRow, rowIndex: number) => toggleRowExpanded(rowIndex),
+                        isRowExpanded: (row: DataTableRow, rowIndex: number) =>
+                            expandedRows.includes(
+                                getRowExpansionKey(row, rowIndex, columnsInResponse, isEventsQuery(query.source))
+                            ),
+                        onRowExpand: (row: DataTableRow, rowIndex: number) =>
+                            toggleRowExpanded(
+                                getRowExpansionKey(row, rowIndex, columnsInResponse, isEventsQuery(query.source))
+                            ),
+                        onRowCollapse: (row: DataTableRow, rowIndex: number) =>
+                            toggleRowExpanded(
+                                getRowExpansionKey(row, rowIndex, columnsInResponse, isEventsQuery(query.source))
+                            ),
                         expandedRowRender: function renderExpand({ result }: DataTableRow) {
                             const event =
                                 isEventsQuery(query.source) && Array.isArray(result)
