@@ -17,19 +17,13 @@ import {
 import type { DataColorToken } from 'lib/colors'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { Sparkline } from 'lib/components/Sparkline'
-import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
-import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { percentage } from 'lib/utils/numbers'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { urls } from 'scenes/urls'
 
 import { tagsModel } from '~/models/tagsModel'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -43,15 +37,17 @@ import type {
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
-import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
+import { buildHistoryDisplay, parseHistoryPoints } from './accountCustomPropertyDisplay'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountPinnedPropertiesExpansion } from './AccountPinnedPropertiesExpansion'
+import { AccountRelationshipHolders } from './AccountRelationshipHolders'
 import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
-import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
+import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, customPropertySavingKey, savingRoleKey } from './accountsLogic'
 import { AccountsTableNameCell } from './AccountsTableNameCell'
 import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { accountsViewsLogic } from './accountsViewsLogic'
+import { CustomPropertyValueDisplay } from './CustomPropertyValueDisplay'
 import { useAccountColumnAutoSizing } from './useAccountColumnAutoSizing'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
@@ -151,7 +147,6 @@ function RelationshipCell({
 }): JSX.Element {
     const { isRoleSaving, relationshipOverrides } = useValues(accountsLogic)
     const { updateAccountRole } = useActions(accountsLogic)
-    const { meFirstMembers } = useValues(membersLogic)
     const getCell = useGetCell()
     const accountId = getNameCell(record)?.id ?? ''
     const override = accountId ? relationshipOverrides[savingRoleKey(accountId, column)] : undefined
@@ -160,21 +155,7 @@ function RelationshipCell({
     if (!definition.is_single_holder) {
         // ponytail: multi-holder relationships are read-only here; manage them on the
         // account's relationships tab. Add inline multi-assign if it's ever needed.
-        const users = userIds.map((id) => meFirstMembers.find((member) => member.user.id === id)?.user ?? null)
-        return (
-            <div data-attr={`accounts-${column}-cell`} className="flex flex-wrap items-center gap-2">
-                {users.length === 0 ? (
-                    <span className="text-muted">Unassigned</span>
-                ) : (
-                    users.map((user, index) => (
-                        <span key={userIds[index]} className="inline-flex items-center gap-1 text-sm">
-                            {user ? <ProfilePicture user={user} size="sm" /> : null}
-                            {user?.email ?? 'Unknown user'}
-                        </span>
-                    ))
-                )}
-            </div>
-        )
+        return <AccountRelationshipHolders userIds={userIds} column={column} />
     }
 
     const saving = accountId ? isRoleSaving(accountId, column) : false
@@ -204,163 +185,6 @@ function RelationshipCell({
                 )}
             </MemberSelect>
         </div>
-    )
-}
-
-// History points arrive in timestamp order from the Postgres runner.
-function parseHistoryPoints(raw: unknown): [number, number][] {
-    if (!Array.isArray(raw)) {
-        return []
-    }
-    const points: [number, number][] = []
-    for (const entry of raw) {
-        if (typeof entry !== 'object' || entry === null || !('timestamp' in entry) || !('value' in entry)) {
-            continue
-        }
-        const timestamp = Math.floor(Date.parse(String(entry.timestamp)) / 1000)
-        const value = Number(entry.value)
-        if (Number.isFinite(timestamp) && Number.isFinite(value)) {
-            points.push([timestamp, value])
-        }
-    }
-    return points
-}
-
-export interface HistoryDisplay {
-    latest: [number, number] | null
-    /** The value in effect at the window start: the last write before the cutoff,
-     * carried forward, so sparsely-written properties still chart at any window. */
-    baseline: [number, number] | null
-    chartPoints: [number, number][]
-}
-
-export function buildHistoryDisplay(allPoints: [number, number][], windowDays: number, nowMs: number): HistoryDisplay {
-    const cutoff = Math.floor(nowMs / 1000) - windowDays * 24 * 60 * 60
-    const inWindow = allPoints.filter(([timestamp]) => timestamp >= cutoff)
-    const lastBefore = allPoints.filter(([timestamp]) => timestamp < cutoff).at(-1) ?? null
-    const carriedForward: [number, number] | null = lastBefore ? [cutoff, lastBefore[1]] : null
-    const latest = inWindow.at(-1) ?? lastBefore
-    return {
-        latest,
-        baseline: carriedForward ?? inWindow[0] ?? null,
-        chartPoints: carriedForward ? [carriedForward, ...inWindow] : inWindow,
-    }
-}
-
-function CustomPropertyHistoryCell({
-    raw,
-    definition,
-    display,
-}: {
-    raw: unknown
-    definition: CustomPropertyDefinitionApi
-    display: AccountColumnDisplayConfig
-}): JSX.Element {
-    const { latest, baseline, chartPoints } = buildHistoryDisplay(
-        parseHistoryPoints(raw),
-        display.window_days,
-        dayjs().valueOf()
-    )
-
-    if (!latest) {
-        return <span className="text-muted">—</span>
-    }
-    const formatValue = (value: number): string => formatCustomPropertyValue(String(value), definition)
-    if (chartPoints.length < 2) {
-        return (
-            <Tooltip title="Not enough history to chart yet — showing the current value.">
-                <span>{formatValue(latest[1])}</span>
-            </Tooltip>
-        )
-    }
-
-    if (display.mode === 'sparkline') {
-        // Each sparkline auto-scales to its own range, so the line shows the trend but not the
-        // magnitude — every row looks alike without the latest value spelled out next to it.
-        return (
-            // `min-w-min` lets the cell outgrow w-40 instead of spilling a long value into the next
-            // column, and the chart keeps a floor so it degrades rather than vanishing.
-            <div className="flex items-center gap-2 w-40 min-w-min">
-                <span className="tabular-nums whitespace-nowrap">{formatValue(latest[1])}</span>
-                <Sparkline
-                    type="line"
-                    className="h-8 min-w-8"
-                    data={chartPoints.map(([, value]) => value)}
-                    labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
-                    renderTooltipValue={formatValue}
-                />
-            </div>
-        )
-    }
-
-    const delta = latest[1] - baseline![1]
-    const deltaClass = delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : 'text-muted'
-    // Percentage change against the window-start value; a zero baseline has no
-    // meaningful ratio, so fall back to the absolute delta.
-    const deltaText =
-        delta === 0
-            ? 'No change'
-            : baseline![1] === 0
-              ? `${delta > 0 ? '+' : '-'}${formatValue(Math.abs(delta))}`
-              : `${delta > 0 ? '+' : '-'}${percentage(Math.abs(delta / baseline![1]), 1)}`
-    return (
-        <Tooltip
-            title={`${formatValue(latest[1])} now, compared to ${formatValue(baseline![1])} ${display.window_days} days ago`}
-        >
-            <span className="inline-flex items-baseline gap-1.5">
-                <span>{formatValue(latest[1])}</span>
-                <span className={`text-xs ${deltaClass}`}>{deltaText}</span>
-            </span>
-        </Tooltip>
-    )
-}
-
-const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
-    'Last Slack message at': 'conversations',
-}
-
-export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {
-    return definition.is_canonical ? CANONICAL_PROPERTY_TAB[definition.name] : undefined
-}
-
-function CanonicalTimestampCell({
-    record,
-    definition,
-    value,
-    tab,
-}: {
-    record: unknown
-    definition: CustomPropertyDefinitionApi
-    value: string
-    tab: AccountExpansionTab
-}): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { openAccountTab } = useActions(accountsExpansionLogic)
-    const accountId = getNameCell(record)?.id
-    const label = <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
-
-    if (!accountId) {
-        return label
-    }
-    return (
-        <Link
-            to={urls.customerAnalyticsAccount(accountId, tab)}
-            onClick={(event) => {
-                if (
-                    featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_SCENE] ||
-                    event.metaKey ||
-                    event.ctrlKey ||
-                    event.shiftKey
-                ) {
-                    return
-                }
-                event.preventDefault()
-                event.stopPropagation()
-                openAccountTab(accountId, tab)
-            }}
-        >
-            {label}
-        </Link>
     )
 }
 
@@ -427,43 +251,6 @@ export function isCustomPropertyValueValid(
         return typeof draft === 'string' && isHttpUrl(draft)
     }
     return definition.display_type !== 'date' && definition.display_type !== 'datetime' ? true : draft !== ''
-}
-
-function renderCustomPropertyValue(
-    record: unknown,
-    value: string,
-    definition: CustomPropertyDefinitionApi
-): JSX.Element {
-    if (!value) {
-        return <span className="text-muted">—</span>
-    }
-    if (definition.display_type === 'date' || definition.display_type === 'datetime') {
-        const tab = getCanonicalPropertyTab(definition)
-        if (tab) {
-            return <CanonicalTimestampCell record={record} definition={definition} value={value} tab={tab} />
-        }
-        return <TZLabel time={value} showSeconds={definition.display_type === 'datetime'} />
-    }
-    if (definition.display_type === 'boolean') {
-        return value === 'true' || value === '1' ? <IconCheck /> : <IconX className="text-muted" />
-    }
-    if (definition.display_type === 'link') {
-        return (
-            <Link to={value} target="_blank" targetBlankIcon={false}>
-                {value}
-            </Link>
-        )
-    }
-    if (definition.display_type === 'select') {
-        const option = definition.options?.find((candidate) => candidate.label === value)
-        return (
-            <span className="inline-flex items-center gap-1.5">
-                {option && <LemonColorGlyph colorToken={option.color as DataColorToken} size="small" />}
-                <span>{value}</span>
-            </span>
-        )
-    }
-    return <span>{formatCustomPropertyValue(value, definition)}</span>
 }
 
 function renderCustomPropertyEditor(
@@ -680,13 +467,14 @@ function CustomPropertyCell({
         )
     }
 
-    const displayValue = value === null || value === undefined ? '' : String(value)
-    const renderedValue =
-        display && override === undefined ? (
-            <CustomPropertyHistoryCell raw={raw} definition={definition} display={display} />
-        ) : (
-            renderCustomPropertyValue(record, displayValue, definition)
-        )
+    const renderedValue = (
+        <CustomPropertyValueDisplay
+            raw={override === undefined ? raw : override}
+            definition={definition}
+            display={override === undefined ? display : undefined}
+            accountId={accountId}
+        />
+    )
     return (
         <div className="flex min-w-0 items-center gap-1">
             <span className="min-w-0 truncate">{renderedValue}</span>
