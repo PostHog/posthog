@@ -30,6 +30,7 @@ from posthog.tasks.usage_report import (
     get_self_driving_credits_used_in_period_for_org,
     get_signals_credited_refund_credits_for_org,
     get_teams_with_api_queries_metrics,
+    get_teams_with_apm_tracing_usage_in_period,
     iter_billable_teams,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService, log_usage_counter_comparisons
@@ -79,6 +80,7 @@ class QuotaResource(Enum):
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_PUSH = "workflow_push"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
+    # Covers logs and traces together: they are one product with one free tier and one price.
     LOGS_MB_INGESTED = "logs_mb_ingested"
     REPLAY_VISION_CREDITS = "replay_vision_credits"
 
@@ -1233,6 +1235,10 @@ def update_all_orgs_billing_quotas(
     )
     token_credits = dict(counter_report.counts[UsageCounter.POSTHOG_CODE_CREDITS])
     compute_credits = dict(counter_report.counts[UsageCounter.SANDBOX_COMPUTE_CREDITS])
+    logs_bytes = dict(counter_report.counts[UsageCounter.LOGS_BYTES])
+    apm_tracing_bytes = convert_team_usage_rows_to_dict(
+        _timed_query("apm_tracing_usage", get_teams_with_apm_tracing_usage_in_period, period.start, period.end)["bytes"]
+    )
 
     # Clickhouse is good at counting things so we count across all teams rather than doing it one by one
     all_data = {
@@ -1269,9 +1275,11 @@ def update_all_orgs_billing_quotas(
         "teams_with_replay_vision_credits_used_in_period": dict(
             counter_report.counts[UsageCounter.REPLAY_VISION_CREDITS]
         ),
+        # Logs and traces share one bucket, so a team that stays under the limit on each signal alone
+        # but exceeds it combined has to be limited on both.
         "teams_with_logs_mb_in_period": {
-            team_id: int(bytes_val // 1_000_000)
-            for team_id, bytes_val in counter_report.counts[UsageCounter.LOGS_BYTES]
+            team_id: int((logs_bytes.get(team_id, 0) + apm_tracing_bytes.get(team_id, 0)) // 1_000_000)
+            for team_id in logs_bytes.keys() | apm_tracing_bytes.keys()
         },
     }
 
