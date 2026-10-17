@@ -663,7 +663,7 @@ export function combineSavedAndUrlFilters(saved: DashboardFilter, url: Dashboard
 
 /** Analytics captures the page URL, so metric variables go into a URL as their names and selections only. A definition
  * that is not saved yet stays in the page until the dashboard is saved. */
-export function withMetricVariableSelections(filters: DashboardFilter): DashboardFilter {
+function withMetricVariableSelections(filters: DashboardFilter): DashboardFilter {
     if (!filters.metricVariables) {
         return filters
     }
