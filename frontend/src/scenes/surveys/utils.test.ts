@@ -31,6 +31,7 @@ import {
     doesSurveyRepeatOnEveryEvent,
     withIntroScreenEnabled,
     getExpressionCommentForQuestion,
+    getFullRolloutTargetingError,
     getSurveyNotificationFilters,
     getRecurringSurveyScheduleInfo,
     getResolvedSurveyDateRange,
@@ -834,6 +835,67 @@ describe('survey utils', () => {
             const result = sanitizeSurvey(inputSurvey, { keepEmptyConditions: true })
 
             expect(result.conditions).toBeNull()
+        })
+
+        const emptyFullRolloutGroup = { properties: [], rollout_percentage: 100, variant: null }
+        const emailGroup = {
+            properties: [
+                {
+                    key: 'email',
+                    type: PropertyFilterType.Person,
+                    value: 'user@example.com',
+                    operator: PropertyOperator.Exact,
+                },
+            ],
+            rollout_percentage: 100,
+            variant: null,
+        }
+
+        it.each([
+            { name: 'one empty group at 100%', groups: [emptyFullRolloutGroup] },
+            { name: 'empty groups with null rollout', groups: [{ properties: [], rollout_percentage: null }] },
+        ])('removes targeting that matches everyone: $name', ({ groups }) => {
+            const result = sanitizeSurvey({
+                type: SurveyType.Popover,
+                questions: [],
+                targeting_flag_filters: { groups } as FeatureFlagFilters,
+            })
+
+            expect(result.targeting_flag_filters).toBeUndefined()
+            expect(result.remove_targeting_flag).toBe(true)
+        })
+
+        it('keeps targeting when an empty 100% group sits next to a group with conditions', () => {
+            const filters = { groups: [emptyFullRolloutGroup, emailGroup] } as FeatureFlagFilters
+            const result = sanitizeSurvey({ type: SurveyType.Popover, questions: [], targeting_flag_filters: filters })
+
+            expect(result.targeting_flag_filters).toEqual(filters)
+            expect(result.remove_targeting_flag).toBeUndefined()
+        })
+
+        it.each([
+            { name: 'no targeting', groups: undefined, expected: null },
+            { name: 'only empty 100% groups', groups: [emptyFullRolloutGroup], expected: null },
+            {
+                name: 'an empty group at 0% rollout',
+                groups: [emailGroup, { ...emptyFullRolloutGroup, rollout_percentage: 0 }],
+                expected: null,
+            },
+            {
+                name: 'one empty 100% group next to a group with conditions',
+                groups: [emptyFullRolloutGroup, emailGroup],
+                expected:
+                    'Set 1 has no conditions at 100% rollout, so it targets everyone. Add a condition to it or remove it.',
+            },
+            {
+                name: 'several empty 100% groups next to a group with conditions',
+                groups: [emptyFullRolloutGroup, emailGroup, emptyFullRolloutGroup, emptyFullRolloutGroup],
+                expected:
+                    'Sets 1, 3 and 4 have no conditions at 100% rollout, so they target everyone. Add a condition to them or remove them.',
+            },
+        ])('getFullRolloutTargetingError with $name', ({ groups, expected }) => {
+            const filters = groups ? ({ groups } as FeatureFlagFilters) : undefined
+            expect(getFullRolloutTargetingError(filters)).toBe(expected)
         })
     })
 

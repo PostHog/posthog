@@ -95,6 +95,7 @@ import {
     SurveyRates,
     SurveySchedule,
     SurveyStats,
+    SurveyType,
 } from '~/types'
 
 import { surveysGenerateTranslationsCreate } from 'products/surveys/frontend/generated/api'
@@ -108,7 +109,6 @@ import type {
     SurveyAppearance,
     SurveyDisplayConditions,
     SurveyQuestionDescriptionContentType,
-    SurveyType,
     TeamPublicType,
     TeamType,
     UserType,
@@ -147,6 +147,7 @@ import {
     buildSurveyTimestampFilter,
     calculateSurveyRates,
     createAnswerFilterHogQLExpression,
+    getFullRolloutTargetingError,
     getResponseFieldWithId,
     getSurveyEndDateForQuery,
     getSurveyResponseOutcomeBreakdown,
@@ -784,6 +785,7 @@ export interface surveyLogicValues {
     surveyValidationErrors: DeepPartialMap<NewSurvey | Survey, ValidationErrorType>
     surveyWarnings: SurveyFeatureWarning[]
     targetingFlagFilters: FeatureFlagFilters | undefined
+    targetingFullRolloutError: string | null
     timestampFilter: string
     translationErrorsByQuestion: (questionIndex: number) => TranslationValidationError[]
     translationErrorsForField: (questionIndex: number, fieldPath: string) => TranslationValidationError | undefined
@@ -1483,6 +1485,7 @@ export interface surveyLogicMeta {
             responseColumns: SurveyResponseColumn[]
         ) => DataTableNode | null
         targetingFlagFilters: (survey: NewSurvey | Survey) => FeatureFlagFilters | undefined
+        targetingFullRolloutError: (survey: NewSurvey | Survey) => string | null
         urlMatchTypeValidationError: (survey: NewSurvey | Survey) => string | null
         urlSearchParams: (
             propertyFilters: AnyPropertyFilter[],
@@ -2293,7 +2296,11 @@ export const surveyLogic = kea<surveyLogicType>([
             },
             submitSurveyFailure: async () => {
                 // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
-                if (hasFormErrors(values.flagPropertyErrors) || values.urlMatchTypeValidationError) {
+                if (
+                    hasFormErrors(values.flagPropertyErrors) ||
+                    values.targetingFullRolloutError ||
+                    values.urlMatchTypeValidationError
+                ) {
                     actions.setSelectedSection(SurveyEditSection.DisplayConditions)
                 } else if (
                     values.surveyErrors.questions != null &&
@@ -3215,6 +3222,14 @@ export const surveyLogic = kea<surveyLogicType>([
                 return v1TargetingFlagFilters(survey)
             },
         ],
+        targetingFullRolloutError: [
+            (s) => [s.survey],
+            (survey: NewSurvey | Survey): string | null =>
+                // sanitizeSurvey drops targeting for external surveys
+                survey.type === SurveyType.ExternalSurvey
+                    ? null
+                    : getFullRolloutTargetingError(survey.targeting_flag_filters),
+        ],
         urlMatchTypeValidationError: [
             (s) => [s.survey],
             (survey: NewSurvey | Survey): string | null => {
@@ -4060,6 +4075,8 @@ export const surveyLogic = kea<surveyLogicType>([
                     targeting_flag_filters: values.flagPropertyErrors,
                     // controlled using a PureField in the form
                     urlMatchType: values.urlMatchTypeValidationError,
+                    // controlled using a PureField in the form
+                    targetingFullRollout: values.targetingFullRolloutError,
                     appearance:
                         sanitizedAppearance &&
                         validateSurveyAppearance(

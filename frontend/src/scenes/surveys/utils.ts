@@ -29,6 +29,7 @@ import {
     EventPropertyFilter,
     EventType,
     FeatureFlagFilters,
+    FeatureFlagGroupType,
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
     PropertyFilterType,
@@ -1285,6 +1286,33 @@ export function buildOpenEndedQuery(
     return { query, columnMap }
 }
 
+// The API rejects a targeting group with no conditions at 100% rollout, because it matches everyone.
+function isFullRolloutTargetingGroup(group: FeatureFlagGroupType): boolean {
+    return (group.rollout_percentage == null || group.rollout_percentage === 100) && !group.properties?.length
+}
+
+function hasOnlyFullRolloutTargetingGroups(filters: FeatureFlagFilters | null | undefined): boolean {
+    const groups = filters?.groups ?? []
+    return groups.length > 0 && groups.every(isFullRolloutTargetingGroup)
+}
+
+export function getFullRolloutTargetingError(filters: FeatureFlagFilters | null | undefined): string | null {
+    const groups = filters?.groups ?? []
+    if (hasOnlyFullRolloutTargetingGroups(filters)) {
+        // sanitizeSurvey removes the targeting, so the save does not fail.
+        return null
+    }
+    const setNumbers = groups.flatMap((group, index) => (isFullRolloutTargetingGroup(group) ? [index + 1] : []))
+    if (setNumbers.length === 0) {
+        return null
+    }
+    if (setNumbers.length === 1) {
+        return `Set ${setNumbers[0]} has no conditions at 100% rollout, so it targets everyone. Add a condition to it or remove it.`
+    }
+    const setList = `${setNumbers.slice(0, -1).join(', ')} and ${setNumbers[setNumbers.length - 1]}`
+    return `Sets ${setList} have no conditions at 100% rollout, so they target everyone. Add a condition to them or remove them.`
+}
+
 interface SanitizeSurveyOptions {
     keepEmptyConditions?: boolean
 }
@@ -1336,6 +1364,10 @@ export function sanitizeSurvey(survey: Partial<Survey>, options?: SanitizeSurvey
     if (survey.type === SurveyType.ExternalSurvey) {
         sanitized.remove_targeting_flag = true
         sanitized.linked_flag_id = null
+        sanitized.targeting_flag_filters = undefined
+    } else if (hasOnlyFullRolloutTargetingGroups(survey.targeting_flag_filters)) {
+        // Targeting that matches everyone is the same as no targeting.
+        sanitized.remove_targeting_flag = true
         sanitized.targeting_flag_filters = undefined
     }
 
