@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
+from posthog.models.team import Team
 
 from products.conversations.backend.models import GithubCommentMapping, Ticket
 from products.conversations.backend.models.constants import Status
@@ -153,6 +154,24 @@ class TestProcessGithubEvent(BaseTest):
 
         self._run(_issue_payload(issue_number=99), delivery_id="dup-1")
         assert Ticket.objects.filter(team=self.team).count() == initial_count
+
+    def test_one_delivery_creates_a_ticket_for_each_team_it_fans_out_to(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        other_team.conversations_settings = {"github_enabled": True, "github_repos": ["org/repo"]}
+        other_team.save()
+
+        self._run(_issue_payload(), delivery_id="shared-1")
+        process_github_event(
+            event_type="issues",
+            action="opened",
+            payload=_issue_payload(),
+            delivery_id="shared-1",
+            team_id=other_team.id,
+            repo="org/repo",
+        )
+
+        assert Ticket.objects.filter(team=self.team, github_issue_number=42).count() == 1
+        assert Ticket.objects.filter(team=other_team, github_issue_number=42).count() == 1
 
 
 class TestHandleGithubCommentEvent(BaseTest):
