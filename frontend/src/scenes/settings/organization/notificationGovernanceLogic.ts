@@ -54,6 +54,7 @@ export interface notificationGovernanceLogicValues {
     changesToSave: OrganizationNotificationLockChangeApi[]
     listViews: Record<string, ListView>
     loadFailed: boolean
+    notEntitled: boolean
     memberListFor: (list: string) => MemberListView
     members: OrganizationNotificationMemberApi[] | null
     membersLoading: boolean
@@ -70,6 +71,9 @@ export interface notificationGovernanceLogicActions {
         value: true
     }
     loadMembers: () => any
+    markNotEntitled: () => {
+        value: true
+    }
     loadMembersFailure: (
         error: string,
         errorObject?: any
@@ -184,8 +188,9 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
         saveChanges: true,
         saveChangesSuccess: true,
         saveChangesFailure: true,
+        markNotEntitled: true,
     }),
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         // Null until the first response, so the section can tell loading apart from an empty
         // organization.
         members: [
@@ -198,7 +203,18 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
                     if (!values.currentOrganization) {
                         return null
                     }
-                    return await notificationLocksList(values.currentOrganization.id)
+                    try {
+                        return await notificationLocksList(values.currentOrganization.id)
+                    } catch (error: any) {
+                        // The organization's plan does not include member governance. This happens
+                        // when another tab switches organization, so the plan the page checked is
+                        // not the plan of the organization the request goes to.
+                        if (error?.status === 402) {
+                            actions.markNotEntitled()
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -237,6 +253,13 @@ export const notificationGovernanceLogic = kea<notificationGovernanceLogicType>(
                 loadMembers: () => false,
                 loadMembersSuccess: () => false,
                 loadMembersFailure: () => true,
+            },
+        ],
+        notEntitled: [
+            false,
+            {
+                loadMembers: () => false,
+                markNotEntitled: () => true,
             },
         ],
         savingChanges: [

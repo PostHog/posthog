@@ -1,3 +1,5 @@
+import { expectLogic } from 'kea-test-utils'
+
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -78,5 +80,21 @@ describe('notificationGovernanceLogic', () => {
 
         expect(logic.values.changesToSave.map((change) => change.user_id)).toEqual([1])
         expect(logic.values.affectedMemberCount).toBe(1)
+    })
+
+    it('treats a payment-required rejection as not on the plan rather than a failed load', async () => {
+        useMocks({
+            get: {
+                '/api/organizations/:id/notification_locks/': () => [
+                    402,
+                    { type: 'server_error', code: 'payment_required', detail: 'Member governance requires a plan.' },
+                ],
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.loadMembers())
+            .toDispatchActions(['markNotEntitled', 'loadMembersSuccess'])
+            .toNotHaveDispatchedActions(['loadMembersFailure'])
+            .toMatchValues({ notEntitled: true, loadFailed: false })
     })
 })
