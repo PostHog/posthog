@@ -2385,6 +2385,7 @@ class TestLogsAlertAPI(APIBaseTest):
             ("logs_disable", "logs", lambda: {"enabled": False}),
             ("logs_snooze", "logs", lambda: {"snooze_until": (datetime.now(UTC) + timedelta(hours=1)).isoformat()}),
             ("logs_threshold_change", "logs", lambda: {"threshold_count": 50}),
+            ("logs_unsnooze_threshold_change", "logs", lambda: {"snooze_until": None, "threshold_count": 50}),
             ("platform_disable", "platform", lambda: {"enabled": False}),
         ]
     )
@@ -2419,10 +2420,22 @@ class TestLogsAlertAPI(APIBaseTest):
         # A check already running when the edit landed finds the row no longer due, and a snooze runs
         # no check until it ends.
         next_check_at = self._copy(created["id"]).next_check_at
-        earliest = datetime.now(UTC) + (
-            timedelta(minutes=59) if route == "logs" and "snooze" in _name else timedelta(0)
-        )
+        earliest = datetime.now(UTC) + (timedelta(minutes=59) if _name == "logs_snooze" else timedelta(0))
         assert next_check_at is not None and next_check_at > earliest
+
+    def test_shortening_a_snooze_on_the_logs_page_brings_the_next_platform_check_forward(self) -> None:
+        created = self._owned_by_the_platform()
+
+        for snooze in (timedelta(hours=24), timedelta(minutes=30)):
+            response = self.client.patch(
+                f"{self.base_url}{created['id']}/",
+                {"snooze_until": (datetime.now(UTC) + snooze).isoformat()},
+                format="json",
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+        next_check_at = self._copy(created["id"]).next_check_at
+        assert next_check_at is not None and next_check_at < datetime.now(UTC) + timedelta(minutes=31)
 
     def test_a_resolve_is_sent_inline_when_temporal_cannot_start_it(self) -> None:
         created, _copy = self._firing_on_the_platform_with_pagerduty()

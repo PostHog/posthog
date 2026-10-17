@@ -761,11 +761,16 @@ def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: dateti
     A snooze defers the next check to its end, as the logs stack runs no check while snoozed. A mute
     alone holds only messages, and a breach that went on would open a new incident during the snooze.
     """
-    configuration.snooze_until = snooze_until
+    next_check_at = configuration.next_check_at or now
+    current = configuration.snooze_until
+    if current is not None and current > now:
+        # The stored due time is the current snooze's end, which the new snooze replaces. A fence an
+        # edit set earlier in this transaction is at most this far out, so it holds.
+        next_check_at = min(next_check_at, now + _REVIVE_FENCE)
     if snooze_until is not None and snooze_until > now:
-        configuration.next_check_at = max(configuration.next_check_at or now, snooze_until)
-    else:
-        configuration.next_check_at = min(configuration.next_check_at or now, now)
+        next_check_at = max(next_check_at, snooze_until)
+    configuration.snooze_until = snooze_until
+    configuration.next_check_at = next_check_at
     configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
 
 
