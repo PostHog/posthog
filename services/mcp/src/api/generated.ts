@@ -114096,6 +114096,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `trino` - trino
+     * * `duckdb` - duckdb
+     */
+    export type WarehouseDataOpsVariantEnum = typeof WarehouseDataOpsVariantEnum[keyof typeof WarehouseDataOpsVariantEnum];
+
+
+    export const WarehouseDataOpsVariantEnum = {
+      Trino: 'trino',
+      Duckdb: 'duckdb',
+    } as const;
+
+    /**
      * * `pending` - pending
      * * `provisioning` - provisioning
      * * `ready` - ready
@@ -114201,6 +114213,11 @@ export namespace Schemas {
       connection?: WarehouseConnection | null;
       /** Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise. */
       trino?: WarehouseTrinoStatus | null;
+      /** Data ops variant the organization gets, resolved on the server. The monitoring endpoints accept only the matching variant. Null when the organization has neither variant.
+       *
+       * * `trino` - trino
+       * * `duckdb` - duckdb */
+      data_ops_variant: WarehouseDataOpsVariantEnum | null;
       /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
       has_backfill: boolean;
       /**

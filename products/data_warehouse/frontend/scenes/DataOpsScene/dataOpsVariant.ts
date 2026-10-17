@@ -4,7 +4,8 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 export type DataOpsVariant = 'trino' | 'duckdb'
 
 // Mirrors data_ops_variant in products/managed_warehouse/backend/presentation/views.py.
-// The backend enforces the same rule, so a change here needs the same change there.
+// Client flags can disagree with the server, so the scene prefers the variant that the
+// warehouse status returns. Use this only when no warehouse status is available.
 export function dataOpsVariantFromFlags(featureFlags: FeatureFlagsSet): DataOpsVariant | null {
     if (featureFlags[FEATURE_FLAGS.MANAGED_TRINO_QUERY]) {
         return 'trino'

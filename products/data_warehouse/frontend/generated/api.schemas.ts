@@ -1005,6 +1005,18 @@ export interface WarehouseTrinoStatusApi {
     connection: WarehouseTrinoConnectionApi | null
 }
 
+/**
+ * * `trino` - trino
+ * * `duckdb` - duckdb
+ */
+export type WarehouseDataOpsVariantEnumApi =
+    (typeof WarehouseDataOpsVariantEnumApi)[keyof typeof WarehouseDataOpsVariantEnumApi]
+
+export const WarehouseDataOpsVariantEnumApi = {
+    Trino: 'trino',
+    Duckdb: 'duckdb',
+} as const
+
 export interface WarehouseStatusResponseApi {
     /** duckgres org identifier (the PostHog organization id) */
     org_id: string
@@ -1041,6 +1053,11 @@ export interface WarehouseStatusResponseApi {
     connection?: WarehouseConnectionApi | null
     /** Trino status for organizations on the Trino Data ops variant, once the warehouse is ready. Null otherwise. */
     trino?: WarehouseTrinoStatusApi | null
+    /** Data ops variant the organization gets, resolved on the server. The monitoring endpoints accept only the matching variant. Null when the organization has neither variant.
+     *
+     * * `trino` - trino
+     * * `duckdb` - duckdb */
+    data_ops_variant: WarehouseDataOpsVariantEnumApi | null
     /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
     has_backfill: boolean
     /**
