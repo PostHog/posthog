@@ -3,8 +3,6 @@ from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
 from typing import Any
 
-from django.db import transaction
-
 import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
@@ -45,20 +43,17 @@ from products.messaging.backend.facade.templates import (
     MessageTemplateMissing,
     MessageTemplateRow,
     create_template,
-    edit_template_content,
     get_template,
     list_templates,
+    save_template_content,
+    save_template_fields,
     team_category_id,
-    update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
     DeliveryUnavailable,
     TransactionalEmailError,
-    check_transactional_update,
-    lock_transactional_workflow_id,
     make_transactional,
     send_transactional_email,
-    sync_transactional_workflow,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -450,30 +445,18 @@ class MessageTemplatesViewSet(
         template = self.get_object()
         serializer = self.get_serializer(self._with_creators([template])[0], data=request.data, partial=partial)
         serializer.is_valid(raise_exception=True)
-        # Sends use the workflow's copy, so the template and its new workflow version are saved together,
-        # under a row lock that keeps a concurrent make_transactional from slipping in between.
-        with transaction.atomic():
-            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
-            if hog_flow_id:
-                self._require_workflow_editor(hog_flow_id)
-                try:
-                    check_transactional_update(template.id, self.team_id, serializer.validated_data)
-                except TransactionalEmailError as e:
-                    raise TransactionalEmailRejected(e) from None
-            updated = update_template(self.team_id, template.id, serializer.validated_data)
-            if hog_flow_id and not updated.deleted:
-                self._sync_transactional_workflow(template.id)
-                # The sync unlinks the template when its workflow was deleted.
-                updated = get_template(self.team_id, template.id)
-        self._emit_resource_edited(updated)
-        return Response(self._serialize(updated))
-
-    def _sync_transactional_workflow(self, template_id: Any) -> None:
-        # Raising rolls back the template save, so the template and its workflow never disagree.
         try:
-            sync_transactional_workflow(self.team_id, template_id, user_id=self._actor_id())
+            updated = save_template_fields(
+                self.team_id,
+                template.id,
+                serializer.validated_data,
+                user_id=self._actor_id(),
+                require_workflow_editor=self._require_workflow_editor,
+            )
         except TransactionalEmailError as e:
             raise TransactionalEmailRejected(e) from None
+        self._emit_resource_edited(updated)
+        return Response(self._serialize(updated))
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # The template's own access rules don't cover the workflow it sends through, which can carry its own.
@@ -556,19 +539,19 @@ class MessageTemplatesViewSet(
             serializer.is_valid(raise_exception=True)
             return serializer.validated_data["content"]
 
-        with transaction.atomic():
-            # Checked under the row lock, so a template made transactional meanwhile is checked too.
-            hog_flow_id = lock_transactional_workflow_id(self.team_id, template.id)
-            if hog_flow_id:
-                self._require_workflow_editor(hog_flow_id)
-            locked = edit_template_content(self.team_id, template.id, apply_operations)
-            if hog_flow_id:
-                self._sync_transactional_workflow(template.id)
-                # The sync unlinks the template when its workflow was deleted.
-                locked = get_template(self.team_id, template.id)
+        try:
+            saved = save_template_content(
+                self.team_id,
+                template.id,
+                apply_operations,
+                user_id=self._actor_id(),
+                require_workflow_editor=self._require_workflow_editor,
+            )
+        except TransactionalEmailError as e:
+            raise TransactionalEmailRejected(e) from None
 
-        self._emit_resource_edited(locked)
-        return Response(self._serialize(locked))
+        self._emit_resource_edited(saved)
+        return Response(self._serialize(saved))
 
     @validated_request(
         SendTransactionalEmailSerializer,

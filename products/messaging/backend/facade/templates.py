@@ -10,7 +10,10 @@ from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from posthog.dataclasses import frozen
 
 from products.messaging.backend.models.message_template import MessageTemplate
-from products.messaging.backend.services import message_templates as templates_service
+from products.messaging.backend.services import (
+    message_templates as templates_service,
+    template_saves,
+)
 from products.messaging.backend.services.lazy_list import LazyList
 
 
@@ -82,16 +85,56 @@ def create_template(team_id: int, created_by_id: int | None, fields: dict[str, A
     return _to_contract(templates_service.create_template(team_id, created_by_id, fields))
 
 
-def update_template(team_id: int, template_id: UUID, fields: dict[str, Any]) -> MessageTemplateRow:
-    """Set the given fields and save the whole row. `message_category` holds a category id or None."""
-    return _to_contract(templates_service.update_template(team_id, template_id, fields))
-
-
-def edit_template_content(
-    team_id: int, template_id: UUID, edit: Callable[[dict[str, Any]], dict[str, Any]]
+def save_template_fields(
+    team_id: int,
+    template_id: UUID,
+    fields: dict[str, Any],
+    *,
+    user_id: int | None,
+    require_workflow_editor: Callable[[UUID], None],
 ) -> MessageTemplateRow:
-    """Lock the template, replace its content with `edit(content)` and save, in one transaction.
+    """Set validated fields and save the template with its workflow. `message_category` holds a category id or None.
 
-    `edit` gets a copy of the stored content. An exception from it rolls the change back.
+    Raises TransactionalEmailError when the template could no longer send. `require_workflow_editor` gets the id of
+    the template's workflow, under the row lock, and raises to refuse the save.
     """
-    return _to_contract(templates_service.edit_content_locked(team_id, template_id, edit))
+    return _to_contract(
+        template_saves.save_template(
+            team_id,
+            template_id,
+            lambda template: templates_service.apply_fields(template, fields),
+            user_id=user_id,
+            require_workflow_editor=require_workflow_editor,
+        )
+    )
+
+
+def save_template_content(
+    team_id: int,
+    template_id: UUID,
+    edit: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    user_id: int | None,
+    require_workflow_editor: Callable[[UUID], None],
+) -> MessageTemplateRow:
+    """Replace the template's content with `edit(content)` and save it as `save_template_fields` does.
+
+    `edit` gets a copy of the stored content, under the row lock. An exception from it rolls the change back.
+    """
+    return _to_contract(
+        template_saves.save_template(
+            team_id,
+            template_id,
+            lambda template: templates_service.edit_content(template, edit),
+            user_id=user_id,
+            require_workflow_editor=require_workflow_editor,
+        )
+    )
+
+
+def rewrite_template_content(
+    template_id: UUID, rewrite: Callable[[Any], tuple[Any, int]], *, team_ids: list[int] | None, dry_run: bool
+) -> int:
+    """Apply `rewrite` to a template's content under a row lock, and write the new content to its transactional
+    workflow in the same transaction. Returns the number of occurrences it replaced."""
+    return template_saves.rewrite_content(template_id, rewrite, team_ids=team_ids, dry_run=dry_run)
