@@ -17,9 +17,10 @@ LIQUID_DELIMITERS: Final = (("{{", "}}"), ("{%", "%}"))
 VARIABLE: Final = re.compile(r"(?<![\w.])variables\.([A-Za-z_][\w-]*)")
 COMMIT_SHA: Final = re.compile(r"^[0-9a-f]{7,40}$", re.IGNORECASE)
 # Uploads store source values as free text, and the prompt goes to an agent that can write to the repository,
-# so a value that could carry an instruction (spaces, backticks, newlines) is treated as unknown.
+# so a value with characters a repository, path or ref never needs (spaces, backticks, shell syntax) is treated as
+# unknown.
 SOURCE_REPOSITORY: Final = re.compile(r"[\w.-]+(?:/[\w.-]+)+")
-SOURCE_PATH: Final = re.compile(r"[^\s`\x00-\x1f\x7f]+")
+SOURCE_PATH: Final = re.compile(r"[\w.@+~,=()\[\]-]+(?:/[\w.@+~,=()\[\]-]+)*")
 SOURCE_REF: Final = re.compile(r"[\w./-]+")
 SHORT_SHA_LENGTH: Final = 7
 
