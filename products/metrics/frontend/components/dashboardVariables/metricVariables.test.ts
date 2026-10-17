@@ -3,6 +3,7 @@ import type { MetricsDashboardVariable } from '~/queries/schema/schema-general'
 import { variableErrors } from './metricVariableEditorLogic'
 import {
     ALL_OPTION,
+    dependentsOf,
     orderVariables,
     ownValue,
     reconcileSelection,
@@ -40,6 +41,11 @@ describe('metricVariables', () => {
         const escaped = [promql('env', 'label_values(up{a=~`\\$env`, b=~"\\\\$env"}, env) # $env')]
         expect(orderVariables(escaped).cycle).toEqual([])
         expect(orderVariables([promql('env', 'label_values(up{c="C:\\\\$env"}, env)')]).cycle).toEqual(['env'])
+        const namedGroup = 'query_result(label_replace(up, "dst", "$env", "src", "(?P<env>.*)"))'
+        expect(orderVariables([promql('env', namedGroup)]).cycle).toEqual([])
+        expect(dependentsOf([cluster, promql('job', namedGroup.replace('$env', '$cluster'))], ['cluster'])).toEqual([
+            'job',
+        ])
         const sqlWithCarriageReturn: MetricsDashboardVariable = {
             name: 'env',
             source: 'sql',
@@ -107,9 +113,10 @@ describe('metricVariables', () => {
         ['a list, which does not use the regex', 'custom', '(', undefined],
         ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
         ['a regex that repeats too much', 'promql', '(a{1000}){1000}', 'regex'],
+        ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],
         ['a regex with small counted repeats', 'promql', '\\d{1,3}(\\.\\d{1,3}){3}', undefined],
-    ])('checks the regex of %s', (_name, source, regex, field) => {
-        const variable = { name: 'v', source, query: 'label_values(job)', customValues: ['a'], regex }
+    ])('checks the regex of %s', (_name, source, regex, field, query = 'label_values(job)') => {
+        const variable = { name: 'v', source, query, customValues: ['a'], regex }
         expect(ownValue(variableErrors([variable as MetricsDashboardVariable]), 'v')?.field).toEqual(field)
     })
 

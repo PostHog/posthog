@@ -160,6 +160,8 @@ function regexError(regex: string | null | undefined): string | null {
 const MAX_NAME_LENGTH = 128
 const MAX_QUERY_LENGTH = 10000
 const MAX_CUSTOM_VALUES = 1000
+// The forms that the options endpoint accepts for a PromQL query.
+const PROMQL_OPTIONS_QUERY = /^\s*(label_values|label_names|metrics|query_result)\s*\(.*\)\s*$/is
 // A change to one of these fields changes the values, so the preview loads again.
 const PREVIEW_FIELDS = new Set(['source', 'query', 'regex', 'customValues'])
 
@@ -195,6 +197,11 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
             errors[variable.name] = { field: 'name', message: 'Another variable has this name.' }
         } else if ((variable.source === 'promql' || variable.source === 'sql') && !variable.query?.trim()) {
             errors[variable.name] = { field: 'query', message: 'Write a query that gives the values.' }
+        } else if (variable.source === 'promql' && !PROMQL_OPTIONS_QUERY.test(variable.query ?? '')) {
+            errors[variable.name] = {
+                field: 'query',
+                message: 'Use label_values(), label_names(), metrics() or query_result().',
+            }
         } else if ((variable.query?.length ?? 0) > MAX_QUERY_LENGTH) {
             errors[variable.name] = { field: 'query', message: `Use at most ${MAX_QUERY_LENGTH} characters.` }
         } else if (invalidRegex) {
