@@ -362,16 +362,19 @@ class SQLValueEscaper:
 
     # Unlike posthog.hogql.visitor.Visitor, this tiny visitor works on primitives.
     def visit(self, node: Any) -> str:
-        method_name = f"visit_{node.__class__.__name__.lower()}"
-        if hasattr(self, method_name):
-            return getattr(self, method_name)(node)
-        raise ResolutionError(f"SQLValueEscaper has no method {method_name}")
+        # Walk the MRO so that subclasses such as StrEnum or IntEnum members use the handler of their base type.
+        for cls in type(node).__mro__:
+            method = getattr(self, f"visit_{cls.__name__.lower()}", None)
+            if method is not None:
+                return method(node)
+        raise ResolutionError(f"SQLValueEscaper has no method visit_{type(node).__name__.lower()}")
 
     def visit_nonetype(self, value: None):
         return "NULL"
 
     def visit_str(self, value: str):
-        return escape_param_clickhouse(value)
+        # A `(str, Enum)` member prints as "Class.MEMBER" through str(), so read the raw string value.
+        return escape_param_clickhouse(str.__str__(value))
 
     def visit_bool(self, value: bool):
         if self._dialect == "clickhouse":
@@ -379,7 +382,7 @@ class SQLValueEscaper:
         return "true" if value is True else "false"
 
     def visit_int(self, value: int):
-        return str(value)
+        return str(int.__int__(value))
 
     def visit_float(self, value: float):
         if math.isnan(value):
