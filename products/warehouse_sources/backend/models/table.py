@@ -112,6 +112,9 @@ ExtractErrors = {
     # UNKNOWN_IDENTIFIER. A column the table still expects is gone from the files, most often the
     # incremental field of a source whose upstream schema changed.
     "Unknown expression or function identifier": "A column PostHog expected isn't in your files any more. Refresh the table schema, then check the fields the sync is set to read.",
+    # The Azure SDK Base64-decodes the secret as the storage account key, so a truncated key or a
+    # value that is not an account key fails here before any request leaves.
+    "Unexpected end of Base64 encoded string": "The Azure storage account key isn't valid. Copy the full key from the storage account's access keys in Azure, paste it into the table credentials again, then try again.",
 }
 
 
