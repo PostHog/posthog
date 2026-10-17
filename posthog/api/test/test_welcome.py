@@ -5,11 +5,13 @@ from django.utils import timezone
 
 from rest_framework import status
 
-from posthog.models import Organization, User
+from posthog.constants import AvailableFeature
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 
 
@@ -225,6 +227,37 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["popular_dashboards"]), 1)
         self.assertEqual(data["popular_dashboards"][0]["name"], "Top dashboard")
+
+    def test_popular_dashboards_respect_object_access_per_project_and_user(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        other_team = Team.objects.create(organization=self.organization, name="Other project")
+        now = timezone.now()
+        Dashboard.objects.create(team=self.team, name="Open dashboard", last_accessed_at=now)
+        Dashboard.objects.create(team=other_team, name="Other project dashboard", last_accessed_at=now)
+        restricted = Dashboard.objects.create(team=self.team, name="Restricted dashboard", last_accessed_at=now)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(restricted.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None, "Teammate")
+
+        response = self.client.get("/api/organizations/@current/welcome/current/")
+        names = {d["name"] for d in response.json()["popular_dashboards"]}
+        self.assertEqual(names, {"Open dashboard", "Other project dashboard"})
+
+        self.client.force_login(teammate)
+        response = self.client.get("/api/organizations/@current/welcome/current/")
+        names = {d["name"] for d in response.json()["popular_dashboards"]}
+        self.assertEqual(names, {"Open dashboard", "Other project dashboard", "Restricted dashboard"})
 
     def test_products_in_use_from_ingested_events(self):
         self.team.ingested_event = True
