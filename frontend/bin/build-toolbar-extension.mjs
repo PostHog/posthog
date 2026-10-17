@@ -8,7 +8,11 @@ import { fileURLToPath } from 'url'
 
 import { buildInParallel } from '@posthog/esbuilder'
 
-import { finalizeToolbarExtensionBuild, getToolbarExtensionBuildConfig } from '../toolbar-config.mjs'
+import {
+    finalizeToolbarExtensionBuild,
+    getToolbarExtensionBuildConfig,
+    getToolbarExtensionContentScriptBuildConfig,
+} from '../toolbar-config.mjs'
 
 const __dirname = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -16,6 +20,11 @@ await buildInParallel(
     [
         {
             ...getToolbarExtensionBuildConfig(__dirname),
+            absWorkingDir: __dirname,
+            bundle: true,
+        },
+        {
+            ...getToolbarExtensionContentScriptBuildConfig(__dirname),
             absWorkingDir: __dirname,
             bundle: true,
         },

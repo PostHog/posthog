@@ -13,6 +13,12 @@ import { Experiment, ActionStepType, ExperimentStatus } from '~/types'
 import { ActionStepPropertyKey } from './actions/ActionStep'
 
 export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
+// The browser extension's content script draws its overlay in this host. It must not count as page content.
+export const TOOLBAR_EXTENSION_ID = '__POSTHOG_TOOLBAR_EXTENSION__'
+
+export function isToolbarRootElement(element: Element): boolean {
+    return element.id === TOOLBAR_ID || element.id === TOOLBAR_EXTENSION_ID
+}
 
 // Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
@@ -233,6 +239,12 @@ export function getToolbarRootElement(): HTMLElement | null {
     return window.document.getElementById(TOOLBAR_ID) || null
 }
 
+function getToolbarRootElements(): HTMLElement[] {
+    return [TOOLBAR_ID, TOOLBAR_EXTENSION_ID]
+        .map((id) => window.document.getElementById(id))
+        .filter((element): element is HTMLElement => !!element)
+}
+
 export function hasCursorPointer(element: HTMLElement): boolean {
     return window.getComputedStyle(element)?.getPropertyValue('cursor') === 'pointer'
 }
@@ -258,8 +270,7 @@ export function trimElement(
     if (!element) {
         return null
     }
-    const rootElement = getToolbarRootElement()
-    if (rootElement && isParentOf(element, rootElement)) {
+    if (getToolbarRootElements().some((rootElement) => isParentOf(element, rootElement))) {
         return null
     }
 
@@ -392,7 +403,7 @@ export function getAllClickTargets(
     })
 
     const shadowElements = allElements
-        .filter((el) => el.shadowRoot && el.getAttribute('id') !== TOOLBAR_ID)
+        .filter((el) => el.shadowRoot && !isToolbarRootElement(el))
         .map((el: HTMLElement) => (el.shadowRoot ? getAllClickTargets(el.shadowRoot, targetSelector) : []))
         .reduce((a, b) => {
             a.push(...b)

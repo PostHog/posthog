@@ -26,6 +26,7 @@ import { createVersionChecker } from 'lib/utils/semver'
 
 import {
     DOMIndex,
+    aggregateAndSortElements,
     buildDOMIndex,
     chainConsistencyProperties,
     hasNonToolbarShadowRoots,
@@ -1628,30 +1629,4 @@ export function dedupeByChainIdentity(events: ElementsEventType[]): ElementsEven
         deduped.push(event)
     }
     return deduped
-}
-
-function aggregateAndSortElements(elements: CountedHTMLElement[]): CountedHTMLElement[] {
-    const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
-
-    for (const countedElement of elements) {
-        if (normalisedElements.has(countedElement.element)) {
-            const existing = normalisedElements.get(countedElement.element)!
-            existing.count += countedElement.count
-            existing.clickCount += countedElement.type === '$autocapture' ? countedElement.count : 0
-            existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
-            existing.deadclickCount += countedElement.type === '$dead_click' ? countedElement.count : 0
-        } else {
-            normalisedElements.set(countedElement.element, {
-                ...countedElement,
-                clickCount: countedElement.type === '$autocapture' ? countedElement.count : 0,
-                rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
-                deadclickCount: countedElement.type === '$dead_click' ? countedElement.count : 0,
-            })
-        }
-    }
-
-    const sorted = Array.from(normalisedElements.values())
-    sorted.sort((a, b) => b.count - a.count)
-
-    return sorted.map((e, i) => ({ ...e, position: i + 1 }))
 }

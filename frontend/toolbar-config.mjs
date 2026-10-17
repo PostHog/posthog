@@ -246,10 +246,11 @@ export async function finalizeToolbarBuild(dirname, buildResponse) {
     })
 }
 
-// The browser extension ships one popup bundle in a folder per browser. Only the manifest differs:
+// The browser extension ships one popup bundle and one content script in a folder per browser. Only the
+// manifest differs:
 //
 //   dist/toolbar-extension/<browser>/manifest.json
-//   dist/toolbar-extension/<browser>/popup.html, popup.js, popup.css, assets/, icons/
+//   dist/toolbar-extension/<browser>/popup.html, popup.js, popup.css, content.js, assets/, icons/
 //
 // Load the folder unpacked in Chrome, or as a temporary add-on in Firefox.
 const TOOLBAR_EXTENSION_BROWSERS = ['chrome', 'firefox']
@@ -287,8 +288,31 @@ export function getToolbarExtensionBuildConfig(dirname) {
 }
 
 /**
+ * The popup injects content.js into the active tab with `scripting.executeScript`, which runs a file as a
+ * classic script. So the content script is one self-contained IIFE, without ESM chunks.
+ */
+export function getToolbarExtensionContentScriptBuildConfig(dirname) {
+    return {
+        name: 'Toolbar extension content script',
+        entryPoints: { content: 'src/toolbar/extension/content.tsx' },
+        format: 'iife',
+        splitting: false,
+        outdir: path.resolve(dirname, 'dist', TOOLBAR_EXTENSION_BUILD_DIR),
+        entryNames: '[name]',
+        publicPath: undefined,
+        loader: { ...commonConfig.loader, '.svg': 'dataurl' },
+        define: {
+            ...commonConfig.define,
+            __POSTHOG_TOOLBAR_PUBLIC_PATH__: JSON.stringify(''),
+        },
+        extraPlugins: [createToolbarModulePlugin(dirname)],
+    }
+}
+
+/**
  * Grants only what the popup reads: the active tab URL after the user opens the popup (`activeTab`),
- * the saved PostHog host (`storage`), and the PostHog session on Cloud. A self-hosted origin is asked
+ * the saved PostHog host and the selected element (`storage`), scripts in the active tab after the user opens the
+ * popup (`scripting` with `activeTab`), and the PostHog session on Cloud. A self-hosted origin is asked
  * for at runtime through `optional_host_permissions`.
  */
 function buildToolbarExtensionManifest(browser) {
@@ -303,7 +327,7 @@ function buildToolbarExtensionManifest(browser) {
             default_popup: 'popup.html',
             default_icon: TOOLBAR_EXTENSION_ICONS,
         },
-        permissions: ['activeTab', 'storage'],
+        permissions: ['activeTab', 'scripting', 'storage'],
         host_permissions: ['https://us.posthog.com/*', 'https://eu.posthog.com/*'],
         optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
     }
