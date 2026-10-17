@@ -1669,6 +1669,7 @@ depends_on = [
     "products.error_tracking",
     "products.product_analytics",
     "products.signals",
+    "products.surveys",
     "products.tasks",
     "products.web_analytics",
     "products.workflows",
