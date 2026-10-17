@@ -27,6 +27,7 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import override_instance_config
 
 from products.product_analytics.backend.hogql_queries.trends.trends_query_builder import TrendsQueryBuilder
 
@@ -50,7 +51,7 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
                 properties={"$geoip_country_code": "AU"},
             )
 
-    def get_response(self, trends_query: TrendsQuery) -> HogQLQueryResponse:
+    def get_query_builder(self, trends_query: TrendsQuery) -> TrendsQueryBuilder:
         query_date_range = QueryDateRange(
             date_range=trends_query.dateRange,
             team=self.team,
@@ -64,7 +65,7 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
         if isinstance(trends_query.series[0], DataWarehouseNode):
             raise Exception("Data Warehouse queries are not supported in this test")
 
-        query_builder = TrendsQueryBuilder(
+        return TrendsQueryBuilder(
             trends_query=trends_query,
             team=self.team,
             query_date_range=query_date_range,
@@ -73,12 +74,14 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
             modifiers=modifiers,
         )
 
+    def get_response(self, trends_query: TrendsQuery) -> HogQLQueryResponse:
+        query_builder = self.get_query_builder(trends_query)
         query = query_builder.build_query()
 
         return HogQLQueryExecutor(
             query=query,
             team=self.team,
-            timings=timings,
+            timings=query_builder.timings,
         ).execute()
 
     def test_column_names(self):
@@ -146,14 +149,18 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
         flag_path = (
             "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false"
         )
-        with patch(flag_path, return_value=False):
-            original = self.get_response(query)
-        with patch(flag_path, side_effect=lambda flag, *args, **kwargs: flag == "trends-breakdown-rank-before-arrays"):
-            optimized = self.get_response(query)
+        signature = self.get_query_builder(query).ranked_breakdown_query_signature
+        with override_instance_config("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", signature or ""):
+            with patch(flag_path, return_value=False):
+                original = self.get_response(query)
+            with patch(
+                flag_path, side_effect=lambda flag, *args, **kwargs: flag == "trends-breakdown-rank-before-arrays"
+            ):
+                optimized = self.get_response(query)
         assert optimized.results == original.results
         assert optimized.columns == original.columns
         assert optimized.types == original.types
-        if math == "total" and smoothing is None and display is None:
+        if math == "total" and smoothing is None and display is None and not action:
             assert optimized.clickhouse is not None
             assert "dense_rank()" in optimized.clickhouse
             assert "arrayFold" not in optimized.clickhouse
@@ -174,9 +181,13 @@ class TestTrendsQueryBuilder(QueryMatchingTest, BaseTest):
             series=[EventsNode(event="$pageview", math="total")],
             breakdownFilter=BreakdownFilter(breakdown="bucket", breakdown_type="event", breakdown_limit=2),
         )
-        with patch(
-            "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false",
-            side_effect=lambda flag, *args, **kwargs: flag == "trends-breakdown-rank-before-arrays",
+        signature = self.get_query_builder(query).ranked_breakdown_query_signature
+        with (
+            override_instance_config("TRENDS_RANKED_BREAKDOWN_QUERY_SIGNATURES", signature),
+            patch(
+                "products.product_analytics.backend.hogql_queries.trends.trends_query_builder.feature_enabled_or_false",
+                side_effect=lambda flag, *args, **kwargs: flag == "trends-breakdown-rank-before-arrays",
+            ),
         ):
             response = self.get_response(query)
         self.assertQueryMatchesSnapshot(response.clickhouse)
