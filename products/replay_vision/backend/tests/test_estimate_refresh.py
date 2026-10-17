@@ -422,6 +422,27 @@ class TestRefreshScannerEstimateActivity:
         # skipped scanner from a refreshed one.
         assert REGISTRY.get_sample_value("replay_vision_estimate_outcomes_total", labels) == before + 1
 
+    @parameterized.expand(
+        [
+            ("exposures_still_computing", "EXPOSURES_STILL_COMPUTING_MESSAGE"),
+            ("cohort_calculating", "COHORT_NOT_CALCULATED_MESSAGE"),
+        ]
+    )
+    def test_reports_a_transient_linkage_state_when_the_second_resolution_succeeds(
+        self, _name: str, message_name: str
+    ) -> None:
+        from products.experiments.backend.facade import replay as experiments_replay
+
+        scanner = _make_scanner(experiment_targeting={"experiment_id": 424242, "variant": None})
+        error = DRFValidationError(getattr(experiments_replay, message_name))
+
+        with patch(_ACTIVITY_HELPER, side_effect=error), patch(_RESOLVE_LINKAGE, return_value=MagicMock()):
+            refreshed = refresh_scanner_estimate_activity(
+                RefreshScannerEstimateInputs(scanner_id=scanner.id, team_id=scanner.team_id)
+            )
+
+        assert refreshed is False
+
 
 @pytest.mark.django_db(transaction=True)
 class TestListStaleScannerEstimatesActivity:
