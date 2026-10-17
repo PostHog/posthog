@@ -35724,6 +35724,29 @@
             "enum": ["Goal", "Cost per", "ROAS", "customer", "const:"],
             "type": "string"
         },
+        "MarketingAnalyticsCostFallback": {
+            "additionalProperties": false,
+            "properties": {
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseNode"
+                    },
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "sourceIds": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 200,
+                    "minItems": 1,
+                    "type": "array"
+                }
+            },
+            "required": ["series", "sourceIds"],
+            "type": "object"
+        },
         "MarketingAnalyticsDrillDownConfig": {
             "additionalProperties": false,
             "properties": {
@@ -56260,6 +56283,10 @@
                 "kind": {
                     "const": "TrendsQuery",
                     "type": "string"
+                },
+                "marketingAnalyticsCostFallback": {
+                    "$ref": "#/definitions/MarketingAnalyticsCostFallback",
+                    "description": "Live series for a Marketing cost trend when materialization coverage is incomplete."
                 },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",

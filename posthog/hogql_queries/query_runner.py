@@ -695,8 +695,21 @@ def get_query_runner(
         )
 
     if kind == "TrendsQuery":
-        # Check if this should use calendar heatmap runner instead
         query_obj = cast(TrendsQuery | dict[str, Any], query)
+        if get_from_dict_or_attr(query_obj, "marketingAnalyticsCostFallback") is not None:
+            from products.marketing_analytics.backend.hogql_queries.marketing_cost_trends_query_runner import (
+                MarketingCostTrendsQueryRunner,
+            )
+
+            return MarketingCostTrendsQueryRunner(
+                query=query_obj,
+                team=team,
+                timings=timings,
+                limit_context=limit_context,
+                modifiers=modifiers,
+                user=user,
+            )
+        # Check if this should use calendar heatmap runner instead
         trends_filter = get_from_dict_or_attr(query_obj, "trendsFilter") or {}
         display_type = get_from_dict_or_attr(trends_filter, "display") if trends_filter else None
 

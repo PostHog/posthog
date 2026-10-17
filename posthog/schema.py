@@ -29101,6 +29101,14 @@ class MarketingAnalyticsConfig(BaseModel):
     sources_map: dict[str, SourceMap] | None = None
 
 
+class MarketingAnalyticsCostFallback(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    series: list[DataWarehouseNode] = Field(..., max_length=200, min_length=1)
+    sourceIds: list[str] = Field(..., max_length=200, min_length=1)
+
+
 class MarketingAnalyticsRetentionQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -32070,6 +32078,10 @@ class TrendsQuery(BaseModel):
         description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
     )
     kind: Literal["TrendsQuery"] = "TrendsQuery"
+    marketingAnalyticsCostFallback: MarketingAnalyticsCostFallback | None = Field(
+        default=None,
+        description=("Live series for a Marketing cost trend when materialization coverage is incomplete."),
+    )
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     properties: list[AnyPropertyFilterDiscriminated] | PropertyGroupFilter | None = Field(
         default=[], description="Property filters for all series"

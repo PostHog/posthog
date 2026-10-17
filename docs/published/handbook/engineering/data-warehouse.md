@@ -147,6 +147,17 @@ Both cards have **AND / OR groups**. Choose **AND (match all)** or **OR (match a
 
 Top N selects categories before result filters run. Comparison periods apply the same result conditions independently. Result filters hide detail groups; totals still aggregate all data matching the row filters. Table calculations use the full aggregated result before result filtering. Query usage events include result-filter and group counts without their values.
 
+## Marketing analytics cost charts
+
+The `marketing-analytics-costs-precomputation` flag controls whether the cost trend can use precomputed costs.
+The backend checks materialization jobs for every displayed source over the requested date range and comparison period.
+It uses precomputed costs only when all windows are ready and unexpired.
+Opening the chart as an editable insight uses its original source series without the automatic precompute selection.
+Completed windows with zero rows count as covered.
+Missing, expired, inaccessible, or unmaterializable sources use the original live warehouse series for the whole chart.
+Coverage check errors also fall back to the live query.
+This read-only check does not start or wait for materialization jobs.
+
 ## Apple Ads in Marketing analytics
 
 Marketing analytics support is controlled by the boolean organization flag `marketing-analytics-apple-ads` and is off by default.
