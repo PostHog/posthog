@@ -139,7 +139,54 @@
                     "type": "null"
                 }
             ],
-            "description": "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+            "description": "Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence."
+        },
+        "groups": {
+            "anyOf": [
+                {
+                    "additionalProperties": {
+                        "properties": {
+                            "collapsed": {
+                                "default": false,
+                                "description": "Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.",
+                                "type": "boolean"
+                            },
+                            "rail": {
+                                "anyOf": [
+                                    {
+                                        "description": "* `blue` - Blue\n* `purple` - Purple\n* `green` - Green\n* `yellow` - Yellow\n* `orange` - Orange\n* `red` - Red",
+                                        "enum": ["blue", "purple", "green", "yellow", "orange", "red"],
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Color of a line on the left edge of the group. Null or omitted shows no line.\n\n* `blue` - Blue\n* `purple` - Purple\n* `green` - Green\n* `yellow` - Yellow\n* `orange` - Orange\n* `red` - Red"
+                            },
+                            "tint": {
+                                "default": true,
+                                "description": "Whether to show a soft background behind the group.",
+                                "type": "boolean"
+                            },
+                            "title": {
+                                "description": "Heading for the group. When it is blank or omitted, the heading shows the number of tiles.",
+                                "maxLength": 200,
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
         },
         "id": {
             "description": "A unique integer value identifying this dashboard.",
@@ -221,7 +268,7 @@
                                 "type": "null"
                             }
                         ],
-                        "description": "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+                        "description": "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its group."
                     },
                     "id": {
                         "description": "Dashboard tile ID to update.",

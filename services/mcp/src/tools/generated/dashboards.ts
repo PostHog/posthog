@@ -68,6 +68,9 @@ const dashboardCreate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
+        if (params.groups !== undefined) {
+            body['groups'] = params.groups
+        }
         if (params.group_titles !== undefined) {
             body['group_titles'] = params.group_titles
         }
@@ -591,6 +594,9 @@ const dashboardUpdate = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof DashboardUpdateSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.group_titles !== undefined) {
+            body['group_titles'] = params.group_titles
+        }
         if (params.name !== undefined) {
             body['name'] = params.name
         }
@@ -624,8 +630,8 @@ const dashboardUpdate = (): ToolBase<
         if (params.layout_compaction !== undefined) {
             body['layout_compaction'] = params.layout_compaction
         }
-        if (params.group_titles !== undefined) {
-            body['group_titles'] = params.group_titles
+        if (params.groups !== undefined) {
+            body['groups'] = params.groups
         }
         if (params.tiles !== undefined) {
             body['tiles'] = params.tiles

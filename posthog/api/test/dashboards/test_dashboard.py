@@ -1,6 +1,7 @@
 import json
 import datetime
 from collections.abc import Callable
+from typing import Any
 
 import time_machine
 from posthog.test.base import (
@@ -799,67 +800,174 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             Dashboard.objects.get(id=copied_id).customization, {"show_legend": False, "tile_spacing": "wide"}
         )
 
-    def test_dashboard_group_titles_are_saved_replaced_cleared_and_duplicated(self) -> None:
+    def test_dashboard_groups_are_saved_replaced_cleared_and_duplicated(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         self.dashboard_api.update_dashboard(dashboard_id, {"grid_spacing": "relaxed"})
 
         _, updated = self.dashboard_api.update_dashboard(
-            dashboard_id, {"group_titles": {"plans": "Pricing plans", "regions": "Regions"}}
+            dashboard_id,
+            {
+                "groups": {
+                    "plans": {"title": "Pricing plans", "collapsed": True, "tint": False, "rail": "purple"},
+                    "regions": {},
+                }
+            },
         )
         self.assertEqual(
             updated["customization"],
-            {"tile_spacing": "relaxed", "group_titles": {"plans": "Pricing plans", "regions": "Regions"}},
+            {
+                "tile_spacing": "relaxed",
+                "group_titles": {"plans": "Pricing plans"},
+                "groups": {
+                    "plans": {"title": "Pricing plans", "collapsed": True, "tint": False, "rail": "purple"},
+                    "regions": {"collapsed": False, "tint": True, "rail": None},
+                },
+            },
         )
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": {"plans": "Plans"}})
-        self.assertEqual(updated["customization"], {"tile_spacing": "relaxed", "group_titles": {"plans": "Plans"}})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"groups": {"plans": {"title": "Plans"}}})
+        plans_only = {
+            "tile_spacing": "relaxed",
+            "group_titles": {"plans": "Plans"},
+            "groups": {"plans": {"title": "Plans", "collapsed": False, "tint": True, "rail": None}},
+        }
+        self.assertEqual(updated["customization"], plans_only)
 
         _, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})
-        self.assertEqual(copied["customization"], {"tile_spacing": "relaxed", "group_titles": {"plans": "Plans"}})
+        self.assertEqual(copied["customization"], plans_only)
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": None})
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"groups": None})
         self.assertEqual(updated["customization"], {"tile_spacing": "relaxed"})
 
-    def test_dashboard_group_title_keys_are_stripped_to_match_tile_group_keys(self) -> None:
+    @parameterized.expand(
+        [
+            ("replace", {" plans ": "New plans", "new": "New group"}, {"plans": "New plans", "new": "New group"}),
+            ("empty", {}, {}),
+            ("null", None, {}),
+        ]
+    )
+    def test_legacy_group_titles_preserve_group_settings(
+        self, _name: str, titles: dict[str, str] | None, expected_titles: dict[str, str]
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        settings = {"collapsed": True, "tint": False, "rail": "purple"}
+        Dashboard.objects.filter(id=dashboard_id).update(
+            customization={
+                "tile_spacing": "relaxed",
+                "group_titles": {"legacy": "Legacy title"},
+                "groups": {"plans": {"title": "Plans", **settings}, "regions": {"title": "Regions", **settings}},
+            }
+        )
+
+        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": titles})
+
+        expected_groups = {key: dict(settings) for key in ("plans", "regions")}
+        for key, title in expected_titles.items():
+            expected_groups.setdefault(key, {"collapsed": False, "tint": True, "rail": None})["title"] = title
+        self.assertEqual(updated["customization"].get("group_titles", {}), expected_titles)
+        self.assertEqual(updated["customization"]["groups"], expected_groups)
+        self.assertEqual(
+            Dashboard.objects.get(id=dashboard_id).customization, {"tile_spacing": "relaxed", "groups": expected_groups}
+        )
+
+    @parameterized.expand(
+        [
+            ("create", False, {"group_titles": {"plans": "Plans"}}, {"plans": "Plans"}),
+            ("both", False, {"group_titles": {"old": "Old"}, "groups": {"new": {"title": "New"}}}, {"new": "New"}),
+            ("both_clear", True, {"group_titles": {"old": "Old"}, "groups": {}}, {}),
+        ]
+    )
+    def test_legacy_group_titles_writes(
+        self, _name: str, update: bool, data: dict[str, Any], expected_titles: dict[str, str]
+    ) -> None:
+        if update:
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+            _, response = self.dashboard_api.update_dashboard(dashboard_id, data)
+        else:
+            dashboard_id, response = self.dashboard_api.create_dashboard({"name": "dashboard", **data})
+        if expected_titles:
+            self.assertEqual(response["customization"]["group_titles"], expected_titles)
+        else:
+            self.assertNotIn("group_titles", response["customization"])
+        self.assertNotIn("group_titles", Dashboard.objects.get(id=dashboard_id).customization)
+
+    @parameterized.expand(
+        [
+            ("discard_default_settings", 100, False, 1),
+            ("preserve_settings_at_limit", 99, True, 100),
+            ("reject_above_limit", 100, True, None),
+        ]
+    )
+    def test_legacy_group_titles_respect_group_limit(
+        self, _name: str, count: int, collapsed: bool, expected_count: int | None
+    ) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        customization = {
+            "groups": {
+                str(index): {"title": "Old title", "collapsed": collapsed, "tint": True, "rail": None}
+                for index in range(count)
+            }
+        }
+        Dashboard.objects.filter(id=dashboard_id).update(customization=customization)
+        _, response = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"group_titles": {"new": "New title"}},
+            expected_status=status.HTTP_400_BAD_REQUEST if expected_count is None else status.HTTP_200_OK,
+        )
+        if expected_count is None:
+            self.assertEqual(response["attr"], "group_titles")
+            self.assertEqual(Dashboard.objects.get(id=dashboard_id).customization, customization)
+        else:
+            self.assertEqual(len(response["customization"]["groups"]), expected_count)
+            self.assertEqual(response["customization"]["group_titles"], {"new": "New title"})
+
+    def test_writing_groups_replaces_group_titles_saved_earlier(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        Dashboard.objects.filter(id=dashboard_id).update(customization={"group_titles": {"plans": "Pricing plans"}})
+
+        self.dashboard_api.update_dashboard(dashboard_id, {"groups": {"regions": {"title": "Regions"}}})
+
+        self.assertEqual(
+            Dashboard.objects.get(id=dashboard_id).customization,
+            {"groups": {"regions": {"title": "Regions", "collapsed": False, "tint": True, "rail": None}}},
+        )
+
+    def test_dashboard_group_keys_are_stripped_to_match_tile_group_keys(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": "insight"})
         tile_id = self.dashboard_api.get_dashboard(dashboard_id)["tiles"][0]["id"]
 
         self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [{"id": tile_id, "group_key": " plans "}]})
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"group_titles": {" plans ": "Pricing plans"}})
-
-        dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
-        self.assertEqual(updated["customization"], {"group_titles": {"plans": "Pricing plans"}})
-        self.assertEqual(dashboard["tiles"][0]["group_key"], "plans")
-        self.assertEqual(dashboard["customization"]["group_titles"], {"plans": "Pricing plans"})
-
-    def test_dashboard_group_titles_with_padded_keys_saved_earlier_are_read_stripped(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
-        Dashboard.objects.filter(id=dashboard_id).update(
-            customization={"group_titles": {" plans ": "Pricing plans", "   ": "Blank"}}
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id, {"groups": {" plans ": {"title": "Pricing plans"}}}
         )
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id, query_params={"refresh": False})
-
-        self.assertEqual(dashboard["customization"], {"group_titles": {"plans": "Pricing plans"}})
+        stripped = {"plans": {"title": "Pricing plans", "collapsed": False, "tint": True, "rail": None}}
+        self.assertEqual(updated["customization"], {"groups": stripped, "group_titles": {"plans": "Pricing plans"}})
+        self.assertEqual(dashboard["tiles"][0]["group_key"], "plans")
+        self.assertEqual(dashboard["customization"]["groups"], stripped)
 
     @parameterized.expand(
         [
-            ("blank_key", {"   ": "Blank"}),
-            ("too_long_key", {"k" * 101: "Too long"}),
-            ("keys_equal_after_strip", {"plans": "Plans", " plans ": "Padded plans"}),
-            ("null_character_key", {"plans\u0000": "Plans"}),
-            ("too_many_titles", {f"group-{index}": "Title" for index in range(101)}),
+            ("blank_key", {"   ": {}}),
+            ("too_long_key", {"k" * 101: {}}),
+            ("keys_equal_after_strip", {"plans": {}, " plans ": {}}),
+            ("null_character_key", {"plans\u0000": {}}),
+            ("too_many_groups", {f"group-{index}": {} for index in range(101)}),
+            ("title_too_long", {"plans": {"title": "t" * 201}}),
+            ("unknown_rail", {"plans": {"rail": "pink"}}),
+            ("settings_not_an_object", {"plans": "Pricing plans"}),
         ]
     )
-    def test_dashboard_group_titles_are_rejected_when_invalid(self, _name: str, group_titles: dict[str, str]) -> None:
+    def test_dashboard_groups_are_rejected_when_invalid(self, _name: str, groups: dict) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
         _, response = self.dashboard_api.update_dashboard(
-            dashboard_id, {"group_titles": group_titles}, expected_status=status.HTTP_400_BAD_REQUEST
+            dashboard_id, {"groups": groups}, expected_status=status.HTTP_400_BAD_REQUEST
         )
 
-        self.assertEqual(response["attr"], "group_titles")
+        self.assertTrue(response["attr"].startswith("groups"), response)
 
     @parameterized.expand([("horizontal",), ("stable",)])
     def test_dashboard_layout_compaction_is_saved_and_duplicated(self, layout_compaction: str) -> None:
@@ -2125,7 +2233,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, response = self.dashboard_api.update_dashboard(
             dashboard_id,
             {
-                "group_titles": {"plans": "Pricing plans"},
+                "groups": {"plans": {"title": "Pricing plans"}},
                 "tiles": [
                     {"id": first_tile_id, "badge": "winner"},
                     {"id": second_tile_id, **invalid_marking},
@@ -2156,7 +2264,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             dashboard_id,
             {
                 "name": "renamed",
-                "group_titles": {"plans": "Pricing plans"},
+                "groups": {"plans": {"title": "Pricing plans"}},
                 "tiles": [{"id": text_tile["id"], "text": {"body": "edited"}, **invalid_marking}],
             },
             expected_status=status.HTTP_400_BAD_REQUEST,

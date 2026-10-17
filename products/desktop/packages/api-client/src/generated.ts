@@ -6264,10 +6264,32 @@ export namespace Schemas {
      * * `stable` - stable
      */
     export type LayoutCompactionEnum = "vertical" | "horizontal" | "stable";
+    /**
+     * * `blue` - Blue
+     * * `purple` - Purple
+     * * `green` - Green
+     * * `yellow` - Yellow
+     * * `orange` - Orange
+     * * `red` - Red
+     */
+    export type DashboardTileGroupRailEnum =
+        | "blue"
+        | "purple"
+        | "green"
+        | "yellow"
+        | "orange"
+        | "red";
+    export type DashboardTileGroup = Partial<{
+        title: string;
+        collapsed: boolean;
+        tint: boolean;
+        rail: DashboardTileGroupRailEnum | NullEnum;
+    }>;
     export type DashboardCustomization = Partial<{
+        group_titles: Record<string, string>;
         tile_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
-        group_titles: Record<string, string>;
+        groups: Record<string, DashboardTileGroup>;
     }>;
     /**
      * Serializer mixin that handles tags for objects.
@@ -6356,6 +6378,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -6740,6 +6766,10 @@ export namespace Schemas {
          * Serializer mixin that handles tags for objects.
          */
         layout_compaction?: (LayoutCompactionEnum & unknown) | undefined;
+        /**
+         * Serializer mixin that handles tags for objects.
+         */
+        groups?: (Record<string, DashboardTileGroup> | null) | undefined;
         /**
          * Serializer mixin that handles tags for objects.
          */
@@ -19380,6 +19410,7 @@ export namespace Schemas {
      * replaces the inferred schema entirely. Contract: ``test_dashboard_openapi.py``.
      */
     export type PatchedPatchedDashboardOpenApi = Partial<{
+        group_titles: Record<string, string> | null;
         name: string | null;
         description: string;
         pinned: boolean;
@@ -19391,7 +19422,7 @@ export namespace Schemas {
         quick_filter_ids: Array<string> | null;
         grid_spacing: TileSpacingEnum;
         layout_compaction: LayoutCompactionEnum;
-        group_titles: Record<string, string> | null;
+        groups: Record<string, DashboardTileGroup> | null;
         tiles: Array<DashboardPatchTileOpenApi>;
         use_template: string;
         use_dashboard: number | null;

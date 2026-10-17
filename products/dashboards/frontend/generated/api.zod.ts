@@ -135,6 +135,10 @@ export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegEx
 export const dashboardsCreateBodyRestrictionLevelMin = 21
 export const dashboardsCreateBodyRestrictionLevelMax = 21
 
+export const dashboardsCreateBodyGroupsTitleMax = 200
+
+export const dashboardsCreateBodyGroupsCollapsedDefault = false
+export const dashboardsCreateBodyGroupsTintDefault = true
 export const dashboardsCreateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false
@@ -216,11 +220,51 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        groups: zod
+            .record(
+                zod.string(),
+                zod.object({
+                    title: zod
+                        .string()
+                        .max(dashboardsCreateBodyGroupsTitleMax)
+                        .optional()
+                        .describe(
+                            'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                        ),
+                    collapsed: zod
+                        .boolean()
+                        .default(dashboardsCreateBodyGroupsCollapsedDefault)
+                        .describe(
+                            'Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                        ),
+                    tint: zod
+                        .boolean()
+                        .default(dashboardsCreateBodyGroupsTintDefault)
+                        .describe('Whether to show a soft background behind the group.'),
+                    rail: zod
+                        .union([
+                            zod
+                                .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                .describe(
+                                    '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
+            ),
         group_titles: zod
             .record(zod.string(), zod.string().max(dashboardsCreateBodyGroupTitlesMaxOne))
             .nullish()
             .describe(
-                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
             ),
         use_template: zod
             .string()
@@ -241,6 +285,10 @@ export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegEx
 export const dashboardsUpdateBodyRestrictionLevelMin = 21
 export const dashboardsUpdateBodyRestrictionLevelMax = 21
 
+export const dashboardsUpdateBodyGroupsTitleMax = 200
+
+export const dashboardsUpdateBodyGroupsCollapsedDefault = false
+export const dashboardsUpdateBodyGroupsTintDefault = true
 export const dashboardsUpdateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsUpdateBodyDeleteInsightsDefault = false
@@ -322,11 +370,51 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        groups: zod
+            .record(
+                zod.string(),
+                zod.object({
+                    title: zod
+                        .string()
+                        .max(dashboardsUpdateBodyGroupsTitleMax)
+                        .optional()
+                        .describe(
+                            'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                        ),
+                    collapsed: zod
+                        .boolean()
+                        .default(dashboardsUpdateBodyGroupsCollapsedDefault)
+                        .describe(
+                            'Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                        ),
+                    tint: zod
+                        .boolean()
+                        .default(dashboardsUpdateBodyGroupsTintDefault)
+                        .describe('Whether to show a soft background behind the group.'),
+                    rail: zod
+                        .union([
+                            zod
+                                .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                .describe(
+                                    '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
+            ),
         group_titles: zod
             .record(zod.string(), zod.string().max(dashboardsUpdateBodyGroupTitlesMaxOne))
             .nullish()
             .describe(
-                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
             ),
         use_template: zod
             .string()
@@ -341,14 +429,18 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
+export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
+
 export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsPartialUpdateBodyRestrictionLevelMin = 21
 export const dashboardsPartialUpdateBodyRestrictionLevelMax = 21
 
-export const dashboardsPartialUpdateBodyGroupTitlesMaxOne = 200
+export const dashboardsPartialUpdateBodyGroupsTitleMax = 200
 
+export const dashboardsPartialUpdateBodyGroupsCollapsedDefault = false
+export const dashboardsPartialUpdateBodyGroupsTintDefault = true
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
 
@@ -427,6 +519,12 @@ export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
 
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
+        group_titles: zod
+            .record(zod.string(), zod.string().max(dashboardsPartialUpdateBodyGroupTitlesMaxOne))
+            .nullish()
+            .describe(
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
+            ),
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
@@ -528,11 +626,45 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
-        group_titles: zod
-            .record(zod.string(), zod.string().max(dashboardsPartialUpdateBodyGroupTitlesMaxOne))
+        groups: zod
+            .record(
+                zod.string(),
+                zod.object({
+                    title: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyGroupsTitleMax)
+                        .optional()
+                        .describe(
+                            'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                        ),
+                    collapsed: zod
+                        .boolean()
+                        .default(dashboardsPartialUpdateBodyGroupsCollapsedDefault)
+                        .describe(
+                            'Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                        ),
+                    tint: zod
+                        .boolean()
+                        .default(dashboardsPartialUpdateBodyGroupsTintDefault)
+                        .describe('Whether to show a soft background behind the group.'),
+                    rail: zod
+                        .union([
+                            zod
+                                .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                .describe(
+                                    '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                        ),
+                })
+            )
             .nullish()
             .describe(
-                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+                "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
             ),
         tiles: zod
             .array(
@@ -599,7 +731,7 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         .max(dashboardsPartialUpdateBodyTilesItemGroupKeyMax)
                         .nullish()
                         .describe(
-                            "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+                            "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its group."
                         ),
                     badge: zod
                         .union([
@@ -2561,6 +2693,10 @@ export const dashboardsCreateFromTemplateJsonCreateBodyNameMax = 400
 export const dashboardsCreateFromTemplateJsonCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
     '^preset-[1-9][0-9]\*$'
 )
+export const dashboardsCreateFromTemplateJsonCreateBodyGroupsTitleMax = 200
+
+export const dashboardsCreateFromTemplateJsonCreateBodyGroupsCollapsedDefault = false
+export const dashboardsCreateFromTemplateJsonCreateBodyGroupsTintDefault = true
 export const dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault = false
@@ -2643,11 +2779,51 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        groups: zod
+            .record(
+                zod.string(),
+                zod.object({
+                    title: zod
+                        .string()
+                        .max(dashboardsCreateFromTemplateJsonCreateBodyGroupsTitleMax)
+                        .optional()
+                        .describe(
+                            'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                        ),
+                    collapsed: zod
+                        .boolean()
+                        .default(dashboardsCreateFromTemplateJsonCreateBodyGroupsCollapsedDefault)
+                        .describe(
+                            'Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                        ),
+                    tint: zod
+                        .boolean()
+                        .default(dashboardsCreateFromTemplateJsonCreateBodyGroupsTintDefault)
+                        .describe('Whether to show a soft background behind the group.'),
+                    rail: zod
+                        .union([
+                            zod
+                                .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                .describe(
+                                    '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
+            ),
         group_titles: zod
             .record(zod.string(), zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne))
             .nullish()
             .describe(
-                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
             ),
         use_template: zod
             .string()
@@ -2672,6 +2848,10 @@ export const dashboardsCreateUnlistedDashboardCreateBodyNameMax = 400
 export const dashboardsCreateUnlistedDashboardCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp(
     '^preset-[1-9][0-9]\*$'
 )
+export const dashboardsCreateUnlistedDashboardCreateBodyGroupsTitleMax = 200
+
+export const dashboardsCreateUnlistedDashboardCreateBodyGroupsCollapsedDefault = false
+export const dashboardsCreateUnlistedDashboardCreateBodyGroupsTintDefault = true
 export const dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault = false
@@ -2754,11 +2934,51 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
             .describe(
                 'How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles to the left, and stable preserves positions while moving colliding tiles.\n\n\* `vertical` - vertical\n\* `horizontal` - horizontal\n\* `stable` - stable'
             ),
+        groups: zod
+            .record(
+                zod.string(),
+                zod.object({
+                    title: zod
+                        .string()
+                        .max(dashboardsCreateUnlistedDashboardCreateBodyGroupsTitleMax)
+                        .optional()
+                        .describe(
+                            'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
+                        ),
+                    collapsed: zod
+                        .boolean()
+                        .default(dashboardsCreateUnlistedDashboardCreateBodyGroupsCollapsedDefault)
+                        .describe(
+                            'Whether the group starts closed. A closed group does not load its tiles until a viewer opens it. When a viewer opens or closes the group, their browser keeps that choice and it wins over this default.'
+                        ),
+                    tint: zod
+                        .boolean()
+                        .default(dashboardsCreateUnlistedDashboardCreateBodyGroupsTintDefault)
+                        .describe('Whether to show a soft background behind the group.'),
+                    rail: zod
+                        .union([
+                            zod
+                                .enum(['blue', 'purple', 'green', 'yellow', 'orange', 'red'])
+                                .describe(
+                                    '\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                                ),
+                            zod.null(),
+                        ])
+                        .optional()
+                        .describe(
+                            'Color of a line on the left edge of the group. Null or omitted shows no line.\n\n\* `blue` - Blue\n\* `purple` - Purple\n\* `green` - Green\n\* `yellow` - Yellow\n\* `orange` - Orange\n\* `red` - Red'
+                        ),
+                })
+            )
+            .nullish()
+            .describe(
+                "Settings for tile groups, keyed by the tiles' group_key. The dashboard shows each group as a full-width band of its tiles under a heading that viewers can use to open and close the group. A group without settings still shows, with a tint and no title. A write replaces the whole map. Send an empty object or null to remove all group settings."
+            ),
         group_titles: zod
             .record(zod.string(), zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne))
             .nullish()
             .describe(
-                "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. A write replaces the whole map. Send an empty object or null to remove all group titles."
+                'Titles for tile groups, keyed by group_key. A write replaces all titles and preserves other group settings. Send an empty object or null to clear titles. When groups is also supplied, groups takes precedence.'
             ),
         use_template: zod
             .string()
