@@ -188,6 +188,35 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             assert timestamps == sorted(timestamps)
 
     @snapshot_clickhouse_queries
+    def test_sessions_order_by_end_timestamp_pages_by_end_not_start(self):
+        self._create_test_sessions(
+            data=[
+                ("user1", "long", "2024-01-01T10:00:00Z", {"$current_url": "https://example.com/long"}),
+                ("user1", "long", "2024-01-01T14:30:00Z", {"$current_url": "https://example.com/long/end"}),
+                ("user2", "a", "2024-01-01T11:00:00Z", {"$current_url": "https://example.com/a"}),
+                ("user3", "b", "2024-01-01T12:00:00Z", {"$current_url": "https://example.com/b"}),
+                ("user4", "c", "2024-01-01T13:00:00Z", {"$current_url": "https://example.com/c"}),
+            ]
+        )
+        flush_persons_and_events()
+
+        def entry_urls(limit: int, offset: int) -> list[str]:
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id", "$end_timestamp", "$entry_current_url"],
+                orderBy=["$end_timestamp DESC NULLS FIRST"],
+                limit=limit,
+                offset=offset,
+            )
+            response = SessionsQueryRunner(query=query, team=self.team).calculate()
+            return [row[2] for row in response.results]
+
+        with time_machine.travel("2024-01-01T15:00:00Z", tick=False):
+            assert entry_urls(limit=2, offset=0) == ["https://example.com/long", "https://example.com/c"]
+            assert entry_urls(limit=2, offset=2) == ["https://example.com/b", "https://example.com/a"]
+
+    @snapshot_clickhouse_queries
     def test_sessions_with_session_duration(self):
         """Test session duration calculation returns correct values."""
         self._create_test_sessions(

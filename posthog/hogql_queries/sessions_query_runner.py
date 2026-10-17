@@ -11,11 +11,13 @@ from posthog.schema import (
     PropertyOperator,
     SessionsQuery,
     SessionsQueryResponse,
+    SessionTableVersion,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, map_virtual_properties, property_to_expr
+from posthog.hogql.visitor import clone_expr
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
@@ -71,6 +73,10 @@ def _extract_session_id_values(prop) -> Optional[list[str]]:
     return [str(prop.value)]
 
 
+def _property_type(prop) -> Optional[str]:
+    return prop.get("type") if isinstance(prop, dict) else getattr(prop, "type", None)
+
+
 # Allow-listed fields returned when you select "*" from sessions
 SELECT_STAR_FROM_SESSIONS_FIELDS = [
     "session_id",
@@ -90,6 +96,7 @@ SELECT_STAR_FROM_SESSIONS_FIELDS = [
 class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
     query: SessionsQuery
     cached_response: CachedSessionsQueryResponse
+    _uses_presorted_optimization: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -359,6 +366,7 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         )
                 # Collect test account filters that need the events subquery
                 test_account_event_filters: list = []
+                events_subquery_joins_persons = False
                 if self.query.filterTestAccounts:
                     with self.timings.measure("test_account_filters"):
                         for prop in self._get_test_account_filters():
@@ -423,6 +431,10 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                         )
                         if needs_events_subquery:
                             event_where_exprs = []
+                            events_subquery_joins_persons = bool(self.query.actionId) or any(
+                                _property_type(prop) != "event"
+                                for prop in [*remaining_event_properties, *test_account_event_filters]
+                            )
 
                             if self.query.event:
                                 event_where_exprs.append(
@@ -497,10 +509,11 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                             )
 
             with self.timings.measure("timestamps"):
+                timestamp_exprs: list[ast.Expr] = []
                 # prevent accidentally future sessions from being visible by default
                 before = self.query.before or (now() + timedelta(seconds=5)).isoformat()
                 parsed_date = relative_date_parse(before, self.team.timezone_info)
-                where_exprs.append(
+                timestamp_exprs.append(
                     parse_expr(
                         "$start_timestamp < {timestamp}",
                         {"timestamp": ast.Constant(value=parsed_date)},
@@ -518,13 +531,14 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                 after = after or "all"
                 if after != "all":
                     parsed_date = relative_date_parse(after, self.team.timezone_info)
-                    where_exprs.append(
+                    timestamp_exprs.append(
                         parse_expr(
                             "$start_timestamp > {timestamp}",
                             {"timestamp": ast.Constant(value=parsed_date)},
                             timings=self.timings,
                         )
                     )
+                where_exprs.extend(timestamp_exprs)
 
             # where & having
             with self.timings.measure("where"):
@@ -565,6 +579,13 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
                     order_by = [ast.OrderExpr(expr=select[0], order="ASC")]
                 else:
                     order_by = []
+
+            self._uses_presorted_optimization = not events_subquery_joins_persons and (
+                self._can_use_presorted_optimization(select, order_by, has_any_aggregation, having)
+            )
+            if self._uses_presorted_optimization:
+                with self.timings.measure("presorted"):
+                    where = self._presorted_where(where, order_by, timestamp_exprs)
 
             with self.timings.measure("select"):
                 # Build the FROM clause, optionally adding person join
@@ -614,16 +635,60 @@ class SessionsQueryRunner(AnalyticsQueryRunner[SessionsQueryResponse]):
 
                 return stmt
 
+    def _can_use_presorted_optimization(
+        self,
+        select: list[ast.Expr],
+        order_by: list[ast.OrderExpr],
+        has_any_aggregation: bool,
+        having: ast.Expr | None,
+    ) -> bool:
+        # The pushdown that makes this pay off exists only on the v2 sessions table.
+        if self.modifiers.sessionTableVersion not in (SessionTableVersion.AUTO, SessionTableVersion.V2):
+            return False
+        if not self.query.orderBy or has_any_aggregation or having is not None or self._needs_person_join():
+            return False
+        # The inner query repeats the ORDER BY without the outer SELECT, so it cannot resolve select aliases.
+        if any(isinstance(column, ast.Alias) for column in select):
+            return False
+        return all(isinstance(order_expr.expr, ast.Field) for order_expr in order_by)
+
+    def _presorted_where(
+        self, where: ast.Expr | None, order_by: list[ast.OrderExpr], timestamp_exprs: list[ast.Expr]
+    ) -> ast.Expr:
+        # Sorting on an aggregate such as $end_timestamp makes ClickHouse aggregate every session in the
+        # range before LIMIT. The inner query sorts only the narrow ORDER BY columns. The id set then
+        # goes below the per-session GROUP BY through sessionIdPushdown, so the wide columns are
+        # aggregated only for the sessions on this page.
+        inner_query = ast.SelectQuery(
+            select=[ast.Field(chain=["session_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["sessions"])),
+            where=clone_expr(where) if where is not None else None,
+            order_by=[clone_expr(order_expr) for order_expr in order_by],
+            limit=ast.Constant(value=self.paginator.limit + self.paginator.offset + 1),
+        )
+        # The inner query applies every filter. The outer query keeps the timestamp bounds to prune its raw scan.
+        return ast.And(
+            exprs=[
+                parse_expr("session_id IN ({inner_query})", {"inner_query": inner_query}),
+                *timestamp_exprs,
+            ]
+        )
+
     def _calculate(self) -> SessionsQueryResponse:
         # `SessionsQuery.select`, `where`, `orderBy` are user-supplied HogQL strings.
         tag_contains_user_hogql()
+        query = self.to_query()
+        modifiers = self.modifiers
+        if self._uses_presorted_optimization:
+            modifiers = self.modifiers.model_copy()
+            modifiers.sessionIdPushdown = True
         query_result = self.paginator.execute_hogql_query(
-            query=self.to_query(),
+            query=query,
             team=self.team,
             user=self.user,
             query_type="SessionsQuery",
             timings=self.timings,
-            modifiers=self.modifiers,
+            modifiers=modifiers,
             limit_context=self.limit_context,
             context=self.build_hogql_context(),
         )
