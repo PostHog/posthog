@@ -15,7 +15,7 @@ $has_recording == true?
   → CAPTURED: recording exists, issue is elsewhere (UI filtering, still processing)
 
 $sdk_debug_recording_script_not_loaded == true?
-  → AD_BLOCKED: recorder script failed to load (ad blocker, CSP, network error)
+  → AD_BLOCKED: recorder script failed to load (ad blocker, CSP, reverse proxy, firewall)
 
 $recording_status == 'disabled'?
   → DISABLED: replay turned off in project settings or SDK config
@@ -62,7 +62,18 @@ Typical causes:
 
 - Browser ad blocker extensions (uBlock Origin, AdBlock Plus, etc.)
 - Corporate content security policies (CSP)
-- Network-level blocking (Pi-hole, corporate proxies)
+- Network-level blocking (Pi-hole, corporate proxies, firewalls)
+- A custom reverse proxy that does not forward `/static/*`
+
+When `api_host` is a custom reverse proxy, the SDK loads the recorder script from `api_host` + `/static/*`, unless `asset_host` overrides it.
+A proxy that forwards only the event paths stops the recorder script, but event capture keeps working.
+If events arrive and recordings do not, suspect the proxy before an ad blocker.
+Fixes:
+
+- Forward `/static/*` through the proxy, unless `asset_host` is set.
+  Replay also needs `/array/*` (remote config) and `/s/` (snapshots, see FLUSH_BLOCKED) on the same proxy
+- Set `asset_host` in the SDK config to load scripts from a host that the firewall allows
+- Use the [managed reverse proxy](https://posthog.com/docs/advanced/proxy/managed-reverse-proxy)
 
 ### DISABLED
 
@@ -112,7 +123,9 @@ events in the session (see [example 3 in examples.md](./examples.md)).
 Typical causes:
 
 - Ad blocker blocking the ingestion endpoint (different from blocking the script)
-- Reverse proxy not forwarding `/s/` correctly on self-hosted setups
+- A reverse proxy or firewall that does not forward `/s/`, or that rejects large request bodies.
+  This applies to custom reverse proxies on PostHog Cloud as well as to self-hosted setups.
+  Forward `/s/` with the event paths and allow large request bodies, or use the managed reverse proxy.
 - Custom domain mismatch between recorder script and capture endpoint
 
 ### UNKNOWN

@@ -54,6 +54,7 @@ const DIAGNOSTIC_KEYS = [
 ] as const
 
 const TROUBLESHOOTING_URL = 'https://posthog.com/docs/session-replay/troubleshooting'
+const REVERSE_PROXY_URL = 'https://posthog.com/docs/advanced/proxy'
 
 export function hasReplayDiagnosticSignals(properties: Record<string, any> | null | undefined): boolean {
     if (!properties) {
@@ -122,13 +123,15 @@ export function diagnoseReplayCapture(eventProperties: Record<string, any> | nul
     if (scriptNotLoaded) {
         return {
             verdict: 'ad_blocked',
-            headline: 'The recording script failed to load, likely blocked by an ad blocker',
+            headline: 'The recording script failed to load. An ad blocker, proxy, or firewall may have blocked it',
             reasons: [
                 'The SDK reported that the recorder script was not loaded on the page.',
-                'This is usually caused by a browser ad blocker or content security policy blocking the recorder asset.',
+                'A browser ad blocker or a content security policy can block the recorder script.',
+                'If you send events through your own reverse proxy and asset_host is not set, the SDK loads the recorder script from the proxy. The proxy must forward /static/*, not only the event paths. Replay also needs /array/* and /s/ on the same proxy.',
+                'A corporate firewall can also block the script. Set asset_host in the SDK config to load scripts from a different host, or use the managed reverse proxy.',
             ],
             rawSignals,
-            suggestedActions: [troubleshootingAction],
+            suggestedActions: [troubleshootingAction, { label: 'Read reverse proxy docs', to: REVERSE_PROXY_URL }],
         }
     }
 
