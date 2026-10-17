@@ -771,6 +771,42 @@ export interface MetricsCreatedDashboardApi {
     dashboard_id: number
 }
 
+/**
+ * Insight query of the panel: a MetricsQuery or a MetricsHistogramQuery.
+ */
+export type MetricsSampledTemplatePanelApiQuery = { [key: string]: unknown }
+
+/**
+ * Made-up results in the shape that the query returns: a MetricsQueryResponse or a MetricsHistogramQueryResponse. They are not data from this project.
+ */
+export type MetricsSampledTemplatePanelApiResponse = { [key: string]: unknown }
+
+export interface MetricsTemplatePanelLayoutApi {
+    /** Column of the left edge, 0 to 11. */
+    x: number
+    /** Row of the top edge. */
+    y: number
+    /** Width in columns. */
+    w: number
+    /** Height in rows. */
+    h: number
+}
+
+export interface MetricsSampledTemplatePanelApi {
+    /** Key of the panel in the template. */
+    key: string
+    /** Chart title. */
+    title: string
+    /** What the chart shows. */
+    description: string
+    /** Box of the panel on the dashboard grid. */
+    layout: MetricsTemplatePanelLayoutApi
+    /** Insight query of the panel: a MetricsQuery or a MetricsHistogramQuery. */
+    query: MetricsSampledTemplatePanelApiQuery
+    /** Made-up results in the shape that the query returns: a MetricsQueryResponse or a MetricsHistogramQueryResponse. They are not data from this project. */
+    response: MetricsSampledTemplatePanelApiResponse
+}
+
 export interface _MetricErrorSpikeApi {
     /** When the error spike was detected, ISO 8601. */
     detected_at: string

@@ -526,6 +526,28 @@ class DashboardTemplateSummary:
     reviewed_at: dt.datetime | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class TemplatePanelLayout:
+    """The box of a panel on the 12-column dashboard grid."""
+
+    x: int
+    y: int
+    w: int
+    h: int
+
+
+@dataclass(frozen=True, slots=True)
+class SampledTemplatePanel:
+    """A panel of a template that a project cannot fill, with made-up results in the shape of its query response."""
+
+    key: str
+    title: str
+    description: str
+    layout: TemplatePanelLayout
+    query: dict[str, Any]
+    response: dict[str, Any]
+
+
 class SuggestedDashboardError(Exception):
     """An action on a suggestion or a template failed. The message is safe to show."""
 
