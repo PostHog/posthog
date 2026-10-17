@@ -19,7 +19,7 @@ from posthog.schema import (
     EventsQuery,
 )
 
-from posthog.hogql.errors import ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -112,7 +112,10 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             withLastEvent=False,
             tags={"productKey": "error_tracking"},
         )
-        data = query_facade.run_error_tracking_query(self.team, query)
+        try:
+            data = query_facade.run_error_tracking_query(self.team, query)
+        except (ExposedHogQLError, ResolutionError) as error:
+            raise ValidationError(str(error)) from error
         raw_results_value = data.get("results")
         raw_results: list[object] = raw_results_value if isinstance(raw_results_value, list) else []
         results = [
@@ -205,7 +208,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                         .calculate()
                         .model_dump(mode="json")
                     )
-                except ResolutionError as error:
+                except (ExposedHogQLError, ResolutionError) as error:
                     raise ValidationError(str(error)) from error
             if event_data.get("error"):
                 logger.warning(
@@ -315,7 +318,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     .calculate()
                     .model_dump(mode="json")
                 )
-            except ResolutionError as error:
+            except (ExposedHogQLError, ResolutionError) as error:
                 raise ValidationError(str(error)) from error
         raw_columns = data.get("columns")
         columns = [str(column) for column in raw_columns] if isinstance(raw_columns, list) else event_selects
