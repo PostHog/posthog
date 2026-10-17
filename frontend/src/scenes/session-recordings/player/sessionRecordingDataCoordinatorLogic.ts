@@ -48,6 +48,7 @@ import type {
 } from '../../../types'
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { isRecordingTooLargeToPlay } from '../utils'
 import type { RecordingComment } from './inspector/playerInspectorLogic'
 import { sessionEventsDataLogic } from './sessionEventsDataLogic'
 import { sessionRecordingCommentsLogic } from './sessionRecordingCommentsLogic'
@@ -56,10 +57,6 @@ import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
-// Tab-freezing recordings are both large overall and made of huge individual events (giant DOM
-// mutations); most large recordings are ordinary small events and play fine, so both must trip
-export const OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES = 30 * 1024 * 1024
-export const OVERSIZED_RECORDING_AVG_EVENT_BYTES = 100 * 1024
 type ScrollEventData = { id: number; x: number; y: number }
 
 function isScrollEvent(event: eventWithTime): boolean {
@@ -861,19 +858,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
     selectors(() => ({
         recordingTooLargeToPlay: [
             (s) => [s.sessionPlayerMetaData],
-            (meta: SessionRecordingType | null): boolean => {
-                // Mobile recordings are screenshot-based: large events, but cheap to play
-                if (meta?.snapshot_source !== 'web') {
-                    return false
-                }
-                const totalSize = meta?.total_size ?? 0
-                const eventCount = meta?.event_count ?? 0
-                return (
-                    totalSize > OVERSIZED_RECORDING_AUTOLOAD_LIMIT_BYTES &&
-                    eventCount > 0 &&
-                    totalSize / eventCount > OVERSIZED_RECORDING_AVG_EVENT_BYTES
-                )
-            },
+            (meta: SessionRecordingType | null): boolean => isRecordingTooLargeToPlay(meta),
         ],
 
         snapshots: [

@@ -100,7 +100,11 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             ((sum(s.mouse_activity_count) + dateDiff('SECOND', start_time, end_time) + sum(s.console_error_count) + sum(s.console_log_count) + sum(s.console_warn_count)))
             * 100
             ), 0), 100), 2) as activity_score,
-            coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score
+            coalesce(max(s.surfacing_score), {unscored_surfacing_score}) as surfacing_score,
+            sum(s.size) as total_size,
+            sum(s.event_count) as event_count,
+            -- Aliased apart from the column because snapshot_source filters wrap the column in argMinMerge
+            argMinMerge(s.snapshot_source) as listed_snapshot_source
         FROM raw_session_replay_events s
         WHERE {where_predicates}
         GROUP BY session_id
@@ -132,6 +136,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             "ongoing",
             "activity_score",
             "surfacing_score",
+            "total_size",
+            "event_count",
+            "listed_snapshot_source",
         ]
 
     @staticmethod

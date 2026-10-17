@@ -320,14 +320,12 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
     total_size = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="Total stored size of the recording's snapshot data in bytes. "
-        "Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.",
+        help_text="Total stored size of the recording's snapshot data in bytes. Null when the size is not known.",
     )
     event_count = serializers.IntegerField(
         read_only=True,
         allow_null=True,
-        help_text="Number of captured rrweb events in the recording. "
-        "Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.",
+        help_text="Number of captured rrweb events in the recording. Null when the count is not known.",
     )
 
     def get_ongoing(self, obj: SessionRecording) -> bool:

@@ -48,6 +48,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         session_id,
         timestamp,
         team_id=None,
+        **kwargs,
     ):
         if team_id is None:
             team_id = self.team.pk
@@ -60,6 +61,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             last_timestamp=timestamp,
             ensure_analytics_event_in_session=False,
             retention_period_days=90,
+            **kwargs,
         )
 
     @parameterized.expand(
@@ -404,7 +406,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
 
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
         self.produce_replay_summary("user", "other_team", base_time, team_id=another_team.pk)
-        self.produce_replay_summary("user", "current_team", base_time)
+        self.produce_replay_summary("user", "current_team", base_time, snapshot_source="mobile", size=2048)
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
         assert response.status_code == status.HTTP_200_OK
@@ -437,7 +439,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                     "last_seen_at": ANY,
                 },
                 "recording_duration": ANY,
-                "snapshot_source": "web",
+                "snapshot_source": "mobile",
                 "snapshot_library": None,
                 "start_time": ANY,
                 "start_url": "https://not-provided-by-test.com",
@@ -449,8 +451,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "activity_score": ANY,
                 "external_references": [],
                 "matches_filters": True,
-                "total_size": None,
-                "event_count": None,
+                "total_size": 2048,
+                "event_count": 0,
             },
         ]
 

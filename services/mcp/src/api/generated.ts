@@ -73816,12 +73816,12 @@ export namespace Schemas {
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters: boolean;
       /**
-         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * Total stored size of the recording's snapshot data in bytes. Null when the size is not known.
          * @nullable
          */
       readonly total_size: number | null;
       /**
-         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * Number of captured rrweb events in the recording. Null when the count is not known.
          * @nullable
          */
       readonly event_count: number | null;
@@ -85602,12 +85602,12 @@ export namespace Schemas {
       /** Whether this recording matched the filters of the listing query that returned it. False only when a recording requested via session_recording_id was included despite not matching the filters. */
       readonly matches_filters?: boolean;
       /**
-         * Total stored size of the recording's snapshot data in bytes. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * Total stored size of the recording's snapshot data in bytes. Null when the size is not known.
          * @nullable
          */
       readonly total_size?: number | null;
       /**
-         * Number of captured rrweb events in the recording. Only populated when the recording's metadata is loaded, e.g. on retrieve; null in list responses.
+         * Number of captured rrweb events in the recording. Null when the count is not known.
          * @nullable
          */
       readonly event_count?: number | null;
