@@ -303,7 +303,7 @@ class TestSemgrepDevex:
             assert mock_popen.call_args.kwargs["start_new_session"] is True
 
 
-WORKFLOW = ".github/workflows/ci-backend.yml"
+WORKFLOW = ".github/workflows/ci-python.yml"
 PRODUCT_FILE = "products/x/backend/api.py"
 EVERY_LANE = ["fe:core", "py:core", "rust:core"]
 

@@ -1,16 +1,11 @@
-# Depot CI copy of .github/workflows/ci-backend.yml. Lives under .depot/ so
-# GitHub Actions ignores it; only Depot CI parses this file. Depot CI runs every
-# pull request event here, and the gate job's own check is the required one.
+# Backend CI. Lives under .depot/ so GitHub Actions ignores it; only Depot CI parses this
+# file. Every pull request event, master push, manual run and the hourly master run start
+# here, and the gate job's `Test results` check is the required one.
 #
-# Apples-to-apples is the whole point — keep action pins, env vars, runner
-# sizes, and pytest flags in sync with the canonical workflow. A drift-check
-# job in .github/workflows/ci-backend-shadow-drift.yml fails when canonical
-# changes without a matching depot bump.
-#
-# Intentional deltas vs canonical (everything else is kept apples-to-apples):
-# - Every pull request event runs here. Canonical runs no backend tests on pull requests;
-#   its `Django Tests Pass` job only points at this workflow, and it has no push trigger.
-#   Depot's own checks carry no output, so the gate posts a `Test results` check with the
+# This file began as a copy of a GitHub Actions workflow, and the local actions it uses are
+# mirrors of .github/actions (.github/workflows/ci-depot-action-mirrors.yml keeps those in
+# sync). The notes below record where it differs from the GitHub Actions shape:
+# - Depot's own checks carry no output, so the gate posts a `Test results` check with the
 #   failure summary.
 # - runs-on: depot-* labels instead of GitHub-hosted ubuntu-24.04
 # - turbo-discover adds the `origin` remote before its history fetch when it is missing.
@@ -126,8 +121,6 @@ name: Backend CI on Depot
 # `Backend CI on Depot / Test results` check, posted by the PostHog tests app; the gate's own
 # Depot check only resolves when the job does, so it cannot hold a commit pending.
 # Pull requests, master pushes, manual runs and the hourly master run all start here.
-# The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
-# with canonical; it runs whenever either file changes.
 on:
     push:
         branches:
@@ -1358,7 +1351,7 @@ jobs:
                   fi
                   overall=0
                   # A checkout without the matching snapshots must use legacy mode.
-                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: product-poe-default" .github/workflows/ci-backend.yml; then
+                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: product-poe-default" .depot/workflows/ci-backend.yml; then
                       echo "::notice::Checked-out revision predates the person-on-events default, running product tests in legacy mode"
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
@@ -3539,7 +3532,7 @@ jobs:
                       COV_ARGS=""
                   fi
                   # A checkout without the matching test pins must use legacy mode.
-                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: person-on-events-default" .github/workflows/ci-backend.yml; then
+                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: person-on-events-default" .depot/workflows/ci-backend.yml; then
                       echo "::notice::Checked-out revision predates the person-on-events default, running Core in legacy mode"
                       export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
