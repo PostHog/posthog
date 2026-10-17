@@ -3589,9 +3589,9 @@ snapshots:
     filters-taxonomic-filter--category-dropdown--light:
         hash: v1.k794b7964.1bea71d84b0eb24126b991c7a545639f658d9ebd1194b9dc9bcb901e4543c143.2svfFUCdtdOtLNQW1pwyu6yzSUMjsLSSoYClBjQf-60
     filters-taxonomic-filter--category-rail-pinned--dark:
-        hash: v1.k794b7964.ec7737061d2ba8ef3a6ba408078ea5bf6114d18504091be17497634712ba8292.bhZAfMWI7xXawk6Xk8zcVxN_hPJUGQN3mtCpzteLOHY
+        hash: v1.k794b7964.53db2a3f4dd104a0eb93afd345f168169450902abedba41a488762110cde163a.fBdkgYF5DlUxBPtZhSO3h0XSl3HroW5HH464ofN_bUs
     filters-taxonomic-filter--category-rail-pinned--light:
-        hash: v1.k794b7964.216bb7b64a4d8292956a5399af50a729fc333a052f917b2a28725d8660d0bd19.17vZPcHxLysEZwE0vLdJr9jEGtxmr9ryku_mpPIjzoY
+        hash: v1.k794b7964.1d4ac211b2d75b8766bc9650443e119352eb0e3d9dfe66fb3fcf8c996a8fbfbf.F-WLCQPbI8Ex4hyKv6LgoSW5o72T77oXXDe8pcXscSk
     filters-taxonomic-filter--cohorts-with-realtime-states--dark:
         hash: v1.k794b7964.4ecf5ef9bc95151a6444f1b7247ced4f43ad62f12399783f180c8d82f2b05021.12FrJN6IzU1RbrsFSt_QSvWv4xtr7haSiCTFtyE4ks4
     filters-taxonomic-filter--cohorts-with-realtime-states--light:
@@ -3604,6 +3604,10 @@ snapshots:
         hash: v1.k794b7964.08dd6b6ff90babc94016f15cece4f87ac9c733101503ab4d206bef311938de6b.11OskmuMksbFPIaDtmt8ptXswFKCZQsgje5sHpyWAXw
     filters-taxonomic-filter--dashboard-property-search--light:
         hash: v1.k794b7964.a31bf51a80fdca614f2f36470aa051fd7faaf638ab84f332e7de43c944763c27.CznVxf4UBAP6trCkcSE7LgkjTJ3IazUfzMIhS8XBUMM
+    filters-taxonomic-filter--email-search-query-hint--dark:
+        hash: v1.k794b7964.75780bca10fdc8c61cb0d0383ac6495ddaafdd30baf6f566cf6b38e8fa0f2d90.A257X7pt9K40kv8qTFkP0u04LCWEnzEh2Sy7qv11t2w
+    filters-taxonomic-filter--email-search-query-hint--light:
+        hash: v1.k794b7964.26263d464e79d354fa4a88430db602672c6ec400d23b25e635f39c78f8021c50.oKLH9VgDruDZli-BetTKm3qWMDc2f96jp30LFwHEG9Y
     filters-taxonomic-filter--empty-all-tab-with-event-match--dark:
         hash: v1.k794b7964.58e7c99b2c92f0300216c4047c2d5ea1745dfa1a606a00270b0ebc779bed3cd5.1h_7F-InpV4zcCU2i8sGo8D9GpR-M9SK0ykFwUh1DDc
     filters-taxonomic-filter--empty-all-tab-with-event-match--light:
@@ -8319,9 +8323,9 @@ snapshots:
     replay-filters-add-filter-popover--closed--light:
         hash: v1.k794b7964.96b26f69ea30de65c06c9a5c6560212a282457b1a4c2d8c93d69cb09e16f73c7.eLGELx_AKoftmQ0cl8oYNeb0tBvCqjnxn4DZww-Hdas
     replay-filters-add-filter-popover--open--dark:
-        hash: v1.k794b7964.bc245e0bd57be6f5132f5eb4c26a6bbc77a4f0f7b7452bfb1a3ecc1b46709c42.yuMl99pO0kzzNY0Qhl5nI7SJObDlJp9z8N2MCtyHpFg
+        hash: v1.k794b7964.f55c5c353feeac86e59cf7d0ea225940ce8ed62823ff824edd3a0550957df24b.X60_WAaWal9T6e2V3HzzneZ5ERlBm4buTDN1RO98utE
     replay-filters-add-filter-popover--open--light:
-        hash: v1.k794b7964.4080f7334f9e193fb05511cd995cd581d908f70899ce75791c8a8d63c60c3823.qe1zQijlfLKKWnBKDHrinXnwLaDrf3B_Qd_q_PnRIyw
+        hash: v1.k794b7964.535f94257a9a8a59e9680bd67595ee0d77cde2e0931254c09b981fe4e4eba6a6.zadFN5EUsZMWm7gtpaLpJrUgfsbEQIrFa41s3jdvJuM
     replay-overview-tab--many-other-watchers-overview-tab--dark:
         hash: v1.k794b7964.131b998b5753ee04c70fcbec9e7208caaedfbbf1f2a49fb33b9cc29a35c182b7.vQJgCoQV7fE9whrQ3bq6m3oEfHLUxAma9aKkDgytWqM
     replay-overview-tab--many-other-watchers-overview-tab--light:
