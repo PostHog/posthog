@@ -4962,12 +4962,20 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_primary_key", [("id", "uuid", False)], {}, "primary key"),
+            ("no_primary_key", [("id", "uuid", False)], {}, "primary key", "consolidated"),
             (
                 "reserved_column",
                 [("id", "uuid", False), ("_ph_cdc_seq", "bigint", True)],
                 {"tracking_link": ["id"]},
                 "_ph_cdc_seq",
+                "consolidated",
+            ),
+            (
+                "validity_column_with_a_history_table",
+                [("id", "uuid", False), ("valid_to", "timestamp", True)],
+                {"tracking_link": ["id"]},
+                "valid_to",
+                "cdc_only",
             ),
         ]
     )
@@ -4990,6 +4998,7 @@ class TestExternalDataSource(APIBaseTest):
         columns,
         primary_keys,
         expected_in_message,
+        cdc_table_mode,
         mock_get_source,
         mock_cdc_pg_connection,
         mock_get_primary_key_columns,
@@ -5047,7 +5056,12 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "public",
                     "cdc_enabled": True,
                     "schemas": [
-                        {"name": "tracking_link", "should_sync": True, "sync_type": "cdc"},
+                        {
+                            "name": "tracking_link",
+                            "should_sync": True,
+                            "sync_type": "cdc",
+                            "cdc_table_mode": cdc_table_mode,
+                        },
                     ],
                 },
             },

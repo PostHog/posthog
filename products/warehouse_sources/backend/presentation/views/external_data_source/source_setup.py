@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.facade.models import (
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_management import (
+    CDC_HISTORY_TABLE_MODES,
     CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
@@ -69,6 +70,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    history_column_collisions,
     is_team_allowlisted_for_internal_hosts,
     new_source_requires_ssl,
     sql_schema_metadata,
@@ -1435,6 +1437,36 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                             "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
                             "that name. Rename the column on your database, or choose another sync method for "
                             f"these tables: {', '.join(tables_with_reserved_column)}."
+                        )
+                    },
+                )
+
+            # The history table stamps each row version with these columns, so a synced source column
+            # of the same name would fail every load into it.
+            tables_with_validity_column = sorted(
+                {
+                    schema["name"]
+                    for schema in payload_schemas
+                    if schema.get("sync_type") == "cdc"
+                    and schema.get("should_sync", False)
+                    and schema.get("cdc_table_mode") in CDC_HISTORY_TABLE_MODES
+                    and isinstance(schema.get("name"), str)
+                    and history_column_collisions(
+                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                        schema["enabled_columns"] if isinstance(schema.get("enabled_columns"), list) else None,
+                        pk_columns_by_table.get(schema["name"]),
+                    )
+                }
+            )
+            if tables_with_validity_column:
+                new_source_model.delete()
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": (
+                            "A history table can't store a column named valid_from or valid_to, because PostHog "
+                            "uses those names. Rename the column on your database, or choose the consolidated "
+                            f"table only for these tables: {', '.join(tables_with_validity_column)}."
                         )
                     },
                 )

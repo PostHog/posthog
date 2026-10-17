@@ -33,7 +33,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
 from products.warehouse_sources.backend.models.util import hogql_type_name_for_clickhouse_type
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import companion_resource_name
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
@@ -649,6 +649,7 @@ async def register_cdc_companion_table(
                 table.format = table_format
                 table.url_pattern = new_url_pattern
                 table.queryable_folder = queryable_folder
+                table.mark_as_history_table()
                 _refresh_cumulative_row_count(table, logger, companion_table_name, live_row_count)
                 # Scope to the fields changed here so this out-of-transaction save doesn't rewrite
                 # `columns` with its pre-merge value before the column save below.
@@ -657,7 +658,7 @@ async def register_cdc_companion_table(
                 # on a fresh connection rather than let this escape as error-tracking noise.
                 # new_url_pattern above is derived from the job's own destination folder, not from
                 # request input, so this sync is a trusted writer of a credential-less table's URL.
-                update_fields = ["format", "url_pattern", "queryable_folder", "row_count"]
+                update_fields = ["format", "url_pattern", "queryable_folder", "options", "row_count"]
                 if live_size_mib is not None:
                     table.size_in_s3_mib = live_size_mib
                     update_fields.append("size_in_s3_mib")
@@ -670,6 +671,7 @@ async def register_cdc_companion_table(
                     external_data_source_id=job.pipeline.id,
                     created_via=DataWarehouseTableCreatedVia.SOURCE,
                     size_in_s3_mib=live_size_mib,
+                    options={HISTORY_TABLE_OPTION: True},
                     **table_params,
                 )
             _record_storage_delta(job, storage_delta_mib)

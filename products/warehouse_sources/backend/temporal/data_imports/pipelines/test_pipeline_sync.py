@@ -17,7 +17,7 @@ from posthog.models import Team
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import HISTORY_TABLE_OPTION, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     build_table_name,
@@ -399,6 +399,8 @@ class TestRegisterCdcCompanionTableStamp:
         job.refresh_from_db()
         assert companion.size_in_s3_mib == 5.0
         assert job.storage_delta_mib == 5.0
+        # The catalog reads this marker to hide the capture columns.
+        assert companion.options[HISTORY_TABLE_OPTION] is True
 
 
 # transaction=True: validate_schema_and_update_table writes to the DB from the async thread pool

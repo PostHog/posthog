@@ -46,10 +46,7 @@ from products.warehouse_sources.backend.models.external_data_job import (
 )
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema as _ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource as _ExternalDataSource
-from products.warehouse_sources.backend.models.table import (
-    HIDDEN_COLUMNS,
-    DataWarehouseTable as _DataWarehouseTable,
-)
+from products.warehouse_sources.backend.models.table import DataWarehouseTable as _DataWarehouseTable
 
 # Framework-free helper transforms — re-exported as the public helper surface.
 from products.warehouse_sources.backend.models.util import (
@@ -549,6 +546,7 @@ def all_queryable_table_columns(team_id: int, table_ids: Collection[UUID] | None
             "id",
             "name",
             "columns",
+            "options",
             "external_data_source_id",
             "external_data_source__id",
             "external_data_source__prefix",
@@ -567,10 +565,11 @@ def _hogql_visible_columns(table: _DataWarehouseTable) -> dict[str, str]:
     # The same raw -> visible mapping DataWarehouseTable.get_user_facing_columns applies, keeping
     # the stored type rather than the cleaned one so a consumer still reads any Nullable() wrapper.
     hogql_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
+    hidden = table.hidden_columns()
     return {
         hogql_by_raw.get(name, name): type_
         for name, entry in (table.columns or {}).items()
-        if name not in HIDDEN_COLUMNS and (type_ := _clickhouse_column_type(entry)) is not None
+        if name not in hidden and (type_ := _clickhouse_column_type(entry)) is not None
     }
 
 

@@ -772,6 +772,24 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["name"] == "test_table2"
 
+    def test_update_options_keeps_the_history_table_marker(self):
+        table = DataWarehouseTable.objects.create(
+            name="orders_cdc",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            columns={},
+            options={"history_table": True},
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}",
+            {"options": {}},
+            format="json",
+        )
+        assert response.status_code == 200, response.content
+        table.refresh_from_db()
+        assert table.is_history_table
+
     def test_update_table_url_pattern_to_internal_bucket(self):
         table = DataWarehouseTable.objects.create(
             name="test_table",

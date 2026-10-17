@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 
 import pyarrow as pa
 
@@ -46,6 +46,25 @@ TOAST_OMITTED_COLUMN = "_ph_toast_omitted"
 # SCD Type 2 columns added to the _cdc history table
 SCD2_VALID_FROM_COLUMN = "valid_from"
 SCD2_VALID_TO_COLUMN = "valid_to"
+
+# Values of `cdc_table_mode` that write the history table.
+CDC_HISTORY_TABLE_MODES: frozenset[str] = frozenset({"cdc_only", "both"})
+
+
+def history_column_collisions(
+    column_names: Iterable[str],
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None = None,
+) -> list[str]:
+    """Source columns that capture would write into the history table under its validity column names."""
+    synced = set(column_names)
+    # The same projection capture applies (`filter_columns_by_enabled_columns`), kept inline because
+    # that module's package imports Django models and this one sits on the capture path.
+    if enabled_columns is not None:
+        synced &= {*enabled_columns, *(primary_keys or []), *([incremental_field] if incremental_field else [])}
+    return sorted({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN} & synced)
+
 
 # Columns that are CDC/SCD2 metadata — always filled from the event itself,
 # never overwritten when enriching DELETE rows with last-known source data.

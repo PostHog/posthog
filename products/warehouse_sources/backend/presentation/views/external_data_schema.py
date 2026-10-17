@@ -63,6 +63,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.pipelines import finish_row_tracking
 from products.warehouse_sources.backend.facade.source_management import (
     BUFFER_LANE,
+    CDC_HISTORY_TABLE_MODES,
     CDC_RESET_PENDING_KEY,
     CDC_SEQ_COLUMN,
     AnySource,
@@ -73,6 +74,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     hand_reset_to_capture_if_sync_running,
+    history_column_collisions,
     purge_buffer_prefix,
     repair_is_running,
     resnapshot_stays_in_buffer,
@@ -412,17 +414,51 @@ def _apply_primary_key_columns(
         )
 
 
-def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
-    """Capture stamps each change with this column, so a source column of the same name would fail
-    the source's sync. Checked against the columns discovery recorded, which are the source's own."""
+def _source_column_names(instance: ExternalDataSchema) -> set[str]:
+    """The columns discovery recorded, which are the source's own."""
     metadata = instance.schema_metadata or {}
     columns = metadata.get("columns") if isinstance(metadata, dict) else None
-    if isinstance(columns, list) and any(
-        isinstance(column, dict) and column.get("name") == CDC_SEQ_COLUMN for column in columns
-    ):
+    if not isinstance(columns, list):
+        return set()
+    return {column["name"] for column in columns if isinstance(column, dict) and isinstance(column.get("name"), str)}
+
+
+def _refuse_reserved_cdc_column(instance: ExternalDataSchema) -> None:
+    """Capture stamps each change with this column, so a source column of the same name would fail
+    the source's sync."""
+    if CDC_SEQ_COLUMN in _source_column_names(instance):
         raise ValidationError(
             "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses that name. "
             "Rename the column on your database, or choose another sync method for this table."
+        )
+
+
+def _refuse_reserved_history_columns(
+    instance: ExternalDataSchema,
+    *,
+    previous_mode: str | None,
+    previous_enabled_columns: list[str] | None,
+    previous_primary_keys: list[str] | None,
+    new_mode: str | None,
+    new_enabled_columns: list[str] | None,
+    new_primary_keys: list[str] | None,
+) -> None:
+    """The history table stamps each row version with `valid_from` and `valid_to`, so a synced source
+    column of the same name fails every load into it. Only a collision this request adds is refused,
+    so a table that already has one can still be edited or switched back."""
+    if new_mode not in CDC_HISTORY_TABLE_MODES:
+        return
+    columns = _source_column_names(instance)
+    taken = history_column_collisions(columns, new_enabled_columns, new_primary_keys, instance.incremental_field)
+    if instance.sync_type == ExternalDataSchema.SyncType.CDC and previous_mode in CDC_HISTORY_TABLE_MODES:
+        existing = history_column_collisions(
+            columns, previous_enabled_columns, previous_primary_keys, instance.incremental_field
+        )
+        taken = [column for column in taken if column not in existing]
+    if taken:
+        raise ValidationError(
+            f"A history table can't store a column named {' or '.join(taken)}, because PostHog uses that name. "
+            "Rename the column on your database, or choose the consolidated table only for this table."
         )
 
 
@@ -1259,6 +1295,20 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     payload = instance.sync_type_config
                     payload["cdc_table_mode"] = cdc_table_mode
                     validated_data["sync_type_config"] = payload
+
+        # Checked once the branches above settle the mode and the key, because `enabled_columns` alone
+        # can also bring a validity column into the history table.
+        if (sync_type if "sync_type" in data else instance.sync_type) == ExternalDataSchema.SyncType.CDC:
+            resulting_config = validated_data.get("sync_type_config", instance.sync_type_config) or {}
+            _refuse_reserved_history_columns(
+                instance,
+                previous_mode=previous_cdc_table_mode,
+                previous_enabled_columns=instance.enabled_columns,
+                previous_primary_keys=original_sync_type_config.get("primary_key_columns"),
+                new_mode=resulting_config.get("cdc_table_mode"),
+                new_enabled_columns=validated_data.get("enabled_columns", instance.enabled_columns),
+                new_primary_keys=resulting_config.get("primary_key_columns"),
+            )
 
         should_sync = validated_data.get("should_sync", None)
         sync_frequency = data.get("sync_frequency", None)
