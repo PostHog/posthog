@@ -41,6 +41,13 @@ def team_github_integration_for_repositories(team_id: int, repositories: Iterabl
     return unsynced
 
 
+def default_team_github_integration(team_id: int, repositories: list[str]) -> Integration | None:
+    """The installation a task gets when its caller names none: the one that reaches ``repositories``,
+    else the team's first, so a caller that reports access problems at run time keeps doing so."""
+    reaching = team_github_integration_for_repositories(team_id, repositories) if repositories else None
+    return reaching or Integration.objects.filter(team_id=team_id, kind="github").first()
+
+
 def _cached_full_names(integration: Integration) -> set[str]:
     github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     return {

@@ -2616,6 +2616,31 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_task_attaches_the_installation_that_reaches_the_repository(self):
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="install-1",
+            repository_cache=[{"id": 1, "name": "other", "full_name": "acme/other"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        reaching = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="install-2",
+            repository_cache=[{"id": 2, "name": "widgets", "full_name": "acme/widgets"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {"title": "Widgets task", "repository": "acme/widgets"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(Task.objects.get(id=response.json()["id"]).github_integration, reaching)
+
     def test_create_task_with_pi_runtime(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",

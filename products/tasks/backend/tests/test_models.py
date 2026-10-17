@@ -601,21 +601,28 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("no_installation", [], "does not have a GitHub integration"),
+            ("no_installation", ["posthog/posthog"], [], "does not have a GitHub integration"),
             (
                 "no_installation_reaches_the_repository",
+                ["posthog/posthog"],
                 [["acme/other"], ["acme/another"]],
                 "can access posthog/posthog",
+            ),
+            (
+                "installations_each_reach_only_some_repositories",
+                ["posthog/posthog", "acme/widgets"],
+                [["posthog/posthog"], ["acme/widgets"]],
+                "can access posthog/posthog, acme/widgets",
             ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_non_public_repo_without_a_reaching_installation_raises(
-        self, _name, installation_repositories, expected_error, mock_execute_workflow
+        self, _name, repositories, installation_repositories, expected_error, mock_execute_workflow
     ):
         user = User.objects.create(email="test@test.com")
-        for index, repositories in enumerate(installation_repositories):
-            self._create_github_installation(f"install-{index}", repositories)
+        for index, reachable in enumerate(installation_repositories):
+            self._create_github_installation(f"install-{index}", reachable)
 
         with self.assertRaises(ValueError) as cm:
             Task.create_and_run(
@@ -624,7 +631,7 @@ class TestTask(TestCase):
                 description="Test Description",
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.id,
-                repository="posthog/posthog",
+                repositories=repositories,
             )
 
         self.assertIn(expected_error, str(cm.exception))
@@ -632,19 +639,25 @@ class TestTask(TestCase):
 
     @parameterized.expand(
         [
-            ("first_installation_lacks_the_repository", [["acme/other"], ["posthog/posthog"]], 1),
-            ("reaching_installation_beats_an_unsynced_one", [None, ["posthog/posthog"]], 1),
-            ("unsynced_installation_when_none_confirms", [["acme/other"], None], 1),
+            ("first_installation_lacks_the_repository", ["PostHog/PostHog"], [["acme/other"], ["posthog/posthog"]], 1),
+            ("reaching_installation_beats_an_unsynced_one", ["PostHog/PostHog"], [None, ["posthog/posthog"]], 1),
+            ("unsynced_installation_when_none_confirms", ["PostHog/PostHog"], [["acme/other"], None], 1),
+            (
+                "one_installation_reaches_every_repository",
+                ["posthog/posthog", "acme/widgets"],
+                [["posthog/posthog"], ["posthog/posthog", "acme/widgets"]],
+                1,
+            ),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_picks_the_installation_that_reaches_the_repository(
-        self, _name, installation_repositories, expected_index, mock_execute_workflow
+        self, _name, repositories, installation_repositories, expected_index, mock_execute_workflow
     ):
         user = User.objects.create(email="test@test.com")
         installations = [
-            self._create_github_installation(f"install-{index}", repositories)
-            for index, repositories in enumerate(installation_repositories)
+            self._create_github_installation(f"install-{index}", reachable)
+            for index, reachable in enumerate(installation_repositories)
         ]
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -654,7 +667,7 @@ class TestTask(TestCase):
                 description="Test Description",
                 origin_product=Task.OriginProduct.USER_CREATED,
                 user_id=user.id,
-                repository="PostHog/PostHog",
+                repositories=repositories,
             )
 
         self.assertEqual(task.github_integration, installations[expected_index])
