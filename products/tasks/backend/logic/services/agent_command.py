@@ -42,6 +42,8 @@ BLOCKED_IP_RANGES = [
 ]
 
 NO_ACTIVE_SESSION_ERROR = "No active session for this run"
+# The agent-server refuses a session refresh while a turn runs. The same refresh succeeds once the turn ends.
+REFRESH_SESSION_TURN_IN_FLIGHT_ERROR = "Cannot refresh session while a prompt turn is in flight"
 # The provider rejects a turn whose transcript content blocks do not line up
 # ("Content block not found", "Content block is not a thinking block"). The
 # wording changes with the provider, so match the family, not each string.
