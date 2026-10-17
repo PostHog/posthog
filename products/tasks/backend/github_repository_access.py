@@ -1,10 +1,53 @@
 import logging
 from collections.abc import Iterable
 
+from django.db.models import QuerySet
+
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 
 logger = logging.getLogger(__name__)
+
+
+def usable_team_github_integrations(team_id: int) -> QuerySet[Integration]:
+    """The team's GitHub installations that can still mint a token, in the order the team prefers them."""
+    return (
+        Integration.objects.filter(team_id=team_id, kind="github")
+        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
+        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
+        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
+        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
+        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
+        # Prioritize orgs vs users (alphabetically), then oldest first
+        .order_by("config__account__type", "created_at", "id")
+    )
+
+
+def team_github_integration_for_repositories(team_id: int, repositories: Iterable[str]) -> Integration | None:
+    """The first usable team installation whose cached repositories include every one of ``repositories``.
+
+    An installation that has never synced its cache is a fallback, because its access is unknown rather
+    than missing. Reads the cache only, so task creation never waits on GitHub.
+    """
+    wanted = {repository.lower() for repository in repositories}
+    unsynced: Integration | None = None
+    for integration in usable_team_github_integrations(team_id):
+        if wanted <= _cached_full_names(integration):
+            return integration
+        if unsynced is None and integration.repository_cache_updated_at is None:
+            unsynced = integration
+    return unsynced
+
+
+def _cached_full_names(integration: Integration) -> set[str]:
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
+    return {
+        full_name.lower()
+        for repo in github.list_all_cached_repositories(allow_refresh=False)
+        if (full_name := repo.get("full_name"))
+    }
 
 
 def inaccessible_repositories_via_integration(

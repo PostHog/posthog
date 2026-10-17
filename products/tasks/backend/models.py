@@ -57,6 +57,7 @@ from products.tasks.backend.feature_flags import (
     is_task_run_stream_thin_tail,
     run_stream_presence_gated,
 )
+from products.tasks.backend.github_repository_access import team_github_integration_for_repositories
 from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
 from products.tasks.backend.metrics import observe_task_run_created, observe_task_run_dispatch_callback
@@ -1197,8 +1198,13 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 Task.OriginProduct.METRICS_IMPORT,
             )
         )
+        # Every entry is cloned, so a private second repository fails the run just as surely
+        # as a private first one.
+        private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
         github_integration = None
-        if github_resolution_allowed:
+        if github_resolution_allowed and private_repositories:
+            github_integration = team_github_integration_for_repositories(team.id, private_repositories)
+        elif github_resolution_allowed:
             github_integration = (
                 Integration.objects.filter(team=team, kind="github")
                 .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
@@ -1239,12 +1245,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if user_github_integration is not None:
                 github_user_integration = user_github_integration.integration
 
-        if not github_integration and github_user_integration is None:
-            # Every entry is cloned, so a private second repository fails the run just as surely
-            # as a private first one.
-            private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
-            if private_repositories:
+        if private_repositories and not github_integration and github_user_integration is None:
+            if not Integration.objects.filter(team=team, kind="github").exists():
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
+            raise ValueError(f"No GitHub installation of team {team.id} can access {', '.join(private_repositories)}")
 
         sandbox_env = None
         if sandbox_environment_id is not None:

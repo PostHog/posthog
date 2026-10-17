@@ -8,7 +8,6 @@ from products.tasks.backend.logic.repo_selection.cascade import cascade_select_r
 from products.tasks.backend.models import Task
 
 _CASCADE = "products.tasks.backend.logic.repo_selection.cascade"
-_AGENT = "products.tasks.backend.logic.repo_selection.agent"
 
 
 def _patch_candidates(github: object | None, candidates: list[str]):
@@ -104,15 +103,16 @@ class TestListTeamConnectedRepositories:
 
         assert list_team_connected_repositories(team.id) == ["posthog/posthog"]
 
-    def test_archived_repositories_are_excluded(self):
-        # An inferred selection is authoritative in the manual Create PR flow, so an archived repo
-        # hands a person a target that cannot accept the change. A repo cached before the flag
-        # existed carries none and stays a candidate rather than being treated as archived.
-        github = MagicMock()
-        github.list_all_cached_repositories.return_value = [
-            {"full_name": "owner/unknown"},
-            {"full_name": "owner/stale", "archived": True},
-            {"full_name": "owner/active", "archived": False},
-        ]
-        with patch(f"{_AGENT}.resolve_team_github_integration", return_value=github):
-            assert list_team_connected_repositories(1) == ["owner/active", "owner/unknown"]
+    @pytest.mark.django_db
+    def test_reports_repositories_from_every_installation(self, team):
+        for installation_id, full_name in (("gh-1", "PostHog/posthog"), ("gh-2", "acme/widgets")):
+            Integration.objects.create(
+                team=team,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id},
+                sensitive_config={},
+                repository_cache=[{"full_name": full_name, "name": full_name.split("/")[1], "id": 1}],
+            )
+
+        assert list_team_connected_repositories(team.id) == ["acme/widgets", "posthog/posthog"]

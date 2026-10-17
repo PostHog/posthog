@@ -599,9 +599,23 @@ class TestTask(TestCase):
 
         mock_execute_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("no_installation", [], "does not have a GitHub integration"),
+            (
+                "no_installation_reaches_the_repository",
+                [["acme/other"], ["acme/another"]],
+                "can access posthog/posthog",
+            ),
+        ]
+    )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_create_and_run_non_public_repo_without_integration_raises(self, mock_execute_workflow):
+    def test_create_and_run_non_public_repo_without_a_reaching_installation_raises(
+        self, _name, installation_repositories, expected_error, mock_execute_workflow
+    ):
         user = User.objects.create(email="test@test.com")
+        for index, repositories in enumerate(installation_repositories):
+            self._create_github_installation(f"install-{index}", repositories)
 
         with self.assertRaises(ValueError) as cm:
             Task.create_and_run(
@@ -613,8 +627,50 @@ class TestTask(TestCase):
                 repository="posthog/posthog",
             )
 
-        self.assertIn("does not have a GitHub integration", str(cm.exception))
+        self.assertIn(expected_error, str(cm.exception))
         mock_execute_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("first_installation_lacks_the_repository", [["acme/other"], ["posthog/posthog"]], 1),
+            ("reaching_installation_beats_an_unsynced_one", [None, ["posthog/posthog"]], 1),
+            ("unsynced_installation_when_none_confirms", [["acme/other"], None], 1),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_picks_the_installation_that_reaches_the_repository(
+        self, _name, installation_repositories, expected_index, mock_execute_workflow
+    ):
+        user = User.objects.create(email="test@test.com")
+        installations = [
+            self._create_github_installation(f"install-{index}", repositories)
+            for index, repositories in enumerate(installation_repositories)
+        ]
+
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="PostHog/PostHog",
+            )
+
+        self.assertEqual(task.github_integration, installations[expected_index])
+
+    def _create_github_installation(self, installation_id: str, repositories: list[str] | None) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id=installation_id,
+            config={"installation_id": installation_id},
+            repository_cache=[
+                {"id": index, "name": full_name.split("/")[1], "full_name": full_name}
+                for index, full_name in enumerate(repositories or [])
+            ],
+            repository_cache_updated_at=None if repositories is None else django_timezone.now(),
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_with_github_integration(self, mock_execute_workflow):

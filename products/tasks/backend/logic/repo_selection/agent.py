@@ -18,6 +18,7 @@ from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.tasks.backend.github_repository_access import usable_team_github_integrations
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
 from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
@@ -123,18 +124,7 @@ def resolve_team_github_integration(
     source's repository names are shown to other team members, or when the work runs under the
     team installation's bot identity — a personal connection is a cross-account leak there.
     """
-    integration = (
-        Integration.objects.filter(team_id=team_id, kind="github")
-        # Skip integrations whose installation has been synced and confirmed empty (0 repos)
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
-        # Skip installs whose token refresh is permanently failing (uninstalled/suspended on
-        # GitHub's side): re-selecting one makes repo discovery storm GitHub with doomed refreshes.
-        .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-        .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-        # Prioritize orgs vs users (alphabetically), then oldest first
-        .order_by("config__account__type", "created_at", "id")
-        .first()
-    )
+    integration = usable_team_github_integrations(team_id).first()
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
@@ -209,11 +199,14 @@ def _list_candidate_repos(
 
 
 def list_team_connected_repositories(team_id: int) -> list[str]:
-    """The `owner/repo` names the team's own GitHub installation can reach, lowercased.
+    """The `owner/repo` names the team's own GitHub installations can reach, lowercased.
+
+    Every usable installation counts, because task creation attaches whichever one reaches the
+    repository (`team_github_integration_for_repositories`).
 
     The candidate list without the agent — for a caller that already has a repository in hand and
-    only needs to know whether the team connected it. `team_only` because such a caller runs under
-    the team's identity with no requester to act for, and the personal-connection fallbacks would
+    only needs to know whether the team connected it. Team installations only, because such a caller
+    runs under the team's identity with no requester to act for, and a personal connection would
     let one member's private repos answer for the team. Reads the cache as-is: an unattended caller
     should not make a repo check storm GitHub with refreshes.
 
@@ -224,10 +217,11 @@ def list_team_connected_repositories(team_id: int) -> list[str]:
     it would answer "nothing is connected" for every team yet to run a full selection. Absent heavy
     metadata therefore reads as unknown here, not as archived.
     """
-    github = resolve_team_github_integration(team_id, team_only=True)
-    if github is None:
-        return []
-    return _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
+    repositories: set[str] = set()
+    for integration in usable_team_github_integrations(team_id):
+        github = GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
+        repositories.update(_list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True))
+    return sorted(repositories)
 
 
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
