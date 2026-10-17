@@ -31,6 +31,7 @@ from products.visual_review.backend.facade.enums import (
 )
 from products.visual_review.backend.logic import artifact_store, errors, github_api, quarantine, runs
 from products.visual_review.backend.models import Run, RunSnapshot
+from products.visual_review.backend.presentation.views import SnapshotsPagination
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES, VisualReviewTeamScopedTestMixin
 
 
@@ -433,25 +434,35 @@ class TestRunViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert data["count"] == len(expected_identifiers)
         assert data["quarantined_count"] == expected_quarantined_count
 
+    @parameterized.expand(
+        [
+            ("explicit_page", "?limit=1&offset=1", ["Card"]),
+            ("oversized_limit_capped", "?limit=10000", ["Button", "Card"]),
+            ("omitted_limit", "", ["Button", "Card"]),
+            ("invalid_limit", "?limit=abc", ["Button", "Card"]),
+        ]
+    )
+    @patch.object(SnapshotsPagination, "max_limit", 2)
+    @patch.object(SnapshotsPagination, "default_limit", 2)
     @patch(
         "products.visual_review.backend.storage.ArtifactStorage.get_presigned_download_url",
         return_value="https://s3.example.com/download",
     )
-    def test_get_run_snapshots_signs_urls_only_for_the_page(self, mock_presigned_download):
+    def test_get_run_snapshots_signs_urls_only_for_the_page(
+        self, _name, query, expected_identifiers, mock_presigned_download
+    ):
         run_id, _ = self._create_run_with_results(
             {"Button": SnapshotResult.CHANGED, "Card": SnapshotResult.UNCHANGED, "Dialog": SnapshotResult.UNCHANGED}
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/snapshots/?limit=1&offset=1"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/visual_review/runs/{run_id}/snapshots/{query}")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
         assert data["count"] == 3
-        assert [s["identifier"] for s in data["results"]] == ["Card"]
+        assert [s["identifier"] for s in data["results"]] == expected_identifiers
         assert data["next"] is not None
-        assert mock_presigned_download.call_count == 1
+        assert mock_presigned_download.call_count == len(expected_identifiers)
 
     @patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
     def test_complete_run_no_changes(self, mock_delay):
