@@ -62,12 +62,18 @@ def _capture_repo_research_event(
     report_id: str,
     result: str | None = None,
     failure_reason: str | None = None,
+    error_type: str | None = None,
+    attempt: int | None = None,
 ) -> None:
     properties: dict = {"report_id": report_id}
     if result is not None:
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if error_type is not None:
+        properties["error_type"] = error_type
+    if attempt is not None:
+        properties["attempt"] = attempt
     try:
         posthoganalytics.capture(
             event=event,
@@ -182,6 +188,9 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             input.report_id,
             result="failed",
             failure_reason="agentic_activity_error",
+            error_type=type(e).__name__,
+            # Each retry emits its own failed event; the attempt separates retried attempts from terminal failures.
+            attempt=temporalio.activity.info().attempt if temporalio.activity.in_activity() else None,
         )
         # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
         if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:
