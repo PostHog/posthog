@@ -35,7 +35,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
-from posthog.schema import ProductKey
+from posthog.schema import ProductIntentContext, ProductKey
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
@@ -56,10 +56,17 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
-from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
+from posthog.event_usage import (
+    AGENT_EVENT_SOURCES,
+    EventSource,
+    get_event_source,
+    get_request_analytics_properties,
+    report_user_action,
+)
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.permissions import (
     AccessControlPermission,
@@ -4916,6 +4923,20 @@ class HogFlowViewSet(
         except Exception as e:
             logger.warning("Failed to capture workflow usage event", event=event, error=str(e))
 
+    def _register_workflows_product_intent(self) -> None:
+        if is_impersonated(self.request):
+            return
+        try:
+            ProductIntent.register(
+                team=self.team,
+                product_type=ProductKey.WORKFLOWS,
+                context=ProductIntentContext.WORKFLOW_CREATED,
+                user=cast(User, self.request.user),
+                metadata=get_request_analytics_properties(self.request),
+            )
+        except Exception as e:
+            capture_exception(e)
+
     def perform_create(self, serializer):
         if self._is_mcp_request(self.request) and serializer.validated_data.get("status") == HogFlowState.ACTIVE:
             raise exceptions.ValidationError(
@@ -4929,6 +4950,7 @@ class HogFlowViewSet(
             validated_data=serializer.validated_data,
         )
         serializer.instance = self._written_workflow(result)
+        self._register_workflows_product_intent()
         self._log_activity(serializer.instance.id, serializer.instance.name, "created", detail_type="standard")
         self._emit_resource_edited(serializer.instance)
 

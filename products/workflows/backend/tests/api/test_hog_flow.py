@@ -23,6 +23,7 @@ from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.product_intent.product_intent import ProductIntent
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
 
@@ -5387,6 +5388,46 @@ class TestHogFlowAPI(APIBaseTest):
         activity = self.client.get(f"/api/projects/{self.team.pk}/activity_log", data=params)
         assert activity.status_code == status.HTTP_200_OK
         return activity.json().get("results")
+
+    def _post_webhook_hog_flow(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-webhook",
+                "inputs": {"url": {"value": "https://example.com"}},
+            }
+        )
+        return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+
+    def test_create_hog_flow_registers_workflows_product_intent(self):
+        response = self._post_webhook_hog_flow()
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        intent = ProductIntent.objects.get(team=self.team, product_type="workflows")
+        assert intent.contexts == {"workflow_created": 1}
+
+    @parameterized.expand(
+        [
+            (
+                "impersonated_session",
+                "products.workflows.backend.presentation.views.hog_flow.is_impersonated",
+                {"return_value": True},
+            ),
+            (
+                "intent_registration_failure",
+                "products.workflows.backend.presentation.views.hog_flow.ProductIntent.register",
+                {"side_effect": RuntimeError("intent store unavailable")},
+            ),
+        ]
+    )
+    def test_create_hog_flow_succeeds_without_workflows_product_intent(
+        self, _name: str, patch_target: str, patch_kwargs: dict[str, Any]
+    ) -> None:
+        with patch(patch_target, **patch_kwargs):
+            response = self._post_webhook_hog_flow()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert HogFlow.objects.filter(team=self.team, id=response.json()["id"]).exists()
+        assert not ProductIntent.objects.filter(team=self.team, product_type="workflows").exists()
 
     def test_create_hog_flow_logs_activity(self):
         hog_flow, _ = self._create_hog_flow_with_action(

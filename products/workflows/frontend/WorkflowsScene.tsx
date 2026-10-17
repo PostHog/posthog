@@ -8,7 +8,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { addProductIntent } from 'lib/utils/product-intents'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -16,7 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
 import { EmailSuspensionBanner } from './EmailSuspensionBanner'
@@ -224,10 +223,6 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 <LemonButton
                                     data-attr="new-workflow"
                                     onClick={() => {
-                                        void addProductIntent({
-                                            product_type: ProductKey.WORKFLOWS,
-                                            intent_context: ProductIntentContext.WORKFLOW_CREATED,
-                                        })
                                         // Open the template chooser on the type the list shows, so a person on the
                                         // Messaging tab sees messaging templates first.
                                         setTypeFilter(
