@@ -80,6 +80,18 @@ import { playerInspectorLogsLogic } from './playerInspectorLogsLogic'
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 const MAX_SEEKBAR_ITEMS = 100
+// Errors this close to the playhead count as the current error, so repeated jumps move on to the next one
+const ERROR_SEEK_TOLERANCE_MS = 1000
+
+export function findAdjacentErrorItem(
+    errorItems: InspectorListItemEvent[],
+    currentPlayerTime: number,
+    direction: 'previous' | 'next'
+): InspectorListItemEvent | null {
+    return direction === 'next'
+        ? (errorItems.find((item) => item.timeInRecording > currentPlayerTime + ERROR_SEEK_TOLERANCE_MS) ?? null)
+        : (errorItems.findLast((item) => item.timeInRecording < currentPlayerTime - ERROR_SEEK_TOLERANCE_MS) ?? null)
+}
 
 export const IMAGE_WEB_EXTENSIONS = [
     'png',
@@ -451,6 +463,7 @@ export interface playerInspectorLogicValues {
     allowMatchingEventsFilter: boolean
     commentItems: InspectorListItemComment[]
     displayGroups: DisplayGroup[]
+    errorItems: InspectorListItemEvent[]
     expandedItems: number[]
     experimentVariantItems: InspectorListItemExperimentVariant[]
     filteredItems: InspectorListItem[]
@@ -465,9 +478,11 @@ export interface playerInspectorLogicValues {
     matchingEventsLoading: boolean
     matchingEventsSettled: boolean
     metricEventItems: InspectorListItemMetricEvent[]
+    nextErrorItem: InspectorListItemEvent | null
     notebookCommentItems: InspectorListItemNotebookComment[]
     playbackIndicatorIndex: number
     playbackIndicatorIndexStop: number
+    previousErrorItem: InspectorListItemEvent | null
     processedSnapshotData: {
         appStateItems: InspectorListItemAppState[]
         browserVisibilityChanges: InspectorListBrowserVisibility[]
@@ -629,6 +644,9 @@ export interface playerInspectorLogicActions {
     markSkippedToFirstMatchingEvent: () => {
         value: true
     }
+    seekToError: (direction: 'next' | 'previous') => {
+        direction: 'next' | 'previous'
+    }
     setItemExpanded: (
         index: number,
         expanded: boolean
@@ -752,6 +770,19 @@ export interface playerInspectorLogicMeta {
             trackedWindow: number | null,
             hasEventsToDisplay: boolean
         ) => InspectorListItem[]
+        errorItems: (allItems: {
+            items: InspectorListItem[]
+            itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
+            itemsByType: Record<FilterableInspectorListItemTypes | 'context', InspectorListItem[]>
+        }) => InspectorListItemEvent[]
+        previousErrorItem: (
+            errorItems: InspectorListItemEvent[],
+            currentPlayerTime: number
+        ) => InspectorListItemEvent | null
+        nextErrorItem: (
+            errorItems: InspectorListItemEvent[],
+            currentPlayerTime: number
+        ) => InspectorListItemEvent | null
         seekbarItems: (
             allItems: {
                 items: InspectorListItem[]
@@ -914,6 +945,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setSyncScrollPaused: (paused: boolean) => ({ paused }),
         trySkipToFirstMatchingEvent: true,
         markSkippedToFirstMatchingEvent: true,
+        seekToError: (direction: 'previous' | 'next') => ({ direction }),
     })),
     reducers(() => ({
         expandedItems: [
@@ -1871,6 +1903,27 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             { resultEqualityCheck: equal },
         ],
 
+        errorItems: [
+            (s) => [s.allItems],
+            (allItemsData: { items: InspectorListItem[] }): InspectorListItemEvent[] =>
+                allItemsData.items.filter(
+                    (item): item is InspectorListItemEvent => item.type === 'events' && item.data.event === '$exception'
+                ),
+            { resultEqualityCheck: equal },
+        ],
+
+        previousErrorItem: [
+            (s) => [s.errorItems, s.currentPlayerTime],
+            (errorItems: InspectorListItemEvent[], currentPlayerTime: number): InspectorListItemEvent | null =>
+                findAdjacentErrorItem(errorItems, currentPlayerTime, 'previous'),
+        ],
+
+        nextErrorItem: [
+            (s) => [s.errorItems, s.currentPlayerTime],
+            (errorItems: InspectorListItemEvent[], currentPlayerTime: number): InspectorListItemEvent | null =>
+                findAdjacentErrorItem(errorItems, currentPlayerTime, 'next'),
+        ],
+
         seekbarItems: [
             (s) => [
                 s.allItems,
@@ -2156,6 +2209,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
     })),
     listeners(({ values, actions, cache, props }) => ({
+        seekToError: ({ direction }) => {
+            const target = direction === 'next' ? values.nextErrorItem : values.previousErrorItem
+            if (!target) {
+                return
+            }
+            posthog.capture('recording seek to error', {
+                direction,
+                error_count: values.errorItems.length,
+            })
+            actions.seekToTime(Math.max(0, target.timeInRecording))
+        },
         setItemExpanded: ({ index, expanded }) => {
             if (expanded) {
                 const group = values.displayGroups[index]
