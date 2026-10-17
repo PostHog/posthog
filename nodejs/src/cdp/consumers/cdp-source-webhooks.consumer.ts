@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import type { ModifiedRequest } from '~/common/api/router'
-import { instrumented } from '~/common/tracing/tracing-utils'
+import { instrumented, setSpanAttributes } from '~/common/tracing/tracing-utils'
 import { logger } from '~/common/utils/logger'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
@@ -466,11 +466,24 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         return result
     }
 
-    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
     public async processWebhook(
         identifier: string,
         req: ModifiedRequest
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        const result = await this.resolveAndExecuteWebhook(identifier, req)
+        if (result instanceof SourceWebhookError) {
+            throw result
+        }
+        return result
+    }
+
+    // A rejection is a normal response to the caller, not a failure of ours. The method returns it
+    // instead of throwing it, so the span does not count it as an error or report it as an exception.
+    @instrumented('cdpSourceWebhooksConsumer.processWebhook')
+    private async resolveAndExecuteWebhook(
+        identifier: string,
+        req: ModifiedRequest
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> | SourceWebhookError> {
         // NOTE: To simplify usage we allow setting a range of extensions for webhooks
         // Currently we just ignore it
         const [webhookId, _extension] = identifier.split('.')
@@ -486,7 +499,8 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         ])
 
         if (!webhook) {
-            throw new SourceWebhookError(404, 'Not found')
+            setSpanAttributes({ 'webhook.outcome': 'not_found' })
+            return new SourceWebhookError(404, 'Not found')
         }
 
         const { hogFunction, hogFlow } = webhook
@@ -502,8 +516,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                 },
                 hogFlow ? 'hog_flow' : 'hog_function'
             )
-            throw new SourceWebhookError(429, 'Disabled')
+            setSpanAttributes({ 'webhook.outcome': 'disabled' })
+            return new SourceWebhookError(429, 'Disabled')
         }
+
+        setSpanAttributes({ 'webhook.outcome': hogFlow ? 'hog_flow' : 'hog_function' })
 
         const result = hogFlow
             ? await this.executeHogFlow(req, hogFlow, hogFunction)
