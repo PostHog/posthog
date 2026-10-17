@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from django.db.models import Exists, OuterRef
+
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     DeletionContext,
@@ -395,6 +397,9 @@ def register_core_file_system_types() -> None:
             type_string,
             "cdp",
             "HogFunction",
+            queryset_modifier=lambda queryset: queryset.filter(
+                ~Exists(queryset.filter(pk=OuterRef("pk"), mcp_event_subscription__isnull=False))
+            ),
             undo_message="Send PATCH /api/projects/@current/hog_functions/{id} with deleted=false.",
         )
         register_pre_delete_hook(type_string, _hog_function_pre_delete)

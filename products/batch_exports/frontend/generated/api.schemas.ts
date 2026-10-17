@@ -2178,10 +2178,9 @@ export interface FileDownloadCountRowsResponseApi {
 /**
  * * `events` - events
  */
-export type FileDownloadEventsRequestModelEnumApi =
-    (typeof FileDownloadEventsRequestModelEnumApi)[keyof typeof FileDownloadEventsRequestModelEnumApi]
+export type MCPEventSourceEnumApi = (typeof MCPEventSourceEnumApi)[keyof typeof MCPEventSourceEnumApi]
 
-export const FileDownloadEventsRequestModelEnumApi = {
+export const MCPEventSourceEnumApi = {
     Events: 'events',
 } as const
 

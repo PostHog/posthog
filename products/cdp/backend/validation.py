@@ -3,11 +3,12 @@ import json
 import logging
 import contextlib
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from django.db import models
 
 from drf_spectacular.utils import extend_schema_field
+from pydantic import JsonValue
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -43,6 +44,9 @@ from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.stl import STL
 from common.hogvm.python.stl.bytecode import BYTECODE_STL
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +255,7 @@ register_supported_function("postHogSetAccountProperties")
 #
 # Before adding a name, check what its handler in nodejs/src/cdp/async-functions/ stages.
 RESERVED_ASYNC_FUNCTIONS = {
+    "mcpEventFetch",
     "sendEmail",
     "sendPushNotification",
 }
@@ -1109,7 +1114,7 @@ def _contains_behavioral_property(filters: dict) -> bool:
     )
 
 
-def _action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
+def action_ids_in_filters(filters: dict[str, Any]) -> set[int]:
     # Mirrors compile_filters_expr, which compiles every entry typed "actions" in either list.
     action_ids: set[int] = set()
     for key in ("events", "actions"):
@@ -1132,10 +1137,26 @@ def _filter_action_ids(value: Any) -> set[int]:
     action_ids: set[int] = set()
     for key, item in value.items():
         if key == "filters" and isinstance(item, dict):
-            action_ids |= _action_ids_in_filters(item)
+            action_ids |= action_ids_in_filters(item)
         elif key != "inputs":
             action_ids |= _filter_action_ids(item)
     return action_ids
+
+
+def require_viewer_access_to_actions(
+    user_access_control: "UserAccessControl", *, team: Team, action_ids: set[int]
+) -> None:
+    if not action_ids:
+        return
+    actions = Action.objects.filter(team__project_id=team.project_id, id__in=action_ids)
+    denied_ids = user_access_control.denied_object_ids(
+        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
+    )
+    if denied_ids:
+        raise serializers.ValidationError(
+            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
+            "Remove them from the filters, or ask for access."
+        )
 
 
 def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: Any, stored: Any) -> None:
@@ -1149,15 +1170,7 @@ def require_viewer_access_to_added_actions(context: dict[str, Any], submitted: A
     if not added_ids:
         return
 
-    actions = Action.objects.filter(team__project_id=context["get_team"]().project_id, id__in=added_ids)
-    denied_ids = user_access_control.denied_object_ids(
-        "action", [(str(action.id), action.team_id, action.created_by_id) for action in actions], "viewer"
-    )
-    if denied_ids:
-        raise serializers.ValidationError(
-            f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
-            "Remove them from the filters, or ask for access."
-        )
+    require_viewer_access_to_actions(user_access_control, team=context["get_team"](), action_ids=added_ids)
 
 
 class HogFunctionFiltersSerializer(serializers.Serializer):
@@ -1175,6 +1188,28 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     filter_test_accounts = serializers.BooleanField(required=False)
     bytecode_error = serializers.CharField(required=False)
     bytecode_contract = serializers.CharField(required=False)
+
+    @staticmethod
+    def canonicalize_event_filters(data: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        if data.get("source") == "events":
+            data.pop("data_warehouse", None)
+            events = data.get("events")
+            if isinstance(events, list):
+                action_entries = [
+                    event for event in events if isinstance(event, dict) and event.get("type") == "actions"
+                ]
+                if action_entries:
+                    data["events"] = [event for event in events if event not in action_entries]
+                    actions = data.get("actions")
+                    data["actions"] = [*(actions if isinstance(actions, list) else []), *action_entries]
+            actions = data.get("actions")
+            for action in actions if isinstance(actions, list) else []:
+                if isinstance(action, dict) and action.get("type") == "actions":
+                    action_id = action.get("id")
+                    if isinstance(action_id, str | int | float):
+                        with contextlib.suppress(ValueError, OverflowError):
+                            action["id"] = str(int(action_id))
+        return data
 
     def to_internal_value(self, data):
         # Weirdly nested serializers don't get this set...
@@ -1215,9 +1250,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                     "Use conditions in the Hog code instead."
                 )
 
-        if data.get("source") == "events":
-            # Don't allow events or actions for person-updates
-            data.pop("data_warehouse", None)
+        data = self.canonicalize_event_filters(data)
 
         if data.get("source") == "internal-events":
             disallowed = [key for key in ("actions", "data_warehouse") if data.get(key)]
@@ -1280,6 +1313,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
                 team,
                 cohort_membership_supported=cohort_membership_supported,
                 allowed_cohort_ids=validated_cohort_ids,
+                include_property_dependencies=bool(self.context.get("allow_mcp_event_subscription")),
             )
             # Uncompilable filters are only fatal when the function will run (stay enabled).
             # Callers that allow saving anyway (e.g. disabling/deleting a hog function) opt out

@@ -786,7 +786,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         }
         assert comparable_content(stamped) == comparable_content(unstamped)
 
-    def test_kept_bytecode_keeps_the_contract_it_was_compiled_against(self):
+    def test_kept_bytecode_retains_compiler_metadata(self):
         # When a save cannot recompile the filters, the model keeps the last working bytecode. The
         # stamp has to stay with that bytecode, or the runtime would read old code as freshly compiled.
         fn = HogFunction.objects.create(
@@ -797,11 +797,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             inputs_schema=[],
             inputs={},
             hog="return event",
-            filters={"filter_test_accounts": True},
+            filters={
+                "filter_test_accounts": True,
+                "properties": [{"type": "event", "key": "plan", "operator": "is_set"}],
+                "mcp_property_dependencies": {},
+            },
         )
         HogFunction.objects.filter(pk=fn.pk).update(filters={**(fn.filters or {}), "bytecode_contract": "older"})
         fn.refresh_from_db()
-        self.team.test_account_filters = [{"type": "hogql", "key": "$virt_is_bot = false"}]
+        original_dependencies = (fn.filters or {})["mcp_property_dependencies"]
+        assert original_dependencies == {"event": ["plan"], "person": ["email"]}
+        self.team.test_account_filters = [
+            {"type": "hogql", "key": "properties.next_plan IS NOT NULL AND $virt_is_bot = false"}
+        ]
         self.team.save()
 
         fn.save()
@@ -811,6 +819,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert filters["bytecode"] is not None
         assert "$virt_is_bot" in filters["bytecode_error"]
         assert filters["bytecode_contract"] == "older"
+        assert filters["mcp_property_dependencies"] == original_dependencies
 
     def test_uncompilable_filters_disable_with_string_boolean_value(self):
         # A client may send the boolean as a JSON string ("false"). The enable-guard reads the raw
@@ -1832,16 +1841,19 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
                     assert mock_patch.call_count == 0
 
-                    self.client.patch(
-                        f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
-                        data={"enabled": True},
-                    )
+                    with self.captureOnCommitCallbacks(execute=True):
+                        self.client.patch(
+                            f"/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/",
+                            data={"enabled": True},
+                        )
+                        assert mock_patch.call_count == 0
 
                     assert mock_patch.call_count == 1
                     mock_patch.assert_called_once_with(
                         f"http://localhost:6738/api/projects/{self.team.id}/hog_functions/{response.json()['id']}/status",
                         headers=internal_api_headers,
                         json={"state": 2},
+                        timeout=10,
                     )
 
         expected_activities = [

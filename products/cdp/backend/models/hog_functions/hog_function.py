@@ -96,7 +96,7 @@ TYPES_THAT_CAN_RERUN = (
 DRAFT_ONLY_UPDATE_FIELDS = frozenset({"draft", "draft_updated_at", "draft_encrypted_inputs"})
 
 
-DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract"}
+DERIVED_FILTER_KEYS = {"bytecode", "bytecode_error", "bytecode_contract", "mcp_property_dependencies"}
 
 
 def _is_draft_only_save(update_fields: Optional[Iterable[str]]) -> bool:
@@ -174,10 +174,14 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["HogFunction"]:
-        base_qs = HogFunction.objects.filter(team=team, deleted=False)
+        base_qs = HogFunction.objects.filter(team=team, deleted=False, mcp_event_subscription__isnull=True)
         return cls._filter_unfiled_queryset(
             base_qs, team, type__startswith="hog_function/", ref_field="id", surface=surface
         )
+
+    @property
+    def is_mcp_event_destination(self) -> bool:
+        return "mcp_credential" in (self.encrypted_inputs or {})
 
     def get_file_system_representation(self) -> FileSystemRepresentation:
         folder = "Unfiled/Destinations"
@@ -207,7 +211,7 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
                 "created_at": str(self.created_at),
                 "created_by": self.created_by_id,
             },
-            should_delete=self.deleted,
+            should_delete=self.deleted or self.is_mcp_event_destination,
         )
 
     @property
@@ -263,6 +267,10 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
 
         return self.status
 
+    def reset_disabled_status(self) -> None:
+        if self.enabled and self.status.get("state", 0) == HogFunctionState.DISABLED.value:
+            self.set_function_status(HogFunctionState.DEGRADED.value)
+
     def move_secret_inputs(self) -> None:
         # Moves any secret inputs to the encrypted_inputs var
         raw_inputs = self.inputs or {}
@@ -314,11 +322,12 @@ class HogFunction(FileSystemSyncMixin, UUIDTModel):
         # filters no longer describe.
         if previous_bytecode is not None and _raw_filters(compiled) == _raw_filters(previous):
             compiled["bytecode"] = previous_bytecode
-            # The stamp belongs to the bytecode it was compiled with, so it travels with it.
-            if "bytecode_contract" in previous:
-                compiled["bytecode_contract"] = previous["bytecode_contract"]
-            else:
-                compiled.pop("bytecode_contract", None)
+            # The runtime stamp and permission dependencies must describe the retained program.
+            for key in ("bytecode_contract", "mcp_property_dependencies"):
+                if key in previous:
+                    compiled[key] = previous[key]
+                else:
+                    compiled.pop(key, None)
             logger.warning(
                 "hog_function_filters_kept_previous_bytecode",
                 hog_function_id=str(self.pk),
@@ -366,7 +375,13 @@ def hog_function_saved(sender, instance: HogFunction, created, **kwargs):
         return
 
     if instance.type is None or instance.type in TYPES_THAT_RELOAD_PLUGIN_SERVER:
-        reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+        if instance.is_mcp_event_destination:
+            # Task discovery imports HogFunction before Django finishes loading its models.
+            from products.cdp.backend.tasks.mcp_events import reload_mcp_destinations_after_commit  # noqa: PLC0415
+
+            reload_mcp_destinations_after_commit(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
+        else:
+            reload_hog_functions_on_workers(team_id=instance.team_id, hog_function_ids=[str(instance.id)])
 
 
 @receiver(post_save, sender=Action)

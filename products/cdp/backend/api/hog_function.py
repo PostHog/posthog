@@ -63,6 +63,7 @@ from products.cdp.backend.models.hog_functions.hog_function import (
 )
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
+from products.cdp.backend.models.mcp_event_subscription import MCPEventSubscription
 from products.cdp.backend.models.plugin import TranspilerError
 from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
@@ -567,6 +568,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         template = HogFunctionTemplate.get_template(template_id) if template_id else None
         allowed = reserved_functions_used(template.code) if template and template.code else set()
+        if self.context.get("allow_mcp_event_subscription"):
+            allowed.add("mcpEventFetch")
 
         unexpected = used - allowed
         if unexpected:
@@ -689,6 +692,11 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         return value
 
     def validate(self, attrs):
+        schemas = attrs.get("inputs_schema") or []
+        if any(item.get("key") == "mcp_credential" for item in schemas) and not self.context.get(
+            "allow_mcp_event_subscription"
+        ):
+            raise serializers.ValidationError("MCP event destinations are managed through the subscription API.")
         team = self.context["get_team"]()
         attrs["team"] = team  # NOTE: This has to be done at this level
         hog_type = self.context["function_type"]
@@ -697,6 +705,12 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
 
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        if (
+            isinstance(instance, HogFunction)
+            and not self.context.get("allow_mcp_event_subscription")
+            and MCPEventSubscription.objects.for_team(team.pk).filter(hog_function_id=instance.pk).exists()
+        ):
+            raise PermissionDenied("Manage this destination through its MCP event subscription.")
         current_filters = instance.filters if isinstance(instance, HogFunction) else {}
         proposed_filters = attrs.get("filters", current_filters)
         require_viewer_access_to_added_actions(
@@ -964,8 +978,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Standard update
         res: HogFunction = super().update(instance, validated_data)
 
-        if res.enabled and res.status.get("state", 0) == HogFunctionState.DISABLED.value:
-            res.set_function_status(HogFunctionState.DEGRADED.value)
+        transaction.on_commit(res.reset_disabled_status)
 
         return res
 
@@ -1173,6 +1186,17 @@ class HogFunctionViewSet(
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)
+        if self.kwargs.get("pk"):
+            try:
+                managed = (
+                    MCPEventSubscription.objects.for_team(self.team_id)
+                    .filter(hog_function_id=self.kwargs["pk"])
+                    .exists()
+                )
+            except (ValueError, DjangoValidationError):
+                managed = False
+            if managed:
+                raise PermissionDenied("Manage this destination through its MCP event subscription.")
         alert_scope = self._editable_alert_scope()
         if alert_scope and not self.user_access_control.check_access_level_for_resource(
             cast(APIScopeObject, alert_scope), required_level="editor"
@@ -1229,6 +1253,7 @@ class HogFunctionViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = queryset.exclude(type=HogFunctionType.WAREHOUSE_SOURCE_WEBHOOK.value)
+        queryset = queryset.filter(mcp_event_subscription__isnull=True)
 
         if not (self.action == "partial_update" and self.request.data.get("deleted") is False):
             # We only want to include deleted functions if we are un-deleting them

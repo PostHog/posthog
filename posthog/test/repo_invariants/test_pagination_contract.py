@@ -115,6 +115,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.cdp.backend.api.hog_function.HogFunctionViewSet",
     "products.cdp.backend.api.hog_function_template.PublicHogFunctionTemplateViewSet",
     "products.cdp.backend.api.plugin_log_entry.PluginLogEntryViewSet",
+    # The facade supplies counted pages with stable ordering; the subscription API tests cover page boundaries.
+    "products.cdp.backend.presentation.mcp_event_subscriptions.MCPEventSubscriptionViewSet",
     "products.cohorts.backend.api.staff_tools.CohortsStaffToolsViewSet",
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",

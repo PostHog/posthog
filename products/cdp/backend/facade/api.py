@@ -16,6 +16,7 @@ from posthog.models.user import User
 
 from products.cdp.backend.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
+from products.cdp.backend.services.hog_function_persistence import upsert_hog_function as _upsert_hog_function
 
 _B = "products.cdp.backend."
 
@@ -44,25 +45,17 @@ def create_hog_functions(
     acting user comes in as an id. The team and the acting user are resolved once for the
     whole batch, so a caller writing several functions still pays two point lookups.
     """
-    # Same reason as _LAZY below: the serializer drags DRF, so it stays off this module's
-    # import path.
-    from products.cdp.backend.api.hog_function import HogFunctionSerializer  # noqa: PLC0415
-
     team = Team.objects.get(id=team_id)
     created_by = User.objects.get(id=created_by_id)
-    created_ids: list[UUID] = []
-    for payload in payloads:
-        serializer = HogFunctionSerializer(
-            data=payload,
-            context={
-                "get_team": lambda: team,
-                "is_create": True,
-                "allow_managed_alert_destination": allow_managed_alert_destination,
-            },
-        )
-        serializer.is_valid(raise_exception=True)
-        created_ids.append(serializer.save(team=team, created_by=created_by).id)
-    return created_ids
+    return [
+        _upsert_hog_function(
+            payload,
+            team=team,
+            created_by=created_by,
+            managed_destination="alert" if allow_managed_alert_destination else None,
+        ).id
+        for payload in payloads
+    ]
 
 
 def __getattr__(name: str):
