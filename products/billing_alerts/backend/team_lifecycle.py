@@ -12,16 +12,19 @@ from posthog.models.team.team import Team
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 
 
-def _deleting_team_ids(*, origin: object, instance: Team, using: str) -> set[int]:
+def _replacement_team_id(*, origin: object, instance: Team, using: str) -> int | None:
     if isinstance(origin, Organization):
-        return set(
-            Team.objects.using(using).filter(organization_id=instance.organization_id).values_list("id", flat=True)
-        )
+        return None
 
+    teams = Team.objects.using(using).filter(organization_id=instance.organization_id)
     if isinstance(origin, QuerySet) and origin.model is Team:
-        return set(origin.using(using).values_list("id", flat=True))
+        teams = teams.exclude(id__in=set(origin.using(using).values_list("id", flat=True)))
+    else:
+        teams = teams.exclude(id=instance.id)
 
-    return {instance.id}
+    # Pick the lowest id in Python: `ORDER BY id LIMIT 1` lets the planner walk the primary key
+    # and filter organization_id on every row, instead of seeking the organization index.
+    return min(teams.values_list("id", flat=True), default=None)
 
 
 @receiver(pre_delete, sender=Team, dispatch_uid="billing_alerts_rehome_before_team_delete")
@@ -41,20 +44,13 @@ def rehome_billing_alerts_before_team_delete(
     # platform onto that path.
     from products.billing_alerts.backend.facade.api import soft_delete_destinations_for_alerts  # noqa: PLC0415
 
-    deleting_team_ids = _deleting_team_ids(origin=origin, instance=instance, using=using)
-    replacement_team_id = (
-        Team.objects.using(using)
-        .filter(organization_id=instance.organization_id)
-        .exclude(id__in=deleting_team_ids)
-        .order_by("id")
-        .values_list("id", flat=True)
-        .first()
-    )
-
     with transaction.atomic(using=using):
         alerts = BillingAlertConfiguration.objects.using(using).select_for_update().filter(team_id=instance.id)
         alert_ids = [str(alert_id) for alert_id in alerts.values_list("id", flat=True)]
+        if not alert_ids:
+            return
         soft_delete_destinations_for_alerts(team_id=instance.id, alert_ids=alert_ids)
+        replacement_team_id = _replacement_team_id(origin=origin, instance=instance, using=using)
 
         # Billing alerts evaluate organization-wide data, but HogFunction destinations are team-scoped.
         # Re-home and disable them because team-specific integrations cannot be moved safely.
