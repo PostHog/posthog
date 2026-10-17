@@ -33,6 +33,8 @@ from posthog.schema import (
     FunnelVizType,
 )
 
+from posthog.hogql.errors import QueryError
+
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.models.event.util import bulk_create_events
 from posthog.models.team.team import Team
@@ -434,6 +436,43 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+
+    @parameterized.expand(
+        [
+            ("uuid", "person_id AS uuid"),
+            ("session_id", "person_id AS $session_id"),
+            ("step", "person_id AS step_0"),
+        ]
+    )
+    def test_funnel_person_recordings_with_aliased_aggregation(self, _name: str, aggregate_by: str) -> None:
+        person = _create_person(distinct_ids=["user_1"], team=self.team)
+        _create_event(
+            event="step one",
+            distinct_id="user_1",
+            team=self.team,
+            timestamp="2021-01-02 00:00:00",
+            properties={"$session_id": "s1", "$window_id": "w1"},
+        )
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-01-01", date_to="2021-01-08"),
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL=aggregate_by),
+        )
+
+        results = get_actors(query, self.team, funnel_step=1, include_recordings=True)
+
+        self.assertEqual([row[0] for row in results], [person.uuid])
+
+    @parameterized.expand([("bare", "*"), ("table", "e.*"), ("aliased", "* AS x")])
+    def test_funnel_aggregation_by_asterisk_raises_query_error(self, _name: str, aggregate_by: str) -> None:
+        query = FunnelsQuery(
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            dateRange=DateRange(date_from="2021-01-01", date_to="2021-01-08"),
+            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL=aggregate_by),
+        )
+
+        with self.assertRaises(QueryError):
+            get_actors(query, self.team, funnel_step=1, include_recordings=True)
 
     def test_parses_step_breakdown_correctly(self):
         person1 = _create_person(
