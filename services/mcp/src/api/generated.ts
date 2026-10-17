@@ -128895,6 +128895,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Exact metric name to limit values to. Counts are then the number of that metric's series with each value. Omit to list values across all metrics.
+     * @maxLength 255
+     */
+    metricName?: string;
+    /**
      * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
      * @maxLength 1024
      */

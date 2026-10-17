@@ -128,6 +128,22 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("datapoint_attribute", "env", "http_requests", [("dev", 1), ("prod", 1)]),
+            ("resource_attribute", "k8s.pod.name", "http_requests", [("pod-1", 1)]),
+            ("service_name_column", "service.name", "queue_depth", [("checkout", 1)]),
+            ("key_absent_on_metric", "env", "queue_depth", []),
+            ("search_still_applies", "env", "http_requests", [("prod", 1)], "pr"),
+        ]
+    )
+    def test_attribute_values_metric_name_limits_values_to_that_metric(
+        self, _name: str, key: str, metric_name: str, expected: list[tuple[str, int]], search: str = ""
+    ) -> None:
+        response = self._get("attribute_values", {"key": key, "metricName": metric_name, "value": search})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(r["name"], r["count"]) for r in response.json()["results"]] == expected
+
+    @parameterized.expand(
+        [
             ("missing_key", "attribute_values", {}),
             ("bad_limit", "attributes", {"limit": "0"}),
             ("non_numeric_limit", "attributes", {"limit": "lots"}),

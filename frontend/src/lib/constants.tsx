@@ -453,6 +453,7 @@ export const FEATURE_FLAGS = {
     METRICS_DASHBOARD_IMPORT: 'metrics-dashboard-import', // owner: #team-apm — gates the dashboard import from a Grafana JSON model or a screenshot, which bills AI credits
     METRICS_DASHBOARD_PANELS: 'metrics-dashboard-panels', // owner: #team-apm — gates the stat/gauge/bargauge/table panel picker entries
     METRICS_ERROR_OVERLAYS: 'metrics-error-overlays', // owner: #team-apm — gates the error-spike overlay PoC on metrics charts
+    METRICS_FACET_RAIL: 'metrics-facet-rail', // owner: #team-apm — gates the facet rail (faceted filter sidebar) in the metrics viewer
     METRICS_INSIGHT_BUILDER: 'metrics-insight-builder', // owner: #team-apm — offers Metrics in the new insight menu and the metrics builder in insight edit mode
     METRICS_QUERY_LANGUAGES: 'metrics-query-languages', // owner: #team-apm — lets a metrics insight switch between the builder, PromQL and SQL
     METRICS_SUGGESTED_DASHBOARDS: 'metrics-suggested-dashboards', // owner: #team-apm — suggests bank dashboards that fit the ingested metrics, and runs the AI analysis and generation for the team
