@@ -98,6 +98,10 @@ html[data-today-transition]::view-transition-new(root) {
 
 .TodayHome {
     padding-block: 40px 60px;
+
+    @container main-content (max-width: 600px) {
+        padding-block: 20px 40px;
+    }
 }
 
 .TodayHome__body {
@@ -105,6 +109,11 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 44px;
     margin-top: 28px;
+
+    @container main-content (max-width: 600px) {
+        gap: 32px;
+        margin-top: 24px;
+    }
 }
 
 .TodayHome__list {
@@ -183,6 +192,7 @@ html[data-today-transition]::view-transition-new(root) {
 
     @container main-content (max-width: 600px) {
         grid-auto-flow: row;
+        gap: 0;
     }
 }
 
@@ -191,6 +201,31 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+
+    @container main-content (max-width: 600px) {
+        padding-block: 10px;
+
+        & + & {
+            border-top: 1px solid var(--today-line);
+        }
+
+        &:first-child {
+            padding-top: 0;
+        }
+
+        &:last-child {
+            padding-bottom: 0;
+        }
+    }
+}
+
+:is(.TodayPulse__metric, .TodayPulse__trigger, .TodayPulse__link):has(> .TodayPulse__name) {
+    @container main-content (max-width: 600px) {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 44%;
+        column-gap: 16px;
+        align-items: center;
+    }
 }
 
 .TodayPulse__name {
@@ -199,6 +234,13 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.TodayPulse__name,
+.TodayPulse__row {
+    @container main-content (max-width: 600px) {
+        grid-column: 1;
+    }
 }
 
 .TodayPulse__trigger {
@@ -249,6 +291,14 @@ html[data-today-transition]::view-transition-new(root) {
     max-width: 160px;
     height: 22px;
     margin-top: 4px;
+
+    @container main-content (max-width: 600px) {
+        grid-row: 1 / span 2;
+        grid-column: 2;
+        max-width: none;
+        height: 28px;
+        margin-top: 0;
+    }
 }
 
 .TodayHome__headingRow {
@@ -629,6 +679,10 @@ html[data-today-transition]::view-transition-new(root) {
     @container main-content (max-width: 700px) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    @container main-content (max-width: 480px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .TodayJumpRow {
@@ -643,6 +697,12 @@ html[data-today-transition]::view-transition-new(root) {
     padding: 8px 12px;
     border-radius: 8px;
     transition: background-color 0.12s var(--today-ease);
+
+    .TodayJumpList:not(.TodayJumpList--explore) > & {
+        @container main-content (max-width: 480px) {
+            align-items: center;
+        }
+    }
 
     &:hover {
         --quill-icon-stack-ring: var(--today-soft);
@@ -661,6 +721,15 @@ html[data-today-transition]::view-transition-new(root) {
     white-space: nowrap;
 }
 
+.TodayJumpList:not(.TodayJumpList--explore) :has(> .TodayJumpRow__link) {
+    @container main-content (max-width: 480px) {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        justify-content: space-between;
+    }
+}
+
 .TodayJumpRow__meta {
     display: block;
     overflow: hidden;
@@ -669,6 +738,12 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    .TodayJumpList:not(.TodayJumpList--explore) & {
+        @container main-content (max-width: 480px) {
+            flex-shrink: 0;
+        }
+    }
 }
 
 .TodayJumpRow__icon {
@@ -909,12 +984,6 @@ html[data-today-transition]::view-transition-new(root) {
 }
 
 // Keyframes
-
-@container main-content (max-width: 600px) {
-    .TodayHome__intro {
-        margin-top: 32px;
-    }
-}
 
 @media (prefers-reduced-motion: reduce) {
     .Today *,
