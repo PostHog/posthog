@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Held, Offset, TopicOffsetLedger, TopicPartition};
 
 use super::{ChargedSlice, Settlement};
 use crate::commit_pacer::CommitPacer;
@@ -60,11 +60,15 @@ impl Settlement for GroupSettlement {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.pacer.forget_partitions(topic_partitions);
     }
+
+    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
+        self.ledger.uncommitted(topic_partition)
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use common_kafka_consumer::{Charge, Held};
+    use common_kafka_consumer::Charge;
 
     use super::super::{charge_offsets, charge_offsets_with};
     use super::*;
@@ -183,17 +187,17 @@ mod tests {
 
         settlement.settle_run(&p0, 0, &[Offset(10)]);
         assert_eq!(
-            ledger.uncommitted(&p0).charge,
+            settlement.uncommitted(&p0).charge,
             each + each,
             "a taken frontier is still uncommitted while the pacer holds it"
         );
 
         settlement.take_due(Instant::now());
-        assert_eq!(ledger.uncommitted(&p0).charge, each);
+        assert_eq!(settlement.uncommitted(&p0).charge, each);
 
         settlement.settle_run(&p0, 0, &[Offset(11)]);
         settlement.take_all();
-        assert_eq!(ledger.uncommitted(&p0), Held::default());
+        assert_eq!(settlement.uncommitted(&p0), Held::default());
     }
 
     #[test]

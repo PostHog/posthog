@@ -6,7 +6,7 @@
 mod common;
 
 use std::collections::HashSet;
-use std::num::{NonZeroU32, NonZeroUsize};
+use std::num::{NonZeroU32, NonZeroU64, NonZeroUsize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -37,6 +37,7 @@ use ingestion_consumer::config::CompletionGranularity;
 use ingestion_consumer::consumer::{IngestionConsumer, IngestionConsumerOptions};
 use ingestion_consumer::discovery::reconcile_membership;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
+use ingestion_consumer::partition_budget::PartitionBudget;
 use ingestion_consumer::rebalance::RebalanceContext;
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::worker_registry::{
@@ -717,6 +718,7 @@ impl Harness {
             common::PRODUCTION_PACK_TARGETS,
             None,
             CompletionGranularity::Poll,
+            PartitionBudget::unset(),
         )
         .await
     }
@@ -748,6 +750,7 @@ impl Harness {
                 attempts: BUDGET_ATTEMPTS,
             }),
             CompletionGranularity::Poll,
+            PartitionBudget::unset(),
         )
         .await
     }
@@ -774,6 +777,7 @@ impl Harness {
             pack_targets,
             None,
             CompletionGranularity::Poll,
+            PartitionBudget::unset(),
         )
         .await
     }
@@ -799,6 +803,7 @@ impl Harness {
             common::ONE_MESSAGE_PER_REQUEST,
             None,
             CompletionGranularity::Poll,
+            PartitionBudget::unset(),
         )
         .await
     }
@@ -819,6 +824,7 @@ impl Harness {
             common::PRODUCTION_PACK_TARGETS,
             None,
             CompletionGranularity::Poll,
+            PartitionBudget::unset(),
         )
         .await
     }
@@ -842,6 +848,25 @@ impl Harness {
             pack_targets,
             None,
             CompletionGranularity::Group,
+            PartitionBudget::unset(),
+        )
+        .await
+    }
+
+    async fn start_with_partition_budget(topic: &str, partition_budget: PartitionBudget) -> Self {
+        Self::start_inner(
+            topic,
+            1,
+            1,
+            8,
+            Duration::from_secs(60),
+            fast_registry_config(),
+            0,
+            ComponentOptions::new(),
+            common::PRODUCTION_PACK_TARGETS,
+            None,
+            CompletionGranularity::Group,
+            partition_budget,
         )
         .await
     }
@@ -859,6 +884,7 @@ impl Harness {
         pack_targets: PackTargets,
         budget: Option<RequestBudget>,
         completion_granularity: CompletionGranularity,
+        partition_budget: PartitionBudget,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -914,6 +940,7 @@ impl Harness {
                 completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
                 ledger: Arc::clone(&ledger),
+                partition_budget,
             },
             handle,
         );
@@ -1006,6 +1033,7 @@ impl Harness {
                 completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
                 ledger: Arc::clone(&self.ledger),
+                partition_budget: PartitionBudget::unset(),
             },
             handle,
         );
@@ -1110,6 +1138,7 @@ impl Harness {
                 completion_granularity: self.completion_granularity,
                 commit_interval: COMMIT_INTERVAL,
                 ledger: Arc::new(TopicOffsetLedger::new()),
+                partition_budget: PartitionBudget::unset(),
             },
             handle,
         );
@@ -2671,6 +2700,44 @@ async fn group_granularity_commits_a_partition_while_another_stalls() {
     harness.stop().await;
 }
 
+#[tokio::test]
+async fn a_partition_at_its_budget_pauses_until_a_commit_frees_it() {
+    let topic = format!("e2e-partition-budget-{}", Uuid::new_v4());
+    let budget = PartitionBudget::new(NonZeroU64::new(5), None, 0.5).expect("a valid budget");
+    let harness = Harness::start_with_partition_budget(&topic, budget).await;
+    let p0 = TopicPartition::new(&topic, 0);
+    let guard = harness.workers[0].block().await;
+    let producer = make_producer();
+
+    for seq in 0..5usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "the budget to fill", || {
+        harness.ledger.uncommitted(&p0).offsets == 5
+    })
+    .await;
+
+    for seq in 5..20usize {
+        produce(&producer, &topic, 0, "tok", "user-a", seq).await;
+    }
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert_eq!(
+        harness.ledger.uncommitted(&p0).offsets,
+        5,
+        "a paused partition fetches nothing more"
+    );
+
+    drop(guard);
+    wait_until(
+        Duration::from_secs(10),
+        "the partition to resume and drain",
+        || harness.committed_offset(0) == Some(20),
+    )
+    .await;
+
+    harness.stop().await;
+}
+
 /// A worker that processes a batch but whose ACK is lost is indistinguishable
 /// from a failed send, so the consumer replays the batch: duplicates are the
 /// accepted cost of at-least-once, loss never is, and the replay lands behind
@@ -3383,6 +3450,7 @@ async fn fenced_static_member_exits_on_fatal_error() {
             completion_granularity: CompletionGranularity::Poll,
             commit_interval: Duration::ZERO,
             ledger: Arc::new(TopicOffsetLedger::new()),
+            partition_budget: PartitionBudget::unset(),
         },
         handle,
     );

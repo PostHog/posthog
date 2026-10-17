@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::{Offset, Rejection, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 use metrics::counter;
 use tracing::warn;
 
@@ -54,6 +54,10 @@ impl Settlement for PollSettlement {
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.pacer.forget_partitions(topic_partitions);
+    }
+
+    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
+        self.ledger.uncommitted(topic_partition)
     }
 }
 
@@ -219,10 +223,10 @@ mod tests {
         let poll = charged(&ledger, 0, 10, 11);
 
         settlement.settle_poll(&[poll.slice()]);
-        assert_eq!(ledger.uncommitted(&poll.topic_partition).offsets, 2);
+        assert_eq!(settlement.uncommitted(&poll.topic_partition).offsets, 2);
 
         settlement.take_due(Instant::now());
-        assert_eq!(ledger.uncommitted(&poll.topic_partition).offsets, 0);
+        assert_eq!(settlement.uncommitted(&poll.topic_partition).offsets, 0);
     }
 
     #[test]

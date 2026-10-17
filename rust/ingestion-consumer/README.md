@@ -49,6 +49,17 @@ The ledger emits its own metrics, so any consumer built on the crate reports the
 `kafka_consumer_ledger_stale_slices_total{stage}` counts charges and settlements dropped because their partition was reassigned while they were in flight; a few around a rebalance are expected.
 `kafka_consumer_ledger_errors_total{stage,kind}` counts contract violations in the ledger's accounting; it must stay 0. A violation resets that partition's ledger and the consumer keeps running; the consumer logs the rejected slice with the batch and ledger generations and the window depth before the reset.
 
+## Partition budget
+
+`CONSUMER_PARTITION_BUDGET_EVENTS` and `CONSUMER_PARTITION_BUDGET_BYTES` bound each partition's replay exposure: the events and bytes the ledger reports as uncommitted for it.
+When either axis reaches its limit after a poll, the consumer pauses that partition's fetch through the Kafka client; when a commit brings both axes back under `CONSUMER_PARTITION_BUDGET_LOW_WATERMARK` (a fraction of the budget, default 0.8), it resumes.
+The hysteresis matters because a pause purges the partition's fetched messages from librdkafka's queue and a resume refetches them.
+Polling never stops, so a paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive.
+A revoked partition is forgotten, and an assignment starts unpaused with a fresh ledger: librdkafka clears pause flags on assign.
+Both limits default to `0`, which sets no budget; the admission cap (`CONSUMER_MAX_BACKGROUND_TASKS`) then governs alone.
+The budget is a fixed amount per partition, not a share of a pod-wide amount, so a rebalance changes how many partitions a pod holds, not how much each may expose.
+`ingestion_consumer_budget_paused_partitions` gauges how many partitions are paused and `ingestion_consumer_budget_pauses_total{topic,partition}` counts pauses; read them against `ingestion_lag_ms`.
+
 ## Batcher
 
 The batcher state machine in `src/batcher/` orders runs and places them on workers.
