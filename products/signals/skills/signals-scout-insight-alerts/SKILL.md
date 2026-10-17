@@ -59,13 +59,13 @@ Everything else (`Not firing`, untouched in the window) is baseline — skip it.
 
 For each surviving candidate, pull the real firing episode — never trust `state`/`last_value` alone (state can be stale, and `last_value` is just the latest check, not the breach that fired). Use `alert-get` with `checks_date_from=-24h` (widen to `-48h`/`-7d` to judge persistence and recurrence; history is retained 14 days). Read across the returned `checks`:
 
-| Shape in the checks                                                           | What it usually means                                                                             |
-| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| One or more `Firing` checks, latest still `Firing`, no `notification_sent_at` | **Silent open breach — top priority.** Fired, nobody was told, still going.                       |
-| `Firing` checks then back to `Not firing`, all within minutes/one interval    | A **flap** — usually a badly-tuned threshold, not an incident. Hygiene, not a P1.                 |
-| `Firing` with `notification_sent_at` set + subscribed users                   | The team was told. Lower value; surface only if material **and** still open/unacted.              |
-| `notification_suppressed_by_agent=true`                                       | Investigation agent judged it a false positive — verify before trusting; possible false negative. |
-| Repeated `error` across consecutive checks (`state=Errored`)                  | Alert is broken (bad query, deleted insight, missing series) — a silent blind spot.               |
+| Shape in the checks                                                           | What it usually means                                                                            |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| One or more `Firing` checks, latest still `Firing`, no `notification_sent_at` | **Silent open breach — top priority.** Fired, nobody was told, still going.                      |
+| `Firing` checks then back to `Not firing`, all within minutes/one interval    | A **flap** — usually a badly-tuned threshold, not an incident. Hygiene, not a P1.                |
+| `Firing` with `notification_sent_at` set + subscribed users                   | The team was told. Lower value; surface only if material **and** still open/unacted.             |
+| `notification_suppressed_by_agent=true`                                       | Investigation agent judged it a false positive — run the interpretation check before overriding. |
+| Repeated `error` across consecutive checks (`state=Errored`)                  | Alert is broken (bad query, deleted insight, missing series) — a silent blind spot.              |
 
 When in doubt about whether a breach is real, read the alert's `condition`/threshold bounds and compare them against the firing check's `calculated_value`, and pull the insight with `insight-get` to understand what the metric is.
 
@@ -80,12 +80,26 @@ Write a scratchpad entry whenever a future run should change behavior. Encode th
 - `report:insight_alerts:{alert_id}` — the `report_id` of a report you filed for a firing on this alert, so the next run edits it (`append_evidence` with the fresh firing) instead of duplicating.
 - `reviewer:insight_alerts:{alert_id}` — a resolved owner (bare lowercase GitHub login) for an alert or its insight, so reports route to a human faster.
 
+### Check the interpretation before you publish
+
+Required before you author a report or append evidence to one.
+The firing is presumptively meaningful; the comparison you build around it is not.
+
+1. **Name what each check measured.** Get the monitored metric from the alert's `config` (the trends `series_index`, the SQL `column`, or the funnel `funnel_step` and `metric`), the insight's formula and breakdown and unit from `insight-get`, and the evaluation interval from `calculation_interval` and each check's `interval`. Read each check's `triggered_metadata` for the series and breakdown value that fired.
+   Compare `calculated_value` across checks only when all of these match: a different series index or breakdown value is a different metric, not a change in the same one.
+   If you cannot tell which series or breakdown a check measured, report the notification gap and do not claim a total-volume incident.
+2. **Read the investigation's verdict.** When a check carries `investigation_verdict`, read it with `investigation_summary` (and the notebook at `investigation_notebook_short_id`). A `false_positive` verdict is usually why the notification was suppressed.
+   Before you override it, compare the firing against a bounded window that covers at least one full weekly cycle (`alert-get` with `checks_date_from=-14d`, or the insight over the same span), so a recurring weekend trough or weekday peak does not read as an incident.
+   If the firing sits inside that recurring range, accept the verdict: remember, don't report.
+3. **Keep the two claims apart.** In the report, state the evidence that the metric had an incident separately from the evidence that nobody was notified.
+   A missed notification does not prove the breach was real. If only the notification gap holds, title the report as a notification gap and do not rate it P1.
+
 ### Decide
 
 The generic report mechanics — search the inbox first (via the `report:insight_alerts:{alert_id}` pointer, else an `inbox-reports-list` search on the specific alert / insight name, not a broad word like `alert`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. Classify each candidate firing against prior runs and the scratchpad (net-new / material-update / already-covered / addressed-or-noise), then apply only the insight-alerts judgment:
 
 - **Edit** when a still-live report already tracks the alert — a firing you surfaced that's still open, or a recurrence on the same alert. A persistent breach is one report across runs: add the fresh firing with `append_evidence` (`calculated_value` vs bound, the new fired-at, current notification status), not a fresh report per day.
-- **Author** when nothing live covers the firing. A report-worthy finding is an enabled, un-snoozed alert with a **material** firing (well past its bound or a high anomaly score) inside the window that was **under-notified** (silent / suppressed) or is **still open and unacted**, with the alert id, insight `short_id`, the firing `calculated_value` vs the threshold bound, the fired-at time, and the notification status in the `evidence`. This is a triage callout, not a code fix → `actionability=requires_human_input`. Priority: a material, silent firing on a clearly important metric is **P1**; a material firing that was notified but is still open/unacted is **P2**; Errored-alert blind spots and flapping-threshold hygiene are **P3**. Attach the firing insight as a report chart — a `SavedInsightNode` by its `short_id` only when its saved range is absolute and contains the firing (a relative range scrolls past it as days pass), else an ad-hoc node with pinned dates covering it — so the breach is visible next to the threshold numbers.
+- **Author** when nothing live covers the firing and the interpretation check above holds. A report-worthy finding is an enabled, un-snoozed alert with a **material** firing (well past its bound or a high anomaly score) inside the window that was **under-notified** (silent / suppressed) or is **still open and unacted**, with the alert id, insight `short_id`, the firing `calculated_value` vs the threshold bound, the fired-at time, and the notification status in the `evidence`. This is a triage callout, not a code fix → `actionability=requires_human_input`. Priority: a material, silent firing on a clearly important metric is **P1**; a material firing that was notified but is still open/unacted is **P2**; Errored-alert blind spots and flapping-threshold hygiene are **P3**. Attach the firing insight as a report chart — a `SavedInsightNode` by its `short_id` only when its saved range is absolute and contains the firing (a relative range scrolls past it as days pass), else an ad-hoc node with pinned dates covering it — so the breach is visible next to the threshold numbers.
 - **Cap and rank.** File at most ~5 reports per run, worst-first by the discriminator. If more cleared the bar, say how many you dropped in the close-out — never silently truncate. One digest-style report that bundles several minor firings is fine when none individually warrants its own entry; bundle the flapping/Errored hygiene items this way rather than one report each.
 - **Remember** if it's suggestive but below the bar (a marginal breach, a single flap), or to refresh the baseline / record what you ruled out.
 - **Skip** if a `noise:` / `addressed:` / `allowlist:` / `dedupe:` entry, or an existing inbox report, already covers it.
