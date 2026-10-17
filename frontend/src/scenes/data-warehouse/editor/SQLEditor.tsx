@@ -215,6 +215,18 @@ export function SQLEditor({
         return () => disposable.dispose()
     }, [editor])
 
+    // Hosts such as tracing keep the logic mounted after this component unmounts, so the query
+    // survives. The state update above never re-renders an unmounted component, so drop the editor
+    // from the logic here. Otherwise the logic retains the whole detached editor subtree.
+    useEffect(() => {
+        const logicTabId = tabId || ''
+        return () => {
+            if (sqlEditorLogic.findMounted({ tabId: logicTabId })) {
+                sqlEditorLogic({ tabId: logicTabId, editor: null })
+            }
+        }
+    }, [tabId])
+
     const logic = sqlEditorLogic({
         tabId: tabId || '',
         mode,
