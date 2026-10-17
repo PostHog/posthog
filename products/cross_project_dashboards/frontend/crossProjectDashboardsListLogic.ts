@@ -2,7 +2,10 @@ import { MakeLogicType, actions, afterMount, kea, listeners, path, reducers } fr
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
+import { isFeatureFlagGatedError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { crossProjectDashboardTracking } from './crossProjectDashboardTracking'
@@ -89,11 +92,22 @@ export const crossProjectDashboardsListLogic = kea<crossProjectDashboardsListLog
             {
                 loadDashboards: async () => {
                     const organizationId = organizationLogic.values.currentOrganization?.id
-                    if (!organizationId) {
+                    if (
+                        !organizationId ||
+                        !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]
+                    ) {
                         return []
                     }
-                    const response = await crossProjectDashboardsList(organizationId)
-                    return response.results
+                    try {
+                        const response = await crossProjectDashboardsList(organizationId)
+                        return response.results
+                    } catch (error) {
+                        // Early access enrollment reaches the server late, so the API can still refuse the flag.
+                        if (isFeatureFlagGatedError(error)) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],

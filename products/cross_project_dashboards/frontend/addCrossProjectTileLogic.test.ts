@@ -1,7 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -43,6 +45,8 @@ describe('addCrossProjectTileLogic', () => {
         mockedInsightsList.mockReset()
         mockedRetrieve.mockResolvedValue({ id: DASHBOARD_ID, name: 'Across projects', filters: {}, tiles: [TILE] })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CROSS_PROJECT_DASHBOARDS]: true })
         organizationLogic.mount()
         organizationLogic.actions.loadCurrentOrganizationSuccess({ id: 'org-1', name: 'Org' } as any)
         dashboardLogic = crossProjectDashboardLogic({ id: DASHBOARD_ID })
