@@ -1,10 +1,13 @@
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from posthog.test.base import QueryMatchingTest, snapshot_postgres_queries_context
+from posthog.test.base import QueryMatchingTest
 
 from django.conf import settings
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
@@ -206,12 +209,36 @@ class TestUpgradeQueriesWorkflow(QueryMatchingTest):
         i1, i2, i3, i4, i5, i6, i7, i8 = setup_insights(team)
         inputs = GetInsightsToMigrateActivityInputs()
 
-        with snapshot_postgres_queries_context(self):
+        with CaptureQueriesContext(connection) as context:
             result = activity_environment.run(get_insights_to_migrate, inputs)
+
+        [scan_query] = [q["sql"] for q in context.captured_queries if "@?" in q["sql"]]
+        self.assertQueryMatchesSnapshot(re.sub(r"id (>|<=) \d+", r"id \1 99999", scan_query))
 
         expected_ids = [i2.id, i3.id, i4.id, i7.id, i8.id]
         assert sorted(result.insight_ids) == expected_ids
         assert result.last_id == i8.id
+
+    @pytest.mark.django_db
+    def test_get_insights_to_migrate_activity_pages_through_small_id_windows(self, activity_environment, team):
+        i1, i2, i3, i4, i5, i6, i7, i8 = setup_insights(team)
+
+        collected: list[int] = []
+        after_id = None
+        for _ in range(20):
+            result = activity_environment.run(
+                get_insights_to_migrate,
+                GetInsightsToMigrateActivityInputs(batch_size=2, after_id=after_id, scan_window_size=2),
+            )
+            assert len(result.insight_ids) <= 2
+            collected.extend(result.insight_ids)
+            after_id = result.last_id
+            if result.done:
+                break
+
+        assert result.done
+        assert collected == [i2.id, i3.id, i4.id, i7.id, i8.id]
+        assert after_id == i8.id
 
     @pytest.mark.django_db
     def test_get_insights_to_migrate_activity_with_no_migrations(self, activity_environment, team):

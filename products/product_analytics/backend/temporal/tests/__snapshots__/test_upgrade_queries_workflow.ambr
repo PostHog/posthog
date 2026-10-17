@@ -2,7 +2,7 @@
 # name: TestUpgradeQueriesWorkflow.test_get_insights_to_migrate_activity
   '''
   
-  SELECT DISTINCT id
+  SELECT id
   FROM posthog_dashboarditem
   WHERE (query @? '$.** ? (
       @.kind == "EventsNode" &&
@@ -16,6 +16,8 @@
       @.kind == "TrendsQuery" &&
       (!exists(@.version) || @.version == null || @.version < 6)
   )')
+    AND id > 99999
+    AND id <= 99999
   ORDER BY id
   LIMIT 100;
   '''

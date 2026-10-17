@@ -25,12 +25,19 @@ def _clause(kind: str, version: int) -> str:
     return textwrap.dedent(template.format(kind=kind, version=version)).strip()
 
 
+# No index serves the jsonpath clauses, so Postgres parses every row it scans.
+# A bounded id window caps the rows that one statement parses.
+SCAN_WINDOW_SIZE = 5_000
+MAX_WINDOWS_PER_CALL = 20
+
+
 @dataclasses.dataclass(frozen=True)
 class GetInsightsToMigrateActivityInputs:
     """Inputs for the get insights to migrate activity."""
 
     batch_size: int = dataclasses.field(default=100)
     after_id: Optional[int] = dataclasses.field(default=None)
+    scan_window_size: int = dataclasses.field(default=SCAN_WINDOW_SIZE)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -39,6 +46,7 @@ class GetInsightsToMigrateActivityResult:
 
     insight_ids: list[int]
     last_id: Optional[int]
+    done: bool = False
 
 
 @activity.defn
@@ -48,24 +56,39 @@ def get_insights_to_migrate(inputs: GetInsightsToMigrateActivityInputs) -> GetIn
     clauses = [_clause(k, v) for k, v in sorted(LATEST_VERSIONS.items())]
     if not clauses:
         # No migrations registered — guard against emitting `WHERE ()`, which Postgres rejects
-        return GetInsightsToMigrateActivityResult(insight_ids=[], last_id=inputs.after_id)
+        return GetInsightsToMigrateActivityResult(insight_ids=[], last_id=inputs.after_id, done=True)
 
-    after_clause = "" if inputs.after_id is None else f"\nAND id > {inputs.after_id}"
     where_body = ("\n   OR  ").join(clauses)
     sql = f"""
-        SELECT DISTINCT id
+        SELECT id
         FROM posthog_dashboarditem
-        WHERE ({where_body}) {after_clause}
+        WHERE ({where_body})
+        AND id > %s AND id <= %s
         ORDER BY id
-        LIMIT {inputs.batch_size};
+        LIMIT %s;
     """
 
+    ids: list[int] = []
     with connection.cursor() as cur:
-        cur.execute(sql)
-        ids = [row[0] for row in cur.fetchall()]
-    last_id = ids[-1] if ids else inputs.after_id
+        cur.execute("SELECT min(id), max(id) FROM posthog_dashboarditem;")
+        min_id, max_id = cur.fetchone()
+        if max_id is None:
+            return GetInsightsToMigrateActivityResult(insight_ids=[], last_id=inputs.after_id, done=True)
 
-    return GetInsightsToMigrateActivityResult(insight_ids=ids, last_id=last_id)
+        cursor_id = inputs.after_id if inputs.after_id is not None else min_id - 1
+        for _ in range(MAX_WINDOWS_PER_CALL):
+            if cursor_id >= max_id:
+                break
+            window_end = min(cursor_id + inputs.scan_window_size, max_id)
+            cur.execute(sql, [cursor_id, window_end, inputs.batch_size - len(ids)])
+            ids.extend(row[0] for row in cur.fetchall())
+            if len(ids) >= inputs.batch_size:
+                # The window can contain more matches after the last returned id
+                cursor_id = ids[-1]
+                break
+            cursor_id = window_end
+
+    return GetInsightsToMigrateActivityResult(insight_ids=ids, last_id=cursor_id, done=cursor_id >= max_id)
 
 
 @dataclasses.dataclass(frozen=True)

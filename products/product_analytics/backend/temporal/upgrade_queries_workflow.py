@@ -67,24 +67,29 @@ class UpgradeQueriesWorkflow(PostHogWorkflow):
                 ),
             )
 
-            if not page.insight_ids:
+            # An empty page means only an empty id window, unless the history predates the windowed scan
+            if not page.insight_ids and not workflow.patched("upgrade-queries-id-window"):
                 return  # finished
 
-            failed = await workflow.execute_activity(
-                migrate_insights_batch,
-                MigrateInsightsBatchActivityInputs(insight_ids=page.insight_ids),
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(
-                    initial_interval=dt.timedelta(minutes=10),
-                    maximum_interval=dt.timedelta(minutes=60),
-                    maximum_attempts=3,
-                ),
-            )
+            if page.insight_ids:
+                failed = await workflow.execute_activity(
+                    migrate_insights_batch,
+                    MigrateInsightsBatchActivityInputs(insight_ids=page.insight_ids),
+                    start_to_close_timeout=dt.timedelta(minutes=10),
+                    retry_policy=RetryPolicy(
+                        initial_interval=dt.timedelta(minutes=10),
+                        maximum_interval=dt.timedelta(minutes=60),
+                        maximum_attempts=3,
+                    ),
+                )
+                self.state.failed_ids.extend(failed)
+                self.state.migrated += len(page.insight_ids)
 
-            self.state.failed_ids.extend(failed)
             self.state.after_id = page.last_id
-            self.state.migrated += len(page.insight_ids)
             self.state.pages_done += 1
+
+            if page.done:
+                return  # finished
 
             # we might hit the event history limit, so check if we need to continue as new
             # https://docs.temporal.io/workflow-execution/event#event-history
