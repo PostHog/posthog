@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSH_HANDSHAKE_EOF_ERROR as _SSH_HANDSHAKE_EOF_ERROR,
     open_ssh_tunnel,
     pinned_host_kwargs,
 )
@@ -3604,16 +3605,6 @@ def _get_table(
         table_type = "view"
 
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
-
-
-# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
-# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
-# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
-# only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty
-# `str()`, matching no non-retryable rule and retrying forever. `_tunnel_with_handshake_translation`
-# turns it into this stable, classifiable message (see `PostgresSource.get_non_retryable_errors`) —
-# same gateway-configuration class as a wrapped "Could not establish session to SSH gateway".
-_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
 
 
 @contextmanager
