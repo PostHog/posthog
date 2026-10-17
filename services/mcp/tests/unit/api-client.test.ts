@@ -732,6 +732,43 @@ describe('ApiClient', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1)
         })
 
+        it('repeats a stalled token introspection after a short deadline', async () => {
+            const mockFetch = stubStalledFetch()
+            mockFetch
+                .mockImplementationOnce(mockFetch.getMockImplementation()!)
+                .mockResolvedValueOnce(new Response(JSON.stringify({ active: true }), { status: 200 }))
+            const client = new ApiClient({ apiToken: 'pha_test', baseUrl: 'https://us.posthog.com' })
+            let result: unknown
+            void client
+                .oauth()
+                .introspect({ token: 'pha_test' })
+                .then((value: unknown) => {
+                    result = value
+                })
+
+            await vi.advanceTimersByTimeAsync(15_000)
+
+            expect(result).toEqual({ success: true, data: { active: true } })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('ends a token introspection that stalls twice', async () => {
+            const mockFetch = stubStalledFetch()
+            const client = new ApiClient({ apiToken: 'pha_test', baseUrl: 'https://us.posthog.com' })
+            let result: unknown
+            void client
+                .oauth()
+                .introspect({ token: 'pha_test' })
+                .then((value: unknown) => {
+                    result = value
+                })
+
+            await vi.advanceTimersByTimeAsync(30_000)
+
+            expect(result).toMatchObject({ success: false, error: { timedOut: true, attempts: 2 } })
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
         it.each([
             {
                 name: 'event definition',
