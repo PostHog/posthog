@@ -241,7 +241,7 @@ function PanelStory({ mode, selectedNodeId, layout = 'floating' }: PanelStoryPro
                     {layout === 'panel' ? (
                         // Mirrors the tree view's host: a full-height row where the panel sits
                         // beside the tree, so the panel is as tall as the editor
-                        <div className="@container/workflow-editor relative flex h-screen overflow-hidden @max-[48rem]/workflow-editor:flex-col @max-[48rem]/workflow-editor:overflow-y-auto">
+                        <div className="@container/workflow-editor relative flex h-screen overflow-hidden @max-[32rem]/workflow-editor:flex-col @max-[32rem]/workflow-editor:overflow-y-auto">
                             <div className="min-w-0 flex-1 bg-background" />
                             <HogFlowEditorPanel layout="panel" />
                         </div>
