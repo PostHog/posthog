@@ -2707,7 +2707,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const isPropertyFilterLogicGroup =
                     PROPERTY_TAXONOMIC_GROUP_TYPES.has(sourceGroupType) ||
                     SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
-                    sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+                    sourceGroupType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
                 const recordHereNow = props.selectingKeyOnly || hasCompletePropertyFilter || !isPropertyFilterLogicGroup
 
                 if (recordHereNow && !isQuickFilterItem(item)) {

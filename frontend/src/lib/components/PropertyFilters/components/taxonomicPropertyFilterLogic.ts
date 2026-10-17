@@ -235,7 +235,11 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     featureFilter.label = item.key
                 }
 
-                if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {
+                if (
+                    propertyType === PropertyFilterType.EventMetadata &&
+                    item?.name &&
+                    String(item.id ?? propertyKey).startsWith('$group_')
+                ) {
                     const eventMetadataFilter = filter as EventMetadataPropertyFilter
                     eventMetadataFilter.label = item.name
                 }
