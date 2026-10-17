@@ -136,7 +136,7 @@ To rebuild the tree:
 
 1. `apm-spans-duration-histogram` → trace counts per log-scale (1-2-5 series) duration bucket of the ROOT span.
 2. A second hump or a fat tail = a distinct slow population; note its `bucket_ns` range.
-3. Fetch the actual slow traces with `query-apm-spans` using a `duration` filter (nanoseconds) and `orderBy: "duration"`.
+3. Fetch the actual slow traces with `query-apm-spans` using a `duration` filter (milliseconds, not nanoseconds) and `orderBy: "duration"`. Convert the `bucket_ns` value: divide it by `1_000_000`.
 
 ### "Did the fan-out look right?"
 
@@ -187,6 +187,21 @@ posthog:query-apm-spans
 }
 ```
 
+### Slow spans
+
+A `duration` filter value is in milliseconds. This example finds spans longer than 1 second:
+
+```json
+posthog:query-apm-spans
+{
+  "query": {
+    "dateRange": {"date_from": "-1d"},
+    "orderBy": "duration",
+    "filterGroup": [{ "key": "duration", "operator": "gt", "type": "span", "value": "1000" }]
+  }
+}
+```
+
 ### By trace ID (when known)
 
 ```json
@@ -198,7 +213,7 @@ posthog:apm-trace-get
 
 ### Common gotchas
 
-- **Durations are nanoseconds.** 1 second = `1_000_000_000`. Filter values in `query-apm-spans` for `duration` are also nanoseconds.
+- **Response durations are nanoseconds, filter durations are milliseconds.** In responses, `duration_nano` and `self_time_nano` use nanoseconds (1 second = `1_000_000_000`). A `duration` filter value uses milliseconds (1 second = `1000`). A nanosecond value in a filter is 1,000,000 times too large and silently matches no spans.
 - **`status_code == 2` is Error.** `0` is Unset, `1` is OK. Use `OK` to match `{0, 1}` in the UI filter.
 - **`kind`** is an integer 0–5: 0 Unspecified, 1 Internal, 2 Server, 3 Client, 4 Producer, 5 Consumer.
 - **`parent_span_id` of a root span** is `"0000000000000000"` (16 zero hex chars, matching the 8-byte span ID width — _not_ the 16-byte trace ID width), not null.
