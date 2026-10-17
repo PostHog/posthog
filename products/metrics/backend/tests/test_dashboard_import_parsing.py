@@ -553,6 +553,10 @@ def test_a_listed_all_matches_only_the_listed_values() -> None:
             {"name": "job", "type": "query", "query": "label_values(job)", "regex": "a" * 1025},
             id="regex_over_the_api_limit",
         ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/^${env}-(.*)$/"},
+            id="regex_with_a_variable",
+        ),
     ],
 )
 def test_variables_that_cannot_stay_live_keep_their_saved_values(item: dict[str, Any]) -> None:
@@ -579,6 +583,13 @@ def test_a_variable_whose_query_cannot_resolve_stays_static() -> None:
         ("pod", 'label_values(up{job="a"}, pod)')
     ]
     assert variables.template('up{job="$job"}') is None
+
+
+def test_a_query_that_saved_values_would_make_too_long_stays_static() -> None:
+    big = {"name": "big", "type": "interval", "current": {"value": ["x" * 1000] * 20}}
+    job = {"name": "job", "type": "query", "query": 'label_values(up{a=~"$big"}, b)', "current": {"value": "a"}}
+
+    assert TemplateVariables.from_templating([big, job]).definitions() == []
 
 
 def test_a_long_chain_of_unresolvable_variables_stays_static() -> None:
