@@ -427,6 +427,11 @@ def get_llm_analytics_rate_limiter():
     return __LLM_ANALYTICS_CONCURRENT_QUERIES
 
 
+# Shown to the user when a concurrent-query limiter rejects a request. The raw limiter exception
+# embeds an internal Redis key + task id, so API callers log that and surface this message instead.
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+
+
 class ConcurrencyLimitExceeded(Exception):
     pass
 
