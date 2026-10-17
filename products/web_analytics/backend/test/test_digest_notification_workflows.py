@@ -239,6 +239,7 @@ async def test_isolates_failing_batch() -> None:
             )
 
     assert result["failed_batches"] == 1
+    assert result["orgs_failed"] == 1
     assert result["notifications_sent"] == 2
 
 
