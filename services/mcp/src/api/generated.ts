@@ -103288,6 +103288,19 @@ export namespace Schemas {
       github_open_pull_request_ready?: boolean | null;
     }
 
+    export interface SigningSecret {
+      /**
+         * Raw secret used to compute widget identity verification hashes (HMAC). Null until one exists.
+         * @nullable
+         */
+      readonly secret: string | null;
+      /**
+         * When the secret last changed, or null when no secret exists yet.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+    }
+
     export interface SlackChannel {
       /** Slack channel ID (e.g. C0123ABC) — pass to cdp-functions inputs.channel. */
       id: string;
