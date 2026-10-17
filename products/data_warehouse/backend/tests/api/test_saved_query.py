@@ -18,6 +18,7 @@ from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
+from posthog.errors import CHQueryErrorNoCommonType
 from posthog.models import ActivityLog
 from posthog.models.scoping import team_scope
 
@@ -524,6 +525,27 @@ class TestSavedQuery(APIBaseTest):
             ]
 
             mock_get_columns.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("user_safe", CHQueryErrorNoCommonType("There is no supertype for types UInt64, Int64"), False),
+            ("unexpected", RuntimeError("boom"), True),
+        ]
+    )
+    def test_create_type_inference_error_captures_only_unexpected(self, _name, error, should_capture):
+        with (
+            patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=error),
+            patch(
+                "products.data_warehouse.backend.presentation.views.saved_query.editing.capture_exception"
+            ) as mock_capture,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {"name": "event_view", "query": {"kind": "HogQLQuery", "query": "select event from events"}},
+            )
+
+        assert response.status_code == 400
+        assert mock_capture.called == should_capture
 
     def test_column_order_survives_postgres_roundtrip(self):
         # Columns are stored in a jsonb object, which does not preserve key insertion order. Names
