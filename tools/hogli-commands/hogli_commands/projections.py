@@ -15,8 +15,8 @@ each output, keyed by its repo-relative path. It never writes files and never pa
 arguments; this module does both, so ``--check`` and the write path cannot disagree.
 
 A renderer returns valid source and leaves the style to the formatter of the workspace
-that owns the output: oxfmt at the repo root, Biome under ``products/desktop`` and
-``packages/agent``. The runner formats every output before it compares or writes, so a
+that owns the output: oxfmt at the repo root, Biome under ``products/desktop``,
+``products/mobile`` and ``packages/agent``. The runner formats every output before it compares or writes, so a
 generated file looks like the code around it and no formatter needs an exemption for it.
 """
 
@@ -72,6 +72,7 @@ PROJECTIONS: tuple[Projection, ...] = (
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
             "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
+            "products/mobile/src/features/chat/objectKinds.generated.ts",
         ),
     ),
     Projection(
@@ -140,11 +141,19 @@ AGENT_BIOME = Formatter(
     lockfile="packages/agent/pnpm-lock.yaml",
     stdin_args=("format", "--stdin-file-path"),
 )
-FORMATTERS = (OXFMT, BIOME, AGENT_BIOME)
+MOBILE_BIOME = Formatter(
+    package="@biomejs/biome",
+    binary="biome",
+    workspace="products/mobile",
+    config="products/mobile/biome.json",
+    lockfile="products/mobile/pnpm-lock.yaml",
+    stdin_args=("format", "--stdin-file-path"),
+)
+FORMATTERS = (OXFMT, BIOME, AGENT_BIOME, MOBILE_BIOME)
 
 
 def formatter_for(path: str) -> Formatter:
-    for formatter in (BIOME, AGENT_BIOME):
+    for formatter in (BIOME, AGENT_BIOME, MOBILE_BIOME):
         if path.startswith(f"{formatter.workspace}/"):
             return formatter
     return OXFMT
