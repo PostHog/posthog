@@ -1,5 +1,17 @@
+import { FilterNode, TreePath, updateAtPath } from './eventFilterLogic'
 import { NodeIdMap } from './NodeIdMap'
 import { cond, and, or, not } from './testHelpers'
+
+function nidsInOrder(nodeIds: NodeIdMap, node: FilterNode): string[] {
+    const own = nodeIds.nidOf(node)
+    if (node.type === 'and' || node.type === 'or') {
+        return [own, ...node.children.flatMap((child) => nidsInOrder(nodeIds, child))]
+    }
+    if (node.type === 'not') {
+        return [own, ...nidsInOrder(nodeIds, node.child)]
+    }
+    return [own]
+}
 
 describe('NodeIdMap', () => {
     describe('nidOf', () => {
@@ -89,6 +101,35 @@ describe('NodeIdMap', () => {
             expect(nodeIds.pathOf(nodeIds.nidOf(c1))).toEqual([0])
             // c0 is no longer in the index
             expect(nodeIds.pathOf(nodeIds.nidOf(c0))).toBeUndefined()
+        })
+
+        it.each<[string, TreePath]>([
+            ['a nested condition', [0, 1]],
+            ['a nested group', [0]],
+        ])('keeps every ID when an edit replaces %s and copies its ancestors', (_, path) => {
+            const nodeIds = new NodeIdMap()
+            const tree = or(and(cond('event_name', 'exact', 'a'), cond('event_name', 'exact', 'b')), cond())
+            nodeIds.buildIndex(tree)
+            const before = nidsInOrder(nodeIds, tree)
+
+            const edited = updateAtPath(tree, path, (node) => ({ ...node, comment: 'why' }))
+            nodeIds.buildIndex(edited)
+
+            expect(nidsInOrder(nodeIds, edited)).toEqual(before)
+        })
+
+        it('gives a new NOT wrapper its own ID and keeps the wrapped node ID', () => {
+            const nodeIds = new NodeIdMap()
+            const inner = cond()
+            const tree = or(inner)
+            nodeIds.buildIndex(tree)
+            const innerNid = nodeIds.nidOf(inner)
+
+            const wrapped = updateAtPath(tree, [0], (node) => not(node))
+            nodeIds.buildIndex(wrapped)
+
+            expect(nodeIds.pathOf(innerNid)).toEqual([0, 'child'])
+            expect(nodeIds.pathOf(nodeIds.nidOf((wrapped as typeof tree).children[0]))).toEqual([0])
         })
     })
 })

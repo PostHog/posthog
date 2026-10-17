@@ -4,12 +4,13 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconComment, IconPlusSmall, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 
 import {
+    EVENT_FILTER_MAX_COMMENT_LENGTH,
     EVENT_FILTER_MAX_CONDITIONS,
     EVENT_FILTER_MAX_DEPTH,
     eventFilterLogic,
@@ -45,6 +46,41 @@ export function SortableItem({ id, children }: { id: string; children: React.Rea
     )
 }
 
+function AddCommentButton({ onClick }: { onClick: () => void }): JSX.Element {
+    return (
+        <LemonButton
+            icon={<IconComment />}
+            size="xsmall"
+            onClick={onClick}
+            tooltip="Add a note about why this rule exists"
+            aria-label="Add note"
+        />
+    )
+}
+
+function CommentInput({
+    comment,
+    onChange,
+}: {
+    comment: string
+    onChange: (comment: string | undefined) => void
+}): JSX.Element {
+    return (
+        <LemonInput
+            size="xsmall"
+            value={comment}
+            onChange={onChange}
+            // Hide the input again if the user leaves it empty.
+            onBlur={() => !comment.trim() && onChange(undefined)}
+            prefix={<IconComment className="text-muted" />}
+            placeholder="Why does this rule exist?"
+            maxLength={EVENT_FILTER_MAX_COMMENT_LENGTH}
+            autoFocus={!comment}
+            fullWidth
+        />
+    )
+}
+
 function ConditionEditor({
     node,
     path,
@@ -59,36 +95,47 @@ function ConditionEditor({
     const { updateTreeNode } = useActions(eventFilterLogic)
     const isEmpty = showValidation && (!node.value || node.value.trim() === '')
     return (
-        <div className="flex items-center gap-2 py-1">
-            <LemonSelect
-                size="small"
-                options={FIELD_OPTIONS}
-                value={node.field}
-                onChange={(value) => updateTreeNode(path, { ...node, field: value as typeof node.field })}
-            />
-            <LemonSelect
-                size="small"
-                options={OPERATOR_OPTIONS}
-                value={node.operator}
-                onChange={(value) => updateTreeNode(path, { ...node, operator: value as typeof node.operator })}
-            />
-            <LemonInput
-                size="small"
-                value={node.value}
-                onChange={(value) => updateTreeNode(path, { ...node, value })}
-                placeholder="Value..."
-                className="flex-1"
-                status={isEmpty ? 'danger' : undefined}
-            />
-            {onDelete && (
-                <LemonButton
-                    icon={<IconTrash />}
-                    size="xsmall"
-                    status="danger"
-                    onClick={onDelete}
-                    tooltip="Remove"
-                    aria-label="Remove"
-                    data-attr={`remove-${path.length === 0 ? 'root' : path.join('-')}`}
+        <div className="py-1 space-y-1">
+            <div className="flex items-center gap-2">
+                <LemonSelect
+                    size="small"
+                    options={FIELD_OPTIONS}
+                    value={node.field}
+                    onChange={(value) => updateTreeNode(path, { ...node, field: value as typeof node.field })}
+                />
+                <LemonSelect
+                    size="small"
+                    options={OPERATOR_OPTIONS}
+                    value={node.operator}
+                    onChange={(value) => updateTreeNode(path, { ...node, operator: value as typeof node.operator })}
+                />
+                <LemonInput
+                    size="small"
+                    value={node.value}
+                    onChange={(value) => updateTreeNode(path, { ...node, value })}
+                    placeholder="Value..."
+                    className="flex-1"
+                    status={isEmpty ? 'danger' : undefined}
+                />
+                {node.comment === undefined && (
+                    <AddCommentButton onClick={() => updateTreeNode(path, { ...node, comment: '' })} />
+                )}
+                {onDelete && (
+                    <LemonButton
+                        icon={<IconTrash />}
+                        size="xsmall"
+                        status="danger"
+                        onClick={onDelete}
+                        tooltip="Remove"
+                        aria-label="Remove"
+                        data-attr={`remove-${path.length === 0 ? 'root' : path.join('-')}`}
+                    />
+                )}
+            </div>
+            {node.comment !== undefined && (
+                <CommentInput
+                    comment={node.comment}
+                    onChange={(comment) => updateTreeNode(path, { ...node, comment })}
                 />
             )}
         </div>
@@ -165,9 +212,7 @@ function GroupEditor({
                             { value: 'or', label: 'OR' },
                         ]}
                         value={node.type}
-                        onChange={(value) =>
-                            updateTreeNode(path, { type: value as 'and' | 'or', children: node.children })
-                        }
+                        onChange={(value) => updateTreeNode(path, { ...node, type: value as 'and' | 'or' })}
                     />
                     <LemonButton
                         size="xsmall"
@@ -177,6 +222,9 @@ function GroupEditor({
                     >
                         Negate
                     </LemonButton>
+                    {node.comment === undefined && (
+                        <AddCommentButton onClick={() => updateTreeNode(path, { ...node, comment: '' })} />
+                    )}
                     {onDelete && (
                         <LemonButton
                             icon={<IconTrash />}
@@ -189,6 +237,12 @@ function GroupEditor({
                         />
                     )}
                 </div>
+                {node.comment !== undefined && (
+                    <CommentInput
+                        comment={node.comment}
+                        onChange={(comment) => updateTreeNode(path, { ...node, comment })}
+                    />
+                )}
 
                 <SortableContext items={childNids} strategy={verticalListSortingStrategy}>
                     {node.children.map((child, i) => {

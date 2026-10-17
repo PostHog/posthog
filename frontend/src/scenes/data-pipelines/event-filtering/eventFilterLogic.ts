@@ -1,3 +1,6 @@
+import { MakeLogicType, actions, afterMount, kea, listeners, path, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 /**
  * Kea logic for the event filtering scene.
  *
@@ -13,7 +16,8 @@
  * identifies its position in the tree.
  *
  *   - Change field/operator/value → `updateTreeNode(path, newNode)`
- *   - Toggle AND ↔ OR → `updateTreeNode(path, { type: newType, children })`
+ *   - Toggle AND ↔ OR → `updateTreeNode(path, { ...node, type: newType })`
+ *   - Edit a condition or group note → `updateTreeNode(path, { ...node, comment })`
  *   - "Add condition" → `addChild(path)`
  *   - "Add group" → `updateTreeNode(path, { ...node, children: [..., newGroup] })`
  *   - Trash icon → `removeChild(parentPath, childIndex)`
@@ -51,9 +55,7 @@
  * implementations exist in the Django model (validation on save) and
  * the Node.js ingestion pipeline (runtime filtering).
  */
-import { MakeLogicType, actions, afterMount, kea, listeners, path, selectors } from 'kea'
-import { forms } from 'kea-forms'
-import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -64,6 +66,7 @@ import { Breadcrumb } from '~/types'
 // Limits — must match MAX_CONDITIONS and MAX_TREE_DEPTH in posthog/models/event_filter_config.py
 export const EVENT_FILTER_MAX_CONDITIONS = 20
 export const EVENT_FILTER_MAX_DEPTH = 5
+export const EVENT_FILTER_MAX_COMMENT_LENGTH = 500
 
 // --- Filter tree types ---
 // Recursive discriminated union. Mirrors the JSON schema stored in Postgres
@@ -76,16 +79,19 @@ export interface FilterConditionNode {
     field: 'event_name' | 'distinct_id'
     operator: 'exact' | 'contains'
     value: string
+    comment?: string
 }
 
 export interface FilterAndNode {
     type: 'and'
     children: FilterNode[]
+    comment?: string
 }
 
 export interface FilterOrNode {
     type: 'or'
     children: FilterNode[]
+    comment?: string
 }
 
 export interface FilterNotNode {
@@ -181,6 +187,20 @@ export function countConditions(node: FilterNode): number {
         case 'and':
         case 'or':
             return node.children.reduce((sum, child) => sum + countConditions(child), 0)
+    }
+}
+
+/** Counts the conditions and groups that have a non-empty comment. */
+export function countComments(node: FilterNode): number {
+    const own = 'comment' in node && node.comment?.trim() ? 1 : 0
+    switch (node.type) {
+        case 'condition':
+            return own
+        case 'not':
+            return countComments(node.child)
+        case 'and':
+        case 'or':
+            return own + node.children.reduce((sum, child) => sum + countComments(child), 0)
     }
 }
 
@@ -416,6 +436,11 @@ export const eventFilterLogic = kea<eventFilterLogicType>([
                 }
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
                 await api.create(`api/projects/${currentTeamId}/event_filter/`, payload)
+                posthog.capture('event filter saved', {
+                    mode: payload.mode,
+                    condition_count: countConditions(payload.filter_tree),
+                    comment_count: countComments(payload.filter_tree),
+                })
                 lemonToast.success('Event filter saved')
             },
         },

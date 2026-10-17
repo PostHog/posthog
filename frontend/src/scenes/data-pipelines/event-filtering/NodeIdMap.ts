@@ -7,13 +7,33 @@ import type { FilterNode, TreePath } from './eventFilterLogic'
  * shift when siblings are added/removed/reordered. NodeIdMap assigns each
  * node a stable string ID via a WeakMap keyed by object identity. Since
  * updateAtPath uses structural sharing (unchanged subtrees keep their
- * references), IDs survive across tree mutations automatically.
+ * references), unchanged nodes keep their IDs across tree mutations.
+ *
+ * An edit replaces the edited node and copies each of its ancestors, so these
+ * nodes are new objects. buildIndex gives each new object the ID of the node
+ * that was at the same path before, if that node is no longer in the tree.
+ * The editor uses the IDs as React keys, so an edit does not remount the row
+ * and the input that the user types in keeps focus.
  *
  * The instance is owned by the scene component (via useRef) and passed
  * down to the tree editor. This avoids module-level global state.
  */
 
 let nidCounter = 0
+
+function pathKey(path: TreePath): string {
+    return path.join('.')
+}
+
+function childEntries(node: FilterNode): [FilterNode, TreePath[number]][] {
+    if (node.type === 'and' || node.type === 'or') {
+        return node.children.map((child, i) => [child, i])
+    }
+    if (node.type === 'not') {
+        return [[node.child, 'child']]
+    }
+    return []
+}
 
 export class NodeIdMap {
     private ids = new WeakMap<FilterNode, string>()
@@ -34,18 +54,40 @@ export class NodeIdMap {
      * Call this once per render before using pathOf().
      */
     buildIndex(node: FilterNode): void {
+        const previousNidByPath = new Map(Array.from(this.pathIndex, ([nid, path]) => [pathKey(path), nid]))
+        const usedNids = new Set<string>()
+        this.collectKnownNids(node, usedNids)
         this.pathIndex = new Map()
-        this.indexNode(node, [])
+        this.indexNode(node, [], previousNidByPath, usedNids)
     }
 
-    private indexNode(node: FilterNode, path: TreePath): void {
-        this.pathIndex.set(this.nidOf(node), path)
-        if (node.type === 'and' || node.type === 'or') {
-            for (let i = 0; i < node.children.length; i++) {
-                this.indexNode(node.children[i], [...path, i])
+    private collectKnownNids(node: FilterNode, nids: Set<string>): void {
+        const id = this.ids.get(node)
+        if (id) {
+            nids.add(id)
+        }
+        for (const [child] of childEntries(node)) {
+            this.collectKnownNids(child, nids)
+        }
+    }
+
+    private indexNode(
+        node: FilterNode,
+        path: TreePath,
+        previousNidByPath: Map<string, string>,
+        usedNids: Set<string>
+    ): void {
+        if (!this.ids.has(node)) {
+            // The previous ID is still in use when the old node moved, for example into a new NOT wrapper.
+            const previousNid = previousNidByPath.get(pathKey(path))
+            if (previousNid && !usedNids.has(previousNid)) {
+                this.ids.set(node, previousNid)
+                usedNids.add(previousNid)
             }
-        } else if (node.type === 'not') {
-            this.indexNode(node.child, [...path, 'child'])
+        }
+        this.pathIndex.set(this.nidOf(node), path)
+        for (const [child, step] of childEntries(node)) {
+            this.indexNode(child, [...path, step], previousNidByPath, usedNids)
         }
     }
 
