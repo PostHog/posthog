@@ -1,0 +1,41 @@
+fun safeParse(text) {
+    try {
+        return jsonParse(text)
+    } catch (e) {
+        return null
+    }
+}
+
+fun fail(reason) {
+    throw Error(reason)
+}
+
+try {
+    let parsed := safeParse('{"score": 1}')
+    print(parsed.score)
+    fail('outer')
+} catch (e) {
+    print(f'outer catch: {e.message}')
+}
+
+let first := safeParse('[1]')
+let second := 2
+let third := 3
+try {
+    fail('after locals')
+} catch (e) {
+    print(f'caught: {e.message}')
+}
+
+let mapped := arrayMap(x -> {
+    try {
+        return x * 2
+    } catch (e) {
+        return -1
+    }
+}, [1, 2])
+try {
+    fail('after lambda')
+} catch (e) {
+    print(f'caught: {e.message}, mapped: {mapped}')
+}

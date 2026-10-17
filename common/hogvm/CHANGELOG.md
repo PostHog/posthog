@@ -1,5 +1,27 @@
 # HogQL bytecode changelog
 
+## 2026-10-09 - 1.0.72
+
+A `return` inside a `try` block no longer leaves its handler active. No bytecode operations changed.
+
+The VM removed a `try` handler only when the block ended normally or caught an error. A function that
+returned from inside the block left its handler on the throw stack. A later `throw` jumped into the
+catch block of that function after it had returned. The catch code then read the wrong locals, so
+the program failed with an index error, or another `try` block did not catch the error.
+
+```bash
+fun safeParse(text) {
+    try {
+        return jsonParse(text)
+    } catch (e) {
+        return null
+    }
+}
+```
+
+After a function returns, the VM drops the handlers that the function pushed. A later `throw` goes
+to the nearest active `try` block, or it fails as an uncaught error.
+
 ## 2026-09-28 - 1.0.71
 
 `range` checks the requested length against the memory limit before it builds the array, as the

@@ -185,6 +185,12 @@ def execute_bytecode(
         if mem_used > memory_limit:
             raise HogVMMemoryExceededException(memory_limit=memory_limit, attempted_memory=mem_used)
 
+    def drop_returned_try_frames():
+        # A `return` inside `try` skips POP_TRY. Drop the handlers of the returned frame, or a later
+        # throw jumps into a catch block of a frame that no longer exists.
+        while throw_stack and throw_stack[-1].call_stack_len > len(call_stack):
+            throw_stack.pop()
+
     def check_timeout():
         if time.monotonic() - start_time > timeout.total_seconds() and not debug:
             raise HogVMRuntimeExceededException(timeout_seconds=timeout.total_seconds(), ops_performed=ops)
@@ -232,6 +238,7 @@ def execute_bytecode(
         # Return or jump back to the previous call frame if ran out of bytecode to execute in this one, and return null
         if frame.ip > last_op:
             last_call_frame = call_stack.pop()
+            drop_returned_try_frames()
             if len(call_stack) == 0 or last_call_frame is None:
                 if len(stack) > 1:
                     raise HogVMException("Invalid bytecode. More than one value left on stack")
@@ -379,6 +386,7 @@ def execute_bytecode(
             case Operation.RETURN:
                 response = pop_stack()
                 last_call_frame = call_stack.pop()
+                drop_returned_try_frames()
                 if len(call_stack) == 0 or last_call_frame is None:
                     check_timeout()
                     return BytecodeResult(

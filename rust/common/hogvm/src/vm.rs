@@ -404,6 +404,15 @@ impl<'a> HogVM<'a> {
             Operation::Return => {
                 let result = self.pop_stack()?;
                 let last_frame = self.stack_frames.pop();
+                // A `return` inside `try` skips PopTry. Drop the handlers of the returned frame, or a
+                // later throw jumps into a catch block of a frame that no longer exists.
+                while self
+                    .throw_frames
+                    .last()
+                    .is_some_and(|t| t.call_depth > self.stack_frames.len())
+                {
+                    self.throw_frames.pop();
+                }
                 let Some(frame) = last_frame else {
                     return Ok(StepOutcome::Finished(self.hog_to_json(&result)?));
                 };
