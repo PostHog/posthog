@@ -16,6 +16,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from posthog.dataclasses import frozen
+
 from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
 from products.experiments.backend.temporal.models import (
     MAX_METRIC_ATTEMPTS,
@@ -134,9 +136,17 @@ def _recording_calculate(calls: list[str]) -> Callable:
     return mock_calculate
 
 
+@frozen
+class _TwoQueueRun:
+    result: dict
+    workflow_queue_calls: list[str]
+    activity_queue_calls: list[str]
+    history: WorkflowHistory
+
+
 async def _run_with_activity_queue_worker(
-    activity_task_queue: str | None, activity_task_queue_name: str
-) -> tuple[dict, list[str], list[str], WorkflowHistory]:
+    activity_task_queue: str | None, activity_worker_task_queue: str
+) -> _TwoQueueRun:
     activities, _progress, _calls = _make_mock_activities(metrics=[_metric("m1")])
     workflow_queue_calls: list[str] = []
     activity_queue_calls: list[str] = []
@@ -152,7 +162,7 @@ async def _run_with_activity_queue_worker(
             ),
             Worker(
                 env.client,
-                task_queue=activity_task_queue_name,
+                task_queue=activity_worker_task_queue,
                 activities=[_recording_calculate(activity_queue_calls)],
             ),
         ):
@@ -166,7 +176,12 @@ async def _run_with_activity_queue_worker(
             )
             result = await handle.result()
             history = await handle.fetch_history()
-    return result, workflow_queue_calls, activity_queue_calls, history
+    return _TwoQueueRun(
+        result=result,
+        workflow_queue_calls=workflow_queue_calls,
+        activity_queue_calls=activity_queue_calls,
+        history=history,
+    )
 
 
 @pytest.mark.asyncio
@@ -608,40 +623,46 @@ class TestExperimentMetricsRecalculationWorkflow:
 
     @parameterized.expand(
         [
-            # name, routed_to_activity_queue
-            ("field_unset_stays_on_workflow_queue", False),
-            ("field_set_routes_to_activity_queue", True),
+            # name, set_field, expected_workflow_queue_calls, expected_activity_queue_calls
+            ("field_unset_stays_on_workflow_queue", False, ["m1"], []),
+            ("field_set_routes_to_activity_queue", True, [], ["m1"]),
         ]
     )
-    async def test_activity_task_queue_routes_the_calculation(self, name: str, routed_to_activity_queue: bool):
-        activity_task_queue = str(uuid.uuid4())
-        result, workflow_queue_calls, activity_queue_calls, _history = await _run_with_activity_queue_worker(
-            activity_task_queue=activity_task_queue if routed_to_activity_queue else None,
-            activity_task_queue_name=activity_task_queue,
+    async def test_activity_task_queue_routes_the_calculation(
+        self,
+        name: str,
+        set_field: bool,
+        expected_workflow_queue_calls: list[str],
+        expected_activity_queue_calls: list[str],
+    ):
+        activity_worker_task_queue = str(uuid.uuid4())
+        run = await _run_with_activity_queue_worker(
+            activity_task_queue=activity_worker_task_queue if set_field else None,
+            activity_worker_task_queue=activity_worker_task_queue,
         )
 
-        assert result == {"total": 1, "succeeded": 1, "failed": 0}
-        assert (workflow_queue_calls, activity_queue_calls) == (
-            (["m1"], []) if not routed_to_activity_queue else ([], ["m1"])
-        )
+        assert run.result == {"total": 1, "succeeded": 1, "failed": 0}
+        assert run.workflow_queue_calls == expected_workflow_queue_calls
+        assert run.activity_queue_calls == expected_activity_queue_calls
 
     async def test_pre_patch_history_with_the_field_set_replays(self):
         # An old worker ignores the unknown input field and records no patch marker, so the new code must
         # replay that history with the calculation on the workflow's queue.
-        activity_task_queue = str(uuid.uuid4())
+        activity_worker_task_queue = str(uuid.uuid4())
         original_patched = temporalio.workflow.patched
 
         def pre_patch(patch_id: str) -> bool:
             return False if patch_id == "recalc-activity-task-queue-2026-10" else original_patched(patch_id)
 
         with patch.object(temporalio.workflow, "patched", side_effect=pre_patch):
-            _result, workflow_queue_calls, activity_queue_calls, history = await _run_with_activity_queue_worker(
-                activity_task_queue=activity_task_queue,
-                activity_task_queue_name=activity_task_queue,
+            run = await _run_with_activity_queue_worker(
+                activity_task_queue=activity_worker_task_queue,
+                activity_worker_task_queue=activity_worker_task_queue,
             )
 
-        assert (workflow_queue_calls, activity_queue_calls) == (["m1"], [])
+        assert run.workflow_queue_calls == ["m1"]
+        assert run.activity_queue_calls == []
         await temporalio.worker.Replayer(
             workflows=[ExperimentMetricsRecalculationWorkflow],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        ).replay_workflow(history)
+        ).replay_workflow(run.history)
