@@ -14,6 +14,7 @@ from django.utils.timezone import now
 from dateutil.relativedelta import relativedelta
 from parameterized import parameterized
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
@@ -804,6 +805,46 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert "breakdown" not in response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "issues_list",
+                "issues",
+                {"limit": 1},
+                "products.error_tracking.backend.facade.queries.ErrorTrackingQueryRunner.calculate",
+            ),
+            (
+                "issue_breakdown",
+                "issue",
+                {"includeBreakdown": True},
+                "products.error_tracking.backend.facade.queries.ErrorTrackingBreakdownsQueryRunner.run",
+            ),
+            (
+                "issue_events",
+                "issue_events",
+                {},
+                "products.error_tracking.backend.presentation.views.query.EventsQueryRunner.calculate",
+            ),
+        ]
+    )
+    @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
+    def test_concurrency_limit_returns_throttled(
+        self, _name: str, url_path: str, data: dict[str, object], patch_target: str
+    ) -> None:
+        self.create_issue()
+        self.create_exception_event()
+        flush_persons_and_events()
+
+        with patch(patch_target, side_effect=ConcurrencyLimitExceeded("org slots full")):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/error_tracking/query/{url_path}",
+                data={"issueId": self.issue_id, **data},
+                format="json",
+            )
+
+        assert response.status_code == 429
+        assert "org slots full" not in response.json()["detail"]
 
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
     def test_issue_detail_breakdown_aggregates_matching_events(self) -> None:
