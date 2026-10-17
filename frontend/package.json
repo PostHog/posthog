@@ -343,6 +343,7 @@
         "@types/zxcvbn": "^4.4.0",
         "ajv": "^8.20.0",
         "caniuse-lite": "^1.0.30001689",
+        "code-inspector-plugin": "2.0.9",
         "concurrently": "catalog:",
         "esbuild-visualizer": "^0.6.0",
         "fake-indexeddb": "^6.0.1",

@@ -411,6 +411,16 @@ The PostHog repository includes [VS Code launch options for debugging](https://g
 
 > **Note:** You can debug all services using the main "PostHog" launch option. If you are running most services with `hogli start` and only want to debug one (e.g. the backend), use `hogli dev:setup` to exclude that service so it doesn't conflict with the VS Code debugger.
 
+## Extra: Opening a component's source from the browser
+
+You can hold `Option+Shift` (macOS) or `Alt+Shift` (Windows and Linux) and click an element in the app. Your editor then opens the file and line that renders it. [code-inspector-plugin](https://github.com/zh-lx/code-inspector) adds this feature. It runs only with the Vite dev server, so production builds do not include it.
+
+The feature is off by default. To turn it on, add `DEV_CODE_INSPECTOR=1` to your `.env.local` and restart `hogli start`. The Vite dev server and Django both read this value.
+
+The click sends a request to a local server on port 5678. This server has no authentication and accepts requests from all interfaces and all origins. While it runs, another page in your browser or another device on your network can make your editor open a file in the repo. Turn the feature off when you do not use it, and do not turn it on for a devbox.
+
+The plugin finds your editor from the running processes. If the wrong editor opens, set `CODE_EDITOR` in `.env.local`, for example `CODE_EDITOR=cursor`. If another process uses port 5678, the plugin moves to the next free port and the click does nothing.
+
 ## Extra: Debugging the backend in PyCharm
 
 With PyCharm's built in support for Django, it's fairly easy to setup debugging in the backend. This is especially useful when you want to trace and debug a network request made from the client all the way back to the server. You can set breakpoints and step through code to see exactly what the backend is doing with your request.
