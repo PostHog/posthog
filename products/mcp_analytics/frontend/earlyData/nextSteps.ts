@@ -1,4 +1,10 @@
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
+
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { TOOL_HEALTH_REPORT } from '../notifications/recurringReportDefinitions'
+import type { ActionableWeeklyReportOffer, ResolvedWeeklyReportOffer } from '../notifications/weeklyReportOffer'
 
 export interface EarlyStats {
     totalCalls: number
@@ -14,15 +20,17 @@ export type NextStepAction =
     | { kind: 'link'; label: string; to: string }
     /** A self-contained instruction the user pastes into their coding agent, with the docs as the fallback. */
     | { kind: 'agent-prompt'; prompt: string; docsUrl: string }
+    | { kind: 'weekly-report'; offer: ActionableWeeklyReportOffer }
 
-export type NextStepKey = 'intent' | 'notification' | 'sessions'
+export type NextStepKey = 'weekly-report' | 'intent' | 'notification' | 'sessions'
 
-export type NextStepInteraction = 'open' | 'docs'
+export type NextStepInteraction = 'open' | 'docs' | 'create-report' | 'open-consent' | 'manage-report' | 'more-options'
 
 export interface NextStep {
     key: NextStepKey
     title: string
     detail: string
+    error?: string
     action: NextStepAction
 }
 
@@ -41,8 +49,44 @@ const MIN_CALLS_FOR_SIGNAL = 10
 /** More than this and the card competes with the feed for attention. */
 const MAX_STEPS = 3
 
-/** Only the applicable steps, in priority order: a step that is already done is dead space. */
-export function buildNextSteps(stats: EarlyStats, hasFailureNotification: boolean | null): NextStep[] {
+export interface NextStepInputs {
+    stats: EarlyStats
+    hasFailureNotification: boolean | null
+    weeklyReport: ResolvedWeeklyReportOffer
+}
+
+function weeklyReportDetail(offer: ActionableWeeklyReportOffer): string {
+    if (offer.state === 'created') {
+        return createdReportDetail(offer.report)
+    }
+    return `${TOOL_HEALTH_REPORT.lead} First one tomorrow morning to ${offer.email}, then every week.`
+}
+
+function createdReportDetail(report: SubscriptionApi): string {
+    if (!report.next_delivery_date) {
+        return `It goes to ${report.target_value} every week.`
+    }
+    return `The first one goes to ${report.target_value} on ${dayjs(report.next_delivery_date).format('dddd [at] h:mm A')}.`
+}
+
+// The tool health report has something to say on day one. The intent roundup needs intent capture first.
+function weeklyReportStep(offer: ActionableWeeklyReportOffer): NextStep {
+    return {
+        key: 'weekly-report',
+        title: offer.state === 'created' ? 'Your weekly report is set up' : 'Get a weekly report in your inbox',
+        detail: weeklyReportDetail(offer),
+        error: offer.state === 'failed' ? offer.message : undefined,
+        action: { kind: 'weekly-report', offer },
+    }
+}
+
+/**
+ * The applicable steps in priority order. A step that is already done is dead space, except the
+ * weekly report once created: it stays for the session so the card confirms what the click did.
+ * The weekly report leads from the first call, because the moment data arrives is the moment to give a
+ * reason to come back.
+ */
+export function buildNextSteps({ stats, hasFailureNotification, weeklyReport }: NextStepInputs): NextStep[] {
     const enoughSignal = stats.totalCalls >= MIN_CALLS_FOR_SIGNAL
     const intentShare = stats.totalCalls > 0 ? stats.callsWithIntent / stats.totalCalls : 0
     // One session per call means no session state survives between calls
@@ -53,6 +97,9 @@ export function buildNextSteps(stats: EarlyStats, hasFailureNotification: boolea
         (stats.distinctSessions === 0 || stats.distinctSessions >= Math.max(2, Math.ceil(stats.totalCalls * 0.9)))
 
     const steps: NextStep[] = []
+    if (weeklyReport.state !== 'hidden') {
+        steps.push(weeklyReportStep(weeklyReport))
+    }
     if (enoughSignal && intentShare < 0.5) {
         steps.push({
             key: 'intent',

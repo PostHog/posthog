@@ -9,6 +9,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet/CodeSnippet'
 import { Card } from '../dashboard/Card'
 import { mcpEarlyDataLogic } from './mcpEarlyDataLogic'
 import type { NextStep } from './nextSteps'
+import { WeeklyReportActions } from './WeeklyReportActions'
 
 // Mirrors the empty state's "Install with your agent" modal so the two setup surfaces read the same.
 function AgentPromptAction({
@@ -61,6 +62,9 @@ function AgentPromptAction({
 
 function NextStepActions({ step }: { step: NextStep }): JSX.Element {
     const { nextStepClicked } = useActions(mcpEarlyDataLogic)
+    if (step.action.kind === 'weekly-report') {
+        return <WeeklyReportActions offer={step.action.offer} />
+    }
     if (step.action.kind === 'link') {
         return (
             <LemonButton
@@ -96,8 +100,13 @@ export function ActivityNextSteps(): JSX.Element | null {
                             <div className="min-w-0">
                                 <div className="font-medium">{step.title}</div>
                                 <div className="text-muted text-sm">{step.detail}</div>
+                                {step.error ? (
+                                    <div className="text-danger text-sm" role="alert">
+                                        {step.error}
+                                    </div>
+                                ) : null}
                             </div>
-                            <div className="flex shrink-0 items-center gap-1">
+                            <div className="flex shrink-0 flex-wrap items-center gap-1">
                                 <NextStepActions step={step} />
                             </div>
                         </div>
