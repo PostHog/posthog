@@ -228,7 +228,6 @@ export const FEATURE_FLAGS = {
     HEATMAPS_CLICKMAP_DISCRIMINATORS: 'heatmaps-clickmap-discriminators', // owner: #team-web-analytics
     HEATMAPS_CLICKMAP_PAGINATION: 'heatmaps-clickmap-pagination', // owner: #team-web-analytics
     HEATMAPS_COHORT_FILTER: 'heatmaps-cohort-filter', // owner: #team-web-analytics
-    HEATMAPS_CREATION_FLOW: 'heatmaps-creation-flow', // owner: #team-web-analytics, gates the guided heatmap creation wizard at /heatmaps/new
     HEATMAPS_EVENT_FILTER: 'heatmaps-event-filter', // owner: #team-web-analytics
     HEATMAPS_PAGE_HISTORY: 'heatmaps-page-history', // owner: @jordanm-posthog #team-web-analytics, keeps a daily screenshot history per saved heatmap
     HEATMAPS_PRICING_NOTICE: 'heatmaps-capture-allowlist-notice', // owner: #team-web-analytics, gates the heatmaps pricing change notice
