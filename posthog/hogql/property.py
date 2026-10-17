@@ -466,7 +466,7 @@ def _property_lhs_stays_string(property: Property, team: Team) -> bool:
         # typed columns, so a numeric comparison already has a common type — leave them alone.
         return False
 
-    property_type = (
+    property_types = (
         PropertyDefinition.objects.alias(
             effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
         )
@@ -476,8 +476,9 @@ def _property_lhs_stays_string(property: Property, team: Team) -> bool:
         .exclude(property_type__isnull=True)
         .exclude(property_type="")
         .values_list("property_type", flat=True)
-        .first()
     )
+    # .first() adds ORDER BY id, which lets Postgres walk the primary key instead of posthog_propdef_proj_uniq
+    property_type = next(iter(property_types[:1]), None)
 
     return property_type not in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime)
 
