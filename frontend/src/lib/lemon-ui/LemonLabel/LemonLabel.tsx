@@ -41,13 +41,18 @@ export function LemonLabel({
             ) : null}
 
             {info ? (
-                <Tooltip title={info} interactive>
+                <Tooltip title={info} interactive openOnClick={!infoLink}>
                     {infoLink ? (
                         <Link to={infoLink} target="_blank" className="inline-flex">
                             <IconInfo className="text-xl text-secondary shrink-0" />
                         </Link>
                     ) : (
-                        <IconInfo className="text-xl text-secondary shrink-0" />
+                        <IconInfo
+                            className="text-xl text-secondary shrink-0"
+                            // The icon sits inside the <label>, so a click would also activate the
+                            // htmlFor control and toggle a checkbox the reader only wanted explained
+                            onClick={(e) => e.preventDefault()}
+                        />
                     )}
                 </Tooltip>
             ) : null}
