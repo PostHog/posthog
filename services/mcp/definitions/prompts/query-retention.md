@@ -84,6 +84,28 @@ For activation and retention events, use the `$pageview` event by default or the
 
 The activation and retention events can be the same (e.g., both `$pageview` to see if users who viewed pages come back to view pages again) or different (e.g., activation is `signed up` and retention is `completed purchase` to see if sign-ups convert to purchases over time).
 
+## Feature flag calls as an activation or retention entity
+
+When the project's `flag_evaluations_mode` (from `project-get`) is not 0, PostHog reads feature flag calls from the `posthog.flag_evaluations` table, and an event series on `$feature_flag_called` stops returning them. Use a flag calls series instead. It is the series the insight editor builds when a user picks "Feature flag called" in that mode, so a saved insight opens the same way in the web app. When `flag_evaluations_mode` is 0, keep using the `$feature_flag_called` event.
+
+A flag calls entity is `{ "type": "data_warehouse", "table_name": "posthog.flag_evaluations" }`. The table fields fill in for you. Put flag filters on the flag calls series as `data_warehouse` filters on `flag_key` or `response`, or as `hogql` filters. Event, person, and session filters do not apply to it. The table keeps 90 days of rows. Set `aggregation_target_field` to `$group_<index>` when the query sets `aggregation_group_type_index`. Otherwise keep the default `person_id`.
+
+```json
+{
+  "kind": "RetentionQuery",
+  "retentionFilter": {
+    "period": "Week",
+    "targetEntity": {
+      "type": "data_warehouse",
+      "table_name": "posthog.flag_evaluations",
+      "properties": [{ "key": "flag_key", "operator": "exact", "type": "data_warehouse", "value": ["new-checkout"] }]
+    },
+    "returningEntity": { "id": "$pageview", "name": "$pageview", "type": "events" }
+  },
+  "dateRange": { "date_from": "-60d" }
+}
+```
+
 # Examples
 
 ## Weekly retention of users who created an insight

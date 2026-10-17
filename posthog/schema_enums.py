@@ -322,6 +322,20 @@ class AssistantEventType(StrEnum):
     SANDBOX = "sandbox"
 
 
+class AssistantFlagCallsActorField(StrEnum):
+    PERSON_ID = "person_id"
+    FIELD_GROUP_0 = "$group_0"
+    FIELD_GROUP_1 = "$group_1"
+    FIELD_GROUP_2 = "$group_2"
+    FIELD_GROUP_3 = "$group_3"
+    FIELD_GROUP_4 = "$group_4"
+
+
+class AssistantFlagCallsColumn(StrEnum):
+    FLAG_KEY = "flag_key"
+    RESPONSE = "response"
+
+
 class AssistantFunnelsBreakdownType(StrEnum):
     PERSON = "person"
     EVENT = "event"
@@ -332,6 +346,16 @@ class AssistantFunnelsBreakdownType(StrEnum):
 class FunnelAggregateByHogQL(Enum):
     PROPERTIES__SESSION_ID = "properties.$session_id"
     NONE_TYPE_NONE = None
+
+
+class AssistantFunnelsFlagCallsActorField(StrEnum):
+    PERSON_ID = "person_id"
+    FIELD_GROUP_0 = "$group_0"
+    FIELD_GROUP_1 = "$group_1"
+    FIELD_GROUP_2 = "$group_2"
+    FIELD_GROUP_3 = "$group_3"
+    FIELD_GROUP_4 = "$group_4"
+    PROPERTIES__SESSION_ID = "properties.$session_id"
 
 
 class AssistantFunnelsMath(StrEnum):
@@ -600,6 +624,12 @@ class MetricSummary(StrEnum):
 class YAxisScaleType(StrEnum):
     LOG10 = "log10"
     LINEAR = "linear"
+
+
+class AssistantTrendsFlagCallsMath(StrEnum):
+    TOTAL = "total"
+    DAU = "dau"
+    HOGQL = "hogql"
 
 
 class AttributionMode(StrEnum):

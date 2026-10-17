@@ -7,6 +7,7 @@ from posthog.schema import (
     ActionsNode,
     AssistantFunnelsActionsNode,
     AssistantFunnelsEventsNode,
+    AssistantFunnelsFlagCallsNode,
     AssistantFunnelsQuery,
     DateRange,
     EventsNode,
@@ -283,7 +284,7 @@ class FunnelResultsFormatter:
                     series_labels.append(f"{node.event}")
             elif isinstance(node, AssistantFunnelsActionsNode | ActionsNode):
                 series_labels.append(f"{node.name} (action {node.id})")
-            elif isinstance(node, FunnelsDataWarehouseNode):
+            elif isinstance(node, AssistantFunnelsFlagCallsNode | FunnelsDataWarehouseNode):
                 if node.custom_name is not None:
                     series_labels.append(f"{node.name} ({node.custom_name})")
                 else:

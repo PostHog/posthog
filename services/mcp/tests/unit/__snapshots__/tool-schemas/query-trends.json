@@ -1184,7 +1184,7 @@
             "type": "array"
         },
         "series": {
-            "description": "Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating \"Pageview OR Pageleave\" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.",
+            "description": "Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating \"Pageview OR Pageleave\" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series. Use an `AssistantTrendsFlagCallsNode` to count feature flag calls from the flag calls table.",
             "items": {
                 "anyOf": [
                     {
@@ -4127,6 +4127,143 @@
                             }
                         },
                         "required": ["nodes"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "custom_name": {
+                                "type": "string"
+                            },
+                            "distinct_id_field": {
+                                "const": "distinct_id",
+                                "default": "distinct_id",
+                                "type": "string"
+                            },
+                            "id": {
+                                "const": "posthog.flag_evaluations",
+                                "default": "posthog.flag_evaluations",
+                                "type": "string"
+                            },
+                            "id_field": {
+                                "const": "uuid",
+                                "default": "uuid",
+                                "type": "string"
+                            },
+                            "kind": {
+                                "const": "DataWarehouseNode",
+                                "default": "DataWarehouseNode",
+                                "type": "string"
+                            },
+                            "math": {
+                                "description": "`total` - the number of flag calls. The query uses it when `math` is omitted. `dau` - the number of unique users who had a flag evaluated. `hogql` - a custom aggregation in `math_hogql`.",
+                                "enum": ["total", "dau", "hogql"],
+                                "type": "string"
+                            },
+                            "math_hogql": {
+                                "description": "Custom HogQL aggregation over the table's columns, for example `count(distinct flag_key)`. When set, `math` must be `hogql`.",
+                                "type": "string"
+                            },
+                            "name": {
+                                "default": "Feature flag called",
+                                "type": "string"
+                            },
+                            "properties": {
+                                "description": "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`.",
+                                "items": {
+                                    "anyOf": [
+                                        {
+                                            "anyOf": [
+                                                {
+                                                    "properties": {
+                                                        "key": {
+                                                            "enum": ["flag_key", "response"],
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.",
+                                                            "enum": [
+                                                                "exact",
+                                                                "is_not",
+                                                                "icontains",
+                                                                "not_icontains",
+                                                                "regex",
+                                                                "not_regex"
+                                                            ],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "const": "data_warehouse",
+                                                            "default": "data_warehouse",
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"],
+                                                    "type": "object"
+                                                },
+                                                {
+                                                    "properties": {
+                                                        "key": {
+                                                            "enum": ["flag_key", "response"],
+                                                            "type": "string"
+                                                        },
+                                                        "operator": {
+                                                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values.",
+                                                            "enum": ["exact", "is_not"],
+                                                            "type": "string"
+                                                        },
+                                                        "type": {
+                                                            "const": "data_warehouse",
+                                                            "default": "data_warehouse",
+                                                            "type": "string"
+                                                        },
+                                                        "value": {
+                                                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                                                            "items": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": "array"
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"],
+                                                    "type": "object"
+                                                }
+                                            ]
+                                        },
+                                        {
+                                            "properties": {
+                                                "key": {
+                                                    "description": "A HogQL boolean expression used as a filter condition.\n\nExamples:\n- Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0`\n- Filter with string matching: `properties.$current_url LIKE '%/pricing%'`\n- Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30`",
+                                                    "type": "string"
+                                                },
+                                                "type": {
+                                                    "const": "hogql",
+                                                    "default": "hogql",
+                                                    "description": "Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters.",
+                                                    "type": "string"
+                                                }
+                                            },
+                                            "required": ["key"],
+                                            "type": "object"
+                                        }
+                                    ]
+                                },
+                                "type": "array"
+                            },
+                            "table_name": {
+                                "const": "posthog.flag_evaluations",
+                                "default": "posthog.flag_evaluations",
+                                "type": "string"
+                            },
+                            "timestamp_field": {
+                                "const": "timestamp",
+                                "default": "timestamp",
+                                "type": "string"
+                            }
+                        },
                         "type": "object"
                     }
                 ]

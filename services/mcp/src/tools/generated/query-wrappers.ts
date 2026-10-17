@@ -598,6 +598,65 @@ const AssistantTrendsGroupNode = z.object({
     operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
 })
 
+const AssistantTrendsFlagCallsMath = z.enum(['total', 'dau', 'hogql'])
+
+const AssistantFlagCallsColumn = z.enum(['flag_key', 'response'])
+
+const AssistantFlagCallsPropertyFilter = z.union([
+    z.object({
+        key: AssistantFlagCallsColumn,
+        operator: AssistantStringOrBooleanValuePropertyFilterOperator.describe(
+            '`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern.'
+        ),
+        type: z.literal('data_warehouse').default('data_warehouse'),
+        value: z
+            .string()
+            .describe(
+                'Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.'
+            ),
+    }),
+    z.object({
+        key: AssistantFlagCallsColumn,
+        operator: AssistantArrayPropertyFilterOperator.describe(
+            '`exact` - exact match of any of the values. `is_not` - does not match any of the values.'
+        ),
+        type: z.literal('data_warehouse').default('data_warehouse'),
+        value: z
+            .array(z.string())
+            .describe(
+                'Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false".'
+            ),
+    }),
+])
+
+const AssistantFlagCallsSeriesPropertyFilter = z.union([AssistantFlagCallsPropertyFilter, AssistantHogQLPropertyFilter])
+
+const AssistantTrendsFlagCallsNode = z.object({
+    custom_name: z.string().optional(),
+    distinct_id_field: z.literal('distinct_id').default('distinct_id'),
+    id: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    id_field: z.literal('uuid').default('uuid'),
+    kind: z.literal('DataWarehouseNode').default('DataWarehouseNode'),
+    math: AssistantTrendsFlagCallsMath.describe(
+        '`total` - the number of flag calls. The query uses it when `math` is omitted. `dau` - the number of unique users who had a flag evaluated. `hogql` - a custom aggregation in `math_hogql`.'
+    ).optional(),
+    math_hogql: z
+        .string()
+        .describe(
+            "Custom HogQL aggregation over the table's columns, for example `count(distinct flag_key)`. When set, `math` must be `hogql`."
+        )
+        .optional(),
+    name: z.string().default('Feature flag called').optional(),
+    properties: z
+        .array(AssistantFlagCallsSeriesPropertyFilter)
+        .describe(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`."
+        )
+        .optional(),
+    table_name: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    timestamp_field: z.literal('timestamp').default('timestamp'),
+})
+
 const AggregationAxisFormat = z.enum([
     'numeric',
     'duration',
@@ -767,9 +826,16 @@ const AssistantTrendsQuery = z.object({
         .default([])
         .optional(),
     series: z
-        .array(z.union([AssistantTrendsEventsNode, AssistantTrendsActionsNode, AssistantTrendsGroupNode]))
+        .array(
+            z.union([
+                AssistantTrendsEventsNode,
+                AssistantTrendsActionsNode,
+                AssistantTrendsGroupNode,
+                AssistantTrendsFlagCallsNode,
+            ])
+        )
         .describe(
-            'Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.'
+            'Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series. Use an `AssistantTrendsFlagCallsNode` to count feature flag calls from the flag calls table.'
         ),
     trendsFilter: AssistantTrendsFilter.describe('Properties specific to the trends insight').optional(),
 })
@@ -923,10 +989,45 @@ const AssistantFunnelsGroupNode = z.object({
     operator: z.literal('OR').describe('Only `OR` is supported.').default('OR'),
 })
 
+const AssistantFunnelsFlagCallsActorField = z.enum([
+    'person_id',
+    '$group_0',
+    '$group_1',
+    '$group_2',
+    '$group_3',
+    '$group_4',
+    'properties.$session_id',
+])
+
+const AssistantFunnelsFlagCallsNode = z.object({
+    aggregation_target_field: AssistantFunnelsFlagCallsActorField.default('person_id').optional(),
+    custom_name: z.string().optional(),
+    id: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    id_field: z.literal('uuid').default('uuid'),
+    kind: z.literal('FunnelsDataWarehouseNode').default('FunnelsDataWarehouseNode'),
+    name: z.string().default('Feature flag called').optional(),
+    optionalInFunnel: z.coerce
+        .boolean()
+        .describe(
+            'If true, this step can be skipped without breaking the funnel. Do not set it on the first or last step.'
+        )
+        .default(false)
+        .optional(),
+    properties: z
+        .array(AssistantFlagCallsSeriesPropertyFilter)
+        .describe(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`."
+        )
+        .optional(),
+    table_name: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    timestamp_field: z.literal('timestamp').default('timestamp'),
+})
+
 const AssistantFunnelsNode = z.union([
     AssistantFunnelsEventsNode,
     AssistantFunnelsActionsNode,
     AssistantFunnelsGroupNode,
+    AssistantFunnelsFlagCallsNode,
 ])
 
 const AssistantFunnelsQuery = z.object({
@@ -998,7 +1099,29 @@ const AssistantRetentionActionsNode = z.object({
     type: z.literal('actions').default('actions'),
 })
 
-const AssistantRetentionEntity = z.union([AssistantRetentionEventsNode, AssistantRetentionActionsNode])
+const AssistantFlagCallsActorField = z.enum(['person_id', '$group_0', '$group_1', '$group_2', '$group_3', '$group_4'])
+
+const AssistantRetentionFlagCallsEntity = z.object({
+    aggregation_target_field: AssistantFlagCallsActorField.default('person_id').optional(),
+    custom_name: z.string().optional(),
+    id: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    name: z.string().default('Feature flag called').optional(),
+    properties: z
+        .array(AssistantFlagCallsSeriesPropertyFilter)
+        .describe(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`."
+        )
+        .optional(),
+    table_name: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    timestamp_field: z.literal('timestamp').default('timestamp'),
+    type: z.literal('data_warehouse').default('data_warehouse'),
+})
+
+const AssistantRetentionEntity = z.union([
+    AssistantRetentionEventsNode,
+    AssistantRetentionActionsNode,
+    AssistantRetentionFlagCallsEntity,
+])
 
 const AssistantRetentionFilter = z.object({
     aggregationProperty: z
@@ -1350,7 +1473,33 @@ const AssistantLifecycleActionsNode = z.object({
     properties: z.array(AssistantPropertyFilter).optional(),
 })
 
-const AssistantLifecycleSeriesNode = z.union([AssistantLifecycleEventsNode, AssistantLifecycleActionsNode])
+const AssistantLifecycleFlagCallsNode = z.object({
+    aggregation_target_field: AssistantFlagCallsActorField.default('person_id').optional(),
+    created_at_field: z
+        .literal('timestamp')
+        .describe(
+            "The table stores no person creation time, so lifecycle treats the earliest flag call that the query reads as the actor's start."
+        )
+        .default('timestamp'),
+    custom_name: z.string().optional(),
+    id: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    kind: z.literal('LifecycleDataWarehouseNode').default('LifecycleDataWarehouseNode'),
+    name: z.string().default('Feature flag called').optional(),
+    properties: z
+        .array(AssistantFlagCallsSeriesPropertyFilter)
+        .describe(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`."
+        )
+        .optional(),
+    table_name: z.literal('posthog.flag_evaluations').default('posthog.flag_evaluations'),
+    timestamp_field: z.literal('timestamp').default('timestamp'),
+})
+
+const AssistantLifecycleSeriesNode = z.union([
+    AssistantLifecycleEventsNode,
+    AssistantLifecycleActionsNode,
+    AssistantLifecycleFlagCallsNode,
+])
 
 const AssistantLifecycleQuery = z.object({
     aggregation_group_type_index: z.union([integer, z.null()]).describe('Groups aggregation').optional(),
@@ -1373,7 +1522,7 @@ const AssistantLifecycleQuery = z.object({
     series: z
         .array(AssistantLifecycleSeriesNode)
         .max(1)
-        .describe('Event or action to analyze. Lifecycle insights only support a single series.'),
+        .describe('Event, action, or flag calls series to analyze. Lifecycle insights only support a single series.'),
 })
 
 const AssistantTrendsActorsQuery = z.object({

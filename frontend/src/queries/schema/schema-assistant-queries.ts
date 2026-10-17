@@ -1,9 +1,11 @@
 import {
+    BaseMathType,
     BehavioralPropertyFilter,
     BreakdownType,
     ChartDisplayType,
     FilterLogicalOperator,
     FunnelMathType,
+    HogQLMathType,
     IntervalType,
     LifecycleToggle,
     PathType,
@@ -294,6 +296,58 @@ export type AssistantInsightPropertyFilter = AssistantPropertyFilter | Assistant
  */
 export type AssistantRecordingsQueryPropertyFilter = AssistantPropertyFilter | AssistantRecordingPropertyFilter
 
+/**
+ * `flag_key` - key of the evaluated feature flag.
+ * `response` - what the flag returned, as a string: `true`, `false`, a variant key, or `null` when the flag returned JSON null.
+ */
+export type AssistantFlagCallsColumn = 'flag_key' | 'response'
+
+export type AssistantFlagCallsPropertyFilter = (
+    | AssistantStringOrBooleanValuePropertyFilter
+    | AssistantArrayPropertyFilter
+) & {
+    type: PropertyFilterType.DataWarehouse
+    key: AssistantFlagCallsColumn
+}
+
+export type AssistantFlagCallsSeriesPropertyFilter = AssistantFlagCallsPropertyFilter | AssistantHogQLPropertyFilter
+
+/**
+ * The column that identifies the actor. It must match the query's aggregation.
+ * `person_id` - persons, when `aggregation_group_type_index` is not set.
+ * `$group_0` to `$group_4` - the group type set in `aggregation_group_type_index`.
+ */
+export type AssistantFlagCallsActorField = 'person_id' | '$group_0' | '$group_1' | '$group_2' | '$group_3' | '$group_4'
+
+/**
+ * The column that identifies the actor. It must match the funnel's aggregation.
+ * `person_id` - persons, when neither `aggregation_group_type_index` nor `funnelAggregateByHogQL` is set.
+ * `$group_0` to `$group_4` - the group type set in `aggregation_group_type_index`.
+ * `properties.$session_id` - sessions, when `funnelAggregateByHogQL` is `properties.$session_id`.
+ */
+export type AssistantFunnelsFlagCallsActorField =
+    | 'person_id'
+    | '$group_0'
+    | '$group_1'
+    | '$group_2'
+    | '$group_3'
+    | '$group_4'
+    | 'properties.$session_id'
+
+export interface AssistantFlagCallsNodeBase {
+    id: 'posthog.flag_evaluations'
+    table_name: 'posthog.flag_evaluations'
+    timestamp_field: 'timestamp'
+    /** @default Feature flag called */
+    name?: string
+    custom_name?: string
+    /**
+     * Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's
+     * columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`.
+     */
+    properties?: AssistantFlagCallsSeriesPropertyFilter[]
+}
+
 export interface AssistantInsightsQueryBase {
     /**
      * Date range for the query
@@ -416,6 +470,33 @@ export interface AssistantTrendsGroupNode {
     math_multiplier?: AssistantTrendsEventsNode['math_multiplier']
     math_group_type_index?: AssistantTrendsEventsNode['math_group_type_index']
     /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
+    math_hogql?: string
+}
+
+export type AssistantTrendsFlagCallsMath = BaseMathType.TotalCount | BaseMathType.UniqueUsers | HogQLMathType.HogQL
+
+/**
+ * A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the
+ * insight editor builds when a user picks "Feature flag called" in a project that reads flag calls from that table.
+ * Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because
+ * the event query stops returning flag calls in those modes. A project that does not read flag calls from the table
+ * rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days.
+ * To split flag calls by flag or by response, break down with `{ type: "data_warehouse", property: "flag_key" }`
+ * or `property: "response"`. Do not combine that breakdown with event or action series.
+ */
+export interface AssistantTrendsFlagCallsNode extends AssistantFlagCallsNodeBase {
+    kind: NodeKind.DataWarehouseNode
+    id_field: 'uuid'
+    distinct_id_field: 'distinct_id'
+    /**
+     * `total` - the number of flag calls. The query uses it when `math` is omitted.
+     * `dau` - the number of unique users who had a flag evaluated.
+     * `hogql` - a custom aggregation in `math_hogql`.
+     */
+    math?: AssistantTrendsFlagCallsMath
+    /**
+     * Custom HogQL aggregation over the table's columns, for example `count(distinct flag_key)`. When set, `math` must be `hogql`.
+     */
     math_hogql?: string
 }
 
@@ -675,8 +756,14 @@ export interface AssistantTrendsQuery extends AssistantInsightsQueryBase {
      * actions into a single series joined by `OR` — for example, treating
      * "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only
      * when the user wants the events counted together, otherwise prefer separate series.
+     * Use an `AssistantTrendsFlagCallsNode` to count feature flag calls from the flag calls table.
      */
-    series: (AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode)[]
+    series: (
+        | AssistantTrendsEventsNode
+        | AssistantTrendsActionsNode
+        | AssistantTrendsGroupNode
+        | AssistantTrendsFlagCallsNode
+    )[]
 
     /**
      * Properties specific to the trends insight
@@ -764,7 +851,30 @@ export interface AssistantFunnelsGroupNode {
     custom_name?: string
 }
 
-export type AssistantFunnelsNode = AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode
+/**
+ * A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the
+ * insight editor builds when a user picks "Feature flag called" in a project that reads flag calls from that table.
+ * Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because
+ * the event query stops returning flag calls in those modes. A project that does not read flag calls from the table
+ * rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days.
+ */
+export interface AssistantFunnelsFlagCallsNode extends AssistantFlagCallsNodeBase {
+    kind: NodeKind.FunnelsDataWarehouseNode
+    id_field: 'uuid'
+    /** @default person_id */
+    aggregation_target_field?: AssistantFunnelsFlagCallsActorField
+    /**
+     * If true, this step can be skipped without breaking the funnel. Do not set it on the first or last step.
+     * @default false
+     */
+    optionalInFunnel?: boolean
+}
+
+export type AssistantFunnelsNode =
+    | AssistantFunnelsEventsNode
+    | AssistantFunnelsActionsNode
+    | AssistantFunnelsGroupNode
+    | AssistantFunnelsFlagCallsNode
 
 /**
  * Exclustion steps for funnels. The "from" and "to" steps must not exceed the funnel's series length.
@@ -934,7 +1044,23 @@ export interface AssistantRetentionActionsNode {
     properties?: AssistantPropertyFilter[]
 }
 
-export type AssistantRetentionEntity = AssistantRetentionEventsNode | AssistantRetentionActionsNode
+/**
+ * A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the
+ * insight editor builds when a user picks "Feature flag called" in a project that reads flag calls from that table.
+ * Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because
+ * the event query stops returning flag calls in those modes. A project that does not read flag calls from the table
+ * rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days.
+ */
+export interface AssistantRetentionFlagCallsEntity extends AssistantFlagCallsNodeBase {
+    type: 'data_warehouse'
+    /** @default person_id */
+    aggregation_target_field?: AssistantFlagCallsActorField
+}
+
+export type AssistantRetentionEntity =
+    | AssistantRetentionEventsNode
+    | AssistantRetentionActionsNode
+    | AssistantRetentionFlagCallsEntity
 
 export interface AssistantRetentionFilter {
     /**
@@ -1288,7 +1414,27 @@ export interface AssistantLifecycleEventsNode extends Pick<EventsNode, 'kind' | 
     properties?: AssistantPropertyFilter[]
 }
 
-export type AssistantLifecycleSeriesNode = AssistantLifecycleEventsNode | AssistantLifecycleActionsNode
+export type AssistantLifecycleSeriesNode =
+    | AssistantLifecycleEventsNode
+    | AssistantLifecycleActionsNode
+    | AssistantLifecycleFlagCallsNode
+
+/**
+ * A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the
+ * insight editor builds when a user picks "Feature flag called" in a project that reads flag calls from that table.
+ * Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because
+ * the event query stops returning flag calls in those modes. A project that does not read flag calls from the table
+ * rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days.
+ */
+export interface AssistantLifecycleFlagCallsNode extends AssistantFlagCallsNodeBase {
+    kind: NodeKind.LifecycleDataWarehouseNode
+    /** @default person_id */
+    aggregation_target_field?: AssistantFlagCallsActorField
+    /**
+     * The table stores no person creation time, so lifecycle treats the earliest flag call that the query reads as the actor's start.
+     */
+    created_at_field: 'timestamp'
+}
 
 export interface AssistantLifecycleActionsNode extends Pick<ActionsNode, 'kind' | 'id' | 'custom_name'> {
     /**
@@ -1341,7 +1487,7 @@ export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
     interval?: IntervalType
 
     /**
-     * Event or action to analyze. Lifecycle insights only support a single series.
+     * Event, action, or flag calls series to analyze. Lifecycle insights only support a single series.
      * @maxItems 1
      */
     series: AssistantLifecycleSeriesNode[]

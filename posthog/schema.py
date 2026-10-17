@@ -41,7 +41,10 @@ from posthog.schema_enums import (
     AssistantDateTimePropertyFilterOperator as AssistantDateTimePropertyFilterOperator,
     AssistantEventMultipleBreakdownFilterType as AssistantEventMultipleBreakdownFilterType,
     AssistantEventType as AssistantEventType,
+    AssistantFlagCallsActorField as AssistantFlagCallsActorField,
+    AssistantFlagCallsColumn as AssistantFlagCallsColumn,
     AssistantFunnelsBreakdownType as AssistantFunnelsBreakdownType,
+    AssistantFunnelsFlagCallsActorField as AssistantFunnelsFlagCallsActorField,
     AssistantFunnelsMath as AssistantFunnelsMath,
     AssistantGenerationStatusType as AssistantGenerationStatusType,
     AssistantGenericPropertyFilterType as AssistantGenericPropertyFilterType,
@@ -55,6 +58,7 @@ from posthog.schema_enums import (
     AssistantStringOrBooleanValuePropertyFilterOperator as AssistantStringOrBooleanValuePropertyFilterOperator,
     AssistantTool as AssistantTool,
     AssistantTrendsDisplayType as AssistantTrendsDisplayType,
+    AssistantTrendsFlagCallsMath as AssistantTrendsFlagCallsMath,
     AttributionMode as AttributionMode,
     AutocompleteCompletionItemKind as AutocompleteCompletionItemKind,
     BaseMathType as BaseMathType,
@@ -708,6 +712,26 @@ class AssistantElementPropertyFilter4(BaseModel):
         ),
     )
     value: str = Field(..., description="Value must be a date in ISO 8601 format.")
+
+
+class AssistantFlagCallsPropertyFilter2(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: AssistantFlagCallsColumn
+    operator: AssistantArrayPropertyFilterOperator = Field(
+        ...,
+        description=("`exact` - exact match of any of the values. `is_not` - does not match any of the values."),
+    )
+    type: Literal["data_warehouse"] = "data_warehouse"
+    value: list[str] = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. Always use strings as values. If"
+            " you have a number, convert it to a string first. If you have a boolean,"
+            ' convert it to a string "true" or "false".'
+        ),
+    )
 
 
 class AssistantFlagPropertyFilter(BaseModel):
@@ -4087,6 +4111,32 @@ class AssistantEventsQuery(BaseModel):
     select: list[str] = Field(..., description="Event columns as HogQL expressions.")
 
 
+class AssistantFlagCallsPropertyFilter1(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    key: AssistantFlagCallsColumn
+    operator: AssistantStringOrBooleanValuePropertyFilterOperator = Field(
+        ...,
+        description=(
+            "`icontains` - case insensitive contains. `not_icontains` - case"
+            " insensitive does not contain. `regex` - matches the regex pattern."
+            " `not_regex` - does not match the regex pattern."
+        ),
+    )
+    type: Literal["data_warehouse"] = "data_warehouse"
+    value: str = Field(
+        ...,
+        description=(
+            "Only use property values from the plan. If the operator is `regex` or"
+            " `not_regex`, the value must be a valid ClickHouse regex pattern to match"
+            " against. Otherwise, the value must be a substring that will be matched"
+            " against the property value. Use the string values `true` or `false` for"
+            " boolean properties."
+        ),
+    )
+
+
 class AssistantForm(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4229,6 +4279,37 @@ class AssistantFunnelsFilter(BaseModel):
         default=FunnelLayout.VERTICAL,
         description=("Controls how the funnel chart is displayed: vertically (preferred) or horizontally."),
     )
+
+
+class AssistantFunnelsFlagCallsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_target_field: AssistantFunnelsFlagCallsActorField | None = AssistantFunnelsFlagCallsActorField.PERSON_ID
+    custom_name: str | None = None
+    id: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    id_field: Literal["uuid"] = "uuid"
+    kind: Literal["FunnelsDataWarehouseNode"] = "FunnelsDataWarehouseNode"
+    name: str | None = "Feature flag called"
+    optionalInFunnel: bool | None = Field(
+        default=False,
+        description=(
+            "If true, this step can be skipped without breaking the funnel. Do not set it on the first or last step."
+        ),
+    )
+    properties: (
+        list[AssistantHogQLPropertyFilter | AssistantFlagCallsPropertyFilter1 | AssistantFlagCallsPropertyFilter2]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a"
+            " HogQL expression on the table's columns, for example `properties.$lib ="
+            " 'web'`. Put flag call filters here, not in the query's `properties`."
+        ),
+    )
+    table_name: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    timestamp_field: Literal["timestamp"] = "timestamp"
 
 
 class AssistantGenerationStatusEvent(BaseModel):
@@ -4449,6 +4530,37 @@ class AssistantLifecycleFilter(BaseModel):
             " in the current period."
         ),
     )
+
+
+class AssistantLifecycleFlagCallsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_target_field: AssistantFlagCallsActorField | None = AssistantFlagCallsActorField.PERSON_ID
+    created_at_field: Literal["timestamp"] = Field(
+        default="timestamp",
+        description=(
+            "The table stores no person creation time, so lifecycle treats the earliest"
+            " flag call that the query reads as the actor's start."
+        ),
+    )
+    custom_name: str | None = None
+    id: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    kind: Literal["LifecycleDataWarehouseNode"] = "LifecycleDataWarehouseNode"
+    name: str | None = "Feature flag called"
+    properties: (
+        list[AssistantHogQLPropertyFilter | AssistantFlagCallsPropertyFilter1 | AssistantFlagCallsPropertyFilter2]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a"
+            " HogQL expression on the table's columns, for example `properties.$lib ="
+            " 'web'`. Put flag call filters here, not in the query's `properties`."
+        ),
+    )
+    table_name: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    timestamp_field: Literal["timestamp"] = "timestamp"
 
 
 class AssistantMessageMetadata(BaseModel):
@@ -4767,6 +4879,30 @@ class AssistantRetentionEventsNode(BaseModel):
         | None
     ) = Field(default=None, description="Property filters for the event.")
     type: Literal["events"] = "events"
+
+
+class AssistantRetentionFlagCallsEntity(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_target_field: AssistantFlagCallsActorField | None = AssistantFlagCallsActorField.PERSON_ID
+    custom_name: str | None = None
+    id: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    name: str | None = "Feature flag called"
+    properties: (
+        list[AssistantHogQLPropertyFilter | AssistantFlagCallsPropertyFilter1 | AssistantFlagCallsPropertyFilter2]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a"
+            " HogQL expression on the table's columns, for example `properties.$lib ="
+            " 'web'`. Put flag call filters here, not in the query's `properties`."
+        ),
+    )
+    table_name: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    timestamp_field: Literal["timestamp"] = "timestamp"
+    type: Literal["data_warehouse"] = "data_warehouse"
 
 
 class AssistantSetPropertyFilter(BaseModel):
@@ -5122,6 +5258,46 @@ class AssistantTrendsFilter(BaseModel):
     yAxisScaleType: YAxisScaleType | None = Field(
         default=YAxisScaleType.LINEAR, description="Whether to scale the y-axis."
     )
+
+
+class AssistantTrendsFlagCallsNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    distinct_id_field: Literal["distinct_id"] = "distinct_id"
+    id: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    id_field: Literal["uuid"] = "uuid"
+    kind: Literal["DataWarehouseNode"] = "DataWarehouseNode"
+    math: AssistantTrendsFlagCallsMath | None = Field(
+        default=None,
+        description=(
+            "`total` - the number of flag calls. The query uses it when `math` is"
+            " omitted. `dau` - the number of unique users who had a flag evaluated."
+            " `hogql` - a custom aggregation in `math_hogql`."
+        ),
+    )
+    math_hogql: str | None = Field(
+        default=None,
+        description=(
+            "Custom HogQL aggregation over the table's columns, for example"
+            " `count(distinct flag_key)`. When set, `math` must be `hogql`."
+        ),
+    )
+    name: str | None = "Feature flag called"
+    properties: (
+        list[AssistantHogQLPropertyFilter | AssistantFlagCallsPropertyFilter1 | AssistantFlagCallsPropertyFilter2]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a"
+            " HogQL expression on the table's columns, for example `properties.$lib ="
+            " 'web'`. Put flag call filters here, not in the query's `properties`."
+        ),
+    )
+    table_name: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    timestamp_field: Literal["timestamp"] = "timestamp"
 
 
 class AttributeBreakdownRow(BaseModel):
@@ -10302,6 +10478,28 @@ class AssistantErrorTrackingQuery(BaseModel):
     )
 
 
+class AssistantFlagCallsNodeBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    custom_name: str | None = None
+    id: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    name: str | None = "Feature flag called"
+    properties: (
+        list[AssistantHogQLPropertyFilter | AssistantFlagCallsPropertyFilter1 | AssistantFlagCallsPropertyFilter2]
+        | None
+    ) = Field(
+        default=None,
+        description=(
+            "Filters on the flag calls. Filter by `flag_key` and `response`, or by a"
+            " HogQL expression on the table's columns, for example `properties.$lib ="
+            " 'web'`. Put flag call filters here, not in the query's `properties`."
+        ),
+    )
+    table_name: Literal["posthog.flag_evaluations"] = "posthog.flag_evaluations"
+    timestamp_field: Literal["timestamp"] = "timestamp"
+
+
 class AssistantFunnelNodeShared(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10811,12 +11009,14 @@ class AssistantRetentionFilter(BaseModel):
             " time performing the cohort event."
         ),
     )
-    returningEntity: AssistantRetentionEventsNode | AssistantRetentionActionsNode = Field(
-        ..., description="Retention event (event marking the user coming back)."
-    )
-    targetEntity: AssistantRetentionEventsNode | AssistantRetentionActionsNode = Field(
-        ...,
-        description=("Activation event (event putting the actor into the initial cohort)."),
+    returningEntity: (
+        AssistantRetentionEventsNode | AssistantRetentionActionsNode | AssistantRetentionFlagCallsEntity
+    ) = Field(..., description="Retention event (event marking the user coming back).")
+    targetEntity: AssistantRetentionEventsNode | AssistantRetentionActionsNode | AssistantRetentionFlagCallsEntity = (
+        Field(
+            ...,
+            description=("Activation event (event putting the actor into the initial cohort)."),
+        )
     )
     timeWindowMode: TimeWindowMode | None = Field(
         default=None,
@@ -11337,7 +11537,9 @@ class AssistantTrendsQuery(BaseModel):
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    series: list[AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode] = Field(
+    series: list[
+        AssistantTrendsEventsNode | AssistantTrendsActionsNode | AssistantTrendsGroupNode | AssistantTrendsFlagCallsNode
+    ] = Field(
         ...,
         description=(
             "Events, actions, or groups of events/actions to include. Prioritize the"
@@ -11347,7 +11549,9 @@ class AssistantTrendsQuery(BaseModel):
             " multiple events or actions into a single series joined by `OR` — for"
             ' example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping'
             " is supported; pick groups only when the user wants the events counted"
-            " together, otherwise prefer separate series."
+            " together, otherwise prefer separate series. Use an"
+            " `AssistantTrendsFlagCallsNode` to count feature flag calls from the flag"
+            " calls table."
         ),
     )
     trendsFilter: AssistantTrendsFilter | None = Field(
@@ -26755,7 +26959,12 @@ class AssistantFunnelsQuery(BaseModel):
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    series: list[AssistantFunnelsEventsNode | AssistantFunnelsActionsNode | AssistantFunnelsGroupNode] = Field(
+    series: list[
+        AssistantFunnelsEventsNode
+        | AssistantFunnelsActionsNode
+        | AssistantFunnelsGroupNode
+        | AssistantFunnelsFlagCallsNode
+    ] = Field(
         ...,
         description=("Events or actions to include. Prioritize the more popular and fresh events and actions."),
     )
@@ -26809,10 +27018,14 @@ class AssistantLifecycleQuery(BaseModel):
         default=None,
         description="Sampling rate from 0 to 1 where 1 is 100% of the data.",
     )
-    series: list[AssistantLifecycleEventsNode | AssistantLifecycleActionsNode] = Field(
-        ...,
-        description=("Event or action to analyze. Lifecycle insights only support a single series."),
-        max_length=1,
+    series: list[AssistantLifecycleEventsNode | AssistantLifecycleActionsNode | AssistantLifecycleFlagCallsNode] = (
+        Field(
+            ...,
+            description=(
+                "Event, action, or flag calls series to analyze. Lifecycle insights only support a single series."
+            ),
+            max_length=1,
+        )
     )
 
 

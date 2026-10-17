@@ -109,6 +109,21 @@ Use `toggledLifecycles` in `lifecycleFilter` to control which lifecycle statuses
 
 Lifecycle insights do **not** support math aggregation types. Do not set `math` on the series node.
 
+## Feature flag calls
+
+When the project's `flag_evaluations_mode` (from `project-get`) is not 0, PostHog reads feature flag calls from the `posthog.flag_evaluations` table, and an event series on `$feature_flag_called` stops returning them. Use a flag calls series instead. It is the series the insight editor builds when a user picks "Feature flag called" in that mode, so a saved insight opens the same way in the web app. When `flag_evaluations_mode` is 0, keep using the `$feature_flag_called` event.
+
+A flag calls series is `{ "kind": "LifecycleDataWarehouseNode", "table_name": "posthog.flag_evaluations" }`. The table fields fill in for you. Put flag filters on the flag calls series as `data_warehouse` filters on `flag_key` or `response`, or as `hogql` filters. Event, person, and session filters do not apply to it. The table keeps 90 days of rows. The table stores no person creation time, so an actor counts as new in the period of the earliest flag call that the query reads. Set `aggregation_target_field` to `$group_<index>` when the query sets `aggregation_group_type_index`. Otherwise keep the default `person_id`.
+
+```json
+{
+  "kind": "LifecycleQuery",
+  "series": [{ "kind": "LifecycleDataWarehouseNode", "table_name": "posthog.flag_evaluations" }],
+  "dateRange": { "date_from": "-30d" },
+  "interval": "day"
+}
+```
+
 # Examples
 
 ## Daily lifecycle of pageviews over the last 30 days

@@ -3013,6 +3013,110 @@
             "required": ["kind", "select"],
             "type": "object"
         },
+        "AssistantFlagCallsActorField": {
+            "description": "The column that identifies the actor. It must match the query's aggregation. `person_id` - persons, when `aggregation_group_type_index` is not set. `$group_0` to `$group_4` - the group type set in `aggregation_group_type_index`.",
+            "enum": ["person_id", "$group_0", "$group_1", "$group_2", "$group_3", "$group_4"],
+            "type": "string"
+        },
+        "AssistantFlagCallsColumn": {
+            "description": "`flag_key` - key of the evaluated feature flag. `response` - what the flag returned, as a string: `true`, `false`, a variant key, or `null` when the flag returned JSON null.",
+            "enum": ["flag_key", "response"],
+            "type": "string"
+        },
+        "AssistantFlagCallsNodeBase": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "name": {
+                    "default": "Feature flag called",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantFlagCallsSeriesPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "table_name": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "const": "timestamp",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "table_name", "timestamp_field"],
+            "type": "object"
+        },
+        "AssistantFlagCallsPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "$ref": "#/definitions/AssistantFlagCallsColumn"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantStringOrBooleanValuePropertyFilterOperator",
+                            "description": "`icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern."
+                        },
+                        "type": {
+                            "const": "data_warehouse",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties.",
+                            "type": "string"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "$ref": "#/definitions/AssistantFlagCallsColumn"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/AssistantArrayPropertyFilterOperator",
+                            "description": "`exact` - exact match of any of the values. `is_not` - does not match any of the values."
+                        },
+                        "type": {
+                            "const": "data_warehouse",
+                            "type": "string"
+                        },
+                        "value": {
+                            "description": "Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string \"true\" or \"false\".",
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["key", "operator", "type", "value"],
+                    "type": "object"
+                }
+            ]
+        },
+        "AssistantFlagCallsSeriesPropertyFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantFlagCallsPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AssistantHogQLPropertyFilter"
+                }
+            ]
+        },
         "AssistantFlagPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -3336,6 +3440,62 @@
             },
             "type": "object"
         },
+        "AssistantFunnelsFlagCallsActorField": {
+            "description": "The column that identifies the actor. It must match the funnel's aggregation. `person_id` - persons, when neither `aggregation_group_type_index` nor `funnelAggregateByHogQL` is set. `$group_0` to `$group_4` - the group type set in `aggregation_group_type_index`. `properties.$session_id` - sessions, when `funnelAggregateByHogQL` is `properties.$session_id`.",
+            "enum": ["person_id", "$group_0", "$group_1", "$group_2", "$group_3", "$group_4", "properties.$session_id"],
+            "type": "string"
+        },
+        "AssistantFunnelsFlagCallsNode": {
+            "additionalProperties": false,
+            "description": "A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the insight editor builds when a user picks \"Feature flag called\" in a project that reads flag calls from that table. Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because the event query stops returning flag calls in those modes. A project that does not read flag calls from the table rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days.",
+            "properties": {
+                "aggregation_target_field": {
+                    "$ref": "#/definitions/AssistantFunnelsFlagCallsActorField",
+                    "default": "person_id"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "id_field": {
+                    "const": "uuid",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "FunnelsDataWarehouseNode",
+                    "type": "string"
+                },
+                "name": {
+                    "default": "Feature flag called",
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "default": false,
+                    "description": "If true, this step can be skipped without breaking the funnel. Do not set it on the first or last step.",
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantFlagCallsSeriesPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "table_name": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "const": "timestamp",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "AssistantFunnelsGroupNode": {
             "additionalProperties": false,
             "description": "Defines a funnel step that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" counted as a single step). Filters live on the inner nodes — set per-node `properties` to give each event its own filter. Step-wide group filters, funnel math, and `optionalInFunnel` are not supported on grouped steps.",
@@ -3389,6 +3549,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantFunnelsGroupNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantFunnelsFlagCallsNode"
                 }
             ]
         },
@@ -3966,6 +4129,53 @@
             },
             "type": "object"
         },
+        "AssistantLifecycleFlagCallsNode": {
+            "additionalProperties": false,
+            "description": "A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the insight editor builds when a user picks \"Feature flag called\" in a project that reads flag calls from that table. Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because the event query stops returning flag calls in those modes. A project that does not read flag calls from the table rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days.",
+            "properties": {
+                "aggregation_target_field": {
+                    "$ref": "#/definitions/AssistantFlagCallsActorField",
+                    "default": "person_id"
+                },
+                "created_at_field": {
+                    "const": "timestamp",
+                    "description": "The table stores no person creation time, so lifecycle treats the earliest flag call that the query reads as the actor's start.",
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "LifecycleDataWarehouseNode",
+                    "type": "string"
+                },
+                "name": {
+                    "default": "Feature flag called",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantFlagCallsSeriesPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "table_name": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "const": "timestamp",
+                    "type": "string"
+                }
+            },
+            "required": ["created_at_field", "id", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "AssistantLifecycleQuery": {
             "additionalProperties": false,
             "properties": {
@@ -4015,7 +4225,7 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Event or action to analyze. Lifecycle insights only support a single series.",
+                    "description": "Event, action, or flag calls series to analyze. Lifecycle insights only support a single series.",
                     "items": {
                         "$ref": "#/definitions/AssistantLifecycleSeriesNode"
                     },
@@ -4033,6 +4243,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantLifecycleActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantLifecycleFlagCallsNode"
                 }
             ]
         },
@@ -4700,6 +4913,9 @@
                 },
                 {
                     "$ref": "#/definitions/AssistantRetentionActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantRetentionFlagCallsEntity"
                 }
             ]
         },
@@ -4811,6 +5027,48 @@
                 }
             },
             "required": ["returningEntity", "targetEntity"],
+            "type": "object"
+        },
+        "AssistantRetentionFlagCallsEntity": {
+            "additionalProperties": false,
+            "description": "A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the insight editor builds when a user picks \"Feature flag called\" in a project that reads flag calls from that table. Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because the event query stops returning flag calls in those modes. A project that does not read flag calls from the table rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days.",
+            "properties": {
+                "aggregation_target_field": {
+                    "$ref": "#/definitions/AssistantFlagCallsActorField",
+                    "default": "person_id"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "id": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "name": {
+                    "default": "Feature flag called",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantFlagCallsSeriesPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "table_name": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "const": "timestamp",
+                    "type": "string"
+                },
+                "type": {
+                    "const": "data_warehouse",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "table_name", "timestamp_field", "type"],
             "type": "object"
         },
         "AssistantRetentionQuery": {
@@ -5696,6 +5954,64 @@
             },
             "type": "object"
         },
+        "AssistantTrendsFlagCallsMath": {
+            "enum": ["total", "dau", "hogql"],
+            "type": "string"
+        },
+        "AssistantTrendsFlagCallsNode": {
+            "additionalProperties": false,
+            "description": "A series of feature flag calls, read from the `posthog.flag_evaluations` table. It is the same series the insight editor builds when a user picks \"Feature flag called\" in a project that reads flag calls from that table. Use it instead of the `$feature_flag_called` event when the project's `flag_evaluations_mode` is not 0, because the event query stops returning flag calls in those modes. A project that does not read flag calls from the table rejects the query. The table keeps 90 days of rows, so a date range that starts earlier returns only those days. To split flag calls by flag or by response, break down with `{ type: \"data_warehouse\", property: \"flag_key\" }` or `property: \"response\"`. Do not combine that breakdown with event or action series.",
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "distinct_id_field": {
+                    "const": "distinct_id",
+                    "type": "string"
+                },
+                "id": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "id_field": {
+                    "const": "uuid",
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "DataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/AssistantTrendsFlagCallsMath",
+                    "description": "`total` - the number of flag calls. The query uses it when `math` is omitted. `dau` - the number of unique users who had a flag evaluated. `hogql` - a custom aggregation in `math_hogql`."
+                },
+                "math_hogql": {
+                    "description": "Custom HogQL aggregation over the table's columns, for example `count(distinct flag_key)`. When set, `math` must be `hogql`.",
+                    "type": "string"
+                },
+                "name": {
+                    "default": "Feature flag called",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Filters on the flag calls. Filter by `flag_key` and `response`, or by a HogQL expression on the table's columns, for example `properties.$lib = 'web'`. Put flag call filters here, not in the query's `properties`.",
+                    "items": {
+                        "$ref": "#/definitions/AssistantFlagCallsSeriesPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "table_name": {
+                    "const": "posthog.flag_evaluations",
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "const": "timestamp",
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "AssistantTrendsGroupNode": {
             "additionalProperties": false,
             "description": "Defines a series that combines multiple events or actions with OR (e.g. \"Pageview OR Pageleave\" as one line). Aggregation (`math*`) is read from the group, not the inner nodes — set it here. Inner-node `event` / `id` / `properties` / `name` are respected normally; per-node `properties` apply only to that node, so each event can carry its own filter.",
@@ -5809,7 +6125,7 @@
                     "type": ["number", "null"]
                 },
                 "series": {
-                    "description": "Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating \"Pageview OR Pageleave\" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series.",
+                    "description": "Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions.\n\nUse a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating \"Pageview OR Pageleave\" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series. Use an `AssistantTrendsFlagCallsNode` to count feature flag calls from the flag calls table.",
                     "items": {
                         "anyOf": [
                             {
@@ -5820,6 +6136,9 @@
                             },
                             {
                                 "$ref": "#/definitions/AssistantTrendsGroupNode"
+                            },
+                            {
+                                "$ref": "#/definitions/AssistantTrendsFlagCallsNode"
                             }
                         ]
                     },
