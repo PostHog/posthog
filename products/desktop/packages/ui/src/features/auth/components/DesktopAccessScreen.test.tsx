@@ -1,7 +1,11 @@
+import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { DesktopAccessScreen } from "./DesktopAccessScreen";
+
+const { track } = vi.hoisted(() => ({ track: vi.fn() }));
+vi.mock("@posthog/ui/shell/analytics", () => ({ track }));
 
 const orgProjectsMap = {
   "org-1": {
@@ -62,10 +66,16 @@ describe("DesktopAccessScreen", () => {
   it.each([
     ["startup_plan", "Organizations in the Startup or YC program"],
     ["prepaid_credits", "sales@posthog.com"],
+    [null, "paused new sign-ups"],
   ] as const)("renders the %s reason", (reason, expectedCopy) => {
+    track.mockClear();
     renderScreen({ projectId: 1, status: "blocked", reason });
 
     expect(screen.getByText(new RegExp(expectedCopy))).toBeInTheDocument();
+    expect(track).toHaveBeenCalledExactlyOnceWith(
+      ANALYTICS_EVENTS.DESKTOP_ACCESS_SCREEN_SHOWN,
+      { status: "blocked", reason },
+    );
     expect(screen.getByText("First organization")).toBeInTheDocument();
     expect(screen.getByText("Website")).toBeInTheDocument();
   });
