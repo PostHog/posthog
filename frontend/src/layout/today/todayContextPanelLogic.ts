@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -7,6 +7,16 @@ import { urls } from 'scenes/urls'
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+
+export interface TodayContextPanelOffset {
+    x: number
+    y: number
+}
+
+/** How close to the right edge of the window a dragged panel must be released to dock. */
+export const TODAY_CONTEXT_PANEL_DOCK_EDGE = 64
+
+const NO_OFFSET: TodayContextPanelOffset = { x: 0, y: 0 }
 
 /**
  * Tabs the top bar doesn't offer. Info is on its way out under the Today layout. Exports, Notebooks and Discussion
@@ -21,7 +31,12 @@ export interface todayContextPanelLogicValues {
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
     activeTab: SidePanelTab
+    dockHint: boolean
     docked: boolean
+    floatingActiveTab: SidePanelTab
+    floatingOffset: TodayContextPanelOffset
+    floatingOpen: boolean
+    floatingTab: SidePanelTab
     fullScreenUrl: string | null
     panelTabs: SidePanelTab[]
 }
@@ -41,11 +56,29 @@ export interface todayContextPanelLogicActions {
     close: () => {
         value: true
     }
+    dock: () => {
+        value: true
+    }
     openFullScreen: () => {
         value: true
     }
+    setDockHint: (dockHint: boolean) => {
+        dockHint: boolean
+    }
+    setFloatingOffset: (offset: TodayContextPanelOffset) => {
+        offset: TodayContextPanelOffset
+    }
+    setFloatingOpen: (open: boolean) => {
+        open: boolean
+    }
+    setFloatingTab: (tab: SidePanelTab) => {
+        tab: SidePanelTab
+    }
     togglePanelTab: (tab: SidePanelTab) => {
         tab: SidePanelTab
+    }
+    undock: () => {
+        value: true
     }
 }
 
@@ -54,7 +87,8 @@ export interface todayContextPanelLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         docked: (sidePanelOpen: boolean) => boolean
         panelTabs: (enabledTabs: SidePanelTab[]) => SidePanelTab[]
-        activeTab: (selectedTab: SidePanelTab | null) => SidePanelTab
+        floatingActiveTab: (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]) => SidePanelTab
+        activeTab: (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab) => SidePanelTab
         fullScreenUrl: (activeTab: SidePanelTab, selectedNotebook: string) => string | null
     }
 }
@@ -66,7 +100,10 @@ export type todayContextPanelLogicType = MakeLogicType<
     todayContextPanelLogicMeta
 >
 
-/** The context panel outside the scene, docked in its own column beside it. PostHog AI is the panel's home tab. */
+/**
+ * The context panel outside the scene: a floating card over the main content, or docked in the side panel.
+ * Both show the same panel, so only one of them is open at a time. PostHog AI is the panel's home tab.
+ */
 export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
     path(['layout', 'today', 'todayContextPanelLogic']),
     connect(() => ({
@@ -81,9 +118,46 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         actions: [sidePanelStateLogic, ['openSidePanel', 'closeSidePanel']],
     })),
     actions({
+        setFloatingOpen: (open: boolean) => ({ open }),
+        setFloatingTab: (tab: SidePanelTab) => ({ tab }),
+        setFloatingOffset: (offset: TodayContextPanelOffset) => ({ offset }),
+        setDockHint: (dockHint: boolean) => ({ dockHint }),
         togglePanelTab: (tab: SidePanelTab) => ({ tab }),
+        dock: true,
+        undock: true,
         close: true,
         openFullScreen: true,
+    }),
+    reducers({
+        floatingOpen: [
+            false,
+            {
+                setFloatingOpen: (_, { open }) => open,
+                dock: () => false,
+                undock: () => true,
+            },
+        ],
+        floatingTab: [
+            SidePanelTab.Max as SidePanelTab,
+            {
+                setFloatingTab: (_, { tab }) => tab,
+            },
+        ],
+        // Kept across opens, so the panel comes back where the user left it.
+        floatingOffset: [
+            NO_OFFSET as TodayContextPanelOffset,
+            {
+                setFloatingOffset: (_, { offset }) => offset,
+            },
+        ],
+        dockHint: [
+            false,
+            {
+                setDockHint: (_, { dockHint }) => dockHint,
+                dock: () => false,
+                setFloatingOpen: () => false,
+            },
+        ],
     }),
     selectors({
         docked: [(s) => [s.sidePanelOpen], (sidePanelOpen: boolean): boolean => sidePanelOpen],
@@ -94,9 +168,16 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 SidePanelTab.Max,
             ],
         ],
+        /** A tab the scene no longer offers falls back to PostHog AI, like the docked panel closing on navigation. */
+        floatingActiveTab: [
+            (s) => [s.floatingTab, s.panelTabs],
+            (floatingTab: SidePanelTab, panelTabs: SidePanelTab[]): SidePanelTab =>
+                panelTabs.includes(floatingTab) ? floatingTab : SidePanelTab.Max,
+        ],
         activeTab: [
-            (s) => [s.selectedTab],
-            (selectedTab: SidePanelTab | null): SidePanelTab => selectedTab ?? SidePanelTab.Max,
+            (s) => [s.docked, s.selectedTab, s.floatingActiveTab],
+            (docked: boolean, selectedTab: SidePanelTab | null, floatingActiveTab: SidePanelTab): SidePanelTab =>
+                docked && selectedTab ? selectedTab : floatingActiveTab,
         ],
         fullScreenUrl: [
             (s) => [s.activeTab, s.selectedNotebook],
@@ -113,20 +194,54 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        // The top bar's tab buttons: the open tab closes the panel, and any other tab opens docked.
+        setFloatingOpen: ({ open }) => {
+            // pinned: analytics event names
+            posthog.capture(open ? 'today context panel opened' : 'today context panel closed', {
+                mode: 'floating',
+                tab: values.floatingActiveTab,
+            })
+            if (open && values.docked) {
+                actions.closeSidePanel()
+            }
+        },
+        // The top bar's tab buttons: the open tab closes the panel, a floating panel switches in place, and with the
+        // panel closed the tab opens docked.
         togglePanelTab: ({ tab }) => {
-            posthog.capture('today context panel tab toggled', { tab, docked: values.docked, open: values.docked })
-            if (values.docked && values.activeTab === tab) {
+            const open = values.docked || values.floatingOpen
+            posthog.capture('today context panel tab toggled', { tab, docked: values.docked, open })
+            if (open && values.activeTab === tab) {
                 actions.close()
+            } else if (values.floatingOpen) {
+                actions.setFloatingTab(tab)
             } else {
                 actions.openSidePanel(tab)
             }
         },
-        close: () => {
+        dock: () => {
+            posthog.capture('today context panel docked', { tab: values.floatingActiveTab })
+            actions.openSidePanel(values.floatingActiveTab)
+        },
+        undock: () => {
+            const tab = values.selectedTab ?? SidePanelTab.Max
+            posthog.capture('today context panel undocked', { tab })
+            actions.setFloatingTab(tab)
             actions.closeSidePanel()
+        },
+        close: () => {
+            if (values.docked) {
+                actions.closeSidePanel()
+            } else {
+                actions.setFloatingOpen(false)
+            }
         },
         openFullScreen: () => {
             actions.close()
+        },
+        // The floating and docked panel are one panel, so docking any tab takes the floating card away.
+        openSidePanel: () => {
+            if (values.floatingOpen) {
+                actions.setFloatingOpen(false)
+            }
         },
     })),
 ])

@@ -8,12 +8,14 @@ import { TodayContextPanelContent } from './TodayContextPanelContent'
 import { TodayContextPanelHeader } from './TodayContextPanelHeader'
 
 interface TodayContextPanelCardProps {
+    docked: boolean
     tab: SidePanelTab
+    onDragStart?: (event: React.PointerEvent<HTMLDivElement>) => void
     className?: string
 }
 
 export const TodayContextPanelCard = forwardRef<HTMLDivElement, TodayContextPanelCardProps>(
-    function TodayContextPanelCard({ tab, className }, ref) {
+    function TodayContextPanelCard({ docked, tab, onDragStart, className }, ref) {
         return (
             // The header carries its own padding, so the card drops its top padding too. The panels paint the
             // app's surface, so the card takes the same one and the header and body read as one surface. The
@@ -28,7 +30,7 @@ export const TodayContextPanelCard = forwardRef<HTMLDivElement, TodayContextPane
                 )}
                 data-attr="today-context-panel-card"
             >
-                <TodayContextPanelHeader />
+                <TodayContextPanelHeader docked={docked} onDragStart={onDragStart} />
                 <CardContent className="flex min-h-0 flex-1 flex-col overflow-hidden">
                     <TodayContextPanelContent tab={tab} />
                 </CardContent>

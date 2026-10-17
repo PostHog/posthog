@@ -14,6 +14,7 @@ import { Scene, SceneConfig } from 'scenes/sceneTypes'
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
+import { TodayContextPanelFloating } from '~/layout/today/TodayContextPanelFloating'
 import { TodayShell } from '~/layout/today/TodayShell'
 import { TODAY_RAIL_WIDTH, todayShellLogic } from '~/layout/today/todayShellLogic'
 import { TodaySidePanel } from '~/layout/today/TodaySidePanel'
@@ -57,6 +58,7 @@ export function Navigation({
         sidebarVisible: todaySidebarVisible,
         phoneLayout: todayPhoneLayout,
         phoneHeaderHidden: todayPhoneHeaderHidden,
+        onAiPage: todayOnAiPage,
     } = useValues(todayShellLogic)
     const todayDrawerOpen = todayRail && mobileLayout && todaySidebarVisible
     const todayPhone = todayRail && todayPhoneLayout
@@ -329,6 +331,7 @@ export function Navigation({
                                 </div>
                             </>
                         )}
+                        {todayFramed && !todayOnAiPage && <TodayContextPanelFloating />}
                     </div>
                     {todayFramed && <TodaySidePanel />}
                 </ProjectDragAndDropProvider>

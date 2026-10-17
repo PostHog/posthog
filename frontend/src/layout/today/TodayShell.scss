@@ -1,8 +1,11 @@
+// Resolved on body, outside any quill scope, so the sidebar, the content and the cards portaled out of the layout
+// (the floating AI chat) share one corner value.
+body {
+    --today-frame-radius: var(--radius);
+}
+
 .TodayAppLayout {
     --today-frame-inset: 4px;
-
-    // Resolved here, outside any quill scope, so the sidebar and content corners share one value.
-    --today-frame-radius: var(--radius);
 
     background: var(--today-paper);
 }
@@ -380,5 +383,31 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     from {
         opacity: 0;
         transform: translateX(var(--today-context-panel-slide));
+    }
+}
+
+// The floating button sinks away when the panel docks and rises back when it closes, so the hand-off reads.
+// Leaving is a little quicker than coming back.
+.TodayContextPanelButton {
+    transition:
+        opacity 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+        transform 200ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+        visibility 0s;
+
+    &[data-hidden] {
+        visibility: hidden;
+        opacity: 0;
+        transition:
+            opacity 160ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+            transform 160ms var(--today-ease, cubic-bezier(0.23, 1, 0.32, 1)),
+            visibility 0s 160ms;
+        transform: translateY(0.5rem);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &,
+        &[data-hidden] {
+            transition: none;
+        }
     }
 }
