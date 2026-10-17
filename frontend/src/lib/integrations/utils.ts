@@ -85,6 +85,7 @@ export type IntegrationConnectSurface =
     | 'visual_review_settings'
     | 'install_approved_banner'
     | 'unavailable_banner_reconnect'
+    | 'chat_connect_page'
 
 export const ICONS: Record<IntegrationKind, any> = {
     slack: IconSlack,

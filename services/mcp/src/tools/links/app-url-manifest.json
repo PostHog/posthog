@@ -859,6 +859,11 @@
         "params": [],
         "scope": "project"
     },
+    "githubConnect": {
+        "template": "/integrations/github/connect",
+        "params": [],
+        "scope": "project"
+    },
     "group": {
         "template": "/groups/{groupTypeIndex}/{groupKey}",
         "params": ["groupTypeIndex", "groupKey"],
