@@ -23,7 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.logs.backend.alert_evaluation_key import window_end_of
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
 from products.logs.backend.logs_url_params import build_logs_url_params, has_filter_values
-from products.logs.backend.platform_source_config import filters_of
+from products.logs.backend.platform_source_config import filters_of, logs_alert_url
 
 # A resolve reports the count that ended the firing, so it is not a breach. A held check, which
 # only moves a paging incident, can be either, so it gets a neutral label.
@@ -152,7 +152,7 @@ def legacy_logs_webhook_body(
     transition = _in_utc(transition)
     occurred_at = transition.occurred_at
     filters = filters_of(transition.source_config)
-    alert_url = absolute_uri(f"/project/{project_id}/logs/alerts/{alert_id}")
+    alert_url = logs_alert_url(project_id, alert_id)
     data: dict[str, Any] = {
         "alert_id": alert_id,
         "alert_name": alert_name,

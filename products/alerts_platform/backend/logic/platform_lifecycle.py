@@ -357,15 +357,11 @@ def _event_row(
     now: datetime,
 ) -> PlatformAlertEventRow:
     group = verdict if isinstance(verdict, GroupOutcome) else None
-    return PlatformAlertEventRow(
-        team_id=configuration.team_id,
-        source_kind=configuration.source_kind,
-        configuration_id=configuration.id,
-        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
-        grouping_key=alert.grouping_key if alert else "",
+    return event_row(
+        configuration,
+        alert=alert,
         evaluation_key=outcome.evaluation_key,
         kind=verdict.kind.value,
-        alert_name=configuration.name,
         previous_state=previous_state,
         state=verdict.new_state,
         # The whole episode, ended or not. A resolve names the firing it closed, which is what a
@@ -373,17 +369,57 @@ def _event_row(
         episode_started_at=verdict.firing_episode.started_at if verdict.firing_episode else None,
         value=group.value if group else None,
         labels=group.labels if group else {},
-        condition_snapshot=_condition_snapshot(configuration),
-        source_config_snapshot=configuration.source_config,
         query_duration_ms=outcome.query_duration_ms,
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
         muted_notification=verdict.muted_notification,
+        now=now,
+    )
+
+
+def event_row(
+    configuration: PlatformAlertConfiguration,
+    *,
+    alert: PlatformAlert | None,
+    evaluation_key: str,
+    kind: str,
+    previous_state: str,
+    state: str,
+    episode_started_at: datetime | None,
+    consecutive_failures: int,
+    now: datetime,
+    value: float | None = None,
+    labels: dict[str, str] | None = None,
+    query_duration_ms: int | None = None,
+    error_message: str | None = None,
+    muted_notification: str = "",
+) -> PlatformAlertEventRow:
+    """One history row for a configuration, with the snapshots every row carries."""
+    return PlatformAlertEventRow(
+        team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
+        configuration_id=configuration.id,
+        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
+        grouping_key=alert.grouping_key if alert else "",
+        evaluation_key=evaluation_key,
+        kind=kind,
+        alert_name=configuration.name,
+        previous_state=previous_state,
+        state=state,
+        episode_started_at=episode_started_at,
+        value=value,
+        labels=labels or {},
+        condition_snapshot=_condition_snapshot(configuration),
+        source_config_snapshot=configuration.source_config,
+        query_duration_ms=query_duration_ms,
+        error_message=error_message,
+        consecutive_failures=consecutive_failures,
+        muted_notification=muted_notification,
         occurred_at=now,
     )
 
 
-def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
+def record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     recorded = insert_events(team_id, rows)
     if recorded < len(rows):
         # One batch holds one source's checks.
@@ -563,7 +599,7 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
-        transaction.on_commit(lambda: _record_history(team_id, rows))
+        transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
 
 
@@ -699,6 +735,43 @@ def write_edit(
     configuration.datapoints_to_alarm = edit.datapoints_to_alarm
     configuration.cooldown_minutes = edit.cooldown_minutes
     configuration.save(update_fields=update_fields)
+
+
+def end_firing_instances(configuration: PlatformAlertConfiguration, *, now: datetime) -> list[PlatformAlert]:
+    """Moves every firing instance of a configuration locked by the caller to not firing, and returns
+    them as they were.
+
+    The next check moves past a fence, so a check already running finds the row no longer due and
+    records nothing. Otherwise it would write back the firing this just ended, with no incident open.
+    """
+    instances = PlatformAlert.objects.for_team(configuration.team_id, canonical=True).filter(
+        configuration=configuration, state=PlatformAlertState.FIRING
+    )
+    firing = list(instances)
+    if firing:
+        instances.update(state=PlatformAlertState.NOT_FIRING, firing_started_at=None)
+        configuration.next_check_at = max(configuration.next_check_at or now, now + _REVIVE_FENCE)
+        configuration.save(update_fields=["next_check_at"])
+    return firing
+
+
+def write_snooze(configuration: PlatformAlertConfiguration, snooze_until: datetime | None, *, now: datetime) -> None:
+    """Sets or clears a configuration's mute from a source's API.
+
+    A snooze defers the next check to its end, as the logs stack runs no check while snoozed. A mute
+    alone holds only messages, and a breach that went on would open a new incident during the snooze.
+    """
+    next_check_at = configuration.next_check_at or now
+    current = configuration.snooze_until
+    if current is not None and current > now:
+        # The stored due time is the current snooze's end, which the new snooze replaces. A fence an
+        # edit set earlier in this transaction is at most this far out, so it holds.
+        next_check_at = min(next_check_at, now + _REVIVE_FENCE)
+    if snooze_until is not None and snooze_until > now:
+        next_check_at = max(next_check_at, snooze_until)
+    configuration.snooze_until = snooze_until
+    configuration.next_check_at = next_check_at
+    configuration.save(update_fields=["snooze_until", "next_check_at", "updated_at"])
 
 
 def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:

@@ -32,7 +32,6 @@ from posthog.dataclasses import frozen
 from posthog.exceptions import ClickHouseEstimatedQueryExecutionTimeTooLong, ClickHouseQueryTimeOut
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
-from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade.destinations import configured_destination_template_ids
 from products.alerts_platform.backend.facade.api import due_check_ids, due_checks, refresh_settings, slot_of
@@ -99,7 +98,7 @@ from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import SETTINGS_FIELDS, platform_upsert_of
-from products.logs.backend.platform_source_config import filters_of
+from products.logs.backend.platform_source_config import filters_of, logs_alert_url
 
 # Private to the production activity. Reimplementing either would let this path drift from
 # what the logs stack evaluates. Promoting them to a shared home is the deeper fix.
@@ -462,11 +461,11 @@ def _request(
         evaluation_key=recorded.evaluation_key,
         destination_alert_id=destination_alert_id,
         event_ids_by_kind=_EVENT_IDS_BY_KIND,
-        event_ids_by_incident_action=_EVENT_IDS_BY_INCIDENT_ACTION,
+        event_ids_by_incident_action=EVENT_IDS_BY_INCIDENT_ACTION,
         incident_actions=actions,
         sends_messages=sends_messages,
         # The logs alert page, as the HogFunction messages linked. An alert with no logs row has none.
-        source_alert_url=absolute_uri(f"/project/{check.team_id}/logs/alerts/{check.legacy_configuration_id}")
+        source_alert_url=logs_alert_url(check.team_id, check.legacy_configuration_id)
         if check.legacy_configuration_id is not None
         else None,
         owned_by_platform=check.owned_by_platform,
@@ -485,7 +484,7 @@ def _has_incident_destination(team_id: int, destination_alert_id: str) -> bool:
         configured_destination_template_ids(
             team_id=team_id,
             alert_id=destination_alert_id,
-            allowed_event_ids=tuple(_EVENT_IDS_BY_INCIDENT_ACTION.values()),
+            allowed_event_ids=tuple(EVENT_IDS_BY_INCIDENT_ACTION.values()),
         )
     )
 
@@ -499,7 +498,7 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 }
 
 # Which event id an incident manager destination filters on for each incident action.
-_EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
+EVENT_IDS_BY_INCIDENT_ACTION: Final[dict[str, str]] = {
     spec.incident_action.value: spec.event_id for spec in EVENT_KIND_CONFIG.values() if spec.incident_action
 }
 

@@ -204,6 +204,16 @@ class AlertsPlatformDeliverPreviewWorkflow(PostHogWorkflow):
             await workflow.sleep(BUSY_RETRY_DELAY)
 
 
+def delivery_workflow_id(delivery: AlertDeliveryRequest) -> str:
+    """The id of an evaluation's delivery. A re-run of the same occasion reuses it, so one delivery
+    runs whichever caller starts it."""
+    return f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}"
+
+
+def delivery_execution_timeout(delivery: AlertDeliveryRequest) -> dt.timedelta:
+    return DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts)
+
+
 async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
     """Starts one delivery workflow per request, from inside a source's evaluation workflow.
 
@@ -220,10 +230,10 @@ async def start_deliveries(deliveries: Sequence[AlertDeliveryRequest]) -> int:
             workflow.start_child_workflow(
                 AlertsPlatformDeliverPreviewWorkflow.run,
                 delivery,
-                id=f"alerts-deliver-preview-{delivery.configuration_id}:{delivery.evaluation_key}",
+                id=delivery_workflow_id(delivery),
                 task_queue=settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE,
                 parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                execution_timeout=DELIVERY_EXECUTION_TIMEOUT * max(1, delivery.parts),
+                execution_timeout=delivery_execution_timeout(delivery),
             )
             for delivery in deliveries
         ),
