@@ -3,31 +3,22 @@ import { useActions, useValues } from 'kea'
 import { IconArchive } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
+import { QuillTaskHistoryList } from '../../../components/quill/QuillTaskHistoryList'
+import { QuillTaskHistoryPreview } from '../../../components/quill/QuillTaskHistoryPreview'
+import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { taskHistoryLogic } from '../../../logics/taskHistoryLogic'
 import { tasksLogic } from '../../../logics/tasksLogic'
-import { Task, TaskRunStatus } from '../../../types/taskTypes'
+import { Task } from '../../../types/taskTypes'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
-
-const IN_PROGRESS_STATUSES = new Set<TaskRunStatus>([TaskRunStatus.QUEUED, TaskRunStatus.IN_PROGRESS])
-
-// Compact "time ago" using a single largest unit, e.g. 18m, 1h, 7d.
-function compactTimeAgo(iso: string): string {
-    const seconds = dayjs().diff(dayjs(iso), 'second')
-    if (seconds < 60) {
-        return 'now'
-    }
-    return humanFriendlyDuration(seconds, { maxUnits: 1 })
-}
-
-function isTaskInProgress(task: Task): boolean {
-    return task.latest_run ? IN_PROGRESS_STATUSES.has(task.latest_run.status) : false
-}
+import { compactTimeAgo, isTaskInProgress } from './taskHistoryUtils'
 
 export function TaskHistoryPreview(): JSX.Element | null {
+    return useThreadSkin() === 'quill' ? <QuillTaskHistoryPreview /> : <LemonTaskHistoryPreview />
+}
+
+function LemonTaskHistoryPreview(): JSX.Element | null {
     const { history, historyLoading } = useValues(taskHistoryLogic)
     const { toggleHistory, openExistingTask } = useActions(taskTrackerSceneLogic)
 
@@ -97,6 +88,10 @@ function TaskHistoryPreviewRow({ task, onOpen }: TaskHistoryRowProps): JSX.Eleme
 }
 
 export function TaskHistoryList(): JSX.Element {
+    return useThreadSkin() === 'quill' ? <QuillTaskHistoryList /> : <LemonTaskHistoryList />
+}
+
+function LemonTaskHistoryList(): JSX.Element {
     const { history, historyLoading } = useValues(taskHistoryLogic)
     const { openExistingTask } = useActions(taskTrackerSceneLogic)
 

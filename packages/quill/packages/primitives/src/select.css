@@ -157,7 +157,9 @@
 
     .quill-select__separator {
         height: 1px;
-        margin-block: 0.25rem;
+
+        /* Select groups pad themselves, so a margin here would double the gap around the line. */
+        margin-block: 0;
         margin-inline: -0.25rem;
         pointer-events: none;
         background-color: color-mix(in oklab, var(--border) 50%, transparent);

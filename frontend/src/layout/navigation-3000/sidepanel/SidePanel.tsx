@@ -3,128 +3,36 @@ import './SidePanel.scss'
 import { useActions, useValues } from 'kea'
 import { memo, useEffect, useRef } from 'react'
 
-import { IconApps, IconChat, IconLock, IconLogomark, IconNotebook, IconPulse } from '@posthog/icons'
-
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
-import { cn } from 'lib/utils/css-classes'
-import { lazyWithRetry } from 'lib/utils/retryImport'
-
-const NotebookPanel = lazyWithRetry(() =>
-    import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
-)
-// The support panel renders the ticket editor, which pulls in tiptap extensions and lowlight.
-const SidePanelSupport = lazyWithRetry(() =>
-    import('./panels/support/SidePanelSupport').then((m) => ({ default: m.SidePanelSupport }))
-)
-// Discussion renders the comment composer, which pulls in the rich content editor and emoji picker.
-const SidePanelDiscussion = lazyWithRetry(() =>
-    import('./panels/discussion/SidePanelDiscussion').then((m) => ({ default: m.SidePanelDiscussion }))
-)
-const SidePanelAccessControl = lazyWithRetry(() =>
-    import('./panels/access_control/SidePanelAccessControl').then((m) => ({ default: m.SidePanelAccessControl }))
-)
-const SidePanelAccessDetail = lazyWithRetry(() =>
-    import('./panels/access_control/SidePanelAccessDetail').then((m) => ({ default: m.SidePanelAccessDetail }))
-)
-const SidePanelExports = lazyWithRetry(() =>
-    import('./panels/exports/SidePanelExports').then((m) => ({ default: m.SidePanelExports }))
-)
-const CanvasSidePanel = lazyWithRetry(() =>
-    import('products/canvas/frontend/sidePanel/CanvasSidePanel').then((m) => ({ default: m.CanvasSidePanel }))
-)
-const SidePanelActivity = lazyWithRetry(() =>
-    import('./panels/activity/SidePanelActivity').then((m) => ({ default: m.SidePanelActivity }))
-)
-
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { cn } from 'lib/utils/css-classes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
+import { TodayContextPanelCard } from '~/layout/today/TodayContextPanelCard'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
-import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
-
-import { SidePanelActivityIcon } from './panels/activity/SidePanelActivityIcon'
-import { SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussionIcon'
-import { SidePanelExportsIcon } from './panels/exports/SidePanelExportsIcon'
-import { SidePanelInfo, SidePanelInfoIcon } from './panels/info/SidePanelInfo'
-import { SidePanelMax } from './panels/max/SidePanelMax'
 import { SidePanelContent } from './SidePanelContent'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
-
-export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; Content: any }> = {
-    [SidePanelTab.Max]: {
-        label: 'PostHog AI',
-        Icon: IconLogomark,
-        Content: SidePanelMax,
-    },
-    [SidePanelTab.Notebooks]: {
-        label: 'Notebooks',
-        Icon: IconNotebook,
-        Content: NotebookPanel,
-    },
-    [SidePanelTab.Support]: {
-        label: 'Support',
-        Icon: SidePanelSupportIcon,
-        Content: SidePanelSupport,
-    },
-    [SidePanelTab.Exports]: {
-        label: 'Exports',
-        Icon: SidePanelExportsIcon,
-        Content: SidePanelExports,
-    },
-    [SidePanelTab.Activity]: {
-        label: 'Activity logs',
-        Icon: SidePanelActivityIcon,
-        Content: SidePanelActivity,
-    },
-    [SidePanelTab.Discussion]: {
-        label: 'Discuss',
-        Icon: SidePanelDiscussionIcon,
-        Content: SidePanelDiscussion,
-    },
-    [SidePanelTab.AccessControl]: {
-        label: 'Access',
-        Icon: IconLock,
-        Content: SidePanelAccessControl,
-    },
-    [SidePanelTab.AccessDetail]: {
-        label: 'Access',
-        Icon: IconLock,
-        Content: SidePanelAccessDetail,
-    },
-    [SidePanelTab.Info]: {
-        label: 'Actions',
-        Icon: SidePanelInfoIcon,
-        Content: SidePanelInfo,
-    },
-    [SidePanelTab.CanvasChat]: {
-        label: 'Chat',
-        Icon: IconChat,
-        Content: CanvasSidePanel,
-    },
-    [SidePanelTab.CanvasBlocks]: {
-        label: 'Blocks',
-        Icon: IconApps,
-        Content: CanvasSidePanel,
-    },
-    [SidePanelTab.CanvasTimeline]: {
-        label: 'Timeline',
-        Icon: IconPulse,
-        Content: CanvasSidePanel,
-    },
-}
+import { SIDE_PANEL_TABS } from './sidePanelTabs'
 
 const DEFAULT_WIDTH = 512
 const SIDE_PANEL_MIN_WIDTH_COMPACT = 330
+// The framed Today layout gives the panel its own column, so a wider panel takes the space from the scene.
+const TODAY_SIDE_PANEL_MAX_WIDTH = 720
+// Matches the floating card, so docking keeps the panel's width.
+const TODAY_SIDE_PANEL_DEFAULT_WIDTH = 340
 
 export const SidePanel = memo(function SidePanel({ className }: { className?: string }): JSX.Element | null {
     const { theme } = useValues(themeLogic)
     const { enabledTabs, visibleTabs } = useValues(sidePanelLogic)
     const { selectedTab, sidePanelOpen } = useValues(sidePanelStateLogic)
     const { openSidePanel, closeSidePanel, setSidePanelAvailable } = useActions(sidePanelStateLogic)
+    const { todayRailEnabled, phoneLayout } = useValues(todayShellLogic)
+    const framed = todayRailEnabled && !phoneLayout
 
     const activeTab = sidePanelOpen && selectedTab
 
@@ -165,7 +73,13 @@ export const SidePanel = memo(function SidePanel({ className }: { className?: st
     const rawSidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
-          ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
+          ? Math.min(
+                Math.max(
+                    desiredSize ?? (framed ? TODAY_SIDE_PANEL_DEFAULT_WIDTH : DEFAULT_WIDTH),
+                    SIDE_PANEL_MIN_WIDTH_COMPACT
+                ),
+                framed ? TODAY_SIDE_PANEL_MAX_WIDTH : Infinity
+            )
           : 0
 
     const sidePanelWidth = windowSize.width != null ? Math.min(rawSidePanelWidth, windowSize.width) : rawSidePanelWidth
@@ -177,6 +91,31 @@ export const SidePanel = memo(function SidePanel({ className }: { className?: st
 
     if (!visibleTabs.length) {
         return null
+    }
+
+    if (framed) {
+        return (
+            <div
+                className={cn(
+                    '@container/side-panel relative flex h-full min-h-0 flex-col px-1 pb-1',
+                    '[--side-panel-width:initial] [--scene-layout-rect-width:initial] [--scene-layout-rect-right:initial]',
+                    isResizeInProgress && 'pointer-events-none',
+                    !sidePanelOpenAndAvailable && 'hidden',
+                    className
+                )}
+                ref={ref}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ width: sidePanelOpenAndAvailable ? sidePanelWidth : '0px' }}
+                id="side-panel"
+            >
+                {sidePanelOpenAndAvailable && (
+                    <Resizer {...resizerLogicProps} visible={false} className="left-0 top-0 h-full" />
+                )}
+                {sidePanelOpenAndAvailable && activeTab && (
+                    <TodayContextPanelCard docked tab={activeTab} className="h-full" />
+                )}
+            </div>
+        )
     }
 
     return (

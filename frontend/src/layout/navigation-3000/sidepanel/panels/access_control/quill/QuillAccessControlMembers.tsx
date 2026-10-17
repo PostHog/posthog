@@ -1,0 +1,147 @@
+import { useAsyncActions, useValues } from 'kea'
+import { useState } from 'react'
+
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@posthog/quill'
+
+import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
+import { fullName } from 'lib/utils/strings'
+import { userLogic } from 'scenes/userLogic'
+
+import {
+    AccessControlLevel,
+    AccessControlTypeMember,
+    AccessControlTypeOrganizationAdmins,
+    AvailableFeature,
+    OrganizationMemberType,
+} from '~/types'
+
+import { QuillPeopleAvatars } from '../../../components/QuillPeopleAvatars'
+import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
+import { accessControlLogic } from '../accessControlLogic'
+import { QuillAccessSection } from './QuillAccessSection'
+import { QuillAddAccessDialog } from './QuillAddAccessDialog'
+import { QuillObjectAccessLevelSelect } from './QuillObjectAccessLevelSelect'
+import { QuillRemoveAccessButton } from './QuillRemoveAccessButton'
+
+export function QuillAccessControlMembers(): JSX.Element | null {
+    const { user } = useValues(userLogic)
+    const {
+        resource,
+        membersById,
+        addableMembers,
+        accessControlMembers,
+        accessControlsLoading,
+        availableLevels,
+        canEditAccessControls,
+    } = useValues(accessControlLogic)
+    const { updateAccessControlMembers } = useAsyncActions(accessControlLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const [dialogOpen, setDialogOpen] = useState(false)
+
+    if (!user) {
+        return null
+    }
+
+    // TODO(@zach): show project admins (that are not organization admins) in the list
+    const rows = accessControlMembers.map((ac: AccessControlTypeMember | AccessControlTypeOrganizationAdmins) => {
+        if (ac.resource === 'organization') {
+            const admins = (ac as AccessControlTypeOrganizationAdmins).organization_admin_members ?? []
+            return (
+                <Item key="organization-admins" size="sm" variant="outline">
+                    <ItemMedia>
+                        <QuillPeopleAvatars
+                            people={admins.map((id) => ({
+                                email: membersById[id]?.user.email,
+                                name: fullName(membersById[id]?.user),
+                            }))}
+                        />
+                    </ItemMedia>
+                    <ItemContent className="min-w-0">
+                        <ItemDescription>
+                            {admins.length > 1
+                                ? 'have access as organization admins'
+                                : 'has access as an organization admin'}
+                        </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        {/* Shown as disabled for visibility */}
+                        <QuillObjectAccessLevelSelect
+                            level={resource === 'project' ? AccessControlLevel.Admin : AccessControlLevel.Editor}
+                            disabled
+                            levels={availableLevels}
+                            onChange={() => {}}
+                        />
+                    </ItemActions>
+                </Item>
+            )
+        }
+
+        const memberAc = ac as AccessControlTypeMember
+        const member: OrganizationMemberType | undefined = membersById[memberAc.organization_member]
+        const name = fullName(member?.user)
+        return (
+            <Item key={memberAc.organization_member} size="sm" variant="outline">
+                <ItemMedia>
+                    <QuillPersonAvatar name={name} email={member?.user.email} />
+                </ItemMedia>
+                <ItemContent className="ph-no-capture min-w-0">
+                    <ItemTitle className="w-full">
+                        <span className="truncate">{member?.user.uuid == user.uuid ? `${name} (you)` : name}</span>
+                    </ItemTitle>
+                    <ItemDescription className="truncate">{member?.user.email}</ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <QuillObjectAccessLevelSelect
+                        level={memberAc.access_level}
+                        levels={availableLevels}
+                        onChange={(level) =>
+                            void updateAccessControlMembers([{ member: memberAc.organization_member as string, level }])
+                        }
+                    />
+                    <QuillRemoveAccessButton
+                        subject="member"
+                        onConfirm={() =>
+                            void updateAccessControlMembers([
+                                { member: memberAc.organization_member as string, level: null },
+                            ])
+                        }
+                    />
+                </ItemActions>
+            </Item>
+        )
+    })
+
+    return (
+        <>
+            <QuillAccessSection
+                title="Members"
+                subject="member"
+                onAddClick={() => setDialogOpen(true)}
+                addDisabledReason={!canEditAccessControls ? 'You cannot edit this' : undefined}
+                loading={accessControlsLoading}
+                emptyText="No members have their own access rule yet."
+            >
+                {rows}
+            </QuillAccessSection>
+            <QuillAddAccessDialog
+                open={dialogOpen}
+                onOpenChange={setDialogOpen}
+                pickerLabel="Members"
+                placeholder="Search for team members to add…"
+                emptyText="No members left to add."
+                onAdd={async (newValues, level) => {
+                    if (guardAvailableFeature(AvailableFeature.ACCESS_CONTROL)) {
+                        await updateAccessControlMembers(newValues.map((member) => ({ member, level })))
+                        setDialogOpen(false)
+                    }
+                }}
+                options={addableMembers.map((member: OrganizationMemberType) => ({
+                    key: member.id,
+                    searchLabel: `${fullName(member.user)} ${member.user.email}`,
+                    name: fullName(member.user),
+                    email: member.user.email,
+                }))}
+            />
+        </>
+    )
+}
