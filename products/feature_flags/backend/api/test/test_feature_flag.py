@@ -2271,7 +2271,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Personal-key requests are the app's preview feature, not SDK usage, so they aren't counted.
         self.assertEqual(client.hgetall(f"posthog:remote_config_requests:{self.team.pk}"), {})
 
-    def test_remote_config_with_project_secret_api_key(self):
+    @parameterized.expand(
+        [
+            ("legacy_verifiers_on", True),
+            # With the verifiers off, only the mirror row the rotation minted authenticates the token.
+            ("legacy_verifiers_off", False),
+        ]
+    )
+    def test_remote_config_with_project_secret_api_key(self, _name, accept_team_secret_tokens):
         self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
         FeatureFlag.objects.create(
             team=self.team,
@@ -2290,10 +2297,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             is_remote_configuration=True,
         )
         self.client.logout()
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
-            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
-        )
+        with self.settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/feature_flags/my-remote-config-flag/remote_config",
+                headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), '{"test": true}')
 
@@ -8561,11 +8569,18 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
     def test_structural_tier_also_rejects_only_the_enforced_rule(self) -> None:
         # The structural tier decides separately from the cross-field one, so it needs its own
         # case. Both violations are on variant keys, which the serde guard only type-checks, so
-        # they reach the structural tier instead of being rejected before it.
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
+        # they reach the structural tier instead of being rejected before it. Every write rejects
+        # a new empty key, so the stored flag holds the blank key that the write keeps.
+        flag = self._create_flag_via_orm(
+            "mixed-structural-violations",
             {
-                "key": "mixed-structural-violations",
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+            },
+        )
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{flag.id}/",
+            {
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": 100}],
                     "multivariate": {
@@ -8586,22 +8601,22 @@ class TestFeatureFlagFiltersEnforcement(APIBaseTest):
 
     @override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=set())
     def test_kill_switch_logs_new_rules_but_still_rejects_serde_unsafe_input(self):
-        # An empty variant key is structurally invalid but still deserializes as a Rust String,
-        # so log-only mode records it without widening the cache-poisoning surface.
+        # A variant key over 400 characters is structurally invalid but still deserializes as a
+        # Rust String, so log-only mode records it without widening the cache-poisoning surface.
         new_rule_only = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
                 "key": "bypassed-flag",
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                    "multivariate": {"variants": [{"key": "x" * 401, "rollout_percentage": 100}]},
                 },
             },
             format="json",
         )
         self.assertEqual(new_rule_only.status_code, status.HTTP_201_CREATED, new_rule_only.json())
         flag = FeatureFlag.objects.get(id=new_rule_only.json()["id"])
-        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "")
+        self.assertEqual(flag.filters["multivariate"]["variants"][0]["key"], "x" * 401)
 
         # But the pre-enforcement type/bounds checks stay active: cache-poisoning input is
         # rejected exactly as before enforcement shipped, switch or no switch.
@@ -15292,7 +15307,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
                 "key": "metrics-bypassed",
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                    "multivariate": {"variants": [{"key": "x" * 401, "rollout_percentage": 100}]},
                 },
             },
             format="json",
@@ -15432,7 +15447,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
         # The dashboard has to see that, or a bare zero reads as "nothing left to fix".
         not_evaluated_before = self._violation_count("cross_field", "not_evaluated", "create")
 
-        # A blank variant key fails the structural tier but not the serde guard, which rejects
+        # An overlong variant key fails the structural tier but not the serde guard, which rejects
         # regardless of the switch. A guard-rejected shape would never reach this branch.
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
@@ -15440,7 +15455,7 @@ class TestFeatureFlagFiltersMetrics(APIBaseTest):
                 "key": "metrics-not-evaluated",
                 "filters": {
                     "groups": [{"properties": [], "rollout_percentage": 100}],
-                    "multivariate": {"variants": [{"key": "", "rollout_percentage": 100}]},
+                    "multivariate": {"variants": [{"key": "x" * 401, "rollout_percentage": 100}]},
                 },
             },
             format="json",

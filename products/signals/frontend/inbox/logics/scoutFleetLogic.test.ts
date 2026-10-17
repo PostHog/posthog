@@ -15,6 +15,7 @@ import { initKeaTests } from '~/test/init'
 import {
     signalsScoutChatTasksCreate,
     signalsScoutConfigList,
+    signalsScoutConfigRun,
     signalsScoutConfigSync,
     signalsScoutConfigUpdate,
     signalsScoutRunsCosts,
@@ -33,6 +34,7 @@ jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutChatTasksCreate: jest.fn(),
     signalsScoutConfigDestroy: jest.fn(),
     signalsScoutConfigList: jest.fn(),
+    signalsScoutConfigRun: jest.fn(),
     signalsScoutConfigSync: jest.fn(),
     signalsScoutConfigUpdate: jest.fn(),
     signalsScoutRunsFindingsSummary: jest.fn(),
@@ -50,6 +52,7 @@ const mockSignalsScoutChatTasksCreate = signalsScoutChatTasksCreate as jest.Mock
     typeof signalsScoutChatTasksCreate
 >
 const mockSignalsScoutConfigList = signalsScoutConfigList as jest.MockedFunction<typeof signalsScoutConfigList>
+const mockSignalsScoutConfigRun = signalsScoutConfigRun as jest.MockedFunction<typeof signalsScoutConfigRun>
 const mockSignalsScoutConfigSync = signalsScoutConfigSync as jest.MockedFunction<typeof signalsScoutConfigSync>
 const mockSignalsScoutConfigUpdate = signalsScoutConfigUpdate as jest.MockedFunction<typeof signalsScoutConfigUpdate>
 const mockSignalsScoutRunsRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction<
@@ -156,6 +159,7 @@ describe('scoutFleetLogic', () => {
         initKeaTests()
         mockSignalsScoutChatTasksCreate.mockReset()
         mockSignalsScoutConfigList.mockReset().mockResolvedValue([])
+        mockSignalsScoutConfigRun.mockReset()
         mockSignalsScoutConfigSync.mockReset().mockResolvedValue([])
         mockSignalsScoutConfigUpdate.mockReset()
         mockSignalsScoutRunsRecentPerScout.mockReset().mockResolvedValue([])
@@ -214,6 +218,31 @@ describe('scoutFleetLogic', () => {
         expect(logic.values.updatingScoutIds).toEqual([])
     })
 
+    it.each([
+        [
+            'a tool list after write access',
+            { write_scopes: ['dashboard:write'] },
+            { allowed_mcp_tools: ['insight-get'] },
+        ],
+        [
+            'write access after a tool preset',
+            { tool_preset: 'read_only' as const },
+            { write_scopes: ['insight:write'] },
+        ],
+    ])('never queues write access and a tool selection into one request, for %s', async (_name, earlier, later) => {
+        // The API rejects a request that carries both, which would drop the later edit too.
+        const firstRequest = deferred<SignalScoutConfigApi>()
+        mockSignalsScoutConfigUpdate.mockReturnValueOnce(firstRequest.promise).mockResolvedValueOnce(BASE_CONFIG)
+
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, { enabled: false })
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, earlier)
+        logic.actions.updateScoutConfig(BASE_CONFIG.id, later)
+        firstRequest.resolve({ ...BASE_CONFIG, enabled: false })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockSignalsScoutConfigUpdate).toHaveBeenNthCalledWith(2, String(MOCK_TEAM_ID), BASE_CONFIG.id, later)
+    })
+
     it('publishes a scout against its canonical project and preserves its tags', async () => {
         const config = { ...BASE_CONFIG, scout_origin: 'custom' as const, tags: ['errors'] }
         logic.actions.loadScoutConfigsSuccess([config])
@@ -231,6 +260,56 @@ describe('scoutFleetLogic', () => {
                 scout_config: expect.objectContaining({ tags: ['errors'] }),
             })
         )
+    })
+
+    it.each([
+        {
+            name: 'sends a trimmed note and clears the draft once the run starts',
+            note: '  focus on checkout  ',
+            fails: false,
+            body: { note: 'focus on checkout' },
+            draftAfter: undefined,
+            popoverOpenAfter: false,
+            capturedHasNote: [true],
+        },
+        {
+            name: 'sends no body for a blank note',
+            note: '   ',
+            fails: false,
+            body: undefined,
+            draftAfter: '   ',
+            popoverOpenAfter: true,
+            capturedHasNote: [false],
+        },
+        {
+            name: 'keeps the draft and the popover when the run is refused',
+            note: 'focus on checkout',
+            fails: true,
+            body: { note: 'focus on checkout' },
+            draftAfter: 'focus on checkout',
+            popoverOpenAfter: true,
+            capturedHasNote: [],
+        },
+    ])('run now with a note: $name', async ({ note, fails, body, draftAfter, popoverOpenAfter, capturedHasNote }) => {
+        if (fails) {
+            mockSignalsScoutConfigRun.mockRejectedValue({ detail: 'You need skill editor access' })
+        } else {
+            mockSignalsScoutConfigRun.mockResolvedValue({ status: 'started' } as any)
+        }
+        logic.actions.setRunNotePopoverConfigId(BASE_CONFIG.id)
+        logic.actions.setRunNoteDraft(BASE_CONFIG.id, note)
+
+        logic.actions.runScoutNow(BASE_CONFIG.id, note)
+        await expectLogic(logic).toDispatchActions(['runScoutNowFinished'])
+
+        expect(mockSignalsScoutConfigRun).toHaveBeenCalledWith(String(MOCK_TEAM_ID), BASE_CONFIG.id, body)
+        expect(logic.values.runNoteDrafts[BASE_CONFIG.id]).toEqual(draftAfter)
+        expect(logic.values.runNotePopoverConfigId).toEqual(popoverOpenAfter ? BASE_CONFIG.id : null)
+        const runNowEvents = jest
+            .mocked(posthog.capture)
+            .mock.calls.filter(([, properties]) => properties?.action_type === 'run_now')
+        expect(runNowEvents.map(([, properties]) => properties?.has_note)).toEqual(capturedHasNote)
+        expect(JSON.stringify(runNowEvents)).not.toContain('checkout')
     })
 
     // The roster is the only consumer of the tag filter, so assert through the rows it renders.
