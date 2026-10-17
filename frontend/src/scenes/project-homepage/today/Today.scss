@@ -98,6 +98,10 @@ html[data-today-transition]::view-transition-new(root) {
 
 .TodayHome {
     padding-block: 40px 60px;
+
+    @container main-content (max-width: 600px) {
+        padding-block: 16px 24px;
+    }
 }
 
 .TodayHome__body {
@@ -105,6 +109,11 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 44px;
     margin-top: 28px;
+
+    @container main-content (max-width: 600px) {
+        gap: 28px;
+        margin-top: 20px;
+    }
 }
 
 .TodayHome__list {
@@ -182,7 +191,19 @@ html[data-today-transition]::view-transition-new(root) {
     list-style: none;
 
     @container main-content (max-width: 600px) {
-        grid-auto-flow: row;
+        display: flex;
+        gap: 8px;
+        padding: 0 20px;
+        margin: 0 -20px;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        scroll-padding-inline: 20px;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
     }
 }
 
@@ -191,6 +212,16 @@ html[data-today-transition]::view-transition-new(root) {
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+
+    @container main-content (max-width: 600px) {
+        flex: 0 0 clamp(152px, 46%, 200px);
+        min-width: min-content;
+        padding: 10px 12px 8px;
+        scroll-snap-align: start;
+        background: var(--today-card);
+        border: 1px solid var(--today-line);
+        border-radius: 10px;
+    }
 }
 
 .TodayPulse__name {
@@ -199,6 +230,10 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    @container main-content (max-width: 600px) {
+        contain: inline-size;
+    }
 }
 
 .TodayPulse__trigger {
@@ -221,11 +256,24 @@ html[data-today-transition]::view-transition-new(root) {
     }
 }
 
+.TodayPulse__trigger,
+.TodayPulse__link {
+    @container main-content (max-width: 600px) {
+        flex: 1;
+    }
+}
+
 .TodayPulse__row {
     display: flex;
     gap: 8px;
     align-items: baseline;
     min-width: 0;
+
+    @container main-content (max-width: 600px) {
+        flex-wrap: wrap;
+        row-gap: 0;
+        margin-bottom: 6px;
+    }
 }
 
 .TodayPulse__value {
@@ -249,6 +297,12 @@ html[data-today-transition]::view-transition-new(root) {
     max-width: 160px;
     height: 22px;
     margin-top: 4px;
+
+    @container main-content (max-width: 600px) {
+        max-width: none;
+        height: 24px;
+        margin-top: auto;
+    }
 }
 
 .TodayHome__headingRow {
@@ -332,6 +386,10 @@ html[data-today-transition]::view-transition-new(root) {
 
     &[data-done] .TodayRow__label {
         color: inherit;
+    }
+
+    @container main-content (max-width: 600px) {
+        padding-block: 8px;
     }
 }
 
@@ -511,6 +569,10 @@ html[data-today-transition]::view-transition-new(root) {
         opacity 0.12s var(--today-ease),
         transform 0.12s var(--today-ease);
     transform: translateX(-3px);
+
+    @media (hover: none) {
+        display: none;
+    }
 }
 
 .TodayRows__footer {
@@ -606,6 +668,10 @@ html[data-today-transition]::view-transition-new(root) {
 .TodayHome__intro {
     margin-top: 8px;
     color: var(--today-faint);
+
+    @container main-content (max-width: 600px) {
+        margin-top: 0;
+    }
 }
 
 .TodayHome__greeting {
@@ -629,6 +695,10 @@ html[data-today-transition]::view-transition-new(root) {
     @container main-content (max-width: 700px) {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
+
+    @container main-content (max-width: 480px) {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }
 
 .TodayJumpRow {
@@ -643,6 +713,13 @@ html[data-today-transition]::view-transition-new(root) {
     padding: 8px 12px;
     border-radius: 8px;
     transition: background-color 0.12s var(--today-ease);
+
+    .TodayJumpList:not(.TodayJumpList--explore) > & {
+        @container main-content (max-width: 480px) {
+            align-items: center;
+            padding-block: 6px;
+        }
+    }
 
     &:hover {
         --quill-icon-stack-ring: var(--today-soft);
@@ -661,6 +738,15 @@ html[data-today-transition]::view-transition-new(root) {
     white-space: nowrap;
 }
 
+.TodayJumpList:not(.TodayJumpList--explore) :has(> .TodayJumpRow__link) {
+    @container main-content (max-width: 480px) {
+        display: flex;
+        gap: 12px;
+        align-items: baseline;
+        justify-content: space-between;
+    }
+}
+
 .TodayJumpRow__meta {
     display: block;
     overflow: hidden;
@@ -669,6 +755,12 @@ html[data-today-transition]::view-transition-new(root) {
     color: var(--today-muted);
     text-overflow: ellipsis;
     white-space: nowrap;
+
+    .TodayJumpList:not(.TodayJumpList--explore) & {
+        @container main-content (max-width: 480px) {
+            flex-shrink: 0;
+        }
+    }
 }
 
 .TodayJumpRow__icon {
@@ -909,12 +1001,6 @@ html[data-today-transition]::view-transition-new(root) {
 }
 
 // Keyframes
-
-@container main-content (max-width: 600px) {
-    .TodayHome__intro {
-        margin-top: 32px;
-    }
-}
 
 @media (prefers-reduced-motion: reduce) {
     .Today *,
