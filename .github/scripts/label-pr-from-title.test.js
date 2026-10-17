@@ -418,12 +418,12 @@ const FLAGS_LOW_HANGING_FRUIT_CASES = [
     {
         files: [...generatedFiles(98), file('a.tsx', 10)],
         expected: true,
-        description: 'generated files below a full page do not count',
+        description: 'generated files below the file limit do not count',
     },
     {
         files: [...generatedFiles(99), file('a.tsx', 10)],
         expected: false,
-        description: 'a full page withholds the label, because later pages go unchecked',
+        description: 'the file limit withholds the label, even when most files are generated',
     },
 ]
 

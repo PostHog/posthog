@@ -107,8 +107,14 @@ function labelsForFiles(files, rules) {
 }
 
 const PR_FILES_PAGE_SIZE = 100
+
+// The job applies every label after this request, and it has a five-minute
+// timeout. A stalled request must give up well before that, so the team and
+// docs labels still get applied.
 const PR_FILES_REQUEST_TIMEOUT_MS = 10_000
 
+// Returns null on failure, because a missing file list must not fail the job or
+// apply the low-hanging-fruit label.
 async function fetchPrFiles() {
     const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
     const files = []
@@ -128,7 +134,7 @@ async function fetchPrFiles() {
 
             if (!response.ok) {
                 console.warn(`⚠️  Could not list PR files: ${response.status} ${response.statusText}`)
-                return files
+                return null
             }
 
             const batch = await response.json()
@@ -139,7 +145,7 @@ async function fetchPrFiles() {
         }
     } catch (error) {
         console.warn(`⚠️  Could not list PR files: ${error?.message ?? error}`)
-        return files
+        return null
     }
 }
 
@@ -238,8 +244,7 @@ const FLAGS_QUICK_REVIEW_SHAPES = [
     { maxFiles: 5, maxLines: 100, fileMatches: isFlagsUiFile },
 ]
 
-// GitHub's maximum page size for the "list pull request files" endpoint.
-const FLAGS_FILES_PAGE_SIZE = 100
+const FLAGS_FILE_LIMIT = 100
 
 // A small diff in these paths still needs a careful review: a migration changes
 // production data, and a workflow change runs with repository secrets.
@@ -281,12 +286,10 @@ function flagsWithoutGeneratedFiles(files) {
     }
 }
 
-// `files` is the first page of GitHub's "list pull request files" response.
+// `files` is GitHub's "list pull request files" response.
 function isFlagsLowHangingFruit(files) {
-    // A full page means the PR has at least a page of files, and the files on
-    // later pages are not checked. So many files, even generated ones, is not a
-    // quick review, so a full page withholds the label.
-    if (files.length >= FLAGS_FILES_PAGE_SIZE) {
+    // So many files, even generated ones, is not a quick review.
+    if (files.length >= FLAGS_FILE_LIMIT) {
         return false
     }
     // Check the risky paths before the generated files are removed, because
@@ -304,48 +307,12 @@ function isFlagsLowHangingFruit(files) {
     )
 }
 
-// The job applies every label after this request, and it has a five-minute
-// timeout. A stalled request must give up well before that, so the team and
-// docs labels still get applied.
-const FLAGS_FILES_REQUEST_TIMEOUT_MS = 10_000
-
-// Fetches only the first page, because isFlagsLowHangingFruit() withholds the
-// label when the page is full. Returns null on failure, because a missing size
-// must not fail the job or apply the label.
-async function fetchFlagsPrFiles() {
-    const { GITHUB_TOKEN, GITHUB_REPOSITORY, PR_NUMBER } = process.env
-
-    try {
-        const response = await fetch(
-            `https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=${FLAGS_FILES_PAGE_SIZE}`,
-            {
-                headers: {
-                    Authorization: `token ${GITHUB_TOKEN}`,
-                    Accept: 'application/vnd.github.v3+json',
-                },
-                signal: AbortSignal.timeout(FLAGS_FILES_REQUEST_TIMEOUT_MS),
-            }
-        )
-
-        if (!response.ok) {
-            console.warn(`⚠️  Could not list PR files: ${response.status} ${response.statusText}`)
-            return null
-        }
-
-        return await response.json()
-    } catch (error) {
-        console.warn(`⚠️  Could not list PR files: ${error?.message ?? error}`)
-        return null
-    }
-}
-
-// Returns the label to add, or null. `labels` are the labels the title rules
-// computed for this PR, because the candidate check reads the team label.
-async function flagsLowHangingFruitLabel(author, labels) {
+// Returns the label to add, or null. `labels` are the labels computed for this
+// PR, because the candidate check reads the team label.
+function flagsLowHangingFruitLabel(author, labels, files) {
     if (!isFlagsLowHangingFruitCandidate(author, labels)) {
         return null
     }
-    const files = await fetchFlagsPrFiles()
     return files && isFlagsLowHangingFruit(files) ? FLAGS_LOW_HANGING_FRUIT_LABEL : null
 }
 
@@ -366,12 +333,12 @@ async function main() {
 
     try {
         const rules = loadRules()
-        const files = rules.some((rule) => rule.paths?.length) ? await fetchPrFiles() : []
-        const labels = Array.from(new Set([...labelsForTitle(PR_TITLE, rules), ...labelsForFiles(files, rules)]))
+        const files = await fetchPrFiles()
+        const labels = Array.from(new Set([...labelsForTitle(PR_TITLE, rules), ...labelsForFiles(files ?? [], rules)]))
         if (docsLabelApplies(PR_TITLE, PR_AUTHOR) && !labels.includes('docs')) {
             labels.push('docs')
         }
-        const flagsLabel = await flagsLowHangingFruitLabel(PR_AUTHOR, labels)
+        const flagsLabel = flagsLowHangingFruitLabel(PR_AUTHOR, labels, files)
         if (flagsLabel) {
             labels.push(flagsLabel)
         }
