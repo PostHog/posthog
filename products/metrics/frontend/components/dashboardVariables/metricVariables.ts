@@ -175,6 +175,45 @@ export function variablesToReload(previous: MetricsDashboardVariable[], next: Me
 }
 
 /** RE2 runs the pattern in linear time, so a saved pattern cannot freeze the dashboard. Throws for an invalid pattern. */
+const MAX_REGEX_SIZE = 10000
+
+/** About how many instructions RE2 compiles the pattern to: a counted repeat such as `{3}` copies what it repeats. */
+function regexSize(pattern: string): number {
+    const groups: number[] = [0]
+    let last = 0
+    let index = 0
+    while (index < pattern.length) {
+        const char = pattern[index]
+        if (char === '(') {
+            groups.push(0)
+            last = 0
+            index++
+        } else if (char === ')' && groups.length > 1) {
+            last = Math.max(groups.pop()!, 1)
+            groups[groups.length - 1] += last
+            index++
+        } else if (char === '{' && /^\{\d+(,\d*)?\}/.test(pattern.slice(index))) {
+            const counts = /^\{(\d+)(?:,(\d*))?\}/.exec(pattern.slice(index))!
+            const most = Math.max(Number(counts[2] || counts[1]), 1)
+            groups[groups.length - 1] += last * (most - 1)
+            last *= most
+            index += counts[0].length
+        } else {
+            let end = index + (char === '\\' ? 2 : 1)
+            if (char === '[') {
+                while (end < pattern.length && pattern[end] !== ']') {
+                    end += pattern[end] === '\\' ? 2 : 1
+                }
+                end++
+            }
+            last = 1
+            groups[groups.length - 1] += 1
+            index = end
+        }
+    }
+    return groups.reduce((total, size) => total + size, 0)
+}
+
 export function compileVariableRegex(regex: string | null | undefined): RE2JS | null {
     const pattern = regex?.trim()
     if (!pattern) {
@@ -183,6 +222,10 @@ export function compileVariableRegex(regex: string | null | undefined): RE2JS | 
     // Grafana writes the pattern as /pattern/flags.
     const slashed = /^\/(.*)\/([a-z]*)$/s.exec(pattern)
     const flags = slashed?.[2] ?? ''
+    // The editor compiles on each edit, so a pattern that expands too far must not block the page.
+    if (regexSize(slashed ? slashed[1] : pattern) > MAX_REGEX_SIZE) {
+        throw new Error('it repeats too much. Use smaller counts in {}.')
+    }
     return RE2JS.compile(
         slashed ? slashed[1] : pattern,
         (flags.includes('i') ? RE2JS.CASE_INSENSITIVE : 0) |

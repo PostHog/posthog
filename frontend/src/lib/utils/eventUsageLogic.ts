@@ -583,13 +583,32 @@ export function getEventPropertiesForExperiment(experiment: Experiment): object 
     }
 }
 
+// Metric variable definitions hold queries and option lists, which do not belong in analytics.
+export function filtersForAnalytics(filters: Record<string, any>): Record<string, any> {
+    const { metricVariables, ...rest } = filters
+    return metricVariables ? { ...rest, metric_variable_count: metricVariables.length } : rest
+}
+
 export function sanitizeInsight(insight: Partial<InsightModel> | null): object | undefined {
     if (!insight) {
         return undefined
     }
 
     // Remove results
-    const { result, ...sanitizedInsight } = insight
+    const { result, ...rest } = insight
+    const context = rest.filter_override_context
+    const sanitizedInsight = context
+        ? {
+              ...rest,
+              filter_override_context: {
+                  ...context,
+                  dashboard: context.dashboard ? filtersForAnalytics(context.dashboard) : context.dashboard,
+                  overridden_dashboard: context.overridden_dashboard
+                      ? filtersForAnalytics(context.overridden_dashboard)
+                      : context.overridden_dashboard,
+              },
+          }
+        : rest
 
     if (sanitizedInsight.query) {
         return {
@@ -610,12 +629,6 @@ function sanitizeTile(tile: DashboardTile | null): object | undefined {
         ...tile,
         insight: tile.insight ? sanitizeInsight(tile.insight) : undefined,
     }
-}
-
-// Metric variable definitions hold queries and option lists, which do not belong in analytics.
-export function filtersForAnalytics(filters: Record<string, any>): Record<string, any> {
-    const { metricVariables, ...rest } = filters
-    return metricVariables ? { ...rest, metric_variable_count: metricVariables.length } : rest
 }
 
 export function sanitizeDashboard(dashboard: DashboardType | null): object | null {

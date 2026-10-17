@@ -90,6 +90,8 @@ describe('metricVariables', () => {
         ['a query variable', 'promql', '(', 'regex'],
         ['a list, which does not use the regex', 'custom', '(', undefined],
         ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
+        ['a regex that repeats too much', 'promql', '(a{1000}){1000}', 'regex'],
+        ['a regex with small counted repeats', 'promql', '\\d{1,3}(\\.\\d{1,3}){3}', undefined],
     ])('checks the regex of %s', (_name, source, regex, field) => {
         const variable = { name: 'v', source, query: 'label_values(job)', customValues: ['a'], regex }
         expect(ownValue(variableErrors([variable as MetricsDashboardVariable]), 'v')?.field).toEqual(field)

@@ -1100,6 +1100,16 @@ class TestSharingOverrideProtection(SimpleTestCase):
 
         assert result == {"date_from": "-7d"}
 
+    def test_filters_override_gets_saved_metric_variable_definitions(self):
+        saved = {"name": "env", "source": "sql", "query": "SELECT 1", "current": {"values": ["a"]}}
+        compact = [{"name": "env", "current": {"values": ["b"]}}, {"name": "gone", "current": {"values": ["c"]}}]
+        request = self._make_request(None, query_params={"filters_override": json.dumps({"metricVariables": compact})})
+        dashboard = type("Dashboard", (), {"filters": {"metricVariables": [saved]}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result["metricVariables"] == [{**saved, "current": {"values": ["b"]}}]
+
     @parameterized.expand(
         [
             ("access_token_auth",),

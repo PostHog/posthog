@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -21,7 +21,12 @@ export function DashboardMetricVariables(): JSX.Element | null {
     const { setMetricVariables, setDashboardEditing } = useActions(dashboardLogic)
     const [editorOpen, setEditorOpen] = useState(false)
 
-    const variables = effectiveEditBarFilters.metricVariables ?? NO_VARIABLES
+    const metricVariables = effectiveEditBarFilters.metricVariables
+    // A name from the URL without a saved definition, such as a deleted variable, has nothing to show.
+    const variables = useMemo(
+        () => metricVariables?.filter((variable) => variable.source) ?? NO_VARIABLES,
+        [metricVariables]
+    )
     const change = (next: MetricsDashboardVariable[]): void => {
         if (!dashboardEditing?.filters) {
             setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
