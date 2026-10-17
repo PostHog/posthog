@@ -31,16 +31,20 @@ export const BLANK_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BA
 
 const RESOURCE_FETCH_TIMEOUT_MS = 15000
 
-/** Rasterizes a live DOM element to an image blob. Throws when the element renders to nothing. */
-export async function captureElementImage(element: HTMLElement, options?: CaptureImageOptions): Promise<Blob> {
-    const blob = await toBlob(element, {
+/** Without these, one broken or stalled image rejects the whole capture with a raw DOM `Event`. */
+function defaultCaptureOptions(): CaptureImageOptions {
+    return {
         includeStyleProperties: getStylePropertyNames(),
         includeQueryParams: true,
         imagePlaceholder: BLANK_IMAGE,
         onImageErrorHandler: () => {},
         fetchRequestInit: { signal: AbortSignal.timeout(RESOURCE_FETCH_TIMEOUT_MS) },
-        ...options,
-    })
+    }
+}
+
+/** Rasterizes a live DOM element to an image blob. Throws when the element renders to nothing. */
+export async function captureElementImage(element: HTMLElement, options?: CaptureImageOptions): Promise<Blob> {
+    const blob = await toBlob(element, { ...defaultCaptureOptions(), ...options })
 
     if (!blob) {
         throw new Error('Rendering the element to an image produced no data')
@@ -51,8 +55,5 @@ export async function captureElementImage(element: HTMLElement, options?: Captur
 
 /** Serializes a live DOM element to an SVG data URL, for callers that edit the clone before they rasterize it. */
 export async function captureElementSvg(element: HTMLElement, options?: CaptureImageOptions): Promise<string> {
-    return await toSvg(element, {
-        includeStyleProperties: getStylePropertyNames(),
-        ...options,
-    })
+    return await toSvg(element, { ...defaultCaptureOptions(), ...options })
 }
