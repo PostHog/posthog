@@ -72,6 +72,7 @@ import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/sdk/types.js'
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
 import { McpDispatcher } from '@/hono/dispatcher'
+import { PostHogRateLimitError, PostHogValidationError } from '@/lib/errors'
 import type { RequestProperties } from '@/lib/request-properties'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
@@ -204,5 +205,177 @@ describe('McpDispatcher initialize resource revalidation', () => {
                 mockSkillCatalogService.warmup.mock.invocationCallOrder[0]!
             )
         }
+    })
+})
+
+function eventRequest(method: string, params: Record<string, unknown> = {}, modern = true): Request {
+    const body = {
+        jsonrpc: '2.0',
+        id: 42,
+        method,
+        params: {
+            ...params,
+            ...(modern
+                ? {
+                      _meta: {
+                          'io.modelcontextprotocol/protocolVersion': '2026-07-28',
+                          'io.modelcontextprotocol/clientInfo': { name: 'test-events', version: '1.0' },
+                          'io.modelcontextprotocol/clientCapabilities': {},
+                      },
+                  }
+                : {}),
+        },
+    }
+    return new Request('https://mcp.test/mcp', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            ...(modern ? { 'Mcp-Protocol-Version': '2026-07-28', 'Mcp-Method': method } : {}),
+            ...(typeof params.name === 'string' ? { 'Mcp-Name': params.name } : {}),
+        },
+        body: JSON.stringify(body),
+    })
+}
+
+describe('McpDispatcher event subscriptions', () => {
+    const requestApi = vi.fn()
+    const subscription = {
+        name: 'posthog.event_captured',
+        arguments: { project_id: 23, filters: { source: 'events', events: [{ id: 'example_event', type: 'events' }] } },
+        delivery: { mode: 'webhook', url: 'https://example.com/callback', secret: 'whsec_test' },
+        ttlMs: 60_000,
+    }
+    beforeEach(() => {
+        vi.clearAllMocks()
+        mockBuildInstructions.mockReturnValue('Base instructions')
+        mockResolveState.mockResolvedValue({
+            distinctId: 'test-distinct-id',
+            toolFeatureFlags: { 'mcp-events': true },
+            apiKeyScopes: ['mcp_event_subscription:write', 'query:read'],
+            context: { api: { request: requestApi } },
+        })
+        requestApi.mockResolvedValue({ id: 'test-subscription', expires_at: '2026-10-15T12:00:00Z' })
+        mockRevalidateContextMillResources.mockResolvedValue(undefined)
+    })
+
+    it.each([
+        [true, ['mcp_event_subscription:write', 'query:read'], false, true],
+        [false, ['mcp_event_subscription:write', 'query:read'], false, false],
+        [true, ['query:read'], false, false],
+        [true, ['mcp_event_subscription:write', 'query:read'], true, false],
+    ])('gates discovery on flag %s, scopes %s and read-only %s', async (flag, scopes, readOnly, enabled) => {
+        const state = await mockResolveState()
+        mockResolveState.mockResolvedValue({ ...state, toolFeatureFlags: { 'mcp-events': flag }, apiKeyScopes: scopes })
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+        const response = await dispatcher.handleRequest(eventRequest('server/discover'), { ...makeProps(), readOnly })
+        const body = (await response.json()) as any
+        expect('events' in body.result.capabilities).toBe(enabled)
+        expect(body.result.instructions.includes('mcp-events-preview')).toBe(enabled)
+    })
+
+    it('discovers per-account filters, adapts subscription fields and tears down by callback identity', async () => {
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+        const listed = await dispatcher.handleRequest(eventRequest('events/list'), makeProps())
+        const catalog = (await listed.json()) as any
+        expect(catalog.result.events[0].name).toBe(subscription.name)
+        expect(catalog.result.events[0].inputSchema.properties.filters).toBeTruthy()
+        expect(catalog.result.events[0].payloadSchema.properties.properties).toBeTruthy()
+        expect(catalog.result.cacheScope).toBe('private')
+        const created = await dispatcher.handleRequest(eventRequest('events/subscribe', subscription), makeProps())
+        expect(((await created.json()) as any).result).toMatchObject({
+            id: 'test-subscription',
+            refreshBefore: '2026-10-15T12:00:00Z',
+            cursor: null,
+            truncated: false,
+        })
+        expect(requestApi).toHaveBeenCalledWith({
+            method: 'POST',
+            path: '/api/projects/23/mcp_event_subscriptions/subscribe/',
+            body: {
+                name: subscription.name,
+                arguments: subscription.arguments,
+                delivery: subscription.delivery,
+                ttl_ms: 60_000,
+                cursor: null,
+            },
+        })
+        const stopped = {
+            name: subscription.name,
+            arguments: subscription.arguments,
+            delivery: { mode: 'webhook', url: subscription.delivery.url },
+        }
+        const response = await dispatcher.handleRequest(eventRequest('events/unsubscribe', stopped), makeProps())
+        expect(((await response.json()) as any).result.resultType).toBe('complete')
+        expect(requestApi).toHaveBeenLastCalledWith({
+            method: 'POST',
+            path: '/api/projects/23/mcp_event_subscriptions/unsubscribe/',
+            body: stopped,
+        })
+    })
+
+    it('rejects unknown filters instead of silently broadening a subscription', async () => {
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+        const response = await dispatcher.handleRequest(
+            eventRequest('events/subscribe', {
+                ...subscription,
+                arguments: { project_id: 23, filters: { unexpected_condition: 'would otherwise be ignored' } },
+            }),
+            makeProps()
+        )
+        expect(((await response.json()) as any).error.code).toBe(-32602)
+        expect(requestApi).not.toHaveBeenCalled()
+    })
+
+    it('returns categorized callback verification errors without logging secrets', async () => {
+        requestApi.mockRejectedValue(
+            new PostHogValidationError({
+                detail: 'timeout',
+                attr: 'callback__reason',
+                code: 'invalid_input',
+                extra: undefined,
+                url: 'https://example.com/api',
+                method: 'POST',
+            })
+        )
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+        const response = await dispatcher.handleRequest(eventRequest('events/subscribe', subscription), makeProps())
+        const body = (await response.json()) as any
+        expect(body.error).toEqual({
+            code: -32015,
+            message: 'Callback verification failed.',
+            data: { reason: 'timeout' },
+        })
+        expect(JSON.stringify(body)).not.toContain(subscription.delivery.secret)
+    })
+
+    it('preserves upstream throttle delay without exposing request details', async () => {
+        requestApi.mockRejectedValue(
+            new PostHogRateLimitError({
+                retryAfterSeconds: 45,
+                body: 'private upstream details',
+                url: 'https://example.com/api',
+                method: 'POST',
+            })
+        )
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+        const response = await dispatcher.handleRequest(eventRequest('events/subscribe', subscription), makeProps())
+        const body = (await response.json()) as any
+        expect(body.error).toEqual({
+            code: -32000,
+            message: 'PostHog rate limited this subscription request. Retry after the indicated delay.',
+            data: { retryAfterSeconds: 45 },
+        })
+        expect(JSON.stringify(body)).not.toContain('private upstream details')
+        expect(JSON.stringify(body)).not.toContain('https://example.com/api')
+    })
+
+    it('keeps legacy event requests unsupported', async () => {
+        const dispatcher = new McpDispatcher({} as any, createMockRedis())
+        const response = await dispatcher.handleRequest(
+            eventRequest('events/subscribe', subscription, false),
+            makeProps()
+        )
+        expect(((await response.json()) as any).error.code).toBe(-32601)
+        expect(requestApi).not.toHaveBeenCalled()
     })
 })

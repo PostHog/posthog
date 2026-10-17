@@ -41,6 +41,13 @@ import {
 import { trackInitEvent } from './analytics'
 import type { RedisLike } from './cache/RedisCache'
 import { getEnv, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import {
+    EventSubscriptions,
+    McpEventRpcError,
+    canSubscribeToEvents,
+    eventsEnabled,
+    MCP_EVENTS_GUIDANCE,
+} from './event-subscriptions'
 import { InstructionsBuilder } from './instructions'
 import { InterviewRecruitment, InterviewRequestError } from './interview-recruitment'
 import { initDurationSeconds, initTotal } from './metrics'
@@ -66,15 +73,27 @@ const Method = {
     PromptsList: 'prompts/list' as ListPromptsRequest['method'],
     PromptsGet: 'prompts/get' as GetPromptRequest['method'],
     Ping: 'ping' as PingRequest['method'],
+    EventsList: 'events/list',
+    EventsSubscribe: 'events/subscribe',
+    EventsUnsubscribe: 'events/unsubscribe',
 } as const
 
-const TRACKED_METHODS: Set<string> = new Set([Method.Initialize, Method.Discover, Method.ToolsList, Method.ToolsCall])
+const TRACKED_METHODS: Set<string> = new Set([
+    Method.Initialize,
+    Method.Discover,
+    Method.ToolsList,
+    Method.ToolsCall,
+    Method.EventsList,
+    Method.EventsSubscribe,
+    Method.EventsUnsubscribe,
+])
 
 // Results the 2026-07-28 spec types as CacheableResult (required ttlMs +
 // cacheScope). Everything here varies per token (scopes, flags, staff gating)
 // or per user (discover instructions), so shared intermediaries must not cache.
 const CACHEABLE_METHODS: Set<string> = new Set([
     Method.Discover,
+    Method.EventsList,
     Method.ToolsList,
     Method.ResourcesList,
     Method.ResourcesRead,
@@ -139,6 +158,7 @@ function jsonRpcErrorResponse(id: unknown, code: number, message: string, data?:
 }
 
 class McpDispatcher {
+    private readonly eventSubscriptions = new EventSubscriptions()
     private readonly catalog: ToolCatalog
     private readonly resourceCatalog: ResourceCatalog
     private readonly stateResolver: RequestStateResolver
@@ -363,6 +383,9 @@ class McpDispatcher {
             }
             return jsonRpcResult(id, stateless ? this.decorateStatelessResult(method, result) : result)
         } catch (error) {
+            if (error instanceof McpEventRpcError) {
+                return jsonRpcMethodError(id, error.code, error.message, error.data)
+            }
             if (error instanceof InterviewRequestError) {
                 return jsonRpcMethodError(id, ErrorCode.InvalidParams, error.message)
             }
@@ -433,6 +456,19 @@ class McpDispatcher {
                           }
                         : undefined
                 )
+            case Method.EventsList:
+            case Method.EventsSubscribe:
+            case Method.EventsUnsubscribe:
+                if (!stateless || !eventsEnabled(state!)) {
+                    return METHOD_NOT_FOUND
+                }
+                if (method === Method.EventsList) {
+                    return this.eventSubscriptions.list(state!, props, params)
+                }
+                if (method === Method.EventsSubscribe) {
+                    return await this.eventSubscriptions.subscribe(state!, props, params)
+                }
+                return await this.eventSubscriptions.unsubscribe(state!, props, params)
             case Method.ResourcesList:
                 return this.resourceCatalog.getResourcesList()
             case Method.ResourcesRead:
@@ -497,14 +533,18 @@ class McpDispatcher {
     // self-describes) and no session minting. Server identity rides in the
     // result `_meta` via `decorateStatelessResult`.
     private async handleDiscover(props: RequestProperties, state: ResolvedState): Promise<Record<string, unknown>> {
-        const instructions = await this.recordDiscoveryRequest('discover', props, state)
+        const baseInstructions = await this.recordDiscoveryRequest('discover', props, state)
+        const eventsAvailable = canSubscribeToEvents(state, props)
+        const instructions = [baseInstructions, eventsAvailable ? MCP_EVENTS_GUIDANCE : undefined]
+            .filter(Boolean)
+            .join('\n\n')
         return {
             // Modern versions only: legacy support is reachable solely through
             // the `initialize` fallback, and legacy clients never call discover.
             // Advertising legacy versions here would invite modern clients to
             // select one via `_meta`, which we reject.
             supportedVersions: [...MODERN_PROTOCOL_VERSIONS],
-            capabilities: SERVER_CAPABILITIES,
+            capabilities: { ...SERVER_CAPABILITIES, ...(eventsAvailable ? { events: {} } : {}) },
             serverInfo: { name: MCP_SERVER_NAME, version: MCP_SERVER_VERSION },
             ...(instructions ? { instructions } : {}),
         }

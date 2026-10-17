@@ -9566,6 +9566,21 @@
             "readOnlyHint": true
         }
     },
+    "mcp-events-preview": {
+        "description": "Validate captured-event subscription filters and show up to five matching events from the past seven days. Use this before subscribing to posthog.event_captured. Select the intended project first, then pass its project_id and the same normal destination filters you will use in events/subscribe. These examples help check event names and property conditions; they are not a count or a forecast of delivery volume.",
+        "category": "MCP events",
+        "feature": "cdp",
+        "summary": "Preview MCP event filters",
+        "title": "Preview MCP event filters",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-events"
+    },
     "mcp-missing-capability-report": {
         "description": "Report that the current MCP tools are insufficient for the user's goal. Use this when a missing tool, missing workflow support, or missing explanation blocks progress. Describe the gap without personal data or sensitive query content. This records feedback for the PostHog team; continue with a fallback when possible.",
         "category": "MCP analytics",

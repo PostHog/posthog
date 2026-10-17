@@ -510,6 +510,12 @@ describe('Hono MCP analytics contexts', () => {
                 { query: 'SELECT name FROM system.information_schema.metrics' },
                 true,
             ],
+            [
+                'event payload previews',
+                'mcp-events-preview',
+                { filters: { events: [{ id: 'example_event', type: 'events' }] } },
+                false,
+            ],
             ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
             [
                 'execute-sql with the marker only in a string literal',

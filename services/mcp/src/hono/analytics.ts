@@ -340,7 +340,7 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isGatewayToolName(toolName)) {
         return false
     }
-    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME) {
+    if (toolName === PRESIGNED_UPLOAD_TOOL_NAME || toolName === 'mcp-events-preview') {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,
