@@ -9445,10 +9445,10 @@ Today (3): `customers`, `threads`, `timeline_entries`
 
 Diffed against: <https://core-api.uk.plain.com/graphql/v1/schema.graphql>
 
-- [ ] `companies` — account-level entity that customers hang off; lookup for the company IDs already on synced customers (high)
-- [ ] `users` — lookup resolving assignee and actor IDs carried on threads and timeline entries (high)
-- [ ] `labelTypes` — lookup resolving the label IDs attached to synced threads (high)
-- [ ] `tenants` — multi-tenant grouping dimension for customers and threads (high)
+- [x] `companies` — account-level entity that customers hang off; lookup for the company IDs already on synced customers (high)
+- [x] `users` — lookup resolving assignee and actor IDs carried on threads and timeline entries (high)
+- [x] `labelTypes` — lookup resolving the label IDs attached to synced threads (high)
+- [x] `tenants` — multi-tenant grouping dimension for customers and threads (high)
 - [ ] `customerSurveys` — CSAT responses, the headline support-quality metric (high)
 - [ ] `tiers` — SLA tier per company/tenant, needed to segment thread response times (medium)
 - [ ] `tasks` — work items attached to threads, needed for workload analysis (medium)
