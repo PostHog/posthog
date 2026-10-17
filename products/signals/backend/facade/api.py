@@ -1539,7 +1539,7 @@ def enable_scout_for_product(
     fit the project's enabled-scout limit, and only a project admin or the person the runs act as
     may give a new scout more than the default scopes or widen an existing grant.
     Returns False without writing when a rule refuses, when the organization has not approved AI data processing, when the scout
-    is paused by a person or by the system, or when another product owns its config.
+    is paused by a person or by the system.
     """
     from posthog.temporal.oauth import (  # noqa: PLC0415 — keeps the token module off the facade's import path
         SCOUT_DEFAULT_WRITE_SCOPES,
@@ -1601,10 +1601,11 @@ def enable_scout_for_product(
             )
             if created:
                 return True
-        # A config this product did not create is somebody's own scout, and its write access is theirs to grant.
         # A paused config stays paused, whether a person or a system breaker paused it.
-        if config.source_product != source_product or not config.enabled:
+        if not config.enabled:
             return False
+        # A scout a person set up keeps its other settings. It still gains this product's scopes when the person
+        # may grant them, because without them its runs cannot do what the person just asked the product for.
         granted = sorted(set(config.write_scopes or []) | set(scopes))
         if granted != sorted(config.write_scopes or []):
             if not _may_grant_scout_scopes(team=team, skill_name=skill_name, config=config, acting_user=acting_user):

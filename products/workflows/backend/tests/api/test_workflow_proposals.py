@@ -678,13 +678,32 @@ class TestWorkflowProposals(APIBaseTest):
         self._toggle(second, False)
         assert self._suggestions_scout() is None
 
+    def test_a_scout_a_person_set_up_gains_the_suggestion_grant_and_outlives_the_opt_out(self, _mock_flag):
+        flow_id = self._create_active_flow(optimize=False)
+        SignalScoutConfig.objects.for_team(self.team.id).create(
+            team=self.team,
+            skill_name="signals-scout-workflows",
+            enabled=True,
+            write_scopes=["notebook:write"],
+            created_by=self.user,
+            enabled_by=self.user,
+        )
+
+        response = self._toggle(flow_id, True)
+        scout = self._suggestions_scout()
+
+        assert response["scout_status"] == "running"
+        assert scout is not None and scout.write_scopes == ["hog_flow_proposal:write", "notebook:write"]
+
+        self._toggle(flow_id, False)
+        assert self._suggestions_scout() is not None
+
     @parameterized.expand(
         [
             ("paused by a person", "paused", "paused_by_user"),
             ("paused by the system", "system_paused", "paused_by_system"),
             ("a member widening another person's scout", "widen", "running"),
             ("api key without the proposal scope turning one off", "key_off", "not_running"),
-            ("a scout a person set up", "own", "running"),
         ]
     )
     def test_suggestions_scout_gains_no_grant(self, _mock_flag, _name: str, case: str, scout_status: str):
@@ -715,10 +734,6 @@ class TestWorkflowProposals(APIBaseTest):
                 enabled=True,
                 created_by=other,
                 enabled_by=other,
-            )
-        elif case == "own":
-            SignalScoutConfig.objects.for_team(self.team.id).create(
-                team=self.team, skill_name="signals-scout-workflows", enabled=True
             )
         elif case == "key_off":
             key = generate_random_token_personal()
