@@ -23,6 +23,7 @@ import { ExportType, ExportedData } from '~/exporter/types'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
+import { SharedDashboardBrandLogo } from './SharedDashboardBrandLogo'
 
 const LazyDashboardScene = lazyWithRetry(() => import('./scenes/ExporterDashboardScene'))
 const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapScene'))
@@ -89,7 +90,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         exportToken,
         ...exportOptions
     } = props
-    const { whitelabel, showInspector = false } = exportOptions
+    const { whitelabel, showInspector = false, brandLogoMediaId } = exportOptions
     const forcedTheme = useResolvedForcedTheme(exportOptions.theme)
 
     // A metric insight sizes to a compact card rather than filling the viewport, so drop the 100vh floor
@@ -145,14 +146,16 @@ export function Exporter(props: ExportedData): JSX.Element {
                 {dashboard ? (
                     type === ExportType.Scene ? (
                         <div className="SharedDashboard-header">
-                            {!whitelabel && (
+                            {!whitelabel ? (
                                 <Link
                                     to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                                     target="_blank"
                                 >
                                     <Logo size="xs" />
                                 </Link>
-                            )}
+                            ) : brandLogoMediaId ? (
+                                <SharedDashboardBrandLogo mediaId={brandLogoMediaId} />
+                            ) : null}
                             <div className="SharedDashboard-header-title">
                                 <h1 className="mb-2" data-attr="dashboard-item-title">
                                     {dashboard.name}
@@ -173,6 +176,8 @@ export function Exporter(props: ExportedData): JSX.Element {
                         >
                             <Logo size="xs" />
                         </Link>
+                    ) : type === ExportType.Embed && brandLogoMediaId ? (
+                        <SharedDashboardBrandLogo mediaId={brandLogoMediaId} />
                     ) : type === ExportType.Image && !whitelabel ? (
                         <>
                             <h1 className="mb-2">{dashboard.name}</h1>

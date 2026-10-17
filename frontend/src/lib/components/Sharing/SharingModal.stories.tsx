@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
@@ -6,20 +8,27 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
-import { useAvailableFeatures } from '~/mocks/features'
+import { getAvailableProductFeatures, useAvailableFeatures } from '~/mocks/features'
 import type { MockResolverInfo } from '~/mocks/utils'
 import { examples } from '~/queries/examples'
+import { SharingConfigurationSettings } from '~/queries/schema/schema-general'
 import { AvailableFeature, InsightShortId, InsightModel } from '~/types'
 
 import { SharingModal, SharingModalProps } from './SharingModal'
 
+const MOCK_ORGANIZATION_LOGO_ID = '0190a3c2-0000-0000-0000-000000000001'
 const fakeInsight: Partial<InsightModel> = {
     id: 123,
     short_id: 'insight123' as InsightShortId,
     query: examples.InsightTrendsQuery,
 }
 
-type StoryArgs = SharingModalProps & { licensed?: boolean; passwordRequired?: boolean }
+type StoryArgs = SharingModalProps & {
+    licensed?: boolean
+    passwordRequired?: boolean
+    sharingSettings?: SharingConfigurationSettings
+    organizationHasLogo?: boolean
+}
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Sharing',
@@ -29,7 +38,7 @@ const meta: Meta<StoryArgs> = {
         viewMode: 'story',
     },
     render: (args) => {
-        const { licensed = false, passwordRequired = false, ...props } = args
+        const { licensed = false, passwordRequired = false, sharingSettings, organizationHasLogo, ...props } = args
         const [modalOpen, setModalOpen] = useState(false)
 
         useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ACCESS_CONTROL] : [])
@@ -48,11 +57,23 @@ const meta: Meta<StoryArgs> = {
                                 enabled: true,
                                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
                                 password_required: passwordRequired,
+                                settings: sharingSettings,
                             },
                         }),
                     {}
                 ),
                 '/api/environments/:id/insights/': { results: [fakeInsight] },
+                ...(organizationHasLogo
+                    ? {
+                          '/api/organizations/@current/': {
+                              ...MOCK_DEFAULT_ORGANIZATION,
+                              logo_media_id: MOCK_ORGANIZATION_LOGO_ID,
+                              available_product_features: getAvailableProductFeatures(),
+                          },
+                          '/uploaded_media/:id': ({ request }: MockResolverInfo) =>
+                              Response.redirect(new URL('/static/not-found-astrohog.png', request.url).toString()),
+                      }
+                    : {}),
             },
             patch: [
                 '/api/environments/:id/insights/:insight_id/sharing/',
@@ -113,7 +134,7 @@ export default meta
 type Story = StoryObj<StoryArgs>
 
 export const DashboardSharing: Story = {
-    args: { title: 'Dashboard permissions', dashboardId: 123 },
+    args: { title: 'Share dashboard', dashboardId: 123 },
     decorators: [
         (Story) => (
             <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
@@ -124,7 +145,24 @@ export const DashboardSharing: Story = {
 }
 
 export const DashboardSharingLicensed: Story = {
-    args: { title: 'Dashboard permissions', licensed: true, passwordRequired: true, dashboardId: 123 },
+    args: { title: 'Share dashboard', licensed: true, passwordRequired: true, dashboardId: 123 },
+    decorators: [
+        (Story) => (
+            <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
+                <Story />
+            </BindLogic>
+        ),
+    ],
+}
+
+export const DashboardSharingCustomBranding: Story = {
+    args: {
+        title: 'Share dashboard',
+        licensed: true,
+        dashboardId: 123,
+        organizationHasLogo: true,
+        sharingSettings: { whitelabel: true, showOrganizationLogo: true },
+    },
     decorators: [
         (Story) => (
             <BindLogic logic={dashboardLogic} props={{ id: 123 }}>

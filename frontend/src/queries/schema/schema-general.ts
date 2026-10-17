@@ -1616,6 +1616,8 @@ export interface TableSettings {
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
     theme?: 'light' | 'dark' | 'system'
+    // Dashboards, applied only with whitelabel and the white labelling feature
+    showOrganizationLogo?: boolean
     // Insights
     noHeader?: boolean
     legend?: boolean

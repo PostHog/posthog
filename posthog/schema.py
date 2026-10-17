@@ -3312,6 +3312,7 @@ class SharingConfigurationSettings(BaseModel):
     legend: bool | None = None
     noHeader: bool | None = None
     showInspector: bool | None = None
+    showOrganizationLogo: bool | None = None
     theme: Theme | None = None
     whitelabel: bool | None = None
 

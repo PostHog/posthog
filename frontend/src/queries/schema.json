@@ -53027,6 +53027,9 @@
                 "showInspector": {
                     "type": "boolean"
                 },
+                "showOrganizationLogo": {
+                    "type": "boolean"
+                },
                 "theme": {
                     "enum": ["light", "dark", "system"],
                     "type": "string"

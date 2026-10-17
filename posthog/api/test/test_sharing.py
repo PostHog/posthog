@@ -33,6 +33,7 @@ from posthog.models import ActivityLog, OrganizationMembership
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.uploaded_media import UploadedMedia
 from posthog.models.user import User
 from posthog.test.authentication_checks import covers_authentication
 from posthog.test.insight_queries import browser_filtered_pageview_query
@@ -1169,6 +1170,49 @@ class TestSharingConfigurationSerializerValidation(APIBaseTest):
 
         # Empty dict should be filled with defaults
         assert data["settings"] == {}
+
+    @parameterized.expand(
+        [
+            ("boost_with_whitelabel", True, True, True, True, True),
+            ("boost_without_whitelabel", True, False, True, True, False),
+            ("free_with_whitelabel", False, True, True, True, False),
+            ("logo_toggle_off", True, True, False, True, False),
+            ("organization_without_logo", True, True, True, False, False),
+        ]
+    )
+    def test_shared_dashboard_includes_organization_logo_only_when_enabled(
+        self,
+        _name: str,
+        feature_available: bool,
+        whitelabel: bool,
+        show_organization_logo: bool,
+        organization_has_logo: bool,
+        expect_brand: bool,
+    ) -> None:
+        media = UploadedMedia.objects.create(team=self.team, content_type="image/png")
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.WHITE_LABELLING, "name": AvailableFeature.WHITE_LABELLING}]
+            if feature_available
+            else []
+        )
+        self.organization.logo_media = media if organization_has_logo else None
+        self.organization.save()
+        config = SharingConfiguration.objects.create(
+            team=self.team,
+            dashboard=self.dashboard,
+            enabled=True,
+            settings={
+                "whitelabel": whitelabel,
+                "showOrganizationLogo": show_organization_logo,
+            },
+        )
+
+        exported = self.client.get(f"/shared/{config.access_token}.json").json()
+
+        if expect_brand:
+            assert exported.get("brandLogoMediaId") == str(media.id)
+        else:
+            assert exported.get("brandLogoMediaId") is None
 
     def test_invalid_settings_type_rejected(self):
         """Test that invalid settings type is rejected"""
