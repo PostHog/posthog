@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
@@ -136,10 +137,19 @@ def fetch_message_assets_for_person(
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
     kind: str = "email",
+    distinct_ids: Sequence[str] = (),
+    email: Optional[str] = None,
 ) -> list[MessageAsset]:
+    """The person's messages. A send with no person attached, such as a transactional email to someone
+    who had no person yet, also belongs to the person whose distinct ID it used or whose email it went to."""
+    owners = ["person_id = %(person_id)s"]
+    if distinct_ids:
+        owners.append("(person_id = '' AND distinct_id IN %(distinct_ids)s)")
+    if email:
+        owners.append("(person_id = '' AND lower(recipient) = %(email)s)")
     where = [
         "team_id = %(team_id)s",
-        "person_id = %(person_id)s",
+        f"({' OR '.join(owners)})",
         # Standalone hog_function email destinations aren't surfaced anywhere yet,
         # so this endpoint only returns workflow-step rows.
         "function_kind = 'hog_flow'",
@@ -151,6 +161,8 @@ def fetch_message_assets_for_person(
     kwargs: dict[str, Any] = {
         "team_id": team_id,
         "person_id": person_id,
+        "distinct_ids": list(distinct_ids),
+        "email": (email or "").strip().lower(),
         "kind": kind,
         "limit": limit,
         "offset": offset,

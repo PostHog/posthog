@@ -272,6 +272,41 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         # rather than a stale name or a database lookup error.
         assert row["function_name"] == ""
 
+    @parameterized.expand(
+        [
+            (
+                "unlinked_send_to_their_distinct_id",
+                {"person_id": "", "distinct_id": "distinct-1", "recipient": "x@example.com"},
+                True,
+            ),
+            (
+                "unlinked_send_to_their_email",
+                {"person_id": "", "distinct_id": "p@example.com", "recipient": "P@Example.com"},
+                True,
+            ),
+            (
+                "unlinked_send_to_someone_else",
+                {"person_id": "", "distinct_id": "other", "recipient": "other@example.com"},
+                False,
+            ),
+            (
+                "send_linked_to_another_person",
+                {
+                    "person_id": "00000000-0000-0000-0000-000000000999",
+                    "distinct_id": "distinct-1",
+                    "recipient": "p@example.com",
+                },
+                False,
+            ),
+        ]
+    )
+    def test_includes_sends_with_no_person_that_match_the_person(self, _name, asset, expected):
+        create_message_asset(team_id=self.team.pk, function_id=str(self.hog_flow.pk), invocation_id="inv", **asset)
+
+        rows = self._emails().json()
+
+        assert [r["invocation_id"] for r in rows] == (["inv"] if expected else [])
+
     def test_isolated_from_other_persons(self):
         self._seed("mine")
         self._seed("theirs", person_id="00000000-0000-0000-0000-000000000999")
