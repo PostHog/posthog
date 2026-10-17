@@ -69,6 +69,7 @@ from products.signals.backend.ranking.overrides import read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import (
     DEFAULT_MODEL_KIND,
     ServingManifest,
+    model_key,
     serving_manifest_key,
     serving_project_vectors_key,
 )
@@ -937,15 +938,26 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
     families = [
         FamilyModels(
             name=family.name,
-            candidate=_read_json_if_exists(
-                client, bucket, model_object_key(prefix, family.name, partition_key, METADATA_FILE)
-            ),
             champion=_read_json_if_exists(client, bucket, champion_object_key(prefix, family.name)),
         )
         for family in MODEL_FAMILIES
     ]
+    recent_versions = settings.INBOX_RANKING_SERVING_RECENT_VERSIONS
+    recent = (
+        _recent_models(context, client, bucket, prefix, served["model_name"], partition_key, recent_versions)
+        if served is not None
+        else []
+    )
     decision = (
-        compose_manifest(families, served=served, prefix=prefix, now=datetime.datetime.now(datetime.UTC), pinned=pinned)
+        compose_manifest(
+            families,
+            served=served,
+            prefix=prefix,
+            now=datetime.datetime.now(datetime.UTC),
+            recent=recent,
+            recent_versions=recent_versions,
+            pinned=pinned,
+        )
         if served_reason is None
         else ManifestDecision(manifest=None, reason=served_reason)
     )
@@ -1075,6 +1087,30 @@ def _pinned_models(
             continue
         pinned.append(metadata)
     return pinned, dropped
+
+
+def _recent_models(
+    context: RunContext, client, bucket: str, prefix: str, model_name: str, partition_key: str, versions: int
+) -> list[dict[str, Any]]:
+    """The metadata of each `model_name` version fit in the 2 * `versions` days up to the partition,
+    newest first, that this build can serve.
+
+    A family does not fit a model every day, so the window is wider than `versions`. A version
+    passes the same check as a pin, because one missing file fails the whole publish.
+    """
+    end = datetime.date.fromisoformat(partition_key)
+    recent: list[dict[str, Any]] = []
+    for offset in range(2 * versions):
+        key = model_key(model_name, (end - datetime.timedelta(days=offset)).isoformat())
+        try:
+            metadata, reason = _pin_metadata(client, bucket, prefix, key)
+        except (ClientError, ValueError) as error:
+            metadata, reason = None, f"could not read the model: {error!r}"
+        if metadata is None:
+            context.log.info(f"recent model {key} skipped: {reason}")
+            continue
+        recent.append(metadata)
+    return recent
 
 
 def _pin_metadata(client, bucket: str, prefix: str, key: str) -> tuple[dict[str, Any] | None, str | None]:

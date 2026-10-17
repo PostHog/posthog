@@ -19,9 +19,9 @@ from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.overrides import NO_OVERRIDES
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
-    DAILY_CANDIDATE_ROLE,
     ONNX_MODEL_FILE,
     ONNX_MODEL_KIND,
+    RECENT_ROLE,
     SERVED_ROLE,
 )
 from products.signals.dags.inbox_ranking.common import partition_object_key
@@ -169,10 +169,9 @@ def test_the_manifest_carries_an_nn_champion_as_an_onnx_entry():
         [
             FamilyModels(
                 name=REPORT_EMBEDDINGS_MODEL_NAME,
-                candidate=None,
                 champion=_xgboost_metadata(REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15"),
             ),
-            FamilyModels(name=NN_MODEL_NAME, candidate=None, champion=_nn_metadata("2026-08-16")),
+            FamilyModels(name=NN_MODEL_NAME, champion=_nn_metadata("2026-08-16")),
         ],
         served=_xgboost_metadata(REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15"),
         prefix=PREFIX,
@@ -192,24 +191,21 @@ def test_the_manifest_serves_an_nn_model_with_the_xgboost_champion_as_a_challeng
         [
             FamilyModels(
                 name=REPORT_EMBEDDINGS_MODEL_NAME,
-                candidate=None,
                 champion=_xgboost_metadata(REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15"),
             ),
-            FamilyModels(
-                name=NN_MODEL_NAME,
-                candidate=_nn_metadata(PARTITION, heads=NN_HEAD_NAMES),
-                champion=_nn_metadata("2026-08-16", heads=NN_HEAD_NAMES),
-            ),
+            FamilyModels(name=NN_MODEL_NAME, champion=_nn_metadata("2026-08-16", heads=NN_HEAD_NAMES)),
         ],
         served=_nn_metadata("2026-08-16", heads=NN_HEAD_NAMES),
         prefix=PREFIX,
         now=NOW,
+        recent=[_nn_metadata(PARTITION, heads=NN_HEAD_NAMES)],
+        recent_versions=3,
     )
 
     assert decision.manifest is not None
     assert [(entry.model_name, entry.model_version, entry.roles) for entry in decision.manifest.models] == [
         (NN_MODEL_NAME, "2026-08-16", [SERVED_ROLE]),
-        (NN_MODEL_NAME, PARTITION, [DAILY_CANDIDATE_ROLE]),
+        (NN_MODEL_NAME, PARTITION, [RECENT_ROLE]),
         (REPORT_EMBEDDINGS_MODEL_NAME, "2026-08-15", [CROSS_FAMILY_ROLE]),
     ]
     served = decision.manifest.served
