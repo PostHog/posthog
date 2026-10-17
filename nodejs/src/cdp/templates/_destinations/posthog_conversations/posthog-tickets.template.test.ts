@@ -109,6 +109,41 @@ describe('posthog conversations ticket templates', () => {
         })
     })
 
+    describe('update ticket cc', () => {
+        const tester = new TemplateTester(updateTicketTemplate)
+
+        beforeEach(async () => {
+            await tester.beforeEach()
+            tester.mockInternalFetchResponse({ status: 200, body: { ok: true } })
+        })
+
+        const patchedBody = (): Record<string, unknown> => {
+            const [, options] = tester.mockInternalFetch.mock.calls[0] as unknown as [string, { body: string }]
+            return parseJSON(options.body)
+        }
+
+        it.each([
+            [
+                'splits a comma list and defaults to add',
+                { cc: ' a@example.com, ,b@example.com ' },
+                { cc_participants: ['a@example.com', 'b@example.com'], cc_mode: 'add' },
+            ],
+            [
+                'passes the chosen mode',
+                { cc: 'a@example.com', cc_mode: 'remove' },
+                { cc_participants: ['a@example.com'], cc_mode: 'remove' },
+            ],
+        ])('%s', async (_name, inputs, expected) => {
+            await tester.invoke({ ticket_id: TICKET_UUID, ...inputs })
+            expect(patchedBody()).toEqual(expected)
+        })
+
+        it('leaves the Cc list alone when the input resolves to nothing', async () => {
+            await tester.invoke({ ticket_id: TICKET_UUID, status: 'open', cc: ' , ' })
+            expect(patchedBody()).toEqual({ status: 'open' })
+        })
+    })
+
     describe('get ticket first_customer_message_text opt-in', () => {
         const tester = new TemplateTester(getTicketTemplate)
 

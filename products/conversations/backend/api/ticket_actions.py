@@ -11,6 +11,8 @@ import re
 import uuid
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.db import connection, transaction
 from django.db.models.functions import Substr
 from django.utils import timezone
@@ -46,6 +48,8 @@ from products.conversations.backend.reply_dedupe import (
 from products.conversations.backend.services.messages import visible_ticket_messages
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
+MAX_CC_PARTICIPANTS = 50
+
 
 class TicketActionUpdateSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=[s.value for s in Status], required=False)
@@ -61,6 +65,22 @@ class TicketActionUpdateSerializer(serializers.Serializer):
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
     tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+    cc_participants = serializers.ListField(
+        child=serializers.CharField(max_length=254), required=False, max_length=MAX_CC_PARTICIPANTS
+    )
+    cc_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+
+    def validate_cc_participants(self, value: list[str]) -> list[str]:
+        # Validate here, not with a child EmailField, because index-keyed child errors fail to render.
+        invalid = []
+        for addr in value:
+            try:
+                validate_email(addr)
+            except DjangoValidationError:
+                invalid.append(addr)
+        if invalid:
+            raise serializers.ValidationError(f"Invalid email addresses: {', '.join(invalid)}")
+        return list(dict.fromkeys(addr.lower() for addr in value))
 
     def validate_sla_business_hours(self, value):
         if value is None:
@@ -367,6 +387,20 @@ def handle_ticket_get(
     return Response(payload)  # nosemgrep: api-response-must-match-schema
 
 
+def _apply_cc_mode(current: list[str], addresses: list[str], mode: str, *, requester: str | None) -> list[str]:
+    # Replies always go To the requester, so a Cc copy of the requester would deliver twice.
+    if mode == "remove":
+        removed = set(addresses)
+        result = [addr for addr in current if addr.lower() not in removed]
+    elif mode == "set":
+        result = addresses
+    else:
+        existing = {addr.lower() for addr in current}
+        result = [*current, *(addr for addr in addresses if addr not in existing)]
+    requester_lower = (requester or "").lower()
+    return [addr for addr in result if addr.lower() != requester_lower]
+
+
 def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID) -> Response:
     """Apply a ticket update for an already-authenticated team."""
     # When a HogFlow workflow step makes the change, it forwards its identity via
@@ -506,8 +540,32 @@ def handle_ticket_patch(request: Request, team: Team, ticket_id: str | uuid.UUID
                         )
                     )
 
-    if update_fields:
-        ticket.save(update_fields=[*update_fields, "updated_at"])
+    # The Cc read-modify-write and the save share one transaction, so a rejected Cc change saves
+    # nothing and the row lock stops concurrent workflow steps from overwriting each other's Cc.
+    with transaction.atomic():
+        if "cc_participants" in serializer.validated_data:
+            locked = Ticket.objects.select_for_update().only("cc_participants").get(id=ticket.id, team_id=team.id)
+            old_cc = list(locked.cc_participants or [])
+            new_cc = _apply_cc_mode(
+                old_cc,
+                serializer.validated_data["cc_participants"],
+                serializer.validated_data.get("cc_mode", "add"),
+                requester=ticket.email_from,
+            )
+            if len(new_cc) > MAX_CC_PARTICIPANTS and len(new_cc) > len(old_cc):
+                return Response(
+                    {"error": f"A ticket can have at most {MAX_CC_PARTICIPANTS} Cc addresses."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            ticket.cc_participants = new_cc
+            if new_cc != old_cc:
+                update_fields.append("cc_participants")
+                changes.append(
+                    Change(type="Ticket", field="cc_participants", before=old_cc, after=new_cc, action="changed")
+                )
+
+        if update_fields:
+            ticket.save(update_fields=[*update_fields, "updated_at"])
 
     if changes:
         try:
