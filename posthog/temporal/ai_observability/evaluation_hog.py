@@ -115,9 +115,11 @@ def _extract_hog_output_text(output: Any) -> str:
     return _extract_hog_message_text(messages)
 
 
-# The reply-only text below follows one rule: take the text out of known provider message shapes,
+# The reply-only text below decides by where the output came from, not by what it looks like.
+# `$ai_output_choices` holds provider messages: take the text out of known message and block shapes,
 # drop the SDK items that are known not to be the reply, and keep anything else whole, because a
-# structured output is the reply itself. Captured output is user data, so a `type` or `role` can be
+# structured output is the reply itself. `$ai_output` and `$ai_output_state` hold the app's own
+# output, which is the reply as written. Captured output is user data, so a `type` or `role` can be
 # any JSON value, and only plain strings count as discriminators.
 _TEXT_BLOCK_TYPES = frozenset({"text", "output_text"})
 # Content block types an SDK can record as flat output without a message wrapper. Only the text
@@ -144,9 +146,9 @@ def _str_value(value: Any) -> str | None:
 
 
 def _is_non_reply_item(item: dict[str, Any]) -> bool:
-    """A Responses or SDK item that holds reasoning or a tool call rather than reply text."""
+    """A Responses or SDK item that holds reasoning, a tool call, or a tool result rather than reply text."""
     item_type = _str_value(item.get("type"))
-    return item_type is not None and (item_type == "reasoning" or item_type.endswith("_call"))
+    return item_type is not None and (item_type == "reasoning" or item_type.endswith(("_call", "_call_output")))
 
 
 def _is_message(choice: dict[str, Any]) -> bool:
@@ -196,45 +198,35 @@ def _reply_text_from_content(content: Any) -> str:
     return ""
 
 
-def _is_provider_message(item: Any) -> bool:
-    """Whether a decoded value is unmistakably a provider message or SDK item, not a reply that is JSON."""
-    if not isinstance(item, dict):
-        return False
-    return isinstance(item.get("message"), dict) or _str_value(item.get("role")) is not None or _is_non_reply_item(item)
+def _is_flat_block(item: dict[str, Any]) -> bool:
+    """A content block recorded without a message around it, matched on its fields as well as its `type`."""
+    item_type = _str_value(item.get("type"))
+    if item_type in _TEXT_BLOCK_TYPES:
+        return "text" in item or "content" in item
+    if item_type == "refusal":
+        return "refusal" in item
+    return item_type in _CONTENT_BLOCK_TYPES
 
 
-def _decode_provider_messages(value: str) -> Any:
-    """Decode output an SDK sent as a JSON string, but only when it holds provider messages.
-
-    A reply that is itself JSON, such as `[1, 2]` or `{"content": "abc"}`, stays a string.
-    """
+def _decode_choice_string(choice: str) -> Any:
     try:
-        decoded = json.loads(value)
+        decoded = json.loads(choice)
     except (ValueError, TypeError):
-        return None
-    items = decoded["choices"] if isinstance(decoded, dict) and isinstance(decoded.get("choices"), list) else decoded
-    if not isinstance(items, list):
-        items = [items]
-    return decoded if any(_is_provider_message(item) for item in items) else None
+        return choice
+    is_message = isinstance(decoded, dict) and (
+        isinstance(decoded.get("message"), dict) or _str_value(decoded.get("role")) is not None
+    )
+    return decoded if is_message else choice
 
 
-def _extract_hog_reply_text(output: Any) -> str:
-    """The text of the model's reply alone, without reasoning, tool calls, tool results, or role labels.
-
-    `output_text` keeps all of those because LLM judges read it as a conversation. Checks on the
-    reply itself, such as "is this valid JSON" or "is it empty", need the reply on its own.
-    """
-    if isinstance(output, str):
-        output = _decode_provider_messages(output) or output
+def _reply_text_from_choices(output: Any) -> str:
     if isinstance(output, dict) and isinstance(output.get("choices"), list):
         output = output["choices"]
 
     replies: list[str] = []
     for choice in output if isinstance(output, list) else [output]:
         if isinstance(choice, str):
-            decoded = _decode_provider_messages(choice)
-            if isinstance(decoded, dict):
-                choice = decoded
+            choice = _decode_choice_string(choice)
         if not isinstance(choice, dict):
             text = _scalar_text(choice)
             replies.append(text if text is not None else coerce_hog_io_value(choice))
@@ -244,11 +236,9 @@ def _extract_hog_reply_text(output: Any) -> str:
             choice = message
         if _str_value(choice.get("role")) in _NON_REPLY_ROLES or _is_non_reply_item(choice):
             continue
-        if _str_value(choice.get("role")) is None and _str_value(choice.get("type")) in _CONTENT_BLOCK_TYPES:
-            # A flat content block, recorded without a message around it.
+        if _str_value(choice.get("role")) is None and _is_flat_block(choice):
             replies.append(_block_text(choice) or "")
-            continue
-        if not _is_message(choice):
+        elif not _is_message(choice):
             replies.append(json.dumps(choice, default=str))
         elif isinstance(choice.get("parts"), list):
             # OTel keeps text parts next to reasoning and tool-call parts, with the text under `content`.
@@ -264,6 +254,27 @@ def _extract_hog_reply_text(output: Any) -> str:
         else:
             replies.append(_reply_text_from_content(_get_hog_output_choice_content(choice)))
     return "\n".join(reply for reply in replies if reply.strip())
+
+
+def _extract_hog_reply_text(output: Any, *, from_choices: bool) -> str:
+    """The text of the model's reply alone, without reasoning, tool calls, tool results, or role labels.
+
+    `output_text` keeps all of those because LLM judges read it as a conversation. Checks on the
+    reply itself, such as "is this valid JSON" or "is it empty", need the reply on its own.
+    """
+    if from_choices:
+        if isinstance(output, str):
+            # Some SDKs send the choices as one JSON string.
+            try:
+                output = json.loads(output)
+            except (ValueError, TypeError):
+                return output
+        return _reply_text_from_choices(output)
+    # The app's own output is the reply as written, unless it is one assistant message.
+    if isinstance(output, dict) and output.get("role") == "assistant":
+        return _reply_text_from_choices([output])
+    text = _scalar_text(output)
+    return text if text is not None else coerce_hog_io_value(output)
 
 
 def hog_bytecode_references_global(bytecode: list[Any], global_name: str) -> bool:
@@ -300,7 +311,9 @@ def build_hog_event_global(
     if include_text:
         event_global["input_text"] = _extract_hog_message_text(io.input_raw)
         event_global["output_text"] = _extract_hog_output_text(io.output_raw)
-        event_global["reply_text"] = _extract_hog_reply_text(io.output_raw)
+        # Mirrors `extract_event_io`, which reads `$ai_output_choices` first on a generation.
+        from_choices = event_type == "$ai_generation" and bool(properties.get("$ai_output_choices"))
+        event_global["reply_text"] = _extract_hog_reply_text(io.output_raw, from_choices=from_choices)
     return event_global
 
 

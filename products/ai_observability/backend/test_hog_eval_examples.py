@@ -301,6 +301,21 @@ class TestHogEvalExamplesBehavior:
             ),
             ("empty_openai", "Empty or failed output", [{"message": {"role": "assistant", "content": ""}}], False),
             ("empty_otel_parts", "Empty or failed output", [{"role": "assistant", "parts": []}], False),
+            (
+                "json_responses_tool_output_then_reply",
+                "Valid JSON output",
+                [
+                    {"type": "function_call_output", "call_id": "call_1", "output": "Saved."},
+                    {
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{"type": "output_text", "text": '{"ok": true}'}],
+                    },
+                ],
+                True,
+            ),
+            ("json_flat_text_type_payload", "Valid JSON output", [{"type": "text", "value": "Hello"}], True),
+            ("non_empty_flat_text_type_payload", "Empty or failed output", [{"type": "text", "value": "Hello"}], True),
             ("json_flat_text_block_prose", "Valid JSON output", [{"type": "text", "text": "not JSON"}], False),
             (
                 "non_empty_responses_refusal_block",
@@ -334,7 +349,6 @@ class TestHogEvalExamplesBehavior:
                 ['{"role": "assistant", "content": "Here you go"}'],
                 False,
             ),
-            ("json_string_reply_that_is_json", "Valid JSON output", "[1, 2]", True),
             ("empty_string_encoded", "Empty or failed output", '[{"role": "assistant", "content": ""}]', False),
             ("json_structured_with_type_key", "Valid JSON output", [{"type": "invoice", "amount": 10}], True),
             ("non_empty_structured_with_type_key", "Empty or failed output", [{"type": "invoice", "amount": 10}], True),
@@ -506,6 +520,43 @@ class TestHogEvalExamplesBehavior:
         bytecode = compile_hog(_get_source(label), "destination")
 
         result = run_hog_eval(bytecode, _make_event(ai_output_choices=output_choices))
+
+        assert result["error"] is None
+        assert result["verdict"] is expected
+
+    @parameterized.expand(
+        [
+            ("json_reply_with_role_field", "Valid JSON output", '{"role": "admin", "permissions": ["read"]}', True),
+            (
+                "non_empty_reply_with_role_field",
+                "Empty or failed output",
+                '{"role": "admin", "permissions": ["read"]}',
+                True,
+            ),
+            (
+                "json_reply_with_role_and_content_fields",
+                "Valid JSON output",
+                '{"role": "admin", "content": "Permissions assigned"}',
+                True,
+            ),
+            ("json_reply_array", "Valid JSON output", "[1, 2]", True),
+            (
+                "json_assistant_message_prose",
+                "Valid JSON output",
+                {"role": "assistant", "content": "The albatross flies."},
+                False,
+            ),
+        ]
+    )
+    def test_output_body_checks_read_ai_output_as_written(
+        self, _name: str, label: str, ai_output: Any, expected: bool
+    ) -> None:
+        bytecode = compile_hog(_get_source(label), "destination")
+        event = _make_event()
+        event["properties"].pop("$ai_output_choices")
+        event["properties"]["$ai_output"] = ai_output
+
+        result = run_hog_eval(bytecode, event)
 
         assert result["error"] is None
         assert result["verdict"] is expected
