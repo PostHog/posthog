@@ -5,6 +5,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { CodeManagedTag } from './CodeManagedTag'
+import { EmailHtmlFrame } from './EmailHtmlFrame'
 import { MessageTemplate } from './types'
 
 export function MessageTemplateCard({
@@ -30,12 +31,7 @@ export function MessageTemplateCard({
                 )}
                 <div className="w-full overflow-hidden grow">
                     {emailHtml ? (
-                        <iframe
-                            srcDoc={emailHtml}
-                            sandbox="allow-same-origin"
-                            title="Message template preview"
-                            className="w-full h-full border-0 bg-white pointer-events-none"
-                        />
+                        <EmailHtmlFrame html={emailHtml} className="h-full pointer-events-none" />
                     ) : (
                         <FallbackCoverImage src={undefined} alt="cover photo" index={index} className="h-full" />
                     )}

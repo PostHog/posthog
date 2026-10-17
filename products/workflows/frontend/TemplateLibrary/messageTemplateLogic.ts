@@ -13,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { messagingTemplatesMakeTransactionalCreate } from 'products/messaging/frontend/generated/api'
+import type { TemplateManagedByEnumApi } from 'products/messaging/frontend/generated/api.schemas'
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import type { EmailTemplate } from '../../../../frontend/src/scenes/hog-functions/email-templater/types'
@@ -21,6 +22,7 @@ import { workflowLogic } from '../Workflows/workflowLogic'
 import { TemplateSource, isCodeManagedTemplate, templateSource } from './codeManagedTemplate'
 import { NEW_TEMPLATE } from './constants'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
+import { templateCopy } from './templateCopy'
 import { MessageTemplate } from './types'
 
 export type TransactionalTemplateTab = 'design' | 'metrics' | 'sends' | 'versions' | 'api'
@@ -59,7 +61,12 @@ export interface messageTemplateLogicValues {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
@@ -69,6 +76,7 @@ export interface messageTemplateLogicValues {
     templateLoading: boolean
     templateManualErrors: Record<string, any>
     templatePickerOpen: boolean
+    templateSource: TemplateSource | null
     templateTouched: boolean
     templateTouches: Record<string, boolean>
     templateValidationErrors: DeepPartialMap<
@@ -81,13 +89,17 @@ export interface messageTemplateLogicValues {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         },
         ValidationErrorType
     >
-    templateSource: TemplateSource | null
     transactionalHogFlowId: string | null
     transactionalTab: TransactionalTemplateTab
 }
@@ -142,6 +154,21 @@ export interface messageTemplateLogicActions {
     makeTransactionalDone: (hogFlowId: string | null) => {
         hogFlowId: string | null
     }
+    releaseTemplate: () => any
+    releaseTemplateFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    releaseTemplateSuccess: (
+        template: MessageTemplate,
+        payload?: any
+    ) => {
+        template: MessageTemplate
+        payload?: any
+    }
     replayDeferredExternalEdit: () => {
         value: true
     }
@@ -154,7 +181,12 @@ export interface messageTemplateLogicActions {
         created_by: UserBasicType | null
         description: string
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -167,7 +199,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -225,7 +262,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -239,7 +281,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }>
@@ -266,7 +313,12 @@ export interface messageTemplateLogicActions {
         created_by: UserBasicType | null
         description: string
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -279,7 +331,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -293,7 +350,12 @@ export interface messageTemplateLogicActions {
         created_by: UserBasicType | null
         description: string
         id: string
+        key?: string | null | undefined
+        managed_by?: TemplateManagedByEnumApi | null | undefined
         name: string
+        source_path?: string | null | undefined
+        source_ref?: string | null | undefined
+        source_repository?: string | null | undefined
         transactional_hog_flow_id?: string | null | undefined
         updated_at: string | null
     }) => {
@@ -306,7 +368,12 @@ export interface messageTemplateLogicActions {
             created_by: UserBasicType | null
             description: string
             id: string
+            key?: string | null | undefined
+            managed_by?: TemplateManagedByEnumApi | null | undefined
             name: string
+            source_path?: string | null | undefined
+            source_ref?: string | null | undefined
+            source_repository?: string | null | undefined
             transactional_hog_flow_id?: string | null | undefined
             updated_at: string | null
         }
@@ -327,9 +394,9 @@ export interface messageTemplateLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         logicProps: (arg: MessageTemplateLogicProps) => MessageTemplateLogicProps
+        transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
         isCodeManaged: (originalTemplate: MessageTemplate) => boolean
         templateSource: (originalTemplate: MessageTemplate) => TemplateSource | null
-        transactionalHogFlowId: (originalTemplate: MessageTemplate) => string | null
     }
 }
 
@@ -371,7 +438,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (props: MessageTemplateLogicProps): MessageTemplateLogicProps => props,
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, values }) => ({
         template: {
             defaults: {
                 ...NEW_TEMPLATE,
@@ -385,7 +452,9 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             }),
             submit: async (template) => {
-                actions.saveTemplate(template)
+                if (!values.isCodeManaged) {
+                    actions.saveTemplate(template)
+                }
             },
         },
     })),
@@ -480,6 +549,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 }
                 return api.messaging.updateTemplate(template.id, template)
             },
+            releaseTemplate: () => api.messaging.updateTemplate(props.id, { managed_by: 'gui' }),
         },
         message: {
             loadMessage: async () => {
@@ -526,6 +596,27 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         },
         keepMyTemplateVersion: () => {
             actions.setExternallyEdited(false)
+        },
+        // A code-managed form never diverges from the server copy, so nothing can save or autosave it.
+        setTemplateValue: () => {
+            if (values.isCodeManaged) {
+                actions.resetTemplate(values.originalTemplate)
+            }
+        },
+        setTemplateValues: () => {
+            if (values.isCodeManaged) {
+                actions.resetTemplate(values.originalTemplate)
+            }
+        },
+        releaseTemplateSuccess: ({ template }) => {
+            actions.resetTemplate(template)
+            actions.setOriginalTemplate(template)
+            lemonToast.success('This template is no longer managed by code. You can edit it here.')
+            actions.replayDeferredExternalEdit()
+        },
+        releaseTemplateFailure: ({ errorObject }) => {
+            lemonToast.error(errorObject?.detail ?? 'Could not stop managing this template in code. Please try again.')
+            actions.replayDeferredExternalEdit()
         },
         makeTransactional: async () => {
             try {
@@ -632,13 +723,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 lemonToast.error('Please save your changes before duplicating')
                 return
             }
-            const template = values.template
             try {
-                const duplicatedTemplate = await api.messaging.createTemplate({
-                    name: `${template.name} (copy)`,
-                    description: template.description,
-                    content: template.content,
-                })
+                const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(values.template))
                 lemonToast.success('Template duplicated successfully')
                 router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
             } catch {

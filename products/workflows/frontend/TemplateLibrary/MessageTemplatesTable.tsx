@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { isCodeManagedTemplate } from './codeManagedTemplate'
 import { MessageTemplateCard } from './MessageTemplateCard'
 import { messageTemplatesLogic } from './messageTemplatesLogic'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
@@ -134,6 +135,9 @@ export function MessageTemplatesTable(): JSX.Element {
                                                     status: 'danger' as const,
                                                     icon: <IconTrash />,
                                                     onClick: () => deleteTemplate(template),
+                                                    disabledReason: isCodeManagedTemplate(template)
+                                                        ? 'This template is managed by code. To delete it, open it and stop managing it in code first.'
+                                                        : undefined,
                                                 },
                                             ]}
                                         />
