@@ -3,6 +3,7 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { compress, uncompress } from 'snappy'
 
@@ -227,6 +228,12 @@ export function migrateKafkaCyclotronInvocation(invocation: CyclotronJobInvocati
             unknownInvocation.state.timings = unknownInvocation.timings
             delete unknownInvocation.timings
         }
+    }
+
+    // JSON turns the Luxon DateTime into an ISO string, so restore it here.
+    if (typeof unknownInvocation.queueScheduledAt === 'string') {
+        const scheduledAt = DateTime.fromISO(unknownInvocation.queueScheduledAt, { zone: 'utc' })
+        unknownInvocation.queueScheduledAt = scheduledAt.isValid ? scheduledAt : undefined
     }
 
     return invocation
