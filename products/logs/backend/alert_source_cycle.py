@@ -851,6 +851,7 @@ def _evaluate_grouped(
     recorded = decision.as_outcome(
         configuration_id=check.id,
         evaluation_key=_evaluation_key(check, date_to),
+        grouping=check.grouping,
         query_duration_ms=result.query_duration_ms,
     )
     return recorded, _request(

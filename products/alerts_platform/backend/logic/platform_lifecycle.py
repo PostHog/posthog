@@ -5,6 +5,7 @@ and every write to these rows, stays here. A source never holds one of these mod
 """
 
 from collections.abc import Collection, Sequence
+from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import Final
 from uuid import UUID
@@ -420,6 +421,22 @@ def _check_status(configuration: PlatformAlertConfiguration, outcome: PlatformAl
     return PlatformAlertConfiguration.CheckStatus.OK.value
 
 
+def _without_stale_groups(
+    configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome
+) -> PlatformAlertOutcome:
+    """The outcome, or the outcome with its groups dropped when the check ran under another grouping.
+
+    An edit that changes the grouping deletes the instances, so recording a stale check's groups
+    would bring back instances keyed for the old grouping and announce them. The rest of the
+    outcome still holds: the check ran, so its schedule and status advance.
+    """
+    if outcome.grouping is None:
+        return outcome
+    if outcome.grouping.splits_like(Grouping.from_stored(configuration.grouping)):
+        return outcome
+    return replace(outcome, groups=(), overflowed=0, evicted=())
+
+
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
     """Persists a batch's decisions and advances each configuration's schedule.
 
@@ -455,6 +472,8 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
+        for configuration in configurations:
+            by_id[str(configuration.id)] = _without_stale_groups(configuration, by_id[str(configuration.id)])
         # In outcome order, because the source put the groups it most wants kept first.
         returned = [
             _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
