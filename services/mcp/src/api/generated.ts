@@ -96132,6 +96132,14 @@ export namespace Schemas {
       proposal: KeyClause[];
     }
 
+    export interface ReportLocationResponse {
+      /**
+         * The project that owns the report, or null when the caller can't read the report in any project.
+         * @nullable
+         */
+      team_id: number | null;
+    }
+
     /**
      * One impact measurement shown on a report.
      */
@@ -130479,6 +130487,13 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    };
+
+    export type SignalsReportsLocateRetrieveParams = {
+    /**
+     * The report to find.
+     */
+    report_id: string;
     };
 
     export type SignalsReportsPrCiStatusesParams = {
