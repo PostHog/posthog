@@ -30,8 +30,7 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
-from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.integration import Integration
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -56,6 +55,10 @@ from products.tasks.backend.feature_flags import (
     is_task_run_stream_presence_gated,
     is_task_run_stream_thin_tail,
     run_stream_presence_gated,
+)
+from products.tasks.backend.github_repository_access import (
+    team_github_integration_for_repositories,
+    working_team_github_integrations,
 )
 from products.tasks.backend.logic.model_access import resolve_model_access
 from products.tasks.backend.logic.stream.redis_stream import publish_task_run_stream_event
@@ -1197,14 +1200,17 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 Task.OriginProduct.METRICS_IMPORT,
             )
         )
+        # Every entry is cloned, so a private second repository fails the run just as surely
+        # as a private first one.
+        private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
+        team_github_installations = working_team_github_integrations(team.id)
         github_integration = None
-        if github_resolution_allowed:
-            github_integration = (
-                Integration.objects.filter(team=team, kind="github")
-                .exclude(errors=ERROR_TOKEN_REFRESH_FAILED)
-                .exclude(config__has_key=INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY)
-                .first()
-            )
+        if github_resolution_allowed and private_repositories:
+            github_integration = team_github_integration_for_repositories(team.id, private_repositories)
+        elif github_resolution_allowed:
+            github_integration = team_github_installations.first()
+        # Read after the pick: a refresh during it can mark an installation gone.
+        team_has_github_installation = team_github_installations.exists()
         github_user_integration = None
         task_stub = Task(
             team=team,
@@ -1228,7 +1234,7 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             )
             if user_github_integration_is_usable(user_github_integration):
                 github_user_integration = user_github_integration.integration if user_github_integration else None
-        elif authorship_mode == PrAuthorshipMode.BOT and github_integration is None:
+        elif authorship_mode == PrAuthorshipMode.BOT and not team_has_github_installation:
             # If BOT starts a task, provides a repo, but there's no team GitHub Integration,
             # then use the user_id BOT provided and get user's GitHub Integration instead
             user_github_integration = resolve_user_github_integration_for_task(
@@ -1239,12 +1245,10 @@ class Task(Taggable, DeletedMetaFields, models.Model):
             if user_github_integration is not None:
                 github_user_integration = user_github_integration.integration
 
-        if not github_integration and github_user_integration is None:
-            # Every entry is cloned, so a private second repository fails the run just as surely
-            # as a private first one.
-            private_repositories = [name for name in resolved_repositories if not is_public_sandbox_repo(name)]
-            if private_repositories:
+        if private_repositories and not github_integration and github_user_integration is None:
+            if not team_has_github_installation:
                 raise ValueError(f"Team {team.id} does not have a GitHub integration")
+            raise ValueError(f"No GitHub installation of team {team.id} can access {', '.join(private_repositories)}")
 
         sandbox_env = None
         if sandbox_environment_id is not None:

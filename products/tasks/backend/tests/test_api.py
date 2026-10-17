@@ -2616,6 +2616,37 @@ class TestTaskAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("private_repository", "acme/widgets", 1),
+            ("public_sandbox_repository", "posthog/hedgebox", 0),
+        ]
+    )
+    def test_create_task_attaches_the_installation_that_reaches_the_repository(self, _name, repository, expected_index):
+        installations = [
+            Integration.objects.create(
+                team=self.team,
+                kind="github",
+                integration_id=f"install-{index}",
+                repository_cache=[{"id": index, "name": full_name.split("/")[1], "full_name": full_name}],
+                repository_cache_updated_at=django_timezone.now() - timedelta(minutes=10),
+            )
+            for index, full_name in enumerate(["acme/other", "acme/widgets"])
+        ]
+
+        with patch(
+            "posthog.models.github_integration_base.GitHubIntegrationBase.list_all_repositories", return_value=[]
+        ) as list_github_repositories:
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {"title": "Widgets task", "repository": repository},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        self.assertEqual(Task.objects.get(id=response.json()["id"]).github_integration, installations[expected_index])
+        list_github_repositories.assert_not_called()
+
     def test_create_task_with_pi_runtime(self):
         response = self.client.post(
             "/api/projects/@current/tasks/",

@@ -4,12 +4,14 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.utils import timezone as django_timezone
+
 from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized_class
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
+from posthog.models import Integration, PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
@@ -195,6 +197,30 @@ class TestCreateTaskTool(BaseTaskToolTest):
         assert "Created and started task" in content
         task = await sync_to_async(Task.objects.get)(id=artifact["task_id"])
         assert task.github_integration is None
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_create_task_attaches_the_installation_that_reaches_the_repository(self):
+        await sync_to_async(Integration.objects.create)(
+            team=self.team,
+            kind="github",
+            integration_id="install-1",
+            repository_cache=[{"id": 1, "name": "other", "full_name": "acme/other"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        reaching = await sync_to_async(Integration.objects.create)(
+            team=self.team,
+            kind="github",
+            integration_id="install-2",
+            repository_cache=[{"id": 2, "name": "widgets", "full_name": "acme/widgets"}],
+            repository_cache_updated_at=django_timezone.now(),
+        )
+        tool = self._create_tool(CreateTaskTool)
+
+        _, artifact = await tool._arun_impl(title="Widgets", description="Test", repository="acme/widgets", run=False)
+
+        task = await sync_to_async(Task.objects.get)(id=artifact["task_id"])
+        assert task.github_integration_id == reaching.id
 
 
 class TestRunTaskTool(BaseTaskToolTest):

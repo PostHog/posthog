@@ -12,6 +12,7 @@ from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
 from .facade.access import analytics_context_reader
+from .github_repository_access import default_team_github_integration
 from .logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
 from .models import Task, TaskRun
 from .temporal.client import execute_task_processing_workflow_async
@@ -72,15 +73,13 @@ By default, the task will be created and immediately executed. Set run=false to 
     async def _arun_impl(
         self, title: str, description: str, repository: str, run: bool = True
     ) -> tuple[str, dict[str, Any]]:
-        from posthog.models.integration import Integration
-
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
+        # Resolved before the transaction: a cache miss syncs from GitHub and saves the integration row.
+        github_integration = await sync_to_async(default_team_github_integration)(self._team.id, [repository])
 
         @sync_to_async
         @transaction.atomic
         def create_task_and_maybe_run():
-            github_integration = Integration.objects.filter(team=self._team, kind="github").first()
-
             task = Task.objects.create(
                 team=self._team,
                 created_by=self._user,
