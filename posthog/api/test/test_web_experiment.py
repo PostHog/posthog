@@ -108,6 +108,8 @@ class TestWebExperiment(APIBaseTest):
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
+                "variants_with_notes_count": 0,
+                "variants_with_screenshots_count": 0,
                 "created_at": web_experiment.created_at,
                 "creation_mode": "new",
             },

@@ -779,6 +779,20 @@ describe('experimentWizardLogic', () => {
 
             expect(screen.queryByText(/For linked feature flags, this step is read-only/)).not.toBeInTheDocument()
         })
+
+        it.each([
+            { variant: 'test', shown: true },
+            { variant: 'control', shown: false },
+        ])('shows the Screenshot and Notes columns only in the test arm ($variant)', ({ variant, shown }) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS], {
+                [FEATURE_FLAGS.EXPERIMENT_WIZARD_VARIANT_DETAILS]: variant,
+            })
+
+            renderVariantsStep()
+
+            expect(screen.queryByText('Screenshot') !== null).toBe(shown)
+            expect(screen.queryByText('Notes') !== null).toBe(shown)
+        })
     })
 
     describe('auto-link guard against the shared flag-load singleton', () => {
