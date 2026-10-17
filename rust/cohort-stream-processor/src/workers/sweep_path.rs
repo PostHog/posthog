@@ -24,7 +24,8 @@ use crate::filters::TeamId;
 use crate::observability::metrics::{
     STAGE1_TRANSITIONS, SWEEP_BATCH_DURATION_SECONDS, SWEEP_BATCH_KEYS_CLAIMED,
     SWEEP_BATCH_PRODUCE_SECONDS, SWEEP_KEYS_DROPPED_TOTAL, SWEEP_KEYS_EVICTED_TOTAL,
-    SWEEP_KEYS_NOT_CLAIMED_TOTAL, SWEEP_QUEUE_LAG_SECONDS, SWEEP_READ_CHUNK_BYTES,
+    SWEEP_KEYS_NOT_CLAIMED_TOTAL, SWEEP_QUEUE_KEYS, SWEEP_QUEUE_LAG_SECONDS,
+    SWEEP_READ_CHUNK_BYTES,
 };
 use crate::producer::{map_transition, CohortMembershipChange, LastUpdatedClock, MembershipSink};
 use crate::stage1::key::LeafStateKey;
@@ -95,7 +96,7 @@ impl SweepSchedule {
             self.pending_cutoff
                 .map_or(due_before_ms, |pending| pending.max(due_before_ms)),
         );
-        self.record_queue_lag(queue);
+        self.record_queue_gauges(queue);
     }
 
     /// Whether a batch is still available to run.
@@ -146,21 +147,24 @@ impl SweepSchedule {
         }
     }
 
-    fn record_queue_lag(&self, queue: &EvictionQueue<BehavioralKey>) {
+    fn record_queue_gauges(&self, queue: &EvictionQueue<BehavioralKey>) {
         let lag_ms = match (queue.peek_next_deadline(), self.newest_cutoff()) {
             (Some(oldest), Some(cutoff)) => cutoff.saturating_sub(oldest).max(0),
             _ => 0,
         };
         gauge!(SWEEP_QUEUE_LAG_SECONDS, "partition" => self.partition_label.clone())
             .set(lag_ms as f64 / 1_000.0);
+        gauge!(SWEEP_QUEUE_KEYS, "partition" => self.partition_label.clone())
+            .set(queue.len() as f64);
     }
 }
 
 impl Drop for SweepSchedule {
-    /// Zero the partition's lag gauge when the worker exits, so a revoked partition's last value
+    /// Zero the partition's queue gauges when the worker exits, so a revoked partition's last value
     /// does not pin. A frozen series reads exactly like the backlog the gauge exists to warn about.
     fn drop(&mut self) {
         gauge!(SWEEP_QUEUE_LAG_SECONDS, "partition" => self.partition_label.clone()).set(0.0);
+        gauge!(SWEEP_QUEUE_KEYS, "partition" => self.partition_label.clone()).set(0.0);
     }
 }
 
@@ -352,7 +356,7 @@ pub(crate) async fn run_sweep_turn(
     )
     .await;
     histogram!(SWEEP_BATCH_DURATION_SECONDS).record(started.elapsed().as_secs_f64());
-    schedule.record_queue_lag(queue);
+    schedule.record_queue_gauges(queue);
 }
 
 #[allow(clippy::too_many_arguments)]
