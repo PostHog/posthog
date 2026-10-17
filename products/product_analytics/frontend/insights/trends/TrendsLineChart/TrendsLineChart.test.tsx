@@ -965,13 +965,14 @@ describe('TrendsLineChart', () => {
     })
 
     describe('extendLabelsToLongestSeries', () => {
-        const result = (data: number[]): IndexedTrendResult => ({ data }) as IndexedTrendResult
+        const result = (data: number[], compare_label?: 'current' | 'previous'): IndexedTrendResult =>
+            ({ data, compare_label }) as IndexedTrendResult
 
         it('extends the hourly domain forward to a longer previous series', () => {
             const currentDays = ['2020-01-02 00:00:00', '2020-01-02 01:00:00', '2020-01-02 02:00:00']
             const extended = extendLabelsToLongestSeries(currentDays, 'hour', [
-                result([0, 0, 1]),
-                result([3, 0, 0, 0, 0]),
+                result([0, 0, 1], 'current'),
+                result([3, 0, 0, 0, 0], 'previous'),
             ])
             expect(extended).toEqual([
                 '2020-01-02 00:00:00',
@@ -985,6 +986,11 @@ describe('TrendsLineChart', () => {
         it('leaves the domain untouched when no series is longer', () => {
             const days = ['2020-01-02', '2020-01-03', '2020-01-04']
             expect(extendLabelsToLongestSeries(days, 'day', [result([1, 2, 3]), result([4, 5, 6])])).toBe(days)
+        })
+
+        it('does not pad a single-month range when a breakdown series is longer', () => {
+            const days = ['2026-08-01']
+            expect(extendLabelsToLongestSeries(days, 'month', [result([5]), result([3, 4])])).toBe(days)
         })
     })
 })

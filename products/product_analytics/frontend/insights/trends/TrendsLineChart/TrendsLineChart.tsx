@@ -54,13 +54,17 @@ const handleChartError = makeChartErrorHandler('trends-line-chart')
 // current period — e.g. a full "yesterday" against "today" so far at hour granularity. The x-axis
 // is keyed off the current period's days, so the extra previous-period points would fall outside
 // the domain and get clipped. Extend the domain forward by the interval so the previous series
-// spans the full width; the current series keeps its shorter, dashed tail.
+// spans the full width; the current series keeps its shorter, dashed tail. Only previous-period
+// series may extend the domain, so the x-axis never runs past the selected date range.
 export function extendLabelsToLongestSeries(
     labels: string[],
     interval: IntervalType | null | undefined,
     results: IndexedTrendResult[]
 ): string[] {
-    const maxLength = results.reduce((max, r) => Math.max(max, r.data?.length ?? 0), 0)
+    const maxLength = results.reduce(
+        (max, r) => (r.compare_label === 'previous' ? Math.max(max, r.data?.length ?? 0) : max),
+        0
+    )
     if (!labels.length || labels.length >= maxLength) {
         return labels
     }
