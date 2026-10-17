@@ -121,29 +121,26 @@ class TestLogValuesAttributesTimezones(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("the service the values live under", "argo-rollouts", True),
-            ("another service", "cdp-api", False),
+            ("the service the values live under", "argo-rollouts", True, False),
+            ("another service", "cdp-api", False, False),
+            ("the service the values live under, flat", "argo-rollouts", True, True),
+            ("another service, flat", "cdp-api", False, True),
         ]
     )
-    def test_log_values_query_scoped_by_service_in_group(self, _name, service, expects_results):
+    def test_log_values_query_scoped_by_service_in_group(self, _name, service, expects_results, flat):
         # The viewer keeps its service selection in filterGroup, so these suggestions have to read it
         # from there: otherwise a scoped viewer offers values that exist only in other services.
+        # MCP and API callers send the same filters as a flat list.
+        service_filter = [{"key": "service_name", "type": "log", "operator": "exact", "value": [service]}]
+        filter_group = (
+            service_filter if flat else {"type": "AND", "values": [{"type": "AND", "values": service_filter}]}
+        )
         query_params = {
             "dateRange": '{"date_from": "2025-12-16T09:00:00Z", "date_to": "2025-12-16T11:00:00Z"}',
             "key": "level",
             "attribute_type": "log",
             "value": "DE",
-            "filterGroup": json.dumps(
-                {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "service_name", "type": "log", "operator": "exact", "value": [service]}],
-                        }
-                    ],
-                }
-            ),
+            "filterGroup": json.dumps(filter_group),
         }
 
         response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", query_params)
@@ -368,6 +365,32 @@ class TestLogValuesAttributesQueryErrors(APIBaseTest):
 
                 self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
                 self.assertEqual(response.json()["error"], str(error))
+
+
+class TestLogValuesUnsupportedFilters(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("message", {"key": "message", "type": "log", "operator": "exact", "value": "no-such-log-line"}),
+            ("trace id", {"key": "trace_id", "type": "log", "operator": "exact", "value": "abc"}),
+            ("log attribute", {"key": "http.url", "type": "log_attribute", "operator": "exact", "value": "/x"}),
+            ("unhashable key", {"key": ["service_name"], "type": "log", "operator": "exact", "value": ["api"]}),
+            ("not an object", "service_name"),
+            ("invalid operator", {"key": "service_name", "type": "log", "operator": "nope", "value": ["api"]}),
+        ]
+    )
+    def test_flat_filter_the_rollup_cannot_apply_returns_400(self, _name, unsupported_filter):
+        service_filter = {"key": "service_name", "type": "log", "operator": "exact", "value": ["api"]}
+        params = {
+            "key": "service.name",
+            "attribute_type": "resource",
+            "filterGroup": json.dumps([service_filter, unsupported_filter]),
+        }
+
+        with patch("products.logs.backend.presentation.views.api.LogValuesQueryRunner.calculate") as calculate:
+            response = self.client.get(f"/api/projects/{self.team.pk}/logs/values", params)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        calculate.assert_not_called()
 
 
 class TestLogAttributesIlikeEscaping(ClickhouseTestMixin, APIBaseTest):
