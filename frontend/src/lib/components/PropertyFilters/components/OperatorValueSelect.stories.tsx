@@ -1,11 +1,14 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryObj } from '@storybook/react'
+import { useState } from 'react'
 
 import {
     OperatorValueSelect,
     OperatorValueSelectProps,
 } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 
-import { PropertyDefinition, PropertyOperator, PropertyType } from '~/types'
+import { PropertyDefinition, PropertyFilterType, PropertyOperator, PropertyType } from '~/types'
+
+import { expect, userEvent, waitFor, within } from 'storybook/test'
 
 const meta: Meta<OperatorValueSelectProps> = {
     title: 'Filters/PropertyFilters/OperatorValueSelect',
@@ -121,4 +124,44 @@ export function OperatorValueMenuWithAllowlist(): JSX.Element {
             />
         </>
     )
+}
+
+const longRegex =
+    '^https://example\\.com/(products|pricing|documentation|integrations|customer-stories|case-studies|features|solutions|guides|tutorials|reference|changelog|support)/[a-z0-9-]+$'
+
+function LongRegexValue(): JSX.Element {
+    const [value, setValue] = useState(longRegex)
+
+    return (
+        <div className="w-96 max-w-full">
+            <OperatorValueSelect
+                type={PropertyFilterType.Event}
+                propertyKey="$current_url"
+                operator={PropertyOperator.Regex}
+                value={value}
+                onChange={(_, nextValue) => setValue(String(nextValue))}
+                propertyDefinitions={[makePropertyDefinition('$current_url', PropertyType.String)]}
+                editable
+            />
+        </div>
+    )
+}
+
+export const LongRegexValueCanBeEdited: StoryObj<OperatorValueSelectProps> = {
+    render: () => <LongRegexValue />,
+    parameters: { testOptions: { viewport: { width: 650, height: 850 } } },
+    play: async ({ canvasElement }) => {
+        const input = within(canvasElement).getByRole('textbox')
+        await userEvent.click(input)
+        const editButton = await waitFor(() => {
+            const button = document.querySelector<HTMLButtonElement>(
+                '.Popover .LemonButtonWithSideAction__side-button button'
+            )
+            expect(button).toBeInTheDocument()
+            expect(button!.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth - 8)
+            return button!
+        })
+        await userEvent.click(editButton)
+        await waitFor(() => expect(input).toHaveValue(longRegex))
+    },
 }
