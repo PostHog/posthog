@@ -14,7 +14,9 @@ from products.engineering_analytics.backend.logic.job_logs.coordinator import (
     DepotAttemptCursor,
     DepotDiscovery,
     DepotDiscoveryInputs,
+    GithubDiscoveryInputs,
     _discover_failed_depot_attempts,
+    _discover_github_jobs,
     _discover_jobs_with_diagnostics,
     _github_source_params,
     _query_jobs_with_diagnostics,
@@ -63,6 +65,52 @@ class TestDiscoverJobsWithDiagnostics:
         assert _discover_failed_depot_attempts(
             DepotDiscoveryInputs(cutoff_iso="2026-06-29T00:00:00+00:00", cursors={})
         ) == DepotDiscovery(attempts=[], cursors={})
+
+
+class TestDiscoverGithubJobs(BaseTest):
+    @override_settings(OTLP_LOGS_INGEST_ENDPOINT="http://localhost:8010/i/v1/logs")
+    def test_stops_at_budget_and_next_tick_resumes_after_last_read_source(self) -> None:
+        # Every source query takes 40s against the 60s budget. Without the budget the activity runs
+        # past its timeout and every tick fails. Without the resume cursor the third source is never read.
+        sources = sorted(
+            (
+                ExternalDataSource.objects.create(
+                    team=self.team,
+                    source_id=f"src-{i}",
+                    connection_id=f"src-{i}",
+                    status=ExternalDataSource.Status.COMPLETED,
+                    source_type=ExternalDataSourceType.GITHUB,
+                    prefix="",
+                    job_inputs={"auth_method": {"github_integration_id": "42"}, "repository": f"PostHog/repo{i}"},
+                )
+                for i in range(3)
+            ),
+            key=lambda source: source.id,
+        )
+        clock = [0.0]
+
+        def query(team, prefix, cutoff_iso, repo, max_execution_time):
+            clock[0] += 40
+            return [{"job_id": int(repo.removeprefix("PostHog/repo"))}]
+
+        module = "products.engineering_analytics.backend.logic.job_logs.coordinator"
+        with (
+            patch(f"{module}.time", SimpleNamespace(monotonic=lambda: clock[0])),
+            patch(f"{module}._query_jobs_with_diagnostics", side_effect=query) as mock_query,
+        ):
+            first = _discover_github_jobs(GithubDiscoveryInputs(cutoff_iso="2026-10-03T00:00:00+00:00"))
+            second = _discover_github_jobs(
+                GithubDiscoveryInputs(cutoff_iso="2026-10-03T00:00:00+00:00", resume_after=first.resume_after)
+            )
+
+        def read_repos(discovery):
+            return [job.repo for job in discovery.jobs]
+
+        repos = [source.job_inputs["repository"] for source in sources]
+        assert (read_repos(first), first.resume_after) == (repos[:2], str(sources[1].id))
+        assert (read_repos(second), second.resume_after) == ([repos[2], repos[0]], str(sources[0].id))
+        # A query never gets more time than the cap or the budget that is left.
+        assert [c.args[4] for c in mock_query.call_args_list] == [30, 20, 30, 20]
 
 
 class TestDiscoverFailedDepotAttempts(ClickhouseTestMixin, BaseTest):
@@ -165,3 +213,4 @@ class TestQueryJobsWithDiagnostics:
         _query_jobs_with_diagnostics(Team(pk=1), "devex_", "2026-06-30T00:00:00+00:00", "PostHog/posthog")
         mock_execute.assert_called_once()
         assert mock_execute.call_args.kwargs["bypass_warehouse_access_control"] is True
+        assert mock_execute.call_args.kwargs["settings"].max_execution_time == 30
