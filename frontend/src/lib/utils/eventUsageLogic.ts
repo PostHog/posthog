@@ -612,6 +612,12 @@ function sanitizeTile(tile: DashboardTile | null): object | undefined {
     }
 }
 
+// Metric variable definitions hold queries and option lists, which do not belong in analytics.
+export function filtersForAnalytics(filters: Record<string, any>): Record<string, any> {
+    const { metricVariables, ...rest } = filters
+    return metricVariables ? { ...rest, metric_variable_count: metricVariables.length } : rest
+}
+
 export function sanitizeDashboard(dashboard: DashboardType | null): object | null {
     if (!dashboard) {
         return null
@@ -623,6 +629,8 @@ export function sanitizeDashboard(dashboard: DashboardType | null): object | nul
     return {
         ...sanitizedDashboard,
         breakdown_colors_count: breakdown_colors?.length ?? 0,
+        filters: filtersForAnalytics(dashboard.filters ?? {}),
+        persisted_filters: dashboard.persisted_filters ? filtersForAnalytics(dashboard.persisted_filters) : null,
         tiles: dashboard.tiles?.map((tile) => sanitizeTile(tile)) || [],
     }
 }

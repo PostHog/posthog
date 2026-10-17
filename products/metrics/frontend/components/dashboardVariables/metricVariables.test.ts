@@ -37,6 +37,8 @@ describe('metricVariables', () => {
             query: "SELECT 'prod' -- $env\n/* $env */ // $env\n# $env",
         }
         expect(orderVariables([sqlWithComments]).cycle).toEqual([])
+        const escaped = [promql('env', 'label_values(up{a=~`\\$env`, b=~"\\\\$env"}, env) # $env')]
+        expect(orderVariables(escaped).cycle).toEqual([])
     })
 
     it.each([
@@ -85,10 +87,11 @@ describe('metricVariables', () => {
     })
 
     it.each([
-        ['a query variable', 'promql', 'regex'],
-        ['a list, which does not use the regex', 'custom', undefined],
-    ])('checks an invalid regex on %s', (_name, source, field) => {
-        const variable = { name: 'v', source, query: 'label_values(job)', customValues: ['a'], regex: '(' }
+        ['a query variable', 'promql', '(', 'regex'],
+        ['a list, which does not use the regex', 'custom', '(', undefined],
+        ['a regex over the API limit', 'promql', 'a'.repeat(1025), 'regex'],
+    ])('checks the regex of %s', (_name, source, regex, field) => {
+        const variable = { name: 'v', source, query: 'label_values(job)', customValues: ['a'], regex }
         expect(ownValue(variableErrors([variable as MetricsDashboardVariable]), 'v')?.field).toEqual(field)
     })
 

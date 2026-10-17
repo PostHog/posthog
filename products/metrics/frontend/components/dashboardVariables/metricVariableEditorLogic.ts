@@ -199,6 +199,8 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
             errors[variable.name] = { field: 'query', message: `Use at most ${MAX_QUERY_LENGTH} characters.` }
         } else if (invalidRegex) {
             errors[variable.name] = { field: 'regex', message: invalidRegex }
+        } else if ((variable.regex?.length ?? 0) > MAX_VALUE_LENGTH) {
+            errors[variable.name] = { field: 'regex', message: `Use at most ${MAX_VALUE_LENGTH} characters.` }
         } else if ((variable.allValue?.length ?? 0) > MAX_VALUE_LENGTH) {
             errors[variable.name] = { field: 'allValue', message: `Use at most ${MAX_VALUE_LENGTH} characters.` }
         } else if (variable.source === 'custom' && !variable.customValues?.length) {

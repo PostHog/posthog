@@ -52,6 +52,7 @@ import {
     dashboardViewedProperties,
     eventUsageLogic,
     sanitizeDashboard,
+    filtersForAnalytics,
     sanitizeQuery,
 } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -156,6 +157,7 @@ import {
     SEARCH_PARAM_FILTERS_KEY,
     SEARCH_PARAM_QUERY_VARIABLES_KEY,
     combineDashboardFilters,
+    combineSavedAndUrlFilters,
     encodeURLVariables,
     getDashboardWidgetType,
     getEffectiveDateOverride,
@@ -174,12 +176,6 @@ import { tileLogic } from './tileLogic'
 
 function dashboardSettingsMatch(first: DashboardSettings, second: DashboardSettings): boolean {
     return dashboardFiltersEqual(first.filters, second.filters) && equal(first.variables, second.variables)
-}
-
-// Metric variable definitions hold queries and option lists, which do not belong in analytics.
-function filtersForAnalytics(filters: Record<string, any>): Record<string, any> {
-    const { metricVariables, ...rest } = filters
-    return metricVariables ? { ...rest, metric_variable_count: metricVariables.length } : rest
 }
 
 function reportDashboardTileRefreshed(
@@ -2912,7 +2908,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 draft: DashboardSettings | null
             ): DashboardSettings =>
                 draft || {
-                    filters: combineDashboardFilters(saved.filters, initialOverride.filters),
+                    filters: combineSavedAndUrlFilters(saved.filters, initialOverride.filters),
                     variables: { ...saved.variables, ...initialOverride.variables },
                 },
         ],
@@ -2924,7 +2920,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 previewed: DashboardSettings | null
             ): DashboardSettings =>
                 previewed || {
-                    filters: combineDashboardFilters(saved.filters, initialOverride.filters),
+                    filters: combineSavedAndUrlFilters(saved.filters, initialOverride.filters),
                     variables: { ...saved.variables, ...initialOverride.variables },
                 },
         ],
@@ -5731,7 +5727,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (method === 'POP' && values.dashboard) {
                 const current = values.currentDashboardSettings
                 const settings: DashboardSettings = {
-                    filters: combineDashboardFilters(
+                    filters: combineSavedAndUrlFilters(
                         values.savedDashboardSettings.filters,
                         parseURLFilters(searchParams)
                     ),
