@@ -48,6 +48,8 @@ const NAMED_CHARACTERS: Record<string, string> = {
     nbsp: String.fromCodePoint(0xa0),
 }
 const LIQUID = /\{\{[\s\S]*?\}\}|\{%[\s\S]*?%\}/g
+const CHARACTER_REFERENCE_START = /&(?=#\d+;|#[xX][0-9a-fA-F]+;|(?:amp|lt|gt|quot|apos|nbsp);)/g
+const TITLE_CLOSE_START = /<(?=\/title)/gi
 
 /** The template as the `.html` file that posthog-node's `templateFile()` reads back as the same subject and preheader. */
 export function templateHtmlFile(email: TemplateHtmlFileContent): string {
@@ -73,7 +75,7 @@ function withPreheader(html: string, preheader: string): string {
         return html
     }
     if (!preheader.trim()) {
-        return existing ? splice(html, existing.start, existing.end, '') : html
+        return withoutPreheaders(html)
     }
     const tag = preheaderTag(preheader)
     if (existing) {
@@ -83,6 +85,15 @@ function withPreheader(html: string, preheader: string): string {
         return splice(html, title.end, title.end, tag)
     }
     return insertIntoHead(html, head, tag)
+}
+
+function withoutPreheaders(html: string): string {
+    let { preheader } = scanHead(html)
+    while (preheader) {
+        html = splice(html, preheader.start, preheader.end, '')
+        ;({ preheader } = scanHead(html))
+    }
+    return html
 }
 
 function insertIntoHead(html: string, head: HeadScan, markup: string): string {
@@ -193,7 +204,16 @@ function collapseWhitespace(value: string): string {
 }
 
 function escapeTitleText(subject: string): string {
-    return mapOutsideLiquid(subject, (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'))
+    return mapLiquidAndText(
+        subject,
+        (liquid) => keepCharacterReferences(liquid).replace(TITLE_CLOSE_START, '&lt;'),
+        (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    )
+}
+
+/** Liquid stays literal, except for the few characters the SDK would decode or end the tag on when it reads the file. */
+function keepCharacterReferences(liquid: string): string {
+    return liquid.replace(CHARACTER_REFERENCE_START, '&amp;')
 }
 
 function preheaderTag(preheader: string): string {
@@ -201,16 +221,22 @@ function preheaderTag(preheader: string): string {
     const quote = liquid.includes('"') && !liquid.includes("'") ? "'" : '"'
     const escapedQuote = quote === '"' ? '&quot;' : '&#39;'
     const escape = (text: string): string => text.replace(/&/g, '&amp;').replaceAll(quote, escapedQuote)
-    const content = liquid.includes(quote) ? escape(preheader) : mapOutsideLiquid(preheader, escape)
+    const content = liquid.includes(quote)
+        ? escape(preheader)
+        : mapLiquidAndText(preheader, keepCharacterReferences, escape)
     return `<meta name="preheader" content=${quote}${content}${quote}>`
 }
 
-function mapOutsideLiquid(value: string, map: (text: string) => string): string {
+function mapLiquidAndText(
+    value: string,
+    mapLiquid: (liquid: string) => string,
+    mapText: (text: string) => string
+): string {
     let mapped = ''
     let textStart = 0
     for (const liquid of value.matchAll(LIQUID)) {
-        mapped += map(value.slice(textStart, liquid.index)) + liquid[0]
+        mapped += mapText(value.slice(textStart, liquid.index)) + mapLiquid(liquid[0])
         textStart = liquid.index + liquid[0].length
     }
-    return mapped + map(value.slice(textStart))
+    return mapped + mapText(value.slice(textStart))
 }
