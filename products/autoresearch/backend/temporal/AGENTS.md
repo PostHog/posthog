@@ -2,7 +2,7 @@
 
 The scheduled half of autoresearch. Three workflows and four activities, registered on `settings.AUTORESEARCH_TASK_QUEUE` by `start_temporal_worker`, which imports `WORKFLOWS` and `ACTIVITIES` from `__init__.py`.
 
-Scoring, validation and training live in `../inference/`, `../evaluation/`, and `../training/` — the same functions the management commands and the API reach — and the activities call them, so the scheduled path cannot drift from the headless one. What stays here is the sweep's own logic: discovery (cadence, rollout, creator access) and the kickoff's eligibility gates, budget debit and row lock.
+Scoring, validation and training live in `../inference/`, `../evaluation/`, and `../training/` — the same functions the management commands and the API reach — and the activities call them, so the scheduled path cannot drift from the headless one. What stays here is the sweep's own logic: discovery (cadence, rollout, creator access) and the kickoff's eligibility gates, research schedule and row lock.
 
 ## What lives here
 
@@ -11,6 +11,7 @@ Scoring, validation and training live in `../inference/`, `../evaluation/`, and 
   - `AutoresearchInferenceWorkflow` (`autoresearch-inference`) — `activity_run_inference` for one pipeline. The activity reads the current champion itself, so a retry after a mid-scoring promotion scores with the new one.
   - `AutoresearchValidationWorkflow` (`autoresearch-validation`) — `activity_run_validation` for one pipeline.
   - `activity_kickoff_training` — launches a training run for a pipeline that is due.
+  - `AutoresearchPropertyCleanupWorkflow` (`autoresearch-property-cleanup`) — `activity_remove_person_property` removes a pipeline's output person property from persons (`../inference/person_property.py`), then runs a reconcile pass an hour later for scores that were still ingesting during the first pass. The run row stays `running` until the reconcile pass ends, and a retry adds to the count on the row. When the activity runs out of retries, the workflow fails the run with `activity_fail_cleanup_run`. The facade starts it, not the coordinator, with one workflow id per cleanup request.
 
   Each workflow has a typed input/result dataclass pair (`InferenceWorkflowInput` / `InferenceWorkflowResult`, and so on). Activities are named with a `autoresearch-<workflow>.<activity>` convention.
 
@@ -41,7 +42,12 @@ Discovery pauses a pipeline whose creator has lost access to the team, and skips
 Discovery also fails every inference run still RUNNING after `INFERENCE_WORKFLOW_TIMEOUT` (`fail_stale_inference_runs()` in `../inference/failures.py`), with `failure_kind` `other`, because a lost worker never records an outcome.
 A retry of a scheduled scoring attempt fills the RUNNING row of the attempt before it, so one date keeps one row.
 Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does.
-A pipeline with no iteration budget left gets no run, except when `find_unscorable_champion()` finds that its champion cannot score. Then kickoff launches a rescue run of `RESCUE_ITERATION_BUDGET` iterations that does not come out of the budget, at most once in each window of `UNSCORABLE_AFTER_FAILED_DAYS` UTC days, and reports `rescue_unscorable`.
+Kickoff then follows the research schedule in `../training/schedule.py`, which it derives from the pipeline's training runs and never stores.
+In explore, it starts a run (`explore`) until a completed run does not promote its best model, or until `EXPLORE_RUN_LIMIT` research runs have run. Rescue runs do not count.
+In maintain, it starts a run (`scheduled`) once `research_interval_days` calendar days have passed since the latest training run of any kind, and reports `not_due` before that. A null interval reports `manual_only`.
+Each run takes the pipeline's `iterations_per_run`. Kickoff does not read or spend `iteration_budget_remaining`.
+When no run is due and `find_unscorable_champion()` finds that the champion cannot score, kickoff launches a rescue run of `RESCUE_ITERATION_BUDGET` iterations, at most once in each window of `UNSCORABLE_AFTER_FAILED_DAYS` UTC days, and reports `rescue_unscorable`.
+Each run records why it started in `kickoff_reason`. The coordinator body never branches on the kickoff result, because that would break replay.
 
 Note that training is launched by an _activity_, not a child workflow, because the actual agent run happens in a Tasks sandbox with its own lifecycle. Autoresearch does not own that workflow; it fires it and the `TaskRun` `post_save` signal (`../training/ingestion.py`) picks the result back up.
 

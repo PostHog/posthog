@@ -1,11 +1,15 @@
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo import (
     DATAFORSEO_BASE_URL,
     MAX_PAGES_PER_TARGET,
@@ -15,14 +19,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo
     DataForSEORetryableError,
     _raise_for_body_status,
     _request_task,
-    dataforseo_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.settings import (
     DATAFORSEO_ENDPOINTS,
     ENDPOINTS,
     KEYWORD_SCOPES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.source import DataForSEOSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.dataforseo import (
+    DataForSEOSourceConfig,
 )
 
 TARGETED_ENDPOINTS = [name for name, config in DATAFORSEO_ENDPOINTS.items() if config.scope == "target"]
@@ -58,53 +64,13 @@ def _items_result(items: list[dict[str, Any]], total_count: int | None = None) -
     return result
 
 
-def _manager(resume: DataForSEOResumeConfig | None = None) -> Any:
-    manager = MagicMock(spec=ResumableSourceManager)
-    manager.can_resume.return_value = resume is not None
-    manager.load_state.return_value = resume
-    return manager
+def _driver(targets: str = "example.com", keywords: str | None = None) -> SourceDriver:
+    config = DataForSEOSourceConfig(api_login="login", api_password="password", targets=targets, keywords=keywords)
+    return SourceDriver(DataForSEOSource(), config)
 
 
-def _drive(
-    endpoint: str,
-    manager: Any,
-    responses: list[Any],
-    targets: list[str] | None = None,
-    keywords: list[str] | None = None,
-) -> tuple[list[tuple[str, Any]], list[list[dict[str, Any]]]]:
-    # Drives get_rows with a mocked tracked session, returning ((url, payload) pairs, batches).
-    # A GET lookup records a None payload.
-    calls: list[tuple[str, Any]] = []
-    response_iter = iter(responses)
-
-    def fake_post(url: str, json: Any = None, timeout: Any = None, **_kwargs: Any) -> Any:
-        calls.append((url, json[0]))
-        return next(response_iter)
-
-    def fake_get(url: str, timeout: Any = None, **_kwargs: Any) -> Any:
-        calls.append((url, None))
-        return next(response_iter)
-
-    with patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo.make_tracked_session"
-    ) as MockSession:
-        MockSession.return_value.post.side_effect = fake_post
-        MockSession.return_value.get.side_effect = fake_get
-        batches = list(
-            get_rows(
-                api_login="login",
-                api_password="password",
-                targets=targets or ["example.com"],
-                keywords=keywords or [],
-                location_name="United States",
-                language_name="English",
-                endpoint=endpoint,
-                logger=MagicMock(),
-                resumable_source_manager=manager,
-            )
-        )
-
-    return calls, batches
+def _answer(results: list[dict[str, Any]] | None, status_code: int = 20000) -> ScriptedResponse:
+    return ScriptedResponse(json=_body(results, status_code=status_code))
 
 
 class TestBodyStatusClassification:
@@ -155,110 +121,64 @@ class TestRequestTask:
 
 class TestGetRows:
     def test_items_endpoint_injects_target(self) -> None:
-        manager = _manager()
-        responses = [_resp(_body([_items_result([{"se_type": "google", "metrics": {}}])]))]
+        result = _driver().run(
+            "domain_rank_overview", [_answer([_items_result([{"se_type": "google", "metrics": {}}])])]
+        )
 
-        calls, batches = _drive("domain_rank_overview", manager, responses)
-
-        assert calls[0][0] == f"{DATAFORSEO_BASE_URL}/dataforseo_labs/google/domain_rank_overview/live"
-        assert batches == [[{"se_type": "google", "metrics": {}, "target": "example.com"}]]
+        assert result.urls == [f"{DATAFORSEO_BASE_URL}/dataforseo_labs/google/domain_rank_overview/live"]
+        assert result.items == [[{"se_type": "google", "metrics": {}, "target": "example.com"}]]
 
     def test_backlinks_payload_has_no_location_and_includes_subdomains(self) -> None:
-        manager = _manager()
         summary = {"target": "example.com", "rank": 312, "backlinks": 100}
-        calls, batches = _drive("backlinks_summary", manager, [_resp(_body([summary]))])
+        result = _driver().run("backlinks_summary", [_answer([summary])])
 
-        payload = calls[0][1]
+        payload = result.requests[0].json()[0]
         assert "location_name" not in payload
         assert payload["include_subdomains"] is True
-        assert batches == [[{**summary, "target": "example.com"}]]
+        assert result.items == [[{**summary, "target": "example.com"}]]
 
     def test_historical_payload_requests_full_history_and_rows_carry_date(self) -> None:
-        manager = _manager()
         items = [{"year": 2024, "month": 3, "metrics": {}}, {"year": 2024, "month": 11, "metrics": {}}]
-        calls, batches = _drive("historical_rank_overview", manager, [_resp(_body([_items_result(items)]))])
+        result = _driver().run("historical_rank_overview", [_answer([_items_result(items)])])
 
-        assert calls[0][1]["date_from"] == "2020-10-01"
-        assert [row["date"] for row in batches[0]] == ["2024-03-01", "2024-11-01"]
+        assert result.requests[0].json()[0]["date_from"] == "2020-10-01"
+        assert [row["date"] for row in result.rows] == ["2024-03-01", "2024-11-01"]
 
     def test_ranked_keywords_skips_items_without_keyword(self) -> None:
-        manager = _manager()
         items: list[dict[str, Any]] = [{"keyword_data": {}}, {"keyword_data": {"keyword": "ok"}}]
-        _, batches = _drive("ranked_keywords", manager, [_resp(_body([_items_result(items, total_count=2)]))])
+        result = _driver().run("ranked_keywords", [_answer([_items_result(items, total_count=2)])])
 
-        assert [row["keyword"] for row in batches[0]] == ["ok"]
+        assert [row["keyword"] for row in result.rows] == ["ok"]
 
     def test_pagination_stops_at_page_cap(self) -> None:
-        manager = _manager()
         logger = MagicMock()
         full_page = [{"keyword_data": {"keyword": f"kw{i}"}} for i in range(PAGE_SIZE)]
-        responses = [
-            _resp(_body([_items_result(full_page, total_count=PAGE_SIZE * 100)])) for _ in range(MAX_PAGES_PER_TARGET)
-        ]
+        result = _driver().run(
+            "ranked_keywords",
+            [_answer([_items_result(full_page, total_count=PAGE_SIZE * 100)]) for _ in range(MAX_PAGES_PER_TARGET)],
+            logger=logger,
+        )
 
-        calls: list[tuple[str, Any]] = []
-        response_iter = iter(responses)
-
-        def fake_post(url: str, json: Any = None, timeout: Any = None, **_kwargs: Any) -> Any:
-            calls.append((url, json[0]))
-            return next(response_iter)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.post.side_effect = fake_post
-            batches = list(
-                get_rows(
-                    api_login="login",
-                    api_password="password",
-                    targets=["example.com"],
-                    keywords=[],
-                    location_name="United States",
-                    language_name="English",
-                    endpoint="ranked_keywords",
-                    logger=logger,
-                    resumable_source_manager=manager,
-                )
-            )
-
-        assert len(calls) == MAX_PAGES_PER_TARGET
-        assert len(batches) == MAX_PAGES_PER_TARGET
+        assert len(result.requests) == MAX_PAGES_PER_TARGET
+        assert len(result.items) == MAX_PAGES_PER_TARGET
         logger.warning.assert_called_once()
 
     def test_resume_skips_earlier_targets_and_seeds_offset(self) -> None:
-        manager = _manager(DataForSEOResumeConfig(target="b.com", offset=PAGE_SIZE))
-        responses = [_resp(_body([_items_result([{"keyword_data": {"keyword": "kw"}}], total_count=1)]))]
+        result = _driver(targets="a.com, b.com").run(
+            "ranked_keywords",
+            [_answer([_items_result([{"keyword_data": {"keyword": "kw"}}], total_count=1)])],
+            resume_state=DataForSEOResumeConfig(target="b.com", offset=PAGE_SIZE),
+        )
 
-        calls, _ = _drive("ranked_keywords", manager, responses, targets=["a.com", "b.com"])
-
-        assert len(calls) == 1
-        assert calls[0][1]["target"] == "b.com"
-        assert calls[0][1]["offset"] == PAGE_SIZE
+        assert len(result.requests) == 1
+        assert result.requests[0].json()[0]["target"] == "b.com"
+        assert result.requests[0].json()[0]["offset"] == PAGE_SIZE
 
     def test_session_carries_basic_auth_and_redacts_password(self) -> None:
-        manager = _manager()
+        result = _driver().run("domain_rank_overview", [_answer([_items_result([])])])
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo.make_tracked_session"
-        ) as MockSession:
-            MockSession.return_value.post.return_value = _resp(_body([_items_result([])]))
-            list(
-                get_rows(
-                    api_login="login",
-                    api_password="password",
-                    targets=["example.com"],
-                    keywords=[],
-                    location_name="United States",
-                    language_name="English",
-                    endpoint="domain_rank_overview",
-                    logger=MagicMock(),
-                    resumable_source_manager=manager,
-                )
-            )
-
-        _, kwargs = MockSession.call_args
-        assert kwargs["headers"]["Authorization"].startswith("Basic ")
-        assert "password" in kwargs["redact_values"]
+        assert result.requests[0].headers["authorization"].startswith("Basic ")
+        assert "password" in result.session_options[0]["redact_values"]
 
     @pytest.mark.parametrize(
         ("endpoint", "path", "expected_payload"),
@@ -317,19 +237,19 @@ class TestGetRows:
     def test_request_shape_per_endpoint(self, endpoint: str, path: str, expected_payload: dict[str, Any]) -> None:
         # The Backlinks API rejects the Labs location/language fields, and neither trend endpoint
         # accepts limit/offset, so the payload each endpoint sends is asserted in full.
-        manager = _manager()
         item = {
             "date": "2020-08-31 00:00:00 +00:00",
             "domain": "news.example",
             "page_address": "https://example.com/a",
         }
-        calls, batches = _drive(endpoint, manager, [_resp(_body([_items_result([item], total_count=1)]))])
+        result = _driver().run(endpoint, [_answer([_items_result([item], total_count=1)])])
 
-        assert calls == [(f"{DATAFORSEO_BASE_URL}{path}", expected_payload)]
-        assert batches == [[{**item, "target": "example.com"}]]
+        assert [(request.url, request.json()[0]) for request in result.requests] == [
+            (f"{DATAFORSEO_BASE_URL}{path}", expected_payload)
+        ]
+        assert result.items == [[{**item, "target": "example.com"}]]
 
     def test_historical_search_volume_sends_every_keyword_in_one_request(self) -> None:
-        manager = _manager()
         item = {
             "se_type": "google",
             "keyword": "posthog",
@@ -344,16 +264,13 @@ class TestGetRows:
                 ],
             },
         }
-        calls, batches = _drive(
+        result = _driver(targets="a.com, b.com", keywords="posthog, session replay").run(
             "historical_search_volume",
-            manager,
-            [_resp(_body([_items_result([item])]))],
-            targets=["a.com", "b.com"],
-            keywords=["posthog", "session replay"],
+            [_answer([_items_result([item])])],
         )
 
         # The endpoint takes the whole keyword list, and has no target fan-out to repeat it over.
-        assert calls == [
+        assert [(request.url, request.json()[0]) for request in result.requests] == [
             (
                 f"{DATAFORSEO_BASE_URL}/dataforseo_labs/google/historical_search_volume/live",
                 {
@@ -363,7 +280,7 @@ class TestGetRows:
                 },
             )
         ]
-        assert batches == [
+        assert result.items == [
             [
                 {
                     "keyword": "posthog",
@@ -389,7 +306,7 @@ class TestGetRows:
                 },
             ]
         ]
-        manager.save_state.assert_not_called()
+        assert result.saved_states == []
 
     @pytest.mark.parametrize(
         "item",
@@ -402,15 +319,11 @@ class TestGetRows:
     def test_historical_search_volume_skips_rows_it_cannot_key(self, item: dict[str, Any]) -> None:
         # keyword, year and month are the primary key and year/month also derive the partition
         # column, so a row missing any of them has nowhere to land.
-        manager = _manager()
-        _, batches = _drive(
-            "historical_search_volume", manager, [_resp(_body([_items_result([item])]))], keywords=["posthog"]
-        )
+        result = _driver(keywords="posthog").run("historical_search_volume", [_answer([_items_result([item])])])
 
-        assert batches == []
+        assert result.items == []
 
     def test_serp_organic_fans_out_per_keyword_and_stamps_crawl_metadata(self) -> None:
-        manager = _manager()
         result = {
             "keyword": "posthog",
             "se_domain": "google.com",
@@ -421,22 +334,20 @@ class TestGetRows:
             "items_count": 1,
             "items": [{"type": "organic", "rank_absolute": 1, "domain": "posthog.com"}],
         }
-        calls, batches = _drive(
+        driven = _driver(keywords="posthog, session replay").run(
             "serp_organic",
-            manager,
-            [_resp(_body([result])), _resp(_body([{**result, "keyword": "session replay", "items": []}]))],
-            keywords=["posthog", "session replay"],
+            [_answer([result]), _answer([{**result, "keyword": "session replay", "items": []}])],
         )
 
         # The SERP endpoint takes one keyword per request and has no limit/offset pagination.
-        assert calls == [
+        assert [(request.url, request.json()[0]) for request in driven.requests] == [
             (
                 f"{DATAFORSEO_BASE_URL}/serp/google/organic/live/advanced",
                 {"keyword": keyword, "location_name": "United States", "language_name": "English"},
             )
             for keyword in ["posthog", "session replay"]
         ]
-        assert batches == [
+        assert driven.items == [
             [
                 {
                     "type": "organic",
@@ -454,29 +365,25 @@ class TestGetRows:
 
     def test_lookup_endpoint_ignores_saved_resume_state(self) -> None:
         # A lookup has no cursor, so state left behind by another endpoint must not skip the call.
-        manager = _manager(DataForSEOResumeConfig(target="a.com", offset=PAGE_SIZE))
-        calls, batches = _drive("categories", manager, [_resp(_body([{"category_code": 1}]))], targets=["a.com"])
+        result = _driver(targets="a.com").run(
+            "categories",
+            [_answer([{"category_code": 1}])],
+            resume_state=DataForSEOResumeConfig(target="a.com", offset=PAGE_SIZE),
+        )
 
-        assert len(calls) == 1
-        assert batches == [[{"category_code": 1}]]
+        assert len(result.requests) == 1
+        assert result.items == [[{"category_code": 1}]]
 
 
 class TestDataForSEOSourceResponse:
     @pytest.mark.parametrize("endpoint", ENDPOINTS)
     def test_source_response_shape(self, endpoint: str) -> None:
-        response = dataforseo_source(
-            api_login="login",
-            api_password="password",
-            targets=["example.com"],
-            keywords=["posthog"],
-            location_name="United States",
-            language_name="English",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=MagicMock(),
-        )
+        result = _driver(keywords="posthog").run(endpoint, [_answer([])])
+        response = result.response
 
         config = DATAFORSEO_ENDPOINTS[endpoint]
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         if config.partition_key:
@@ -506,25 +413,18 @@ class TestDataForSEOSourceResponse:
 
 
 class TestValidateCredentials:
-    def _validate(self, response: Any = None, raises: Exception | None = None) -> bool:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.dataforseo.dataforseo.make_tracked_session"
-        ) as MockSession:
-            get = MockSession.return_value.get
-            if raises is not None:
-                get.side_effect = raises
-            else:
-                get.return_value = response
-            return validate_credentials("login", "password")
-
     def test_unauthorized_is_invalid(self) -> None:
-        assert self._validate(_resp({}, status=401)) is False
+        with scripted_network([ScriptedResponse(status=401, json={})]) as network:
+            assert validate_credentials("login", "password") is False
+        assert network.requests_log[0].path == "/v3/appendix/user_data"
 
     def test_error_body_is_invalid(self) -> None:
-        assert self._validate(_resp({"status_code": 40100, "status_message": "unauthorized"})) is False
+        with scripted_network([ScriptedResponse(json={"status_code": 40100, "status_message": "unauthorized"})]):
+            assert validate_credentials("login", "password") is False
 
     def test_network_error_is_invalid(self) -> None:
-        assert self._validate(raises=requests.ConnectionError("boom")) is False
+        with scripted_network([requests.ConnectionError("boom")]):
+            assert validate_credentials("login", "password") is False
 
     @pytest.mark.parametrize(("login", "password"), [("", "password"), ("login", ""), (" ", " ")])
     def test_blank_credentials_are_invalid_without_a_request(self, login: str, password: str) -> None:

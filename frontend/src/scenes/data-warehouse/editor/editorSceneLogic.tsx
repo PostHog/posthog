@@ -1,6 +1,19 @@
 import { deepEqual as equal } from 'fast-equals'
-import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    beforeUnmount,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+} from 'kea'
 import { combineUrl } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
@@ -9,15 +22,17 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { uuid } from 'lib/utils/dom'
 import { removeUndefinedAndNull } from 'lib/utils/objects'
-import { openSaveAsCohortDialog } from 'scenes/insights/SidePanel/insightSidePanelDialogs'
 import { NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
 import { DataVisualizationNode, FileSystemIconType, HogQLFilters, NodeKind } from '~/queries/schema/schema-general'
 import { Breadcrumb, ProjectTreeRef } from '~/types'
+
+import { openSaveAsCohortDialog } from 'products/product_analytics/frontend/insights/insightScene/sidePanel/insightSidePanelDialogs'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuery, LinkBreadcrumb, InsightModel } from '../../../types'
@@ -117,6 +132,7 @@ export interface editorSceneLogicValues {
     sourceQuery: DataVisualizationNode // sqlEditorLogic
     viewLoading: boolean // sqlEditorLogic
     breadcrumbs: Breadcrumb[]
+    isCreateViewFlow: boolean
     isHistoryModalOpen: boolean
     projectTreeRef: ProjectTreeRef | null
     saveAsMenuItems: {
@@ -186,6 +202,13 @@ export interface editorSceneLogicActions {
         shortId: string | undefined
         title: string | undefined
     } // notebooksModel
+    setLayoutNavCollapsedOverride: (
+        owner: string,
+        collapsed: boolean | null
+    ) => {
+        collapsed: boolean | null
+        owner: string
+    } // panelLayoutLogic
     closeHistoryModal: () => {
         value: true
     }
@@ -211,6 +234,11 @@ export interface editorSceneLogicMeta {
             editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
         ) => ProjectTreeRef | null
         breadcrumbs: (activeTab: QueryTab | null, editorUrl: string) => Breadcrumb[]
+        isCreateViewFlow: (
+            editorSource: SqlEditorSource,
+            editingView: DataWarehouseSavedQuery | undefined,
+            editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null
+        ) => boolean
         titleSectionProps: (
             editingInsight: InsightModel<import('~/queries/schema/schema-general').Node<Record<string, any>>> | null,
             insightLoading: boolean,
@@ -268,6 +296,10 @@ export type editorSceneLogicType = MakeLogicType<
     editorSceneLogicMeta
 >
 
+// Only the full-scene editor changes the app navigation. An embedded editor sits inside another scene.
+const ownsLayoutNav = (props: EditorSceneLogicProps): boolean => !props.mode || props.mode === SQLEditorMode.FullScene
+const layoutNavOverrideOwner = (props: EditorSceneLogicProps): string => `sql-editor-${props.tabId}`
+
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     props({} as EditorSceneLogicProps),
@@ -292,7 +324,14 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             notebooksModel,
             ['notebooksLoading'],
         ],
-        actions: [notebooksModel, ['createNotebook'], exportsLogic, ['createStaticCohort']],
+        actions: [
+            notebooksModel,
+            ['createNotebook'],
+            panelLayoutLogic,
+            ['setLayoutNavCollapsedOverride'],
+            exportsLogic,
+            ['createStaticCohort'],
+        ],
     })),
     actions({
         convertToNotebook: true,
@@ -364,6 +403,15 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 }
                 return [first]
             },
+        ],
+        // Matches the state that titleSectionProps names "New view".
+        isCreateViewFlow: [
+            (s) => [s.editorSource, s.editingView, s.editingInsight],
+            (
+                editorSource: import('./sqlEditorLogic').SqlEditorSource,
+                editingView: import('~/types').DataWarehouseSavedQuery | undefined,
+                editingInsight: null | import('~/types').InsightModel
+            ): boolean => editorSource === 'view' && !editingView && !editingInsight,
         ],
         titleSectionProps: [
             (s) => [
@@ -653,5 +701,18 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                 access_control_resource: 'warehouse_objects',
             }),
         ],
+    }),
+    subscriptions(({ actions, props }) => ({
+        // A subscription, because several sqlEditorLogic actions move the editor in and out of the flow.
+        isCreateViewFlow: (isCreateViewFlow: boolean) => {
+            if (ownsLayoutNav(props)) {
+                actions.setLayoutNavCollapsedOverride(layoutNavOverrideOwner(props), isCreateViewFlow ? true : null)
+            }
+        },
+    })),
+    beforeUnmount(({ actions, props }) => {
+        if (ownsLayoutNav(props)) {
+            actions.setLayoutNavCollapsedOverride(layoutNavOverrideOwner(props), null)
+        }
     }),
 ])

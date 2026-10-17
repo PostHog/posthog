@@ -69,7 +69,8 @@ tools:
             `signal_finding` entries (the evidence behind the report), status judgments (safety / actionability /
             priority, repo_selection, suggested_reviewers — the newest row of each status type is the canonical status),
             and work-log entries (code references, commits, task runs, notes). Read this before re-judging a status or
-            adding to the log.
+            adding to the log. `ranking_score` entries are compact: each model keeps its scores, lifts, and head
+            readability, but not its training metadata. Use inbox-report-artefacts-retrieve to read one in full.
         agent_note: >
             Find the newest applicable `## Verification plan`. Treat it as guidance, not evidence. Confirm the current
             state before work and the outcome after the chosen resolution. Missing or inconclusive evidence does not
@@ -88,7 +89,8 @@ tools:
         title: Get a single artefact
         description: >
             Get one artefact by id. Content is parsed (and suggested_reviewers enriched with PostHog user info) the same
-            way as inbox-report-artefacts-list.
+            way as inbox-report-artefacts-list. A `ranking_score` keeps its full model metadata, including training and
+            evaluation data.
     inbox-report-artefacts-update:
         operation: signals_report_artefacts_partial_update
         enabled: true
@@ -217,6 +219,35 @@ tools:
             id:
                 aliases:
                     - report_id
+    inbox-reports-feedback-create:
+        operation: signals_reports_feedback_create
+        enabled: true
+        scopes:
+            - task:read
+            - signal_scout:write
+            - llm_skill:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Rate a signal report
+        description: >
+            Record a person's thumbs up or thumbs down on a signal report, with their context for why: `positive` means
+            thumbs up and `negative` means thumbs down. Pass the person's verdict, never your own interpretation of the
+            report. The note is forwarded to the scout that authored or edited the report as steering context for its
+            next run; the response says whether it was forwarded. This does not dismiss, resolve, or otherwise change
+            the report's state. Each successful call can create a new steering note, so do not retry after a confirmed
+            success.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
+            sentiment:
+                input_schema: SignalReportFeedbackSentimentSchema
+            note:
+                description: The person's context for why the report was or was not useful, up to 4000 characters.
+                input_schema: SignalReportFeedbackNoteSchema
     inbox-reports-leave-reviewers:
         operation: signals_reports_reviewers_me_destroy
         enabled: true
@@ -534,6 +565,48 @@ tools:
             Replace an existing signal source config by ID (full update — `source_product` and `source_type` are
             required; `enabled` and `config` are optional and keep their current values if omitted). Prefer
             `inbox-source-configs-partial-update` when you only need to flip `enabled` or tweak `config`.
+    inbox-steering-instructions-get:
+        operation: signals_config_list
+        enabled: true
+        scopes:
+            - task:read
+        title: Get Self-driving steering instructions
+        description: >
+            Read the current project's research, implementation, and scout instructions. Returns only the three
+            instruction fields from the project's Self-driving config singleton, with empty strings for unset roles.
+            Read shared project instructions separately with tasks-config-list. A role's instructions supplement the
+            shared project instructions; scouts also retain their individual briefs.
+        response:
+            include:
+                - research_instructions
+                - implementation_instructions
+                - scout_instructions
+    inbox-steering-instructions-update:
+        operation: signals_config_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update Self-driving steering instructions
+        description: >
+            Set project-level instructions for research agents, implementation agents, or all scouts. Requires project
+            admin. Sandbox agents cannot change these instructions. Read inbox-steering-instructions-get first. Send the
+            full replacement text for each role you change, not a diff; omitted roles keep their instructions. Send an
+            empty string to clear a role while retaining shared project instructions. Each field accepts up to 20,000
+            characters. New and resumed runs receive the saved instructions. Use tasks-config-agent-instructions-create
+            to edit the shared project instructions instead.
+        include_params:
+            - research_instructions
+            - implementation_instructions
+            - scout_instructions
+        response:
+            include:
+                - research_instructions
+                - implementation_instructions
+                - scout_instructions
     scout-check-record-result:
         operation: signals_scout_record_check_result
         enabled: true

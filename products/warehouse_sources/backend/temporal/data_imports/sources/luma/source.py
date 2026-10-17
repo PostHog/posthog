@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -28,6 +29,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class LumaSource(ResumableSource[LumaSourceConfig, LumaResumeConfig]):
+    codebase_detection = detect(env=("^LUMA_",), script_hosts=("embed.lu.ma",))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     supported_versions = ("v1",)
     default_version = "v1"
@@ -72,11 +75,25 @@ You can create an API key under **Settings → Developer** in [Luma](https://lum
 
         return CANONICAL_DESCRIPTIONS
 
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            "Luma API error (retryable): status=429": (
+                "Luma's API rate limit ran out before this sync finished. "
+                "Set this table to sync less often, such as every 6 hours, so each run stays within the limit."
+            ),
+        }
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error: Unauthorized for url: https://public-api.luma.com": "Your Luma API key is invalid or has been revoked. Generate a new key under Settings → Developer in Luma, then reconnect.",
             "403 Client Error: Forbidden for url: https://public-api.luma.com": "Your Luma API key does not have access to this data. Check the key's calendar or organization scope, then reconnect.",
         }
+
+    def get_retryable_errors(self) -> set[str]:
+        # 429/5xx are already retried in-process by `_fetch_page`'s tenacity backoff (see luma.py);
+        # if that budget still exhausts, Temporal's activity retry picks it back up, so this is
+        # self-recovering rather than a tracked-exception-worthy failure.
+        return {"Luma API error (retryable): status=429", "Luma API error (retryable): status=5"}
 
     def get_schemas(
         self,

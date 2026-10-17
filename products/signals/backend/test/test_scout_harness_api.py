@@ -763,9 +763,59 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
 
+    def test_skill_name_returns_only_that_scouts_runs(self) -> None:
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        wanted = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"skill_name": "signals-scout-errors"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(wanted.id)]
+
     def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
         response = self.client.get(self._url(), data={"per_scout_limit": 5000})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_an_unchanged_fleet_revalidates_without_hydrating_the_runs(self) -> None:
+        _make_run(self.team)
+        first = self.client.get(self._url())
+        assert first.status_code == status.HTTP_200_OK
+        with patch("products.signals.backend.scout_harness.views.runs_by_id") as runs_by_id:
+            second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+        assert second.status_code == status.HTTP_304_NOT_MODIFIED
+        runs_by_id.assert_not_called()
+
+    def test_a_failed_if_match_is_a_failed_precondition_not_a_cache_hit(self) -> None:
+        _make_run(self.team)
+        response = self.client.get(self._url(), HTTP_IF_MATCH='"stale"')
+        assert response.status_code == status.HTTP_412_PRECONDITION_FAILED
+
+    @parameterized.expand(["emit_tally", "task_run_settles", "total_spend", "report_deleted", "new_run"])
+    def test_a_change_the_summary_shows_moves_the_etag(self, change: str) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY)
+        run = _make_run(self.team, emitted_report_ids=[str(report.id)])
+        first = self.client.get(self._url())
+
+        if change == "emit_tally":
+            run.emitted_finding_ids = ["finding-1"]
+            run.emitted_count = 1
+            run.save(update_fields=["emitted_finding_ids", "emitted_count"])
+        elif change == "task_run_settles":
+            run.task_run.status = run.task_run.Status.COMPLETED
+            run.task_run.save(update_fields=["status"])
+        elif change == "total_spend":
+            run.total_spend = Decimal("16.3456")
+            run.save(update_fields=["total_spend"])
+        elif change == "report_deleted":
+            SignalReport.objects.filter(id=report.id).update(status=SignalReport.Status.DELETED)
+        else:
+            _make_run(self.team)
+
+        second = self.client.get(self._url(), HTTP_IF_NONE_MATCH=first["ETag"])
+        assert second.status_code == status.HTTP_200_OK
+        assert second["ETag"] != first["ETag"]
+        if change == "total_spend":
+            assert second.json()[0]["total_spend"] == 16.3456
 
 
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
@@ -823,6 +873,24 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         # The errors scout's only touched report fell outside the cap — it must not count either,
         # or the callout advertises a scout the findings page's filter won't show.
         assert body["scout_count"] == 1
+
+    def test_summary_caps_runs_by_completion_among_the_newest_candidates(self) -> None:
+        # The page keeps the most recently *completed* runs, so a run that completes after a newer
+        # one must win the cap. Runs older than the candidate set are never ranked.
+        now = timezone.now()
+        timings = {"outside": (3, 0), "late": (2, 1), "newest": (1, 50)}
+        for emitted_count, (name, (created_hours_ago, completed_minutes_ago)) in zip((4, 2, 1), timings.items()):
+            run = _make_run(self.team, skill_name=f"signals-scout-{name}", emitted_count=emitted_count)
+            SignalScoutRun.objects.filter(id=run.id).update(created_at=now - timedelta(hours=created_hours_ago))
+            run.task_run.completed_at = now - timedelta(minutes=completed_minutes_ago)
+            run.task_run.save(update_fields=["completed_at"])
+        with (
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_RUN_CAP", 1),
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS", 2),
+        ):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,
@@ -1452,7 +1520,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "dashboard:write" in str(response.json())
         config.refresh_from_db()
-        assert config.write_scopes == []
+        assert config.write_scopes == ["notebook:write"]
 
     @parameterized.expand(
         [
@@ -1485,7 +1553,7 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
         config.refresh_from_db()
-        assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else [])
+        assert config.write_scopes == (["dashboard:write"] if expected == status.HTTP_200_OK else ["notebook:write"])
 
     def test_a_non_author_may_still_edit_other_fields_and_resend_the_grant(self) -> None:
         # Clients resend whole config objects, so an unchanged `write_scopes` must not turn an
@@ -1529,6 +1597,29 @@ class TestScoutHarnessConfigWriteScopesAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         config.refresh_from_db()
         assert config.write_scopes == {"dashboard:write": False}
+
+    @parameterized.expand(
+        [
+            # The config API, not only the model, has to give a new scout the default grant.
+            ("omitted_takes_the_default", None, status.HTTP_201_CREATED, ["notebook:write"]),
+            # Turning the default off at creation narrows nobody's approval, so any member may.
+            ("narrowing_the_default_needs_no_claim", [], status.HTTP_201_CREATED, []),
+            ("adding_to_the_default_needs_the_claim", ["dashboard:write"], status.HTTP_403_FORBIDDEN, None),
+        ]
+    )
+    def test_a_new_config_starts_with_the_default_grant(
+        self, _name: str, requested: list[str] | None, expected: int, stored: list[str] | None
+    ) -> None:
+        self._authored_by(self._other_member())
+        data: dict = {"skill_name": "signals-scout-hygiene"}
+        if requested is not None:
+            data["write_scopes"] = requested
+
+        response = self.client.post(f"/api/projects/{self.team.id}/signals/scout/configs/", data=data, format="json")
+
+        assert response.status_code == expected, response.json()
+        config = SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-hygiene").first()
+        assert (config.write_scopes if config else None) == stored
 
     def test_creating_a_scout_with_a_grant_records_it_in_the_activity_log(self) -> None:
         # A creation diffs against nothing, so without this the log's first entry for a granted
@@ -2842,25 +2933,36 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
 
     # --- untrusted (session) callers: read-only, never build ---
 
-    def test_session_read_returns_404_when_no_profile_exists(self) -> None:
+    @patch("products.signals.backend.tasks.build_signal_project_profile.delay")
+    def test_session_read_returns_404_and_queues_one_build_when_no_profile_exists(self, mock_delay: MagicMock) -> None:
         # A session GET bypasses CSRF, so it must not trigger an inline build. With no
-        # cached row the read-only caller gets a 404 rather than a freshly-built profile.
+        # cached row the read-only caller gets a 404 and a deduped background build.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
-        response = self.client.get(self._list_url())
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        first = self.client.get(self._list_url())
+        second = self.client.get(self._list_url())
+        assert first.status_code == second.status_code == status.HTTP_404_NOT_FOUND
+        assert "retry" in first.json()["detail"]
+        mock_delay.assert_called_once_with(self.team.id)
         # No row written as a side effect of the GET.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 0
 
-    def test_session_read_returns_cached_profile(self) -> None:
+    @parameterized.expand([("fresh", timedelta(minutes=30), False), ("a_day_old", -timedelta(days=1), True)])
+    @patch("products.signals.backend.tasks.build_signal_project_profile.delay")
+    def test_session_read_returns_stored_profile(
+        self, _name: str, expires_in: timedelta, stale: bool, mock_delay: MagicMock
+    ) -> None:
         seeded_id = self._seed_profile()
+        SignalProjectProfile.objects.filter(id=seeded_id).update(expires_at=timezone.now() + expires_in)
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
         assert body["profile_id"] == seeded_id
+        assert body["stale"] is stale
         assert {"summary", "profile_id", "computed_at", "expires_at", "source_version"} <= set(body.keys())
         assert "inventory" in body["payload"]
-        # Read-only: no new row written.
+        # Read-only: no new row written, no build queued.
         assert SignalProjectProfile.objects.filter(team=self.team).count() == 1
+        mock_delay.assert_not_called()
 
     def test_session_read_ignores_force_refresh(self) -> None:
         # `force_refresh` is honored only for the internal scout token. A session caller
@@ -5244,7 +5346,9 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
     def _link_github(self, user: User, login: str) -> None:
         UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
 
-    def test_lists_project_members_with_resolved_github_login(self) -> None:
+    @parameterized.expand([("signals_scout",), ("signals_research",)])
+    def test_lists_project_members_with_resolved_github_login(self, scopes: PosthogMcpScopes) -> None:
+        _authenticate_as_scout(self, scopes=scopes)
         # self.user has a GitHub identity (login lowercased on resolution); a second member has
         # none, so their `github_login` is null rather than dropping out of the roster.
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-self", extra_data={"login": "OctoCat"})

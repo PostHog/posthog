@@ -1,8 +1,19 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.openexchangerates import (
     OpenExchangeRatesSourceConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.open_exchange_rates import (
+    INVALID_APP_ID_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source import (
     OpenExchangeRatesSource,
@@ -25,33 +36,20 @@ class TestOpenExchangeRatesSource:
         assert schemas[0].name == "latest"
 
     @pytest.mark.parametrize(
-        "mock_return, expected_valid, expected_message",
+        "status, expected_valid, expected_message",
         [
-            ((True, None), True, None),
-            (
-                (False, "Your Open Exchange Rates App ID is invalid"),
-                False,
-                "Your Open Exchange Rates App ID is invalid",
-            ),
+            (200, True, None),
+            (401, False, INVALID_APP_ID_ERROR),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source.validate_open_exchange_rates_credentials"
-    )
-    def test_validate_credentials(
-        self,
-        mock_validate: mock.MagicMock,
-        mock_return: tuple[bool, str | None],
-        expected_valid: bool,
-        expected_message: str | None,
-    ) -> None:
-        mock_validate.return_value = mock_return
-
-        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+    def test_validate_credentials(self, status: int, expected_valid: bool, expected_message: str | None) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is expected_valid
         assert error_message == expected_message
-        mock_validate.assert_called_once_with("oxr-test")
+        assert [request.path for request in network.requests_log] == ["/api/usage.json"]
+        assert network.requests_log[0].headers["authorization"] == "Token oxr-test"
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source.open_exchange_rates_source"
@@ -74,16 +72,16 @@ class TestOpenExchangeRatesSource:
         assert kwargs["should_use_incremental_field"] is True
         assert kwargs["db_incremental_field_last_value"] == "2024-01-01"
 
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.open_exchange_rates.source.open_exchange_rates_source"
-    )
-    def test_source_for_pipeline_drops_watermark_when_not_incremental(self, mock_source: mock.MagicMock) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "latest"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2024-01-01"
+    def test_source_for_pipeline_drops_watermark_when_not_incremental(self) -> None:
+        start = datetime.now(tz=UTC).date() - timedelta(days=2)
+        config = OpenExchangeRatesSourceConfig(app_id="oxr-test", base_currency="USD", start_date=start.isoformat())
+        result = SourceDriver(self.source, config).run(
+            "historical",
+            always(ScriptedResponse(json={"base": "USD", "rates": {"EUR": 0.9}})),
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=(start + timedelta(days=1)).isoformat(),
+        )
 
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
+        assert result.raised is None
         # A non-incremental sync must not pass a stale watermark down to the transport.
-        assert mock_source.call_args.kwargs["db_incremental_field_last_value"] is None
+        assert result.paths[0] == f"/api/historical/{start.isoformat()}.json"

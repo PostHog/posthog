@@ -271,3 +271,72 @@ def test_optional_appointment_range_has_a_future_horizon() -> None:
     window = appointment_range(None, None)
     assert window.start == date(2000, 1, 1)
     assert window.end == date(2025, 4, 1)
+
+
+def _page(items: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"count": len(items), "pageSize": 25, "pageStartIndex": 0, "items": items}
+
+
+TWO_LEVEL_ROUTES: dict[str, dict[str, Any]] = {
+    "/api/v2/estimates": _page([{"id": "est-1"}, {"id": "est-2"}]),
+    "/api/v2/estimates/est-1/sections": {"items": [{"id": "sec-1"}, {"id": "sec-2"}]},
+    "/api/v2/estimates/est-2/sections": {"items": [{"id": "sec-1"}]},
+    "/api/v2/estimates/est-1/sections/sec-1/items": {"items": [{"id": "item-1"}]},
+    "/api/v2/estimates/est-1/sections/sec-2/items": {"items": [{"id": "item-1"}]},
+    "/api/v2/estimates/est-2/sections/sec-1/items": {"items": [{"id": "item-1"}]},
+    "/api/v2/jobs": _page([{"id": f"job-{i}", "createdDate": "2025-01-01T00:00:00Z"} for i in range(3)]),
+    "/api/v2/jobs/job-1/financials": {"id": "fin-1"},
+    "/api/v2/jobs/job-2/financials": {"id": "fin-2"},
+    "/api/v2/financials/fin-1/amendments": _page([{"id": "amend-1", "jobId": "job-1"}]),
+    "/api/v2/financials/fin-2/amendments": _page([{"id": "amend-2", "jobId": "job-2"}]),
+}
+
+
+@pytest.mark.parametrize(
+    "name, expected, probe",
+    [
+        (
+            "estimate_section_items",
+            [
+                {"id": "item-1", "estimate_id": "est-1", "estimate_section_id": "sec-1"},
+                {"id": "item-1", "estimate_id": "est-1", "estimate_section_id": "sec-2"},
+                {"id": "item-1", "estimate_id": "est-2", "estimate_section_id": "sec-1"},
+            ],
+            "/api/v2/estimates/est-1/sections/sec-1/items",
+        ),
+        (
+            "financial_amendments",
+            [
+                {"id": "amend-1", "jobId": "job-1", "financials_id": "fin-1"},
+                {"id": "amend-2", "jobId": "job-2", "financials_id": "fin-2"},
+            ],
+            # The first job has no financials, which validation treats as an accessible table.
+            "/api/v2/jobs/job-0/financials",
+        ),
+    ],
+)
+def test_two_level_fanouts_bind_every_ancestor_and_skip_missing_parents(
+    name: str,
+    expected: list[dict[str, Any]],
+    probe: str,
+    pipeline: Callable[..., SyncSourceResponse],
+    http_send: MagicMock,
+    response: Callable[..., Response],
+) -> None:
+    def send(request: PreparedRequest, **_: Any) -> Response:
+        path = urlsplit(request.url or "").path
+        return response(request, TWO_LEVEL_ROUTES[path]) if path in TWO_LEVEL_ROUTES else response(request, {}, 404)
+
+    http_send.side_effect = send
+    resource = pipeline(name)
+    rows = [row for page in resource.items() for row in page]
+    assert sorted(rows, key=lambda row: sorted(row.items())) == expected
+    assert resource.primary_keys
+    assert len({tuple(row[key] for key in resource.primary_keys) for row in rows}) == len(rows)
+
+    http_send.reset_mock()
+    assert validate_credentials("fake-key", "v2", name, DateWindow(start=date(2025, 1, 1), end=date(2025, 1, 2))) == (
+        True,
+        None,
+    )
+    assert urlsplit(http_send.call_args.args[0].url).path == probe

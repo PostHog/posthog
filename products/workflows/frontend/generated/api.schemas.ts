@@ -105,6 +105,35 @@ export interface HogFunctionFiltersApi {
 }
 
 /**
+ * * `trigger` - trigger
+ * * `function` - function
+ * * `function_email` - function_email
+ * * `function_sms` - function_sms
+ * * `function_push` - function_push
+ * * `delay` - delay
+ * * `wait_until_condition` - wait_until_condition
+ * * `wait_until_time_window` - wait_until_time_window
+ * * `conditional_branch` - conditional_branch
+ * * `random_cohort_branch` - random_cohort_branch
+ * * `exit` - exit
+ */
+export type HogFlowActionTypeEnumApi = (typeof HogFlowActionTypeEnumApi)[keyof typeof HogFlowActionTypeEnumApi]
+
+export const HogFlowActionTypeEnumApi = {
+    Trigger: 'trigger',
+    Function: 'function',
+    FunctionEmail: 'function_email',
+    FunctionSms: 'function_sms',
+    FunctionPush: 'function_push',
+    Delay: 'delay',
+    WaitUntilCondition: 'wait_until_condition',
+    WaitUntilTimeWindow: 'wait_until_time_window',
+    ConditionalBranch: 'conditional_branch',
+    RandomCohortBranch: 'random_cohort_branch',
+    Exit: 'exit',
+} as const
+
+/**
  * Custom action serializer for templates that skips input validation
  * (since templates should have default/empty values).
  */
@@ -121,8 +150,20 @@ export interface HogFlowTemplateActionApi {
     created_at?: number
     updated_at?: number
     filters?: HogFunctionFiltersApi | null
-    /** @maxLength 100 */
-    type: string
+    /** One of: trigger | function | function_email | function_sms | function_push | delay | wait_until_condition | wait_until_time_window | conditional_branch | random_cohort_branch | exit.
+     *
+     * * `trigger` - trigger
+     * * `function` - function
+     * * `function_email` - function_email
+     * * `function_sms` - function_sms
+     * * `function_push` - function_push
+     * * `delay` - delay
+     * * `wait_until_condition` - wait_until_condition
+     * * `wait_until_time_window` - wait_until_time_window
+     * * `conditional_branch` - conditional_branch
+     * * `random_cohort_branch` - random_cohort_branch
+     * * `exit` - exit */
+    type: HogFlowActionTypeEnumApi
     config: unknown
     output_variable?: unknown
 }
@@ -288,12 +329,14 @@ export const HogFlowStateEnumApi = {
 /**
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
+ * * `transactional_emails` - Transactional emails
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
 export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 /**
@@ -503,35 +546,6 @@ export interface HogFlowEdgeApi {
 }
 
 /**
- * * `trigger` - trigger
- * * `function` - function
- * * `function_email` - function_email
- * * `function_sms` - function_sms
- * * `function_push` - function_push
- * * `delay` - delay
- * * `wait_until_condition` - wait_until_condition
- * * `wait_until_time_window` - wait_until_time_window
- * * `conditional_branch` - conditional_branch
- * * `random_cohort_branch` - random_cohort_branch
- * * `exit` - exit
- */
-export type HogFlowActionTypeEnumApi = (typeof HogFlowActionTypeEnumApi)[keyof typeof HogFlowActionTypeEnumApi]
-
-export const HogFlowActionTypeEnumApi = {
-    Trigger: 'trigger',
-    Function: 'function',
-    FunctionEmail: 'function_email',
-    FunctionSms: 'function_sms',
-    FunctionPush: 'function_push',
-    Delay: 'delay',
-    WaitUntilCondition: 'wait_until_condition',
-    WaitUntilTimeWindow: 'wait_until_time_window',
-    ConditionalBranch: 'conditional_branch',
-    RandomCohortBranch: 'random_cohort_branch',
-    Exit: 'exit',
-} as const
-
-/**
  * Type-specific config keyed by action type. trigger: {type: event|webhook|manual|batch|schedule|tracking_pixel|internal-event, filters?}. An active event trigger must name at least one event, action or property filter; with filters.source 'person-updates' that means at least one property filter. internal-event requires filters.events naming one or more allowed event ids, and runs once for each matching event on the internal-events stream. Runs are person-less, so person-dependent steps are rejected. $slack_message_received takes filters: {properties: [<cond>]} over the message properties (channel, user, bot_id, text, subtype, is_thread_reply), and requires an exact-match channel filter; without one it runs on every message in every connected channel. $github_event_received takes filters: {properties: [<cond>]} over the delivery properties (repository, event_type, action, sender, bot_sender, own_app, author_association, actor_access, title, body, review_state, branch, repository_visibility), and requires exact-match repository and event_type filters; without them it runs on every delivery from every connected repository. webhook and manual triggers also require template_id: 'template-source-webhook', and tracking_pixel requires template_id: 'template-source-webhook-pixel'. filters shape: {events: [{id, name, type:'events', properties:[<cond>]}], properties:[<cond>], actions:[...], filter_test_accounts:<bool>}. <cond>: {key, value, operator, type: event|person|group}, or {key: 'id', type: 'cohort', value: <cohort_id>, operator: 'in'} to reference a cohort. batch triggers may set filters.audience_type: 'persons' (default) or 'accounts'. An accounts audience fans out one run per customer analytics account and takes account filters instead: properties entries of type 'account_custom_property' (key = definition id), plus tag_names: [<str>], assignment_status: 'all'|'assigned'|'unassigned', and assigned_to_user_ids: [<int>] when assignment_status is 'assigned'. all_roles_unassigned remains accepted for workflows saved before assignment_status was added. function*: {template_id, inputs: {<key>: {value: <str>}}}. Wrap values in {value:...} to enable hog templating ({person.x}, {event.x}); flat strings won't interpolate. function_email also accepts tracking_enabled?: <bool> (default true) - when false, no open pixel is injected, links are not rewritten, and the send skips ESP-level open/click tracking, so opens and clicks are not recorded for that step (delivery/bounce/unsubscribe still are). Dictionary input values are template strings too — write booleans/numbers as single-expression templates ('{true}', '{42}'), which evaluate to the typed value. delay: waits a fixed span or until a per-person/-event date — set EXACTLY ONE of delay_duration or delay_until. {delay_duration: '<number><unit>'} where unit is s|m|h|d. Fractions OK ('1.5d'=36h). Per-unit max s<=60, m<=60, h<=24, d<=30; values above are SILENTLY CLAMPED. Max 30d. delay_until: {expression: '<SQL>', offset?: '<±number><unit>'} waits until the date expression evaluates to (an ISO string, unix seconds, or a date value all resolve to the same instant); offset is a signed duration shifting it ('-1d' a day before, '2h' two hours after). expression is compiled server-side, so any bytecode sent with it is discarded. A person property is person.properties.<key>; an event property is properties.<key>, as the 'event.' prefix resolves to nothing and aborts the run. Optional timezone (IANA name), use_person_timezone (read $geoip_time_zone) and fallback_timezone decide which zone a date with no offset of its own is read in; a date that states an offset, and unix seconds, ignore them. Default UTC. Optional sibling max_delay_duration (default 30d, same '<number><unit>' format) caps how far past the step's start the wait may run. conditional_branch: {conditions: [{filters}, ...]}. Index N matches the 'branch' edge with index:N. random_cohort_branch: {cohorts: [{percentage: <number>, name?}, ...]}. Index N matches the 'branch' edge with index:N; percentages are relative weights, so they should sum to 100 but a total above or below that still splits traffic in the given proportions. wait_until_condition: {condition: {filters}, events?: [{filters: {events: [{id, name, type: 'events'}], actions?: [...]}, name?}], max_wait_duration: <duration>} (same rules as delay). Continues when condition.filters match OR any events entry fires; each events entry must target at least one event or action. On resolution (a condition match or any events entry firing) it advances via the 'branch' edge with index:0; the max_wait_duration timeout falls through the 'continue' edge. exit: {reason}.
  */
 export type HogFlowActionApiConfig =
@@ -664,7 +678,8 @@ export interface HogFlowApi {
     /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -765,7 +780,8 @@ export interface HogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -866,7 +882,8 @@ export interface PatchedHogFlowUpdateApi {
     /** Product surface that owns this workflow. This value cannot change after creation.
      *
      * * `loops` - Loops
-     * * `broadcasts` - Broadcasts */
+     * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1137,6 +1154,30 @@ export interface PatchedHogFlowGraphUpdateApi {
     base_updated_at?: string
     /** Ordered graph edits applied atomically to a draft workflow: the stored graph is read, the ops are applied in order, the result is fully validated, and it's saved only if valid — otherwise the workflow is unchanged. Reference nodes/edges by id so you never resend the whole graph. The full updated workflow is returned. */
     operations?: HogFlowGraphOperationApi[]
+}
+
+/**
+ * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+ * @nullable
+ */
+export type HogFlowInFlightApiByAction = { [key: string]: number } | null
+
+export interface HogFlowInFlightApi {
+    /**
+     * About how many runs are in flight (parked on a delay or wait, or executing). Null when the count is unavailable.
+     * @nullable
+     */
+    count: number | null
+    /**
+     * In-flight runs keyed by the id of the step they are on. Null when the count is unavailable.
+     * @nullable
+     */
+    by_action: HogFlowInFlightApiByAction
+    /**
+     * In-flight runs whose current step could not be read. Null when the count is unavailable.
+     * @nullable
+     */
+    position_unknown: number | null
 }
 
 export interface HogInvocationResultApi {
@@ -2058,6 +2099,172 @@ export interface BlastRadiusApi {
     confirm_token: string
 }
 
+export interface DataSuggestionBuildRequestApi {
+    /** The id of a suggestion from the list endpoint. */
+    suggestion_id: string
+    /** Start a new build when the last one failed. Leave it false when asking for a running build's status. */
+    retry?: boolean
+    /** Save the built draft in the project and return its workflow_id. Blank settings, like a webhook URL, stay blank and are listed in missing_inputs. Leave it false to get the workflow back without saving. */
+    save_draft?: boolean
+}
+
+/**
+ * * `ready` - Ready
+ * * `building` - Building
+ * * `failed` - Failed
+ */
+export type DataSuggestionBuildStatusEnumApi =
+    (typeof DataSuggestionBuildStatusEnumApi)[keyof typeof DataSuggestionBuildStatusEnumApi]
+
+export const DataSuggestionBuildStatusEnumApi = {
+    Ready: 'ready',
+    Building: 'building',
+    Failed: 'failed',
+} as const
+
+export interface DataSuggestionMissingInputApi {
+    /** The id of the workflow step (action) the setting belongs to. */
+    step_id: string
+    /** The step's name, as the editor shows it. */
+    step_name: string
+    /** The setting to fill, like 'Webhook URL', 'Email sender' or 'Condition: Is on a paid plan'. */
+    field: string
+}
+
+export interface DataSuggestionBuildResponseApi {
+    /** ready when the draft is built, building while a background build runs (call build again to check), failed when the plan did not produce a valid workflow. A failed result stays until a call sends retry.
+     *
+     * * `ready` - Ready
+     * * `building` - Building
+     * * `failed` - Failed */
+    status: DataSuggestionBuildStatusEnumApi
+    /** With status ready: a validated draft workflow (name, description, trigger, actions, edges, conversion, exit_condition) that the workflow create endpoint accepts from this caller. Saved only with save_draft. Null otherwise. */
+    workflow: unknown
+    /** Whether an email step reuses a saved email template. */
+    uses_saved_template: boolean
+    /**
+     * With status ready and save_draft: the id of the saved draft workflow. Null otherwise.
+     * @nullable
+     */
+    workflow_id: string | null
+    /** With status ready: the settings the draft leaves blank, which must be filled before it is enabled. */
+    missing_inputs: DataSuggestionMissingInputApi[]
+}
+
+/**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `ai_not_approved` - Ai Not Approved
+ * * `unavailable` - Unavailable
+ */
+export type DataSuggestionsStatusEnumApi =
+    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+
+export const DataSuggestionsStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    AiNotApproved: 'ai_not_approved',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `signup` - Signup
+ * * `onboarding` - Onboarding
+ * * `trial` - Trial
+ * * `purchase` - Purchase
+ * * `churn_risk` - Churn Risk
+ * * `failure` - Failure
+ * * `support` - Support
+ * * `other` - Other
+ */
+export type DataSuggestionStageEnumApi = (typeof DataSuggestionStageEnumApi)[keyof typeof DataSuggestionStageEnumApi]
+
+export const DataSuggestionStageEnumApi = {
+    Signup: 'signup',
+    Onboarding: 'onboarding',
+    Trial: 'trial',
+    Purchase: 'purchase',
+    ChurnRisk: 'churn_risk',
+    Failure: 'failure',
+    Support: 'support',
+    Other: 'other',
+} as const
+
+/**
+ * * `email` - Email
+ * * `sms` - Sms
+ * * `push` - Push
+ * * `slack` - Slack
+ * * `webhook` - Webhook
+ * * `delay` - Delay
+ * * `wait_until` - Wait Until
+ * * `branch` - Branch
+ * * `split` - Split
+ * * `action` - Action
+ */
+export type DataSuggestionStepKindEnumApi =
+    (typeof DataSuggestionStepKindEnumApi)[keyof typeof DataSuggestionStepKindEnumApi]
+
+export const DataSuggestionStepKindEnumApi = {
+    Email: 'email',
+    Sms: 'sms',
+    Push: 'push',
+    Slack: 'slack',
+    Webhook: 'webhook',
+    Delay: 'delay',
+    WaitUntil: 'wait_until',
+    Branch: 'branch',
+    Split: 'split',
+    Action: 'action',
+} as const
+
+export interface DataSuggestionApi {
+    /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+    id: string
+    /** Suggested workflow name, written by AI from the project's events. */
+    name: string
+    /** One sentence on what the workflow does. */
+    description: string
+    /** One sentence on why the workflow fits this project. */
+    reason: string
+    /** The project event that starts the workflow. */
+    trigger_event: string
+    /** How often the trigger event fired in the last 7 days. */
+    weekly_count: number
+    /** The customer lifecycle stage the trigger event marks. Suggestions are ranked by stage first, so welcome and onboarding flows come before busier events.
+     *
+     * * `signup` - Signup
+     * * `onboarding` - Onboarding
+     * * `trial` - Trial
+     * * `purchase` - Purchase
+     * * `churn_risk` - Churn Risk
+     * * `failure` - Failure
+     * * `support` - Support
+     * * `other` - Other */
+    stage: DataSuggestionStageEnumApi
+    /** The main planned step kinds after the trigger, in order. */
+    step_outline: DataSuggestionStepKindEnumApi[]
+}
+
+export interface DataSuggestionsResponseApi {
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable */
+    status: DataSuggestionsStatusEnumApi
+    /** Up to 3 suggested workflows, ranked by lifecycle stage and then by weekly volume. */
+    suggestions: DataSuggestionApi[]
+    /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
+    readonly email_sender_ready: boolean
+}
+
+export interface DataSuggestionGenerateRequestApi {
+    /** Make new suggestions even when the cached ones are still valid. */
+    refresh?: boolean
+}
+
 /**
  * * `error_tracking` - Error tracking issue
  * * `early_access` - Early access feature
@@ -2148,6 +2355,38 @@ export interface EmailDraftApi {
      * * `model_error` - The model call failed
      * * `invalid_output` - The model returned an unusable draft */
     template_reason: EmailDraftFallbackReasonEnumApi | null
+}
+
+export type PeopleImportCreateApiRowsItem = { [key: string]: string }
+
+export interface PeopleImportCreateApi {
+    /**
+     * Name of the static cohort that holds the imported people.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * One object per person. Each needs "email". An optional "distinct_id" picks the person to update or create, and an "id" column counts as the distinct_id when there is no "distinct_id" column. Without either, the row updates the person with that email, or creates one keyed by the email. Every other key is set as a person property.
+     * @maxItems 50000
+     */
+    rows: PeopleImportCreateApiRowsItem[]
+}
+
+export interface PeopleImportApi {
+    /** The static cohort that fills with the imported people. */
+    cohort_id: number
+    /** People created or updated. */
+    row_count: number
+    /** Rows that create a person who isn't in PostHog yet. */
+    new_people: number
+    /** Person properties the rows set. */
+    columns: string[]
+    /** Rows dropped for a missing or invalid email. */
+    dropped_invalid_email: number
+    /** Rows dropped because an earlier row had the email or distinct ID. */
+    dropped_duplicate_email: number
+    /** Rows dropped for holding more than 4KB of data. */
+    dropped_too_large: number
 }
 
 export type HogFlowTemplatesListParams = {
@@ -2250,6 +2489,7 @@ export type HogFlowsListOriginProduct = (typeof HogFlowsListOriginProduct)[keyof
 export const HogFlowsListOriginProduct = {
     Broadcasts: 'broadcasts',
     Loops: 'loops',
+    TransactionalEmails: 'transactional_emails',
 } as const
 
 export type HogFlowsListStatus = (typeof HogFlowsListStatus)[keyof typeof HogFlowsListStatus]

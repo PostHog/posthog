@@ -153,6 +153,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
+    get_connection_metadata,
     get_enforced_unique_keys,
     get_foreign_keys,
     get_leading_index_columns,
@@ -2483,6 +2484,19 @@ class TestIsConnectionDroppedError:
             psycopg.errors.ConnectionFailure(
                 "Failed to connect to database: authentication did not complete within 15000ms"
             ),
+            # A Neon-style proxy's own round trip to its control plane fails with the bare, generic
+            # "ERROR: Control plane request failed" — distinct from the specific, actionable
+            # control-plane rejections (quota exceeded, allow-listed IP, ...) that stay non-retryable
+            # in `get_non_retryable_errors`. The generic form means the round trip itself broke, not
+            # that it returned a customer-fixable rejection, so the reconnect must catch it. The real
+            # production message pairs it with the generic plaintext-fallback rejection on a second
+            # line, which must not block the match.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.40", port 5432 failed: ERROR:  '
+                "Control plane request failed\n"
+                'connection to server at "203.0.113.40", port 5432 failed: ERROR:  connection is '
+                "insecure (try using `sslmode=require`)"
+            ),
             # Supavisor's own auth_query secret lookup (used to authenticate a tenant with no static
             # user record) times out waiting for the backend, reporting a bare OperationalError
             # carrying its "(EAUTHQUERY)" code. A race in the pooler's bookkeeping, not a credential
@@ -4347,6 +4361,8 @@ class TestChunkedRereadAfterRecoveryConflict:
         chunking: _TableChunking | None = None,
         lock_timeout_before_each_page: bool = False,
         page_error: BaseException | None = None,
+        text_ids: list[str] | None = None,
+        worker_deaths: int = 0,
     ) -> list[int | str]:
         @contextmanager
         def fake_tunnel():
@@ -4365,7 +4381,7 @@ class TestChunkedRereadAfterRecoveryConflict:
 
         rows: list[tuple[Any, ...]] = list(self._XMIN_ROWS if is_xmin else self._ROWS)
         if column_type == "text":
-            rows = [(str(row[0]),) for row in rows]
+            rows = [(text_id,) for text_id in text_ids] if text_ids else [(str(row[0]),) for row in rows]
         # `get_rows` inserts `_ph_xmin` ahead of the discovered columns, matching the SELECT.
         column_names = [XMIN_PROJECTED_COLUMN, "id"] if is_xmin else ["id"]
         scan = self._Scan(list(rows))
@@ -4412,6 +4428,7 @@ class TestChunkedRereadAfterRecoveryConflict:
                 team_id=1,
                 is_xmin=is_xmin,
                 activity_attempt=activity_attempt,
+                worker_deaths=worker_deaths,
                 resumable_source_manager=resumable_source_manager,
             )
             self.last_response = response
@@ -4700,6 +4717,42 @@ class TestChunkedRereadAfterRecoveryConflict:
         assert max(self.last_scan.limits) == 4
         # Once a page shows what a row weighs, a page holds no more than one batch budget.
         assert self.last_scan.limits[-1] == 2
+
+    @parameterized.expand(
+        [
+            ("seek_walk_halves_its_pages", False, 2),
+            # A LIMIT/OFFSET walk starts again from the first row and scans its offset on every page.
+            ("offset_walk_keeps_its_pages", True, 4),
+        ]
+    )
+    def test_page_size_after_a_worker_death(self, _name, should_use_incremental_field, expected_limit):
+        ids = self._read_ids(
+            should_use_incremental_field=should_use_incremental_field,
+            rows_before_conflict=0,
+            primary_keys=["id"],
+            chunking=_TableChunking(batch_rows=6, fetch_rows=4),
+            worker_deaths=1,
+        )
+
+        assert ids == [row[0] for row in self._ROWS]
+        assert max(self.last_scan.limits) == expected_limit
+
+    def test_one_wide_row_does_not_shrink_the_seek_pages(self):
+        text_ids = ["a", "b", "c" + "x" * 200, "d", "e", "f"]
+
+        with patch.object(batching, "EXTRACT_BATCH_MAX_BYTES", 300):
+            ids = self._read_ids(
+                should_use_incremental_field=False,
+                rows_before_conflict=0,
+                primary_keys=["id"],
+                arrow_schema=pa.schema([pa.field("id", pa.string())]),
+                column_type="text",
+                text_ids=text_ids,
+                chunking=_TableChunking(batch_rows=6, fetch_rows=2),
+            )
+
+        assert ids == text_ids
+        assert set(self.last_scan.limits) == {2}
 
     def test_a_batch_that_ends_inside_a_page_checkpoints_its_own_last_row(self):
         # The first page reads rows 1 to 4, and the byte budget closes the first batch after row 2.
@@ -6451,6 +6504,64 @@ class TestGetSslmode:
             mock_settings.DEBUG = False
             mock_settings.E2E_TESTING = True
             assert _get_sslmode(True) == "prefer"
+
+
+class TestPostgresConnectionMetadata:
+    @pytest.mark.django_db
+    @pytest.mark.parametrize("table_functions", [False, True])
+    def test_failed_function_probe_does_not_block_extension_discovery(self, autocommit_pg_connection, table_functions):
+        connection = autocommit_pg_connection
+        connection.autocommit = False
+        execute = psycopg.Cursor.execute
+
+        def execute_with_failed_probe(cursor, query, *args, **kwargs):
+            if "FROM pg_proc" in query and ("proretset" in query) == table_functions:
+                return execute(cursor, "SELECT 1 / 0")
+            return execute(cursor, query, *args, **kwargs)
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.pg_connection") as connect,
+            patch(f"{module}.capture_exception"),
+            patch.object(psycopg.Cursor, "execute", execute_with_failed_probe),
+        ):
+            connect.return_value.__enter__.return_value = connection
+            metadata = get_connection_metadata(
+                host="db.example.com", port=5432, database="analytics", user="reader", password="test"
+            )
+
+        assert "pgcrypto_schema" in metadata
+        assert metadata["available_table_functions" if table_functions else "available_functions"] == []
+
+    @pytest.mark.parametrize(
+        "version,extension,expected",
+        [
+            ("PostgreSQL 15.12", ("crypto",), {"pgcrypto_schema": "crypto"}),
+            ("PostgreSQL 15.12", None, {"pgcrypto_schema": None}),
+            ("PostgreSQL 15.0 (Duckgres/DuckDB)", ("crypto",), {}),
+            ("PostgreSQL 15.12", psycopg.errors.InsufficientPrivilege("catalog access denied"), {}),
+        ],
+    )
+    def test_discovers_pgcrypto_without_losing_other_metadata(self, version, extension, expected):
+        cursor = MagicMock()
+        cursor.fetchone.side_effect = [("analytics", version), extension]
+        cursor.fetchall.side_effect = [[("count",)], []]
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with patch(f"{module}.pg_connection") as connect, patch(f"{module}.capture_exception"):
+            connect.return_value.__enter__.return_value.cursor.return_value.__enter__.return_value = cursor
+            metadata = get_connection_metadata(
+                host="db.example.com", port=5432, database="analytics", user="reader", password="test"
+            )
+
+        assert metadata == {
+            "database": "analytics",
+            "version": version,
+            "engine": "duckdb" if "DuckDB" in version else "postgres",
+            "function_source": "duckdb_functions" if "DuckDB" in version else "pg_proc",
+            "available_functions": ["count"],
+            "available_table_functions": [],
+            **expected,
+        }
 
 
 class TestNormalizeFunctionNames:

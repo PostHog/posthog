@@ -28,6 +28,7 @@ export async function capturePlayback(
         | 'truncated'
         | 'inactivity_periods'
         | 'frame_session_ms'
+        | 'navigation_samples'
         | 'pre_roll_frames'
         | 'timings'
     >
@@ -230,6 +231,7 @@ export async function capturePlayback(
         truncated,
         inactivity_periods: inactivityPeriods,
         frame_session_ms: await player.readFrameTimeline(),
+        navigation_samples: await player.readNavigation(),
         pre_roll_frames: preRollFrames,
         timings: { setup_s: 0, capture_s: elapsed(captureStart) },
     }

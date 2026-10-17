@@ -1,4 +1,6 @@
 from collections.abc import Mapping
+from datetime import datetime
+from enum import StrEnum
 
 from posthog.schema import MultipleVariantHandling
 
@@ -13,6 +15,54 @@ from products.feature_flags.backend.facade.filters import pinned_variant, reacha
 class FlagVariant:
     key: str | None
     rollout_percentage: float | None
+
+
+Split = tuple[FlagVariant, ...]
+
+
+@frozen
+class SplitChange:
+    changed_at: datetime
+    before: Split
+    after: Split
+
+
+@frozen
+class SplitHistory:
+    """The changes of the flag's split after launch that can have moved exposed people to another variant."""
+
+    launched_at: datetime
+    team_timezone: str
+    # Every split change since launch. The counted changes are its tail.
+    changes: tuple[SplitChange, ...]
+    # From the first change with an exposure before it, or with an unknown answer, to the last change.
+    # Empty when nobody was exposed before any change: those changes moved nobody.
+    counted_changes: tuple[SplitChange, ...]
+    # None when unknown: the exposure query failed, or the request ran out of queries or time.
+    exposed_before_first: bool | None
+    # Asked only when the last change sets the split back to what it was before the first. None when not
+    # asked, or unknown.
+    exposed_between: bool | None
+
+
+class SplitHistoryNotCheckedReason(StrEnum):
+    # pinned: the finding's `evidence.reason`.
+    NO_HISTORY_ACCESS = "no_history_access"
+    NO_QUERY_ACCESS = "no_query_access"
+    EXPOSURE_FILTERS = "exposure_filters"
+    EXPOSURE_ACTION = "exposure_action"
+    EXPOSURE_CRITERIA = "exposure_criteria"
+
+
+@frozen
+class SplitHistoryNotChecked:
+    """A split history that was not compared with the exposures, and the reason."""
+
+    reason: SplitHistoryNotCheckedReason
+    launched_at: datetime
+    team_timezone: str
+    # Every split change since launch. Empty for NO_HISTORY_ACCESS, which does not read them.
+    changes: tuple[SplitChange, ...]
 
 
 @frozen
@@ -39,6 +89,20 @@ class FlagState:
 
 
 @frozen
+class ConditionSetTraffic:
+    """The flag's `$feature_flag_called` events of the last days, by the release condition that served each person."""
+
+    # The latest of launch, the flag's last save and the start of the window.
+    since: datetime
+    team_timezone: str
+    # People by the condition set that served their latest call of the flag's current version.
+    people_by_set: Mapping[int, int]
+    # The calls that returned a variant, and those of them that the flag service evaluated, which alone name a set.
+    calls: int
+    remotely_evaluated_calls: int
+
+
+@frozen
 class ExposureTotals:
     total_exposures: Mapping[str, int]
     multiple_variant_handling: MultipleVariantHandling
@@ -57,9 +121,17 @@ class HealthContext:
     is_paused: bool
     archived: bool
     flag: FlagState | None
+    # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
+    baseline_variant_key: str | None
     primary_metric_count: int
     secondary_metric_count: int
     exposures: ExposureTotals | None
+    # None when not loaded. Only the health endpoint loads it, because it can query the exposures.
+    split_history: SplitHistory | SplitHistoryNotChecked | None
+    # None when not loaded or unknown. Only the health endpoint loads it, because it queries the events.
+    condition_set_traffic: ConditionSetTraffic | None
+    # The variants that the analysis leaves out of the results.
+    excluded_variant_keys: frozenset[str]
 
 
 def parse_flag_state(
@@ -72,7 +144,7 @@ def parse_flag_state(
     early_exit: bool = False,
 ) -> FlagState:
     conditions = groups if isinstance(groups, list) else []
-    flag_variants = tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
+    flag_variants = parse_variants(variants)
     variant_keys = {variant.key for variant in flag_variants if variant.key}
     reachable = reachable_conditions(conditions, flag_aggregation=aggregation_group_type_index, early_exit=early_exit)
     return FlagState(
@@ -107,6 +179,10 @@ def _variant(variant: object) -> FlagVariant:
     )
 
 
+def parse_variants(variants: object) -> Split:
+    return tuple(_variant(variant) for variant in variants) if isinstance(variants, list) else ()
+
+
 def _percentage(value: object) -> float | None:
     # The page compares with `=== 0` and `=== 100`, so only a JSON number can match. A string or a
     # boolean must not, and Python's `False == 0` would let a boolean through.
@@ -131,7 +207,18 @@ def _load_flag_state(experiment: Experiment) -> FlagState | None:
     )
 
 
-def load_health_context(experiment: Experiment, exposures: ExposureTotals | None = None) -> HealthContext:
+def _configured_baseline_variant_key(stats_config: object) -> str | None:
+    # An empty key counts as unset, as in `get_baseline_variant_key`.
+    key = stats_config.get("baseline_variant_key") if isinstance(stats_config, dict) else None
+    return key if isinstance(key, str) and key else None
+
+
+def load_health_context(
+    experiment: Experiment,
+    exposures: ExposureTotals | None = None,
+    *,
+    split_history: SplitHistory | SplitHistoryNotChecked | None = None,
+) -> HealthContext:
     shared_metric_roles = [saved_metric_link_role(link) for link in saved_metric_links(experiment)]
     return HealthContext(
         is_launched=experiment.is_launched,
@@ -140,7 +227,11 @@ def load_health_context(experiment: Experiment, exposures: ExposureTotals | None
         is_paused=experiment.is_paused,
         archived=experiment.archived,
         flag=_load_flag_state(experiment),
+        baseline_variant_key=_configured_baseline_variant_key(experiment.stats_config),
         primary_metric_count=len(experiment.metrics or []) + shared_metric_roles.count("primary"),
         secondary_metric_count=len(experiment.metrics_secondary or []) + shared_metric_roles.count("secondary"),
         exposures=exposures,
+        split_history=split_history,
+        condition_set_traffic=None,
+        excluded_variant_keys=frozenset(experiment.excluded_variants or []),
     )

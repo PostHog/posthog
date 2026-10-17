@@ -662,6 +662,12 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
             ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
+            ),
         provider: zod
             .enum(['google'])
             .describe('\* `google` - Google')
@@ -813,6 +819,12 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Optional cap on this scanner's own credit spend per billing period. Null means no scanner-level cap. When reached, this scanner stops scanning until the period resets. It stays enabled and does not scan the sessions it skipped."
+            ),
+        free_only: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
             ),
         provider: zod
             .enum(['google'])
@@ -1034,7 +1046,7 @@ export const visionScannersScoutsCreateBodyConfigOneRepositoriesItemMax = 255
 
 export const visionScannersScoutsCreateBodyConfigOneRepositoriesMax = 10
 
-export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 10
+export const visionScannersScoutsCreateBodyConfigOneWriteScopesMax = 12
 
 export const visionScannersScoutsCreateBodyConfigOnePrecheckQueryMax = 10000
 
@@ -1121,7 +1133,7 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                     .max(visionScannersScoutsCreateBodyConfigOneWriteScopesMax)
                     .optional()
                     .describe(
-                        "Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run."
+                        "Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run."
                     ),
                 lifecycle_locked: zod
                     .boolean()
@@ -1281,6 +1293,8 @@ export const visionScannersDraftCreateBodyGoalMax = 2000
 
 export const visionScannersDraftCreateBodyMonthlyCreditBudgetMax = 100000000
 
+export const visionScannersDraftCreateBodyExperimentIdMax = 2147483647
+
 export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
     .object({
         goal: zod
@@ -1294,6 +1308,14 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+            ),
+        experiment_id: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftCreateBodyExperimentIdMax)
+            .optional()
+            .describe(
+                'Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.'
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")

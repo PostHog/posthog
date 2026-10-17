@@ -1,5 +1,7 @@
 from typing import Any
 
+import pytest
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.amplemarket.amplemarket import (
     AmplemarketResumeConfig,
     validate_credentials,
@@ -73,7 +75,7 @@ class TestPagination:
         assert result.queries == [{"page[after]": ("x",), "page[size]": ("20",)}]
 
 
-class TestTasksFanout:
+class TestFanout:
     def test_tasks_are_fetched_per_user(self) -> None:
         # /tasks requires a user_id filter, so the fan-out binds each parent user's id into the
         # child path and pages each user's tasks through their own next-link chain.
@@ -97,3 +99,43 @@ class TestTasksFanout:
             {"user_id": ("u1",), "page[after]": ("t1",)},
             {"user_id": ("u2",)},
         ]
+
+    @pytest.mark.parametrize(
+        "endpoint, parent_key, child_key, parent_id_column, gone_status, child_paths",
+        [
+            ("contacts", "accounts", "contacts", "account_id", 404, ["/contacts", "/contacts", "/contacts"]),
+            (
+                "lead_list_entries",
+                "lead_lists",
+                "leads",
+                "lead_list_id",
+                410,
+                ["/lead-lists/p1", "/lead-lists/p1", "/lead-lists/p2"],
+            ),
+        ],
+    )
+    def test_children_carry_parent_id_and_skip_deleted_parents(
+        self,
+        endpoint: str,
+        parent_key: str,
+        child_key: str,
+        parent_id_column: str,
+        gone_status: int,
+        child_paths: list[str],
+    ) -> None:
+        # The parent id is part of the primary key, so every child row must carry it, and a parent
+        # deleted after the listing must not fail the sync.
+        result = _driver().run(
+            endpoint,
+            [
+                _page(parent_key, [{"id": "p1"}, {"id": "p2"}, {"id": "p3"}]),
+                _page(child_key, [{"id": "c1"}], f"{child_paths[0]}?page[after]=c1"),
+                _page(child_key, [{"id": "c2"}]),
+                _page(child_key, [{"id": "c1"}]),
+                ScriptedResponse(status=gone_status, json={"_errors": [], "object": "error"}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row[parent_id_column], row["id"]) for row in result.rows] == [("p1", "c1"), ("p1", "c2"), ("p2", "c1")]
+        assert result.paths[1:4] == child_paths

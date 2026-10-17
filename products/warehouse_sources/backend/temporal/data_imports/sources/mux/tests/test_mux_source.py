@@ -1,10 +1,15 @@
 from typing import Any, Optional
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mux import MuxSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.mux.source import MuxSource
@@ -48,10 +53,13 @@ class TestMuxValidateCredentials:
     def test_validate_credentials(
         self, _name: str, status: Optional[int], schema_name: Optional[str], expected_ok: bool
     ) -> None:
-        # patch (not the monkeypatch fixture) because parameterized.expand can't inject pytest fixtures.
-        with patch.object(source_module, "get_validation_status", return_value=status):
+        script = always(ConnectionError("reset")) if status is None else [ScriptedResponse(status=status)]
+        with scripted_network(script) as network:
             ok, _msg = MuxSource().validate_credentials(_config(), team_id=1, schema_name=schema_name)
+
         assert ok is expected_ok
+        assert {request.path for request in network.requests_log} == {"/video/v1/assets"}
+        assert {request.param("limit") for request in network.requests_log} == {"1"}
 
 
 class TestMuxNonRetryableErrors:

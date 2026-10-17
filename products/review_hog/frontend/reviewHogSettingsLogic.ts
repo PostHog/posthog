@@ -5,6 +5,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { isFeatureFlagGatedError } from 'lib/api-error'
 import type { SkillPickerGroup } from 'lib/components/SkillPicker/SkillPicker'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -86,6 +87,31 @@ interface ReviewRunMarker {
 // is created seconds after the 202 by the workflow's fetch step, but a run that dies before creating
 // it must not keep the list polling forever.
 const TRIGGERED_REVIEW_WATCH_TIMEOUT_MS = 2 * 60 * 1000
+
+/**
+ * Runs a review-hog request, but treats a feature flag 403 as a page state, not a failure. The
+ * frontend can show the scene while the backend flag gate still refuses its API, for example on a
+ * self-hosted instance whose flags come from the persisted baseline. Each loader would otherwise
+ * report the same 403 as its own issue. After the first gated response, no loader sends a request.
+ */
+export async function requestUnlessFeatureFlagGated<T>(
+    logic: { values: { featureFlagGated: boolean }; actions: { markFeatureFlagGated: () => void } },
+    request: () => Promise<T>,
+    fallback: T
+): Promise<T> {
+    if (logic.values.featureFlagGated) {
+        return fallback
+    }
+    try {
+        return await request()
+    } catch (error) {
+        if (!isFeatureFlagGatedError(error)) {
+            throw error
+        }
+        logic.actions.markFeatureFlagGated()
+        return fallback
+    }
+}
 
 export const REVIEWS_PAGE_SIZE = 25
 // The reviews table API caps `offset` at 1,000,000.
@@ -250,6 +276,7 @@ export interface reviewHogSettingsLogicValues {
         judged: number
         kept: number
     } | null
+    featureFlagGated: boolean
     hasUserChosenReviewsScope: boolean
     initialLoadFailed: boolean
     openedReview: ReviewRecentReviewApi | null
@@ -347,10 +374,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadBlindSpotsSuccess: (
-        blindSpots: ReviewBlindSpotsConfigApi[],
+        blindSpots: ReviewBlindSpotsConfigApi[] | null,
         payload?: any
     ) => {
-        blindSpots: ReviewBlindSpotsConfigApi[]
+        blindSpots: ReviewBlindSpotsConfigApi[] | null
         payload?: any
     }
     loadDeepSkillStats: () => any
@@ -362,10 +389,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadDeepSkillStatsSuccess: (
-        deepSkillStats: ReviewPerspectiveStatsApi,
+        deepSkillStats: ReviewPerspectiveStatsApi | null,
         payload?: any
     ) => {
-        deepSkillStats: ReviewPerspectiveStatsApi
+        deepSkillStats: ReviewPerspectiveStatsApi | null
         payload?: any
     }
     loadPerspectiveStats: (_?: any) => any
@@ -377,10 +404,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadPerspectiveStatsSuccess: (
-        perspectiveStats: ReviewPerspectiveStatsApi,
+        perspectiveStats: ReviewPerspectiveStatsApi | null,
         payload?: any
     ) => {
-        perspectiveStats: ReviewPerspectiveStatsApi
+        perspectiveStats: ReviewPerspectiveStatsApi | null
         payload?: any
     }
     loadPerspectives: () => any
@@ -392,10 +419,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadPerspectivesSuccess: (
-        perspectives: ReviewPerspectiveConfigApi[],
+        perspectives: ReviewPerspectiveConfigApi[] | null,
         payload?: any
     ) => {
-        perspectives: ReviewPerspectiveConfigApi[]
+        perspectives: ReviewPerspectiveConfigApi[] | null
         payload?: any
     }
     loadResolutionSkills: () => any
@@ -407,10 +434,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadResolutionSkillsSuccess: (
-        resolutionSkills: ReviewResolutionConfigApi[],
+        resolutionSkills: ReviewResolutionConfigApi[] | null,
         payload?: any
     ) => {
-        resolutionSkills: ReviewResolutionConfigApi[]
+        resolutionSkills: ReviewResolutionConfigApi[] | null
         payload?: any
     }
     loadReviewDetail: (reviewId: string) => string
@@ -422,10 +449,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadReviewDetailSuccess: (
-        reviewDetail: ReviewDetailApi,
+        reviewDetail: ReviewDetailApi | null,
         payload?: string
     ) => {
-        reviewDetail: ReviewDetailApi
+        reviewDetail: ReviewDetailApi | null
         payload?: string
     }
     loadReviews: (_?: any) => any
@@ -437,10 +464,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadReviewsSuccess: (
-        reviewsPage: ReviewReviewsTablePageApi,
+        reviewsPage: ReviewReviewsTablePageApi | null,
         payload?: any
     ) => {
-        reviewsPage: ReviewReviewsTablePageApi
+        reviewsPage: ReviewReviewsTablePageApi | null
         payload?: any
     }
     loadSettings: () => any
@@ -452,10 +479,10 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadSettingsSuccess: (
-        settings: ReviewUserSettingsApi,
+        settings: ReviewUserSettingsApi | null,
         payload?: any
     ) => {
-        settings: ReviewUserSettingsApi
+        settings: ReviewUserSettingsApi | null
         payload?: any
     }
     loadValidators: () => any
@@ -467,11 +494,14 @@ export interface reviewHogSettingsLogicActions {
         errorObject?: any
     }
     loadValidatorsSuccess: (
-        validators: ReviewValidatorConfigApi[],
+        validators: ReviewValidatorConfigApi[] | null,
         payload?: any
     ) => {
-        validators: ReviewValidatorConfigApi[]
+        validators: ReviewValidatorConfigApi[] | null
         payload?: any
+    }
+    markFeatureFlagGated: () => {
+        value: true
     }
     markInitialLoadFailed: () => {
         value: true
@@ -723,13 +753,19 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         // Flags a load failure as the page-level one. Dispatched by the failure listeners only when
         // the failing surface has nothing loaded yet, so a background poll blip stays silent.
         markInitialLoadFailed: true,
+        markFeatureFlagGated: true,
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         settings: [
             null as ReviewUserSettingsApi | null,
             {
-                loadSettings: async () => await reviewHogSettingsRetrieve(currentProjectId()),
+                loadSettings: async () =>
+                    await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () => reviewHogSettingsRetrieve(currentProjectId()),
+                        values.settings
+                    ),
                 updateSettings: async (patch: PatchedReviewUserSettingsApi, breakpoint) => {
                     const response = await reviewHogSettingsPartialUpdate(currentProjectId(), patch)
                     // A newer update is already in flight — drop this now-stale response.
@@ -741,25 +777,45 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
         perspectives: [
             null as ReviewPerspectiveConfigApi[] | null,
             {
-                loadPerspectives: async () => await reviewHogPerspectivesList(currentProjectId()),
+                loadPerspectives: async () =>
+                    await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () => reviewHogPerspectivesList(currentProjectId()),
+                        values.perspectives
+                    ),
             },
         ],
         blindSpots: [
             null as ReviewBlindSpotsConfigApi[] | null,
             {
-                loadBlindSpots: async () => await reviewHogBlindSpotsList(currentProjectId()),
+                loadBlindSpots: async () =>
+                    await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () => reviewHogBlindSpotsList(currentProjectId()),
+                        values.blindSpots
+                    ),
             },
         ],
         validators: [
             null as ReviewValidatorConfigApi[] | null,
             {
-                loadValidators: async () => await reviewHogValidatorsList(currentProjectId()),
+                loadValidators: async () =>
+                    await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () => reviewHogValidatorsList(currentProjectId()),
+                        values.validators
+                    ),
             },
         ],
         resolutionSkills: [
             null as ReviewResolutionConfigApi[] | null,
             {
-                loadResolutionSkills: async () => await reviewHogResolutionList(currentProjectId()),
+                loadResolutionSkills: async () =>
+                    await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () => reviewHogResolutionList(currentProjectId()),
+                        values.resolutionSkills
+                    ),
             },
         ],
         // Every live team skill, for the adopt picker. Fetched fresh on each modal open so a skill
@@ -795,15 +851,20 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadReviews: async (_ = null, breakpoint) => {
                     // urlToAction replays each deep-link filter in turn; debounce so only the settled set loads.
                     await breakpoint(1)
-                    const response = await reviewHogReviewsTableRetrieve(currentProjectId(), {
-                        scope: values.reviewsScope,
-                        limit: REVIEWS_PAGE_SIZE,
-                        offset: (values.reviewsCurrentPage - 1) * REVIEWS_PAGE_SIZE,
-                        ...(values.reviewsRepository ? { repository: values.reviewsRepository } : {}),
-                        ...(values.reviewsMode ? { review_mode: values.reviewsMode } : {}),
-                        ...(values.reviewsStatus ? { status: values.reviewsStatus } : {}),
-                        ...(values.reviewsPublished !== null ? { published: values.reviewsPublished } : {}),
-                    })
+                    const response = await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () =>
+                            reviewHogReviewsTableRetrieve(currentProjectId(), {
+                                scope: values.reviewsScope,
+                                limit: REVIEWS_PAGE_SIZE,
+                                offset: (values.reviewsCurrentPage - 1) * REVIEWS_PAGE_SIZE,
+                                ...(values.reviewsRepository ? { repository: values.reviewsRepository } : {}),
+                                ...(values.reviewsMode ? { review_mode: values.reviewsMode } : {}),
+                                ...(values.reviewsStatus ? { status: values.reviewsStatus } : {}),
+                                ...(values.reviewsPublished !== null ? { published: values.reviewsPublished } : {}),
+                            }),
+                        values.reviewsPage
+                    )
                     // A filter or page change mid-flight dispatched a newer load — drop this stale response.
                     breakpoint()
                     return response
@@ -814,7 +875,11 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             null as ReviewDetailApi | null,
             {
                 loadReviewDetail: async (reviewId: string, breakpoint) => {
-                    const response = await reviewHogReviewsRetrieve(currentProjectId(), reviewId)
+                    const response = await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () => reviewHogReviewsRetrieve(currentProjectId(), reviewId),
+                        values.reviewDetail
+                    )
                     // A newer open (row click, ?review= navigation) dispatched a fresh load
                     // mid-flight — drop this stale response so out-of-order responses can't
                     // attach the wrong review's findings to the drawer.
@@ -828,9 +893,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             {
                 // The default param keeps the action zero-arg in the generated logic type.
                 loadPerspectiveStats: async (_ = null, breakpoint) => {
-                    const response = await reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId(), {
-                        scope: values.reviewsScope,
-                    })
+                    const response = await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () =>
+                            reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId(), {
+                                scope: values.reviewsScope,
+                            }),
+                        values.perspectiveStats
+                    )
                     // A scope change mid-flight dispatched a newer load — drop this stale response.
                     breakpoint()
                     return response
@@ -844,9 +914,14 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             null as ReviewPerspectiveStatsApi | null,
             {
                 loadDeepSkillStats: async () =>
-                    await reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId(), {
-                        scope: ReviewHogReviewsPerspectiveStatsRetrieveScope.OwnDeep,
-                    }),
+                    await requestUnlessFeatureFlagGated(
+                        { values, actions },
+                        () =>
+                            reviewHogReviewsPerspectiveStatsRetrieve(currentProjectId(), {
+                                scope: ReviewHogReviewsPerspectiveStatsRetrieveScope.OwnDeep,
+                            }),
+                        values.deepSkillStats
+                    ),
             },
         ],
     })),
@@ -1008,6 +1083,9 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             [] as string[],
             {
                 loadReviewsSuccess: (state, { reviewsPage }) => {
+                    if (!reviewsPage) {
+                        return state
+                    }
                     const merged = Array.from(
                         new Set([...state, ...reviewsPage.results.map((review) => review.repository)])
                     ).sort()
@@ -1050,6 +1128,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 // page-level one. Only a failure with nothing loaded yet (cards stuck on skeletons,
                 // no retry path) is. The reviews table shows its own error state.
                 markInitialLoadFailed: () => true,
+            },
+        ],
+        featureFlagGated: [
+            false,
+            {
+                markFeatureFlagGated: () => true,
             },
         ],
         creatingSkillKind: [

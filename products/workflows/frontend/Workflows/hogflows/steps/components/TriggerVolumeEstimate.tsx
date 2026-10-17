@@ -11,9 +11,11 @@ import { workflowLogic } from '../../../workflowLogic'
 import { HogFlowAction } from '../../types'
 import {
     DEFAULT_AI_TASKS_PER_WORKFLOW_PER_DAY,
+    DEFAULT_VISION_SCANS_PER_WORKFLOW_PER_DAY,
     TRIGGER_VOLUME_DAYS,
     countAiTaskSteps,
     countScoutSteps,
+    countVisionScanSteps,
     eventTriggerVolumeFilters,
     exceedsAiTaskLimit,
 } from '../triggerVolume'
@@ -35,6 +37,7 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
 
     const taskSteps = countAiTaskSteps(workflow)
     const scoutSteps = countScoutSteps(workflow)
+    const visionScanSteps = countVisionScanSteps(workflow)
     const overAiLimit = volume != null && exceedsAiTaskLimit(volume.peakPerDay, taskSteps)
     const perRunCopy =
         taskSteps > 1 ? `Each run can start up to ${taskSteps} AI tasks` : 'Each run can start an AI task'
@@ -81,6 +84,14 @@ export function TriggerVolumeEstimate({ action }: { action: HogFlowAction }): JS
                     ) : scoutSteps > 0 ? (
                         <p className="mb-0 text-secondary">
                             Each run can start a scout run, which counts toward your AI usage.
+                        </p>
+                    ) : null}
+                    {visionScanSteps > 0 ? (
+                        <p className="mb-0 text-secondary">
+                            Each run can scan its session with Replay Vision, about{' '}
+                            <span translate="no">{humanFriendlyNumber(volume.perDay * visionScanSteps)}</span> scans a
+                            day at this volume. Every scan spends Replay Vision credits, and a workflow stops at{' '}
+                            {DEFAULT_VISION_SCANS_PER_WORKFLOW_PER_DAY} scans a day by default.
                         </p>
                     ) : null}
                 </>

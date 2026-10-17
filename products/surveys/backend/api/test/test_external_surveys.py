@@ -5,10 +5,10 @@ from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qsl
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -509,17 +509,17 @@ class TestExternalSurveys(APIBaseTest):
         assert response.status_code == 200
 
 
-class TestExternalSurveysURLs(TestCase):
+class TestExternalSurveysURLs(SimpleTestCase):
     """Test URL routing for external surveys"""
 
-    def test_survey_url_pattern(self):
+    @patch("products.surveys.backend.api.survey.Survey.objects.select_related")
+    def test_survey_url_pattern(self, mock_select_related: MagicMock) -> None:
         """Test that survey URLs are properly routed"""
-        from django.test import Client
-
         survey_id = str(uuid.uuid4())
-        client = Client()
+        mock_select_related.return_value.get.side_effect = Survey.DoesNotExist
 
         # Test that the URL pattern matches correctly (should return 404 for non-existent survey)
-        response = client.get(f"/external_surveys/{survey_id}/")
+        response = self.client.get(f"/external_surveys/{survey_id}/")
         # We expect 404 since survey doesn't exist, but URL should be routed correctly
         assert response.status_code == 404
+        assert "Survey not available" in response.content.decode()

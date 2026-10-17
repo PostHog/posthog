@@ -23,7 +23,11 @@ import {
 import type { DataWarehouseSavedQuery, InsightShortId } from '~/types'
 import { AccessControlLevel, AccessControlResourceType, ChartDisplayType } from '~/types'
 
-import { buildBIQuery, getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
+import {
+    buildBIQuery,
+    getBIResultDimensions,
+    getBIResultMeasureColumns,
+} from 'products/business_intelligence/frontend/biEditorTypes'
 import { biSceneLogic } from 'products/business_intelligence/frontend/biSceneLogic'
 
 import { expect, userEvent } from 'storybook/test'
@@ -203,6 +207,21 @@ export default meta
 type Story = StoryObj<{}>
 export const TopToolsPerServer: Story = {}
 
+export const HostedTrino: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
+        pageUrl: `${urls.sqlEditor({ query: 'SELECT event FROM events' })}#engine=managed_trino`,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
+                },
+            },
+        },
+    },
+}
+
 export const LoadingInsight: Story = {
     parameters: {
         pageUrl: `${urls.sqlEditor()}?open_insight=loading1`,
@@ -218,6 +237,7 @@ export const LoadingInsight: Story = {
                         return [200, { results: [] }]
                     },
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                 },
             },
         },
@@ -379,7 +399,6 @@ export const MaterializationSettings: StoryObj = {
                                 id: 'source',
                                 name: 'orders',
                                 type: 'table',
-                                dag: 'dag-1',
                                 upstream_count: 0,
                                 downstream_count: 1,
                             },
@@ -388,14 +407,11 @@ export const MaterializationSettings: StoryObj = {
                                 name: 'revenue_summary',
                                 type: 'matview',
                                 saved_query_id: 'settings-view',
-                                dag: 'dag-1',
                                 upstream_count: 1,
                                 downstream_count: 0,
                             },
                         ],
-                        edges: [
-                            { id: 'edge-1', source_id: 'source', target_id: 'summary', dag: 'dag-1', properties: {} },
-                        ],
+                        edges: [{ id: 'edge-1', source_id: 'source', target_id: 'summary', properties: {} }],
                     },
                 ],
             },
@@ -505,6 +521,7 @@ export const BIModeWorksheet: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                 },
                 post: {
                     // The specific path wins over the catch-all query mock on the meta
@@ -739,6 +756,7 @@ export const LazySchema: Story = {
             mocks: {
                 get: {
                     '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/environments/:team_id/warehouse_expressions/': { results: [] },
                     '/api/projects/:team_id/warehouse_saved_queries/': {
                         results: [
                             {
@@ -955,6 +973,7 @@ const chartExperimentParameters = (approved: boolean, decisionDelay = 0, queryDe
                     is_ai_data_processing_approved: approved,
                 },
                 '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                '/api/environments/:team_id/warehouse_expressions/': { results: [] },
             },
             post: {
                 '/api/environments/:team_id/query/HogQLMetadata': async ({ request }: MockResolverInfo) => {
@@ -1282,7 +1301,9 @@ export const BICombinedMeasures: Story = {
 export const BIMeasureDisplay: Story = {
     ...BICombinedMeasures,
     play: async ({ canvasElement }) => {
-        await userEvent.click((await within(canvasElement).findAllByRole('button', { name: 'Format and display' }))[0])
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /^Charts$/ }))
+        await userEvent.click((await canvas.findAllByRole('button', { name: 'Format and display' }))[0])
     },
 }
 
@@ -1514,7 +1535,13 @@ export const BINamedHierarchy: Story = {
         const canvas = within(canvasElement)
         await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
         await userEvent.click(await canvas.findByText('120', { exact: true }))
-        await waitFor(() => expect(within(document.body).getByRole('link', { name: 'Drill to State' })).toBeVisible())
+        await userEvent.click(
+            await within(document.body).findByRole('button', {
+                name: 'Geography: filters this worksheet to the selection',
+            })
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await waitFor(() => expect(canvas.getByText('Example state', { exact: true })).toBeVisible())
         await stabilizeQueryElapsedTime()
     },
 }
@@ -1542,5 +1569,102 @@ export const BINumericBins: Story = {
         await userEvent.click(await canvas.findByLabelText('Options for revenue', {}, { timeout: 15000 }))
         const body = within(canvasElement.ownerDocument.body)
         await userEvent.click(await body.findByText('Create numeric bins', { exact: true }))
+    },
+}
+export const BICatalogSource: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                    '/api/projects/:team_id/data_catalog/relationship_proposals/': {
+                        count: 1,
+                        next: null,
+                        results: [
+                            {
+                                id: 'proposal-example',
+                                source_table_name: 'events',
+                                source_table_key: 'account_id',
+                                joining_table_name: 'accounts',
+                                joining_table_key: 'id',
+                                field_name: 'account',
+                                status: 'proposed',
+                                reasoning: 'Connect each event to its account.',
+                            },
+                        ],
+                    },
+                },
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: [
+                            ...getBIResultDimensions(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                            ...getBIResultMeasureColumns(BI_WORKSHEET_CONFIG).map(({ column }) => column),
+                        ],
+                        types: ['DateTime', 'String', 'Float64'],
+                        results: [
+                            ['2026-06-01', 'purchase', 120],
+                            ['2026-06-02', 'purchase', 180],
+                            ['2026-06-03', 'purchase', 150],
+                        ],
+                        hasMore: false,
+                    },
+                    '/api/environments/:team_id/query/DatabaseSchemaQuery/': {
+                        tables: {
+                            events: {
+                                id: 'events',
+                                name: 'events',
+                                type: 'posthog',
+                                fields: BI_EVENTS_FIELDS,
+                                certification: {
+                                    status: 'certified',
+                                    notes: 'Use this source for product activity worksheets.',
+                                },
+                            },
+                        },
+                        joins: [],
+                    },
+                },
+            },
+        },
+    },
+}
+
+export const BICatalogSnapshot: Story = {
+    ...BIModeWorksheet,
+    parameters: {
+        ...BIModeWorksheet.parameters,
+        pageUrl: `${urls.businessIntelligenceNew()}?metric=weekly_revenue`,
+        testOptions: { waitForSelector: '[data-attr="bi-catalog-snapshot"]' },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_catalog/metrics/weekly_revenue/': {
+                        name: 'weekly_revenue',
+                        display_name: 'Weekly revenue',
+                        definition: {
+                            kind: NodeKind.HogQLQuery,
+                            query: "SELECT sum(revenue) AS revenue FROM events WHERE timestamp >= toDateTime('2026-06-01') AND timestamp < toDateTime('2026-06-08')",
+                        },
+                    },
+                    '/api/projects/:team_id/warehouse_expressions/': { results: [] },
+                },
+                post: {
+                    '/api/environments/:team_id/query/HogQLQuery/': {
+                        columns: ['revenue'],
+                        types: ['Float64'],
+                        results: [[450]],
+                        hasMore: false,
+                    },
+                },
+            },
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await canvas.findByRole('link', { name: 'View catalog definition' }, { timeout: 15000 })
+        await userEvent.click(await canvas.findByRole('button', { name: /^Run$/ }))
+        await expect(canvas.findByText('450', { exact: true })).resolves.toBeVisible()
     },
 }

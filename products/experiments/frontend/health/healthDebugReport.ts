@@ -23,7 +23,7 @@ export interface HealthDebugCheck {
 }
 
 export interface HealthDebugInput {
-    health: ExperimentHealthApi | null | undefined
+    health: ExperimentHealthApi | null
     panelFindings: HealthPanelFinding[] | null
     browserWarning: ExperimentWarning | null
     browserNoMetricsWarning: boolean
@@ -36,16 +36,10 @@ export interface HealthDebugInput {
 }
 
 const NO_FINDING = 'no finding'
-const NOT_SENT = 'not sent'
+const NOT_LOADED = 'not loaded'
 
-export function describeServerHealth(health: ExperimentHealthApi | null | undefined): string {
-    if (health === null) {
-        return 'null: the experiment-health-findings flag is off for this user'
-    }
-    if (health === undefined) {
-        return 'missing: a flag save outside the experiment API dropped the findings, so reload the page'
-    }
-    return `${health.findings.length} findings`
+export function describeServerHealth(health: ExperimentHealthApi | null): string {
+    return health ? `${health.findings.length} findings` : `${NOT_LOADED}: the health request is pending or failed`
 }
 
 export function describePanel(panelFindings: HealthPanelFinding[] | null): string {
@@ -66,11 +60,11 @@ function warningLabel(warning: ExperimentWarning | null): string {
 }
 
 function serverResult(
-    health: ExperimentHealthApi | null | undefined,
+    health: ExperimentHealthApi | null,
     matches: (code: ExperimentHealthFindingApi['code']) => boolean
 ): string {
     if (!health) {
-        return NOT_SENT
+        return NOT_LOADED
     }
     const finding = health.findings.find((candidate) => matches(candidate.code))
     if (!finding) {
@@ -133,6 +127,18 @@ function noMetricChecks(input: HealthDebugInput): HealthDebugCheck[] {
     ]
 }
 
+function flagVariantsChecks(input: HealthDebugInput): HealthDebugCheck[] {
+    return [
+        {
+            check: 'flag_variants_mismatch',
+            source: 'server',
+            result: serverResult(input.health, (code) => code === 'flag_variants_mismatch'),
+            note: null,
+            differs: false,
+        },
+    ]
+}
+
 function forcedVariantChecks(input: HealthDebugInput): HealthDebugCheck[] {
     const finding = input.health?.findings.find(({ code }) => code === 'forced_variant_release_condition')
     return [
@@ -146,6 +152,30 @@ function forcedVariantChecks(input: HealthDebugInput): HealthDebugCheck[] {
             differs: false,
         },
     ]
+}
+
+function splitChangedChecks(input: HealthDebugInput): HealthDebugCheck[] {
+    const finding = input.health?.findings.find(({ code }) => code === 'split_changed_mid_run')
+    return [
+        {
+            check: 'split_changed_mid_run',
+            source: 'server',
+            result: serverResult(input.health, (code) => code === 'split_changed_mid_run'),
+            note: finding ? splitChangedNote(finding) : null,
+            differs: false,
+        },
+    ]
+}
+
+function splitChangedNote(finding: ExperimentHealthFindingApi): string {
+    const { evidence } = finding
+    if (finding.subcode === 'not_checked') {
+        return evidence.change_count == null
+            ? `Not checked: ${evidence.reason}.`
+            : `Not checked: ${evidence.reason}. ${evidence.change_count} changes since launch, from ${evidence.from} to ${evidence.to}.`
+    }
+    const exposedBefore = evidence.exposed_before_change
+    return `${evidence.change_count} counted changes, from ${evidence.from} to ${evidence.to}. Exposed before the first: ${exposedBefore == null ? 'unknown' : exposedBefore ? 'yes' : 'no'}.`
 }
 
 function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
@@ -214,6 +244,8 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
 export function buildHealthDebugChecks(input: HealthDebugInput): HealthDebugCheck[] {
     return [
         ...flagStateChecks(input),
+        ...splitChangedChecks(input),
+        ...flagVariantsChecks(input),
         ...forcedVariantChecks(input),
         ...noMetricChecks(input),
         ...exposureChecks(input),

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, cast
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError
+from django.db.models import Q
 
 import structlog
 import temporalio
@@ -16,15 +17,17 @@ from temporalio.client import Client
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError, is_cancelled_exception
 
-from posthog.cdp.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 from posthog.clickhouse.query_tagging import private_capture_context
 from posthog.dataclasses import frozen
 from posthog.models import Team
+from posthog.models.scoping.manager import TeamScopeError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.cdp.backend.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
+from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     notify_scout_quota_paused,
@@ -75,6 +78,9 @@ class RunSignalsScoutInput:
     precheck_rows: str | None = None
     # Which pre-check started the run (`config` or `skill_default`), stamped on the run row.
     precheck_query_source: str | None = None
+    # Seconds a coordinator dispatch sleeps before it starts work, to spread the run starts of one
+    # tick. 0 for every other trigger, so those runs start at once.
+    start_delay_seconds: int = 0
 
 
 @frozen
@@ -139,14 +145,51 @@ class EvaluateScoutPrecheckOutput:
 @close_db_connections
 async def evaluate_signals_scout_precheck_activity(input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
     """Evaluate the scout's effective pre-check query. A scout without one always runs."""
-    result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
-        input.team_id, input.skill_name
-    )
+    try:
+        result = await database_sync_to_async(evaluate_scout_precheck, thread_sensitive=False)(
+            input.team_id, input.skill_name
+        )
+    except (TeamScopeError, Team.DoesNotExist):
+        # The project was deleted after the coordinator dispatched this run.
+        logger.info("signals_scout: team is gone, skipping the run", team_id=input.team_id, skill_name=input.skill_name)
+        return EvaluateScoutPrecheckOutput(should_run=False)
     if result is None:
         return EvaluateScoutPrecheckOutput(should_run=True)
     return EvaluateScoutPrecheckOutput(
         should_run=result.should_run, rows_text=result.rows_text, query_source=result.query_source
     )
+
+
+def _scout_config_runnable(team_id: int, skill_name: str) -> bool:
+    """Whether the coordinator would still dispatch this scout: enabled, or paused by the failure
+    breaker, which the coordinator probes. A deleted project is never runnable."""
+    try:
+        configs = SignalScoutConfig.objects.for_team(team_id)
+    except TeamScopeError:
+        return False
+    return (
+        configs.filter(skill_name=skill_name)
+        .filter(
+            Q(enabled=True)
+            | Q(
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+            )
+        )
+        .exists()
+    )
+
+
+@temporalio.activity.defn
+@close_db_connections
+async def check_signals_scout_config_runnable_activity(input: RunSignalsScoutInput) -> bool:
+    """Check the config again after the start delay. A person can disable or delete it while the child sleeps."""
+    runnable = await database_sync_to_async(_scout_config_runnable, thread_sensitive=False)(
+        input.team_id, input.skill_name
+    )
+    if not runnable:
+        metrics.increment_scout_run("config_disabled")
+    return runnable
 
 
 @temporalio.activity.defn
@@ -324,6 +367,17 @@ class RunSignalsScoutWorkflow:
         managed_resume = bool(input.workflow_origin_key) and temporalio.workflow.patched("scout-workflow-step-resume")
         if managed_resume:
             input = replace(input, workflow_managed_resume=True)
+        if temporalio.workflow.patched("scout-start-delay") and input.start_delay_seconds > 0:
+            if not await self._sleep_start_delay(input):
+                return RunSignalsScoutOutput(
+                    run_id=None,
+                    task_run_id=None,
+                    status=None,
+                    runtime_s=0.0,
+                    skill_name=input.skill_name,
+                    skill_version=input.skill_version or 0,
+                    skip_reason="config_disabled",
+                )
         if input.triggered_by == TRIGGERED_BY_SCHEDULE and temporalio.workflow.patched("scout-precheck"):
             precheck = await self._evaluate_precheck(input)
             if not precheck.should_run:
@@ -383,6 +437,21 @@ class RunSignalsScoutWorkflow:
         if managed_resume:
             await self._resume_step(input, output)
         return output
+
+    async def _sleep_start_delay(self, input: RunSignalsScoutInput) -> bool:
+        """Sleep the start delay, then return whether the config can still run.
+
+        The wake time goes on the memo, so a sleeping child does not look stuck in the Temporal UI.
+        """
+        delay = timedelta(seconds=input.start_delay_seconds)
+        temporalio.workflow.upsert_memo({"scout_starts_at": (temporalio.workflow.now() + delay).isoformat()})
+        await temporalio.workflow.sleep(delay, summary="Spread the scout run starts of one tick")
+        return await temporalio.workflow.execute_activity(
+            check_signals_scout_config_runnable_activity,
+            input,
+            start_to_close_timeout=timedelta(seconds=30),
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
 
     async def _evaluate_precheck(self, input: RunSignalsScoutInput) -> EvaluateScoutPrecheckOutput:
         try:

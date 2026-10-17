@@ -111,12 +111,17 @@ export class StateManager {
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
-            // Only a 401 rejects the token. Any other failure means the check did not run, and a
-            // rejection would make the client discard a token that is still valid.
-            if (introspectionResult.error.message.includes(ErrorCode.INVALID_API_KEY)) {
+            // Only a 401 or 403 rejects the token. Self-introspection returns 403 when the token
+            // no longer exists, for example after a refresh rotated it. Any other failure means
+            // the check did not run, and a rejection would make the client discard a valid token.
+            const { error } = introspectionResult
+            if (
+                error.message.includes(ErrorCode.INVALID_API_KEY) ||
+                (error instanceof PostHogApiError && error.status === 403)
+            ) {
                 throw new Error(ErrorCode.INVALID_API_KEY)
             }
-            throw wrapError('Failed to introspect OAuth token', introspectionResult.error)
+            throw wrapError('Failed to introspect OAuth token', error)
         }
 
         if (!introspectionResult.data.active) {

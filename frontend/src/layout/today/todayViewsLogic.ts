@@ -128,7 +128,11 @@ export interface todayViewsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         recentlyViewed: (recentViewEntries: TodayRecentEntry[], recentQuery: string) => TodayRecentEntry[]
         recentFiltersActive: (recentFilters: TodayViewsFilters) => boolean
-        recentFeedQuery: (recentFilters: TodayViewsFilters, recentSearch: string) => ViewFeedQuery
+        recentFeedQuery: (
+            recentFilters: TodayViewsFilters,
+            recentSearch: string,
+            user: UserType | null
+        ) => ViewFeedQuery
         allRecentViews: (
             sources: Record<string, ViewSourceState>,
             spaceNames: Record<string, string>,
@@ -283,10 +287,11 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
             (recentFilters: TodayViewsFilters): boolean => viewsFiltersActive(recentFilters),
         ],
         recentFeedQuery: [
-            (s) => [s.recentFilters, s.recentSearch],
-            (recentFilters: TodayViewsFilters, recentSearch: string): ViewFeedQuery => ({
+            (s) => [s.recentFilters, s.recentSearch, s.user],
+            (recentFilters: TodayViewsFilters, recentSearch: string, user: UserType | null): ViewFeedQuery => ({
                 type: recentFilters.type,
                 search: recentSearch.trim(),
+                createdBy: recentFilters.createdBy === 'me' ? (user?.uuid ?? null) : null,
             }),
         ],
         allRecentViews: [
@@ -362,7 +367,11 @@ export const todayViewsLogic = kea<todayViewsLogicType>([
     listeners(({ actions, values, cache }) => ({
         loadRecentViews: () => {
             actions.refreshFeed(ALL_RECENT_QUERY)
-            if (values.recentFeedQuery.type !== 'all' || values.recentFeedQuery.search) {
+            if (
+                values.recentFeedQuery.type !== 'all' ||
+                values.recentFeedQuery.search ||
+                values.recentFeedQuery.createdBy
+            ) {
                 actions.refreshFeed(values.recentFeedQuery)
             }
         },

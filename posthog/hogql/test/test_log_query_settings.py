@@ -2,6 +2,8 @@ import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest import TestCase
 
+from django.test import SimpleTestCase
+
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 
@@ -113,7 +115,7 @@ class TestLogQuerySettings(ClickhouseTestMixin, APIBaseTest):
             self._get_clickhouse_sql_for("SELECT * FROM events e JOIN logs l ON e.uuid = l.uuid LIMIT 10")
 
 
-class TestTooManyBytesError(ClickhouseTestMixin, APIBaseTest):
+class TestTooManyBytesError(ClickhouseTestMixin, SimpleTestCase):
     """Tests that TOO_MANY_BYTES error is exposed to users."""
 
     def test_wrap_clickhouse_query_error_returns_exposed_error_for_too_many_bytes(self):

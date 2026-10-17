@@ -10,6 +10,7 @@ import { AppErrorState } from '../components/AppErrorState'
 import { AppLoadingState } from '../components/AppLoadingState'
 import { AppWrapper } from '../components/AppWrapper'
 import { RENDER_DISPATCH } from '../generated/render-dispatch.generated'
+import { loadRenderUiData } from './render-ui-data'
 
 /**
  * Envelope emitted by the `render-ui` server tool. It carries the tool to render
@@ -46,6 +47,7 @@ function RenderUiContent({
     // Key the fetch on serialized values, not `envelope` identity — a parent
     // re-render with a fresh-but-equal envelope object must not refetch.
     const toolName = envelope.tool_name
+    const appKey = envelope.app_key
     const toolInputJson = JSON.stringify(envelope.tool_input ?? {})
     useEffect(() => {
         capture('mcp_ui_app_render_requested', { rendered_tool_name: toolName, app_key: envelope.app_key })
@@ -58,7 +60,7 @@ function RenderUiContent({
         let cancelled = false
         setData(null)
         setError(null)
-        app.callServerTool({ name: toolName, arguments: JSON.parse(toolInputJson) as Record<string, unknown> })
+        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey)
             .then((result) => {
                 if (cancelled) {
                     return
@@ -77,7 +79,7 @@ function RenderUiContent({
         return () => {
             cancelled = true
         }
-    }, [app, toolName, toolInputJson])
+    }, [app, toolName, toolInputJson, appKey])
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'

@@ -21,6 +21,7 @@ use std::fs::File;
 use std::io::Write;
 
 use crate::kafka::KafkaSink;
+use metrics::counter;
 
 use tracing::{debug, error, instrument};
 
@@ -807,6 +808,8 @@ pub async fn export_metrics_http(
             Json(json!({"error": "Internal server error"})),
         ));
     } else {
+        counter!("capture_metrics_records_produced", "source" => "otlp")
+            .increment(row_count as u64);
         debug!(
             "Successfully sent {} metric data points to Kafka",
             row_count

@@ -168,6 +168,14 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
                 name="posthog_experiment_feature_flag_rule_id_uniq",
             )
         ]
+        indexes = [
+            # The hourly recalculation scans select running experiments across all teams.
+            models.Index(
+                fields=["start_date"],
+                name="posthog_exp_running_start_idx",
+                condition=models.Q(deleted=False, status="running"),
+            ),
+        ]
 
     def __str__(self):
         return self.name or "Untitled"

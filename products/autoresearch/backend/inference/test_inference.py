@@ -154,8 +154,22 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         ):
             return run_inference_for_pipeline(pipeline=pipeline, model=model)
 
-    def test_run_inference_emits_one_batch_and_records_the_run(self):
-        pipeline, model = self._make_pipeline_and_model()
+    @parameterized.expand(
+        [
+            ("writes_the_property", True, True, False),
+            ("leaves_persons_alone_when_off", False, False, False),
+            ("rechecks_the_setting_before_sending", True, False, False),
+            ("archived_before_sending", True, True, True),
+        ]
+    )
+    def test_run_inference_emits_one_batch_and_records_the_run(
+        self, _name: str, write_at_start: bool, write_at_send: bool, archived_at_send: bool
+    ):
+        pipeline, model = self._make_pipeline_and_model(write_person_property=write_at_start)
+        if write_at_send != write_at_start:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(write_person_property=write_at_send)
+        if archived_at_send:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(status=AutoresearchPipeline.Status.ARCHIVED)
         capture = _capture_accepting_everything()
 
         run = self._run_live(pipeline, model, capture, resolved={"user-1": "real-distinct-id"})
@@ -173,13 +187,16 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         by_person = {e["properties"]["$autoresearch_person_id"]: e for e in events}
         assert {e["properties"]["$autoresearch_prediction_date"] for e in events} == {run.metrics["prediction_date"]}
         assert {e["properties"]["$autoresearch_run_id"] for e in events} == {str(run.pk)}
-        # A resolved person is attached to their real distinct_id and gets the output property;
-        # an unresolved one stays person-less so a UUID never becomes a person.
+        # A resolved person is attached to their real distinct_id, and gets the output property only
+        # while the pipeline opts in; an unresolved one stays person-less so a UUID never becomes a person.
         assert by_person["user-1"]["distinct_id"] == "real-distinct-id"
         assert by_person["user-1"]["options"] == {"process_person_profile": True}
-        assert by_person["user-1"]["properties"]["$set"] == {
-            "predicted_p_pageview": by_person["user-1"]["properties"]["$autoresearch_p_y"]
-        }
+        if write_at_send and not archived_at_send:
+            assert by_person["user-1"]["properties"]["$set"] == {
+                "predicted_p_pageview": by_person["user-1"]["properties"]["$autoresearch_p_y"]
+            }
+        else:
+            assert "$set" not in by_person["user-1"]["properties"]
         assert by_person["user-2"]["distinct_id"] == "user-2"
         assert by_person["user-2"]["options"] == {"process_person_profile": False}
         assert "$set" not in by_person["user-2"]["properties"]
@@ -187,7 +204,7 @@ class TestRunInferencePipeline(TeamScopedTestMixin, BaseTest):
         assert pipeline.last_scored_at is not None
 
     def test_a_sampled_model_emits_prior_corrected_scores_with_the_raw_score_and_rate(self):
-        pipeline, model = self._make_pipeline_and_model()
+        pipeline, model = self._make_pipeline_and_model(write_person_property=True)
         model.artifact_prefix = "tasks/autoresearch/team_1/pipeline_x/run_y"
         model.negative_sample_rate = 0.25
         model.save(update_fields=["artifact_prefix", "negative_sample_rate"])
@@ -835,7 +852,7 @@ class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):
         ]
 
         mapping = _resolve_distinct_ids(
-            team=self.team, pipeline=self._pipeline(), person_ids=[with_id, without_id, not_a_uuid], user=self.user
+            team=self.team, pipeline_id=str(self._pipeline().pk), person_ids=[with_id, without_id, not_a_uuid]
         )
 
         assert mapping == {with_id: "real-id"}
@@ -847,7 +864,7 @@ class TestResolveDistinctIds(TeamScopedTestMixin, BaseTest):
         # Emitting every prediction person-less would leave the output property unset for the
         # whole population while the run reported success.
         with self.assertRaises(InferenceRunError):
-            _resolve_distinct_ids(team=self.team, pipeline=self._pipeline(), person_ids=[str(uuid4())], user=self.user)
+            _resolve_distinct_ids(team=self.team, pipeline_id=str(self._pipeline().pk), person_ids=[str(uuid4())])
 
 
 class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
@@ -1092,6 +1109,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             target_event="$pageview",
             horizon_days=7,
             output_person_property="predicted_p_pageview",
+            write_person_property=True,
         )
         self.sql_by_prefix: dict[str, str] = {}
         self.champion = self._model("champion", _ANCHORS_FEATURE_SQL, role=AutoresearchModel.Role.CHAMPION)

@@ -107,6 +107,32 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     SRM = "srm", "Sample Ratio Mismatch"
     ZERO_EXPOSURES = "zero_exposures"
     FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
+    FLAG_VARIANTS_MISMATCH = "flag_variants_mismatch"
+    SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
+
+
+class HealthExposureInputsStatus(LabeledStrEnum):
+    READY = "ready"
+    # The cached answer is past its age. A recalculation runs in the background, or the last one failed.
+    STALE = "stale"
+    # No cached answer. A calculation runs in the background.
+    CALCULATING = "calculating"
+    NOT_LAUNCHED = "not_launched"
+    NO_QUERY_ACCESS = "no_query_access"
+    # The query could not be built, or no answer is cached and the last background calculation failed.
+    FAILED = "failed"
+
+
+class ExperimentHealthInputsTrafficStatus(LabeledStrEnum):
+    READ = "read"
+    NOT_NEEDED = "not_needed"
+    NO_QUERY_ACCESS = "no_query_access"
+    # The reader is denied a flag call property that the scan reads.
+    DENIED_PROPERTIES = "denied_properties"
+    NO_FLAG_VERSION = "no_flag_version"
+    # The scan failed or was too expensive, which is cached so that it does not run again on every load. Or another
+    # request's scan was still running and did not answer in time.
+    UNKNOWN = "unknown"
 
 
 class ExperimentHealthFindingSeverity(LabeledStrEnum):
@@ -120,6 +146,7 @@ class ExperimentHealthFindingSeverity(LabeledStrEnum):
 
 class ExperimentHealthFindingActionKind(LabeledStrEnum):
     OPEN_FEATURE_FLAG = "open_feature_flag"
+    OPEN_FEATURE_FLAG_HISTORY = "open_feature_flag_history"
     ADJUST_DISTRIBUTION = "adjust_distribution"
     USE_FIRST_SEEN_VARIANT = "use_first_seen_variant"
     ADD_PRIMARY_METRIC = "add_primary_metric"
@@ -137,9 +164,18 @@ class ExperimentHealthFinding:
     severity: ExperimentHealthFindingSeverity
     title: str
     detail: str
-    evidence: Mapping[str, str | int | float | None]
+    evidence: Mapping[str, str | int | float | bool | None]
     actions: tuple[ExperimentHealthFindingActionKind, ...]
     diagnostic_ref: str | None
+
+
+@frozen
+class ExperimentHealthReaderAccess:
+    """What the caller of the health checks may read, for the checks that read more than the experiment."""
+
+    can_read_flag_history: bool
+    can_query_events: bool
+    denied_event_properties: frozenset[str]
 
 
 @dataclass(frozen=True)

@@ -1,5 +1,3 @@
-import contextlib
-from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
 
@@ -12,7 +10,6 @@ from structlog.types import FilteringBoundLogger
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics import (
     AdobeAnalyticsClient,
     AdobeAnalyticsResumeConfig,
-    get_rows,
     metric_column_names,
     parse_date,
     parse_metrics,
@@ -21,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_anal
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.source import AdobeAnalyticsSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -34,42 +30,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.adobe_analytics.adobe_analytics"
 
 _LOGGER = cast(FilteringBoundLogger, mock.MagicMock())
-
-
-class FakeResumeManager(ResumableSourceManager[AdobeAnalyticsResumeConfig]):
-    """In-memory stand-in for the Redis-backed manager."""
-
-    def __init__(self, state: AdobeAnalyticsResumeConfig | None = None) -> None:
-        self.state = state
-        self.saved: list[AdobeAnalyticsResumeConfig] = []
-        self.cleared = 0
-
-    def can_resume(self) -> bool:
-        return self.state is not None
-
-    def load_state(self) -> AdobeAnalyticsResumeConfig | None:
-        return self.state
-
-    def save_state(self, data: AdobeAnalyticsResumeConfig) -> None:
-        self.saved.append(data)
-
-    def clear_state(self) -> None:
-        self.cleared += 1
-
-
-def _response(body: Any, status: int = 200) -> mock.MagicMock:
-    response = mock.MagicMock()
-    response.json.return_value = body
-    response.status_code = status
-    response.ok = status < 400
-    response.text = ""
-    if status >= 400:
-        response.raise_for_status.side_effect = requests.HTTPError(
-            f"{status} Client Error", response=cast(requests.Response, response)
-        )
-    else:
-        response.raise_for_status.return_value = None
-    return response
 
 
 def _driver(start_date: str | None = None) -> SourceDriver:
@@ -94,49 +54,6 @@ def _report_payload(rows: list[dict[str, Any]], last_page: bool = True, total_pa
     if total_pages is not None:
         payload["totalPages"] = total_pages
     return payload
-
-
-@contextlib.contextmanager
-def _sessions() -> Iterator[tuple[mock.MagicMock, mock.MagicMock]]:
-    """Patch the tracked-session factory, splitting the API session from the token-exchange one."""
-    api = mock.MagicMock()
-    auth = mock.MagicMock()
-    auth.post.return_value = _response({"access_token": "tok", "expires_in": 86399})
-
-    def factory(**kwargs: Any) -> mock.MagicMock:
-        return auth if kwargs.get("capture") is False else api
-
-    with mock.patch(f"{_MODULE}.make_tracked_session", side_effect=factory):
-        yield api, auth
-
-
-def _get_rows(
-    api_side_effect: list[mock.MagicMock] | None,
-    post_side_effect: list[mock.MagicMock] | None,
-    endpoint: str,
-    manager: FakeResumeManager,
-    **overrides: Any,
-) -> list[list[dict[str, Any]]]:
-    with _sessions() as (api, _auth):
-        if api_side_effect is not None:
-            api.get.side_effect = api_side_effect
-        if post_side_effect is not None:
-            api.post.side_effect = post_side_effect
-        kwargs: dict[str, Any] = {
-            "client_id": "cid",
-            "client_secret": "sec",
-            "global_company_id": "gcid",
-            "report_suite_id": "rs1",
-            "report_dimension": None,
-            "report_metrics": None,
-            "start_date": None,
-            "endpoint": endpoint,
-            "logger": _LOGGER,
-            "resumable_source_manager": manager,
-        }
-        kwargs.update(overrides)
-        batches = list(get_rows(**kwargs))
-    return batches
 
 
 class TestParseDate:
@@ -345,49 +262,60 @@ class TestValidateCredentials:
 
 class TestMetadataEndpoints:
     def test_paginates_until_last_page_and_saves_state_between_pages(self) -> None:
-        manager = FakeResumeManager()
-
-        batches = _get_rows(
-            [
-                _response({"content": [{"id": "s1"}], "lastPage": False}),
-                _response({"content": [{"id": "s2"}], "lastPage": True}),
-            ],
-            None,
+        result = _driver().run(
             "segments",
-            manager,
+            [
+                _token(),
+                ScriptedResponse(json={"content": [{"id": "s1"}], "lastPage": False}),
+                ScriptedResponse(json={"content": [{"id": "s2"}], "lastPage": True}),
+            ],
         )
 
-        assert batches == [[{"id": "s1"}], [{"id": "s2"}]]
-        assert manager.saved == [AdobeAnalyticsResumeConfig(page=1)]
-        assert manager.cleared == 1
+        assert result.raised is None
+        assert result.items == [[{"id": "s1"}], [{"id": "s2"}]]
+        assert result.paths == ["/ims/token/v3", "/api/gcid/segments", "/api/gcid/segments"]
+        assert result.params("page") == [None, "0", "1"]
+        assert result.params("limit") == [None, "1000", "1000"]
+        assert result.params("rsids") == [None, "rs1", "rs1"]
+        assert result.saved_states == [AdobeAnalyticsResumeConfig(page=1)]
+        assert result.final_state is None
 
     @pytest.mark.parametrize("endpoint, suite_param", [("dimensions", "rsid"), ("metrics", "rsid")])
     def test_bare_array_catalogs_are_single_shot_and_carry_the_report_suite(
         self, endpoint: str, suite_param: str
     ) -> None:
-        manager = FakeResumeManager()
+        result = _driver().run(endpoint, [_token(), ScriptedResponse(json=[{"id": "variables/page"}])])
 
-        with _sessions() as (api, _auth):
-            api.get.return_value = _response([{"id": "variables/page"}])
-            batches = list(
-                get_rows(
-                    client_id="cid",
-                    client_secret="sec",
-                    global_company_id="gcid",
-                    report_suite_id="rs1",
-                    report_dimension=None,
-                    report_metrics=None,
-                    start_date=None,
-                    endpoint=endpoint,
-                    logger=_LOGGER,
-                    resumable_source_manager=manager,
-                )
-            )
+        assert result.raised is None
+        assert result.items == [[{"id": "variables/page", "rsid": "rs1"}]]
+        assert result.paths == ["/ims/token/v3", f"/api/gcid/{endpoint}"]
+        assert result.requests[1].query == {suite_param: ("rs1",)}
+        assert result.final_state is None
 
-            assert batches == [[{"id": "variables/page", "rsid": "rs1"}]]
-            assert api.get.call_count == 1
-            assert api.get.call_args.kwargs["params"] == {suite_param: "rs1"}
-            assert manager.cleared == 1
+    def test_annotations_request_expanded_fields_across_all_owners_on_every_page(self) -> None:
+        result = _driver().run(
+            "annotations",
+            [
+                _token(),
+                ScriptedResponse(json={"content": [{"id": "a1", "name": "Launch"}], "lastPage": False}),
+                ScriptedResponse(json={"content": [{"id": "a2", "name": "Outage"}], "lastPage": True}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [[{"id": "a1", "name": "Launch"}], [{"id": "a2", "name": "Outage"}]]
+        assert result.params("includeType") == [None, "all", "all"]
+        for expansion in result.params("expansion")[1:]:
+            assert expansion is not None
+            assert {"name", "dateRange", "modifiedDate", "rsid"} <= set(expansion.split(","))
+
+    def test_users_served_as_a_bare_array_are_yielded_once(self) -> None:
+        result = _driver().run("users", [_token(), ScriptedResponse(json=[{"loginId": 1, "login": "jane"}])])
+
+        assert result.raised is None
+        assert result.items == [[{"loginId": 1, "login": "jane"}]]
+        assert result.paths == ["/ims/token/v3", "/api/gcid/users"]
+        assert result.final_state is None
 
 
 class TestReportEndpoint:

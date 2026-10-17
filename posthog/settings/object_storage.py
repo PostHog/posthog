@@ -1,7 +1,7 @@
 import os
 from typing import Optional
 
-from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import get_from_env
 from posthog.utils import str_to_bool
 
@@ -28,6 +28,9 @@ OBJECT_STORAGE_TRANSFER_ACCELERATION = get_from_env(
 )
 OBJECT_STORAGE_EXPORTS_FOLDER = os.getenv("OBJECT_STORAGE_EXPORTS_FOLDER", "exports")
 OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER = os.getenv("OBJECT_STORAGE_MEDIA_UPLOADS_FOLDER", "media_uploads")
+# Origin of a CDN that caches the /uploaded_media route, e.g. "https://us-media.posthog.com". Empty serves
+# media URLs from SITE_URL, so every load reaches Django.
+UPLOADED_MEDIA_PUBLIC_URL = os.getenv("UPLOADED_MEDIA_PUBLIC_URL", "").rstrip("/")
 OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER = os.getenv(
     "OBJECT_STORAGE_ERROR_TRACKING_SOURCE_MAPS_FOLDER", "symbolsets"
 )
@@ -112,7 +115,10 @@ INBOX_RANKING_PROMOTION_MIN_DAYS = get_from_env("INBOX_RANKING_PROMOTION_MIN_DAY
 INBOX_RANKING_LABELS_REFRESH_MAX_RUNS = get_from_env("INBOX_RANKING_LABELS_REFRESH_MAX_RUNS", 6, type_cast=int)
 # The family whose champion the serving manifest serves. The scoring sweep reads the manifest
 # from the deployment's own object store, so this is the only place the served family is chosen.
-INBOX_RANKING_SERVED_FAMILY = os.getenv("INBOX_RANKING_SERVED_FAMILY", "report_embeddings")
+# Only US Cloud trains `nn`: local dev and tests have no nn champion, and EU does not train.
+INBOX_RANKING_SERVED_FAMILY = os.getenv(
+    "INBOX_RANKING_SERVED_FAMILY", "nn" if (CLOUD_DEPLOYMENT or "").upper() == "US" else "report_embeddings"
+)
 # A second deployment's object store that receives a copy of every serving publish, so a region
 # that does not train still serves the trained models. Reached via ambient AWS config. Unset means
 # no mirror.

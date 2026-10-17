@@ -306,6 +306,7 @@ class GitHubIntegration(GitHubIntegrationBase):
             source="integration",
             headers={"Authorization": f"Bearer {access_token}"},
             timeout=10,
+            priority=Priority.CRITICAL,
         )
         if user_response.status_code != 200:
             logger.warning("GitHubIntegration: /user request failed", status_code=user_response.status_code)
@@ -333,8 +334,8 @@ class GitHubIntegration(GitHubIntegrationBase):
         team_id: int,
         repository: str,
         *,
-        source: str | None = None,
-        priority: Priority | None = None,
+        source: str,
+        priority: Priority,
     ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
@@ -343,8 +344,9 @@ class GitHubIntegration(GitHubIntegrationBase):
         that isn't a plain ``owner/repo`` first, so a crafted value (``owner/repo/contents/x?ref=y``)
         can't steer that authenticated request to a different GitHub endpoint as a probe.
 
-        An installation whose probe runs out of egress budget or hits GitHub's rate limit is
-        skipped. When no other installation covers the repository, that first error is raised.
+        An installation whose probe fails transiently, runs out of egress budget, or hits GitHub's
+        rate limit is skipped. When no other installation covers the repository, that first error
+        is raised.
         """
         if not _is_safe_github_repo_path(repository):
             return None
@@ -352,8 +354,8 @@ class GitHubIntegration(GitHubIntegrationBase):
         for integration in model.Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
             github = cls(integration, source=source, priority=priority)
             try:
-                covers = github.installation_can_access_repository(repository)
-            except (EgressBudgetExhausted, GitHubRateLimitError) as e:
+                covers = github.installation_can_access_repository(repository, raise_on_transient=True)
+            except (EgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as e:
                 # A team's first installation being out of budget must not hide a later one that
                 # covers the repository. The first error is kept and raised only when none does,
                 # so a caller that has no reader still sees why.
@@ -365,16 +367,12 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise exhausted
         return None
 
-    def __init__(
-        self, integration: model.Integration, *, source: str | None = None, priority: Priority | None = None
-    ) -> None:
+    def __init__(self, integration: model.Integration, *, source: str, priority: Priority) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
-        if source is not None:
-            self.source = source
-        if priority is not None:
-            self.priority = priority
+        self.source = source
+        self.priority = priority
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)

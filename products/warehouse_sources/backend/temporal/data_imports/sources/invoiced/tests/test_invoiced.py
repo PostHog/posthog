@@ -1,13 +1,20 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
 from parameterized import parameterized
-from requests import PreparedRequest, Request, Response
+from requests.exceptions import ConnectionError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.invoiced import (
+    InvoicedSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.invoiced import (
     INVOICED_BASE_URL,
     PAGE_SIZE,
@@ -15,58 +22,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.i
     InvoicedUntrustedURLError,
     _to_unix_timestamp,
     _validate_pagination_url,
-    invoiced_source,
     validate_credentials,
 )
-
-# The framework's RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the invoiced module.
-INVOICED_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.invoiced.make_tracked_session"
-)
-
-
-def _response(items: Any, next_url: str | None = None, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(items).encode()
-    if next_url:
-        # requests parses `response.links` from the Link header; HeaderLinkPaginator reads rel="next".
-        resp.headers["Link"] = f'<{next_url}>; rel="next"'
-    return resp
-
-
-def _make_manager(resume_state: InvoicedResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's url + params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so inspecting it after the run shows
-    only the final state — snapshot it when each request is prepared. Preparing the request for real
-    also applies the framework auth (so the Authorization header can be asserted) and builds a real
-    ``prepared.url`` for the client's SSRF host check.
-    """
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Request) -> PreparedRequest:
-        prepared = request.prepare()
-        snapshots.append({"url": request.url, "params": dict(request.params or {}), "prepared": prepared})
-        return prepared
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response) -> list[list[dict[str, Any]]]:
-    return list(source_response.items())
+from products.warehouse_sources.backend.temporal.data_imports.sources.invoiced.source import InvoicedSource
 
 
 class TestToUnixTimestamp:
@@ -84,27 +42,22 @@ class TestToUnixTimestamp:
 
 
 class TestSourcePagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_request_includes_updated_after_and_sort(self, MockSession) -> None:
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([])])
+    @staticmethod
+    def _driver() -> SourceDriver:
+        return SourceDriver(InvoicedSource(), InvoicedSourceConfig(api_key="api-key"))
 
-        _rows(
-            invoiced_source(
-                "api-key",
-                "invoices",
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
-            )
+    def test_incremental_request_includes_updated_after_and_sort(self) -> None:
+        result = self._driver().run(
+            "invoices",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1700000000,
         )
 
-        params = snapshots[0]["params"]
-        assert params["updated_after"] == 1700000000
-        assert params["sort"] == "updated_at asc"
-        assert params["per_page"] == PAGE_SIZE
+        assert result.raised is None
+        assert result.requests[0].param("updated_after") == "1700000000"
+        assert result.requests[0].param("sort") == "updated_at asc"
+        assert result.requests[0].param("per_page") == str(PAGE_SIZE)
 
     @parameterized.expand(
         [
@@ -113,65 +66,55 @@ class TestSourcePagination:
             ("events", None),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_endpoint_without_updated_after_ignores_cursor(
-        self, endpoint: str, expected_sort: str | None, MockSession
-    ) -> None:
+    def test_endpoint_without_updated_after_ignores_cursor(self, endpoint: str, expected_sort: str | None) -> None:
         # These endpoints document no `updated_after` filter (and only some document `sort`), so a
         # stale cursor must not leak an undocumented param into the request.
-        session = MockSession.return_value
-        snapshots = _wire(session, [_response([])])
-
-        _rows(
-            invoiced_source(
-                "api-key",
-                endpoint,
-                team_id=1,
-                job_id="j",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=1700000000,
-            )
+        result = self._driver().run(
+            endpoint,
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=1700000000,
         )
 
-        params = snapshots[0]["params"]
-        assert "updated_after" not in params
-        assert params.get("sort") == expected_sort
-        assert params["per_page"] == PAGE_SIZE
+        assert result.raised is None
+        assert result.requests[0].param("updated_after") is None
+        assert result.requests[0].param("sort") == expected_sort
+        assert result.requests[0].param("per_page") == str(PAGE_SIZE)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_body_fails_loud(self, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response({"error": "boom"})])
+    def test_non_list_body_fails_loud(self) -> None:
+        result = self._driver().run("customers", [ScriptedResponse(json={"error": "boom"})])
 
         # List endpoints return a top-level array; a non-list body means the shape changed.
-        with pytest.raises(ValueError, match="list response body"):
-            _rows(
-                invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=_make_manager())
-            )
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_hostile_upstream_next_url_is_rejected(self, MockSession) -> None:
+    def test_hostile_upstream_next_url_is_rejected(self) -> None:
         # An upstream Link header pointing at another host must abort before the API key is sent
         # there, and the poisoned URL must not be persisted as resume state.
-        session = MockSession.return_value
-        _wire(session, [_response([{"id": 1}], next_url="https://evil.example.com/customers")])
+        result = self._driver().run(
+            "customers",
+            [
+                ScriptedResponse(
+                    json=[{"id": 1}],
+                    headers={"Link": '<https://evil.example.com/customers>; rel="next"'},
+                )
+            ],
+        )
 
-        manager = _make_manager()
-        with pytest.raises(InvoicedUntrustedURLError):
-            _rows(invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=manager))
-        manager.save_state.assert_not_called()
+        assert isinstance(result.raised, InvoicedUntrustedURLError)
+        assert result.paths == ["/customers"]
+        assert result.saved_states == []
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_hostile_resumed_next_url_is_rejected(self, MockSession) -> None:
+    def test_hostile_resumed_next_url_is_rejected(self) -> None:
         # A poisoned resume state from Redis must never be requested with the API key.
-        session = MockSession.return_value
-        _wire(session, [])
+        result = self._driver().run(
+            "customers",
+            [],
+            resume_state=InvoicedResumeConfig(next_url="https://evil.example.com/customers"),
+        )
 
-        manager = _make_manager(InvoicedResumeConfig(next_url="https://evil.example.com/customers"))
-        with pytest.raises(InvoicedUntrustedURLError):
-            _rows(invoiced_source("api-key", "customers", team_id=1, job_id="j", resumable_source_manager=manager))
-        session.send.assert_not_called()
+        assert isinstance(result.raised, InvoicedUntrustedURLError)
+        assert result.requests == []
 
 
 class TestValidatePaginationUrl:
@@ -199,35 +142,33 @@ class TestValidatePaginationUrl:
 
 
 class TestValidateCredentials:
-    @parameterized.expand(
-        [
-            ("unauthorized", 401),
-            ("forbidden", 403),
-        ]
-    )
-    @mock.patch(INVOICED_SESSION_PATCH)
-    def test_auth_failure_maps_to_invalid_key(self, _name: str, status_code: int, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("bad-key") == (False, "Invalid Invoiced API key")
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_auth_failure_maps_to_invalid_key(self, _name: str, status_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("bad-key") == (False, "Invalid Invoiced API key")
 
-    @mock.patch(INVOICED_SESSION_PATCH)
-    def test_unexpected_status_returns_message(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=500)
-        ok, message = validate_credentials("key")
+        assert network.requests_log[0].path == "/customers"
+
+    def test_unexpected_status_returns_message(self) -> None:
+        with scripted_network(always(ScriptedResponse(status=500))) as network:
+            ok, message = validate_credentials("key")
+
         assert ok is False
         assert message == "Invoiced returned HTTP 500"
+        assert {request.path for request in network.requests_log} == {"/customers"}
 
-    @mock.patch(INVOICED_SESSION_PATCH)
-    def test_connection_error_returns_message(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        ok, message = validate_credentials("key")
+    def test_connection_error_returns_message(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            ok, message = validate_credentials("key")
+
         assert ok is False
         assert message is not None and "Could not connect to Invoiced" in message
+        assert {request.path for request in network.requests_log} == {"/customers"}
 
-    @mock.patch(INVOICED_SESSION_PATCH)
-    def test_probe_disables_redirects_to_protect_api_key(self, mock_session: mock.MagicMock) -> None:
+    def test_probe_disables_redirects_to_protect_api_key(self) -> None:
         # The Basic-auth API key rides on the probe; the session must be built with redirects pinned
         # off so a redirect can't replay it to the redirect target during validation.
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=200)
-        validate_credentials("good-key")
-        assert mock_session.call_args.kwargs.get("allow_redirects") is False
+        with scripted_network([ScriptedResponse(json=[])]) as network:
+            assert validate_credentials("good-key") == (True, None)
+
+        assert network.session_options[0]["allow_redirects"] is False

@@ -730,32 +730,32 @@
         "scope": "project"
     },
     "errorTracking": {
-        "template": "/error_tracking",
+        "template": "/error-tracking",
         "params": [],
         "scope": "project"
     },
     "errorTrackingAlert": {
-        "template": "/error_tracking/alerts/{id}",
+        "template": "/error-tracking/alerts/{id}",
         "params": ["id"],
         "scope": "project"
     },
     "errorTrackingAlertNew": {
-        "template": "/error_tracking/alerts/new/{templateId}",
+        "template": "/error-tracking/alerts/new/{templateId}",
         "params": ["templateId"],
         "scope": "project"
     },
     "errorTrackingConfiguration": {
-        "template": "/error_tracking",
+        "template": "/error-tracking",
         "params": [],
         "scope": "project"
     },
     "errorTrackingFingerprint": {
-        "template": "/error_tracking/fingerprint/{fingerprint}",
+        "template": "/error-tracking/fingerprint/{fingerprint}",
         "params": ["fingerprint"],
         "scope": "project"
     },
     "errorTrackingIssue": {
-        "template": "/error_tracking/{id}",
+        "template": "/error-tracking/{id}",
         "params": ["id"],
         "scope": "project"
     },
@@ -1239,6 +1239,11 @@
         "params": [],
         "scope": "project"
     },
+    "metricsDashboardReview": {
+        "template": "/metrics/dashboard-review",
+        "params": [],
+        "scope": "project"
+    },
     "models": {
         "template": "/models",
         "params": [],
@@ -1309,10 +1314,20 @@
         "params": [],
         "scope": "project"
     },
+    "organizationLegalDocuments": {
+        "template": "/organization/legal",
+        "params": [],
+        "scope": "global"
+    },
     "organizationPendingDeletion": {
         "template": "/organization-pending-deletion",
         "params": [],
         "scope": "project"
+    },
+    "organizationStartups": {
+        "template": "/organization/startups",
+        "params": [],
+        "scope": "global"
     },
     "passwordReset": {
         "template": "/reset",
@@ -1835,38 +1850,48 @@
         "scope": "project"
     },
     "visualReviewFlakiness": {
-        "template": "/visual_review/repos/{repoId}/flakiness",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/flakiness",
+        "params": ["repoOwner", "repoName"],
+        "scope": "project"
+    },
+    "visualReviewRepoRun": {
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/runs/{runId}",
+        "params": ["repoOwner", "repoName", "runId"],
         "scope": "project"
     },
     "visualReviewRepoRuns": {
-        "template": "/visual_review/repos/{repoId}/runs",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/runs",
+        "params": ["repoOwner", "repoName"],
         "scope": "project"
     },
     "visualReviewRun": {
-        "template": "/visual_review/runs/{runId}",
+        "template": "/visual-review/runs/{runId}",
         "params": ["runId"],
         "scope": "project"
     },
     "visualReviewRuns": {
-        "template": "/visual_review",
+        "template": "/visual-review",
         "params": [],
         "scope": "project"
     },
     "visualReviewSettings": {
-        "template": "/visual_review/settings",
+        "template": "/visual-review/settings",
         "params": [],
         "scope": "project"
     },
     "visualReviewSnapshotHistory": {
-        "template": "/visual_review/repos/{repoId}/{runType}/snapshots/{identifier}",
-        "params": ["repoId", "runType", "identifier"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/{runType}/snapshots/{identifier}",
+        "params": ["repoOwner", "repoName", "runType", "identifier"],
         "scope": "project"
     },
     "visualReviewSnapshotOverview": {
-        "template": "/visual_review/repos/{repoId}/snapshots",
-        "params": ["repoId"],
+        "template": "/visual-review/repos/{repoOwner}/{repoName}/snapshots",
+        "params": ["repoOwner", "repoName"],
+        "scope": "project"
+    },
+    "warehouseDestination": {
+        "template": "/data-management/warehouse-destinations",
+        "params": [],
         "scope": "project"
     },
     "warehouseDestinations": {

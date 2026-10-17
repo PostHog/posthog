@@ -16,6 +16,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.proofpointtap import (
     ProofpointTapSourceConfig,
@@ -215,23 +219,23 @@ def test_error_classification_preserves_checkpoint(status: int) -> None:
         (403, "messages_blocked", False, "Check access in the TAP dashboard"),
     ],
 )
-@responses.activate
 def test_credential_probe_status_mapping(status: int, schema: str | None, valid: bool, message: str | None) -> None:
-    path = "messages/blocked" if schema else "clicks/blocked"
     selector = "messagesBlocked" if schema else "clicksBlocked"
-    responses.get(f"{BASE}/{path}", status=status, json={"queryEndTime": NOW.isoformat(), selector: []})
-    result, error = ProofpointTapSource().validate_credentials(CONFIG, 1, schema)
+    response = ScriptedResponse(status=status, json={"queryEndTime": NOW.isoformat(), selector: []})
+    with scripted_network([response]) as network:
+        result, error = ProofpointTapSource().validate_credentials(CONFIG, 1, schema)
     assert result is valid
     if message is None:
         assert error is None
     else:
         assert error is not None and message in error
-    assert len(responses.calls) == 1
-    assert query(responses.calls[0].request) == {"format": ["json"], "sinceSeconds": ["30"]}
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.path == ("/v2/siem/messages/blocked" if schema else "/v2/siem/clicks/blocked")
+    assert request.query == {"format": ("json",), "sinceSeconds": ("30",)}
 
 
-@responses.activate
 def test_unexpected_probe_error_is_not_bad_credentials() -> None:
-    responses.get(f"{BASE}/clicks/blocked", status=400, json={})
-    with pytest.raises(HTTPError):
-        ProofpointTapSource().validate_credentials(CONFIG, 1)
+    with scripted_network([ScriptedResponse(status=400, json={})]):
+        with pytest.raises(HTTPError):
+            ProofpointTapSource().validate_credentials(CONFIG, 1)

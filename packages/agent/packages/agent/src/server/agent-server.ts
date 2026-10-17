@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { access, cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import type {
   ContentBlock,
@@ -130,6 +130,7 @@ import type {
   TaskRunStateField,
 } from "../types";
 import { resourceLink } from "../utils/acp-content";
+import { attachmentFilePath, safeArtifactFileName } from "../utils/attachments";
 import { withTimeout } from "../utils/common";
 import { createEventIdSource } from "../utils/event-id";
 import { Logger } from "../utils/logger";
@@ -2160,6 +2161,7 @@ export class AgentServer {
         : null,
       prewarmed: preTaskRun ? this.prewarmedRun : null,
       executionEnvironment: "cloud",
+      sharedPromptCache: preTaskRun?.state.codex_shared_prompt_cache === true,
     });
 
     // Only that stamped header makes the run id a trace the generations land
@@ -3003,6 +3005,16 @@ export class AgentServer {
         "Could not load task run to determine its initial prompt",
       );
     }
+    const acknowledgementPath = this.pendingPromptAcknowledgementPath(taskRun);
+    if (acknowledgementPath) {
+      try {
+        await access(acknowledgementPath);
+        await this.clearPendingInitialPromptState(payload, taskRun);
+        return { taskRun, action: "idle" };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
     const taskRunState = taskRun.state;
     const prewarmed = taskRunState.prewarmed === true;
     const sameRunResume =
@@ -3776,6 +3788,30 @@ export class AgentServer {
     return pendingKeys.length > 0 ? pendingKeys : null;
   }
 
+  private pendingPromptAcknowledgementPath(
+    taskRun: TaskRun | null,
+  ): string | null {
+    if (
+      !this.config.agentStateDir ||
+      !taskRun ||
+      !this.getClearedPendingUserState(taskRun)
+    )
+      return null;
+    const state = taskRun.state;
+    const key = createHash("sha256")
+      .update(
+        JSON.stringify([
+          taskRun.id,
+          state.pending_user_message_id,
+          state.pending_user_message_ts,
+          state.pending_user_message,
+          state.pending_user_artifact_ids,
+        ]),
+      )
+      .digest("hex");
+    return join(this.config.agentStateDir, "prompt-acknowledgements", key);
+  }
+
   private async clearPendingInitialPromptState(
     payload: JwtPayload,
     taskRun: TaskRun | null,
@@ -3783,6 +3819,12 @@ export class AgentServer {
     const stateRemoveKeys = this.getClearedPendingUserState(taskRun);
     if (!stateRemoveKeys) {
       return;
+    }
+
+    const acknowledgementPath = this.pendingPromptAcknowledgementPath(taskRun);
+    if (acknowledgementPath) {
+      await mkdir(dirname(acknowledgementPath), { recursive: true });
+      await writeFile(acknowledgementPath, "");
     }
 
     try {
@@ -4113,7 +4155,7 @@ export class AgentServer {
       throw new Error(`Skill bundle ${skillName} failed checksum validation`);
     }
 
-    const safeSkillName = this.getSafeArtifactName(skillName);
+    const safeSkillName = safeArtifactFileName(skillName);
     const skillRoot = join(
       this.config.repositoryPath ?? "/tmp/workspace",
       ".posthog",
@@ -4245,32 +4287,18 @@ export class AgentServer {
       throw new Error(`Failed to download artifact ${artifact.name}`);
     }
 
-    const safeName = this.getSafeArtifactName(artifact.name);
-    const artifactDir = join(
-      this.config.repositoryPath ?? "/tmp/workspace",
-      ".posthog",
-      "attachments",
+    const artifactPath = attachmentFilePath(
+      this.config.repositoryPath,
       runId,
-      artifact.id ?? safeName,
+      artifact,
     );
-    await mkdir(artifactDir, { recursive: true });
-
-    const artifactPath = join(artifactDir, safeName);
+    await mkdir(dirname(artifactPath), { recursive: true });
     await writeFile(artifactPath, Buffer.from(data));
 
     return resourceLink(pathToFileURL(artifactPath).toString(), artifact.name, {
       ...(artifact.content_type ? { mimeType: artifact.content_type } : {}),
       ...(typeof artifact.size === "number" ? { size: artifact.size } : {}),
     });
-  }
-
-  private getSafeArtifactName(name: string): string {
-    const baseName = basename(name).trim();
-    const normalizedName = baseName.replace(/[^\w.-]/g, "_");
-    if (normalizedName.length === 0 || /^\.+$/.test(normalizedName)) {
-      return "attachment";
-    }
-    return normalizedName;
   }
 
   /**

@@ -1,11 +1,13 @@
-from unittest import mock
-
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.facade.source_config import (
     ReleaseStatus,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hetzner import (
     HetznerSourceConfig,
@@ -69,8 +71,9 @@ class TestHetznerSource:
     )
     def test_source_for_pipeline_routes_schema(self, _name: str, schema_name: str, primary_keys: list[str]) -> None:
         config = HetznerSourceConfig(api_token="tok")
-        inputs = mock.MagicMock()
-        inputs.schema_name = schema_name
-        response = self.source.source_for_pipeline(config, mock.MagicMock(), inputs)
+        result = SourceDriver(self.source, config).run(schema_name, [ScriptedResponse(json={})])
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == schema_name
         assert response.primary_keys == primary_keys

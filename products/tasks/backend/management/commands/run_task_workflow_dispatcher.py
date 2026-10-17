@@ -8,21 +8,24 @@ from datetime import timedelta
 from functools import partial
 from pathlib import Path
 from time import monotonic
+from typing import Any
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.db import DatabaseError, close_old_connections
 
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from prometheus_client import start_http_server
 from temporalio.client import Client, WorkflowExecutionStatus
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.scoped import scoped_temporal
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
@@ -48,7 +51,12 @@ from products.tasks.backend.metrics import (
     observe_task_run_workflow_start,
 )
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
-from products.tasks.backend.temporal.client import _capture_run_feature_flags
+from products.tasks.backend.temporal.client import (
+    _capture_run_feature_flags,
+    start_process_task_workflow,
+    tag_startup_dispatch,
+)
+from products.tasks.backend.temporal.metrics import StepTimer
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskInput
 from products.tasks.backend.visibility import task_control_q
 
@@ -80,6 +88,14 @@ def _scheduled_run_usage_error(user: User, team_id: int) -> str | None:
     try:
         response = usage_limit_response(user, team_id)
         return str(response.data["error"]) if response is not None else None
+    finally:
+        close_old_connections()
+
+
+def _capture_run_feature_flags_in_worker_thread(run_id: str) -> dict[str, Any]:
+    close_old_connections()
+    try:
+        return _capture_run_feature_flags(run_id)
     finally:
         close_old_connections()
 
@@ -200,6 +216,8 @@ class Command(BaseCommand):
         )
         WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="failed").inc()
 
+    @scoped_temporal(fresh=True, capture_exceptions=False)
+    @StepTimer("dispatch", status_tag="dispatch_status")
     async def _process(
         self, client: Client, dispatch: TaskWorkflowDispatch, instance_id: str, semaphore: asyncio.Semaphore
     ) -> None:
@@ -215,6 +233,7 @@ class Command(BaseCommand):
                 )
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                 return
+            tag_startup_dispatch(run)
             try:
                 await Team.objects.aget(id=run.team_id)
                 is_restart = dispatch.dispatch_kind == TaskWorkflowDispatch.Kind.RESTART
@@ -230,6 +249,7 @@ class Command(BaseCommand):
                     and await dispatch_attempt_already_started(client, dispatch)
                 ):
                     await sync_to_async(mark_accepted)(dispatch.id, instance_id)
+                    posthoganalytics.tag("dispatch_status", "COMPLETED")
                     WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="already_started").inc()
                     return
                 if not await sync_to_async(_user_can_dispatch)(run, options, require_task_control=is_scheduled_create):
@@ -250,7 +270,6 @@ class Command(BaseCommand):
                         await sync_to_async(mark_dead)(dispatch.id, instance_id, usage_error, "usage_limit")
                         WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="dead").inc()
                         return
-                await sync_to_async(_capture_run_feature_flags, thread_sensitive=False)(str(run.id))
                 if is_restart:
                     from products.tasks.backend.facade.streams import reset_task_run_stream  # noqa: PLC0415
                     from products.tasks.backend.redis import run_uses_dedicated_stream  # noqa: PLC0415
@@ -260,6 +279,9 @@ class Command(BaseCommand):
                     )
                     if not reset:
                         raise RuntimeError("Failed to reset task run event stream")
+                run_state = await sync_to_async(_capture_run_feature_flags_in_worker_thread, thread_sensitive=False)(
+                    str(run.id)
+                )
                 workflow_input = ProcessTaskInput(
                     run_id=str(run.id),
                     create_pr=options.create_pr if options else True,
@@ -283,17 +305,16 @@ class Command(BaseCommand):
             started = monotonic()
             try:
                 try:
-                    await client.start_workflow(
-                        "process-task",
+                    await start_process_task_workflow(
+                        client,
                         workflow_input,
-                        id=dispatch.workflow_id,
+                        workflow_id=dispatch.workflow_id,
                         id_reuse_policy=(
                             WorkflowIDReusePolicy.TERMINATE_IF_RUNNING
                             if is_restart
                             else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
                         ),
-                        task_queue=settings.TASKS_TASK_QUEUE,
-                        retry_policy=RetryPolicy(maximum_attempts=3),
+                        run_state=run_state,
                         rpc_timeout=timedelta(seconds=settings.TASKS_DISPATCHER_RPC_TIMEOUT_SECONDS),
                     )
                 finally:
@@ -306,11 +327,13 @@ class Command(BaseCommand):
                     WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="rescheduled").inc()
                     return
                 await sync_to_async(mark_accepted)(dispatch.id, instance_id)
+                posthoganalytics.tag("dispatch_status", "COMPLETED")
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="already_started").inc()
             except Exception as error:
                 await sync_to_async(reschedule)(dispatch.id, instance_id, str(error))
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="rescheduled").inc()
             else:
                 await sync_to_async(mark_accepted)(dispatch.id, instance_id)
+                posthoganalytics.tag("dispatch_status", "COMPLETED")
                 WORKFLOW_DISPATCH_ATTEMPT_TOTAL.labels(kind=dispatch.dispatch_kind, outcome="accepted").inc()
                 observe_task_run_workflow_start(run, outcome="started", reason="dispatcher")
