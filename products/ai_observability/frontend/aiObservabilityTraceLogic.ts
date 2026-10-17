@@ -9,7 +9,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { tryDecodeURIComponent } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
@@ -177,9 +176,6 @@ export interface aiObservabilityTraceLogicActions {
     ) => {
         inputMatches: boolean[]
         outputMatches: boolean[]
-    }
-    copyLinePermalink: (lineNumber: number) => {
-        lineNumber: number
     }
     handleTextViewFallback: () => {
         value: true
@@ -400,7 +396,6 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         applySearchResults: (inputMatches: boolean[], outputMatches: boolean[]) => ({ inputMatches, outputMatches }),
         setDisplayOption: (displayOption: DisplayOption) => ({ displayOption }),
         handleTextViewFallback: true,
-        copyLinePermalink: (lineNumber: number) => ({ lineNumber }),
         toggleEventTypeExpanded: (eventType: string) => ({ eventType }),
         setTraceReviewPanelExpanded: (isExpanded: boolean) => ({ isExpanded }),
         loadCommentCount: true,
@@ -831,12 +826,6 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                     router.actions.replace(urls.aiObservabilityTrace(traceId, params))
                 }
             }
-        },
-        copyLinePermalink: ({ lineNumber }) => {
-            // Copy permalink to clipboard with line number in URL
-            const url = new URL(window.location.href)
-            url.searchParams.set('line', lineNumber.toString())
-            copyToClipboard(url.toString(), 'permalink')
         },
     })),
 

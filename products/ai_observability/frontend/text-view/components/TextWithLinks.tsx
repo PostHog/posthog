@@ -13,8 +13,6 @@ interface TextWithLinksProps {
     traceId?: string
     activeLineNumber?: number | null
     lineNumberPadding?: number
-    onCopyPermalink?: (lineNumber: number) => void
-    enableLineActions?: boolean
 }
 
 export function TextWithLinks({
@@ -22,8 +20,6 @@ export function TextWithLinks({
     traceId,
     activeLineNumber,
     lineNumberPadding = 0,
-    onCopyPermalink,
-    enableLineActions = false,
 }: TextWithLinksProps): JSX.Element {
     const parts = parseUrls(text, traceId)
     const result: JSX.Element[] = []
@@ -63,8 +59,6 @@ export function TextWithLinks({
                             content={lineContent}
                             isActive={activeLineNumber === lineNumber}
                             padding={lineNumberPadding}
-                            traceId={enableLineActions ? traceId : undefined}
-                            onCopyPermalink={onCopyPermalink}
                         />
                     )
                 } else {
