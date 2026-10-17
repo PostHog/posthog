@@ -23,6 +23,7 @@ interface PreheaderTag extends Span {
 interface HeadScan {
     title?: TitleTag
     preheader?: PreheaderTag
+    preheaders: PreheaderTag[]
     headOpenEnd?: number
     htmlOpenEnd?: number
     doctypeEnd?: number
@@ -87,13 +88,16 @@ function withPreheader(html: string, preheader: string): string {
     return insertIntoHead(html, head, tag)
 }
 
+/** Every preheader the SDK could read goes, or removing the first one would expose the next. */
 function withoutPreheaders(html: string): string {
-    let { preheader } = scanHead(html)
-    while (preheader) {
-        html = splice(html, preheader.start, preheader.end, '')
-        ;({ preheader } = scanHead(html))
+    const kept: string[] = []
+    let keptFrom = 0
+    for (const { start, end } of scanHead(html).preheaders) {
+        kept.push(html.slice(keptFrom, start))
+        keptFrom = end
     }
-    return html
+    kept.push(html.slice(keptFrom))
+    return kept.join('')
 }
 
 function insertIntoHead(html: string, head: HeadScan, markup: string): string {
@@ -113,7 +117,7 @@ function splice(html: string, start: number, end: number, replacement: string): 
  * SDK reads: a comment or a title hides the tags in it, and the first title and the first preheader win.
  */
 function scanHead(html: string): HeadScan {
-    const scan: HeadScan = {}
+    const scan: HeadScan = { preheaders: [] }
     let titleCanClose = true
     let position = html.indexOf('<')
     while (position !== -1) {
@@ -145,10 +149,12 @@ function scanHead(html: string): HeadScan {
                 } else {
                     titleCanClose = false
                 }
-            } else if (!isTitle && !scan.preheader) {
+            } else if (!isTitle) {
                 const value = preheaderOf(html.slice(position, next))
                 if (value !== undefined) {
-                    scan.preheader = { start: position, end: next, value }
+                    const preheader = { start: position, end: next, value }
+                    scan.preheaders.push(preheader)
+                    scan.preheader ??= preheader
                 }
             }
         } else {

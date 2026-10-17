@@ -13,7 +13,8 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
     const { agentPromptOpen, templateLoading } = useValues(logic)
     const { setAgentPromptOpen, copyHtmlFile } = useActions(logic)
     const loadingReason = templateLoading ? 'Wait for the template to load' : undefined
-    const triggerRef = useFocusBackOnClose(agentPromptOpen)
+    const promptRef = useRef<HTMLDivElement>(null)
+    const triggerRef = useFocusBackOnClose(agentPromptOpen, promptRef)
 
     return (
         <Popover
@@ -21,7 +22,7 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
             onClickOutside={() => setAgentPromptOpen(false)}
             placement="bottom-end"
             fallbackPlacements={['bottom-start', 'top-end']}
-            overlay={<AgentPrompt {...props} />}
+            overlay={<AgentPrompt {...props} containerRef={promptRef} />}
         >
             <LemonButton
                 ref={triggerRef}
@@ -59,20 +60,28 @@ export function EditWithAgentButton(props: MessageTemplateLogicProps): JSX.Eleme
     )
 }
 
-/** Closing the popover unmounts the focused text area, so keyboard focus would fall back to the page's start. */
-function useFocusBackOnClose(open: boolean): RefObject<HTMLButtonElement> {
+/**
+ * The popover unmounts its content shortly after it closes, which drops keyboard focus to the page's start. Focus that
+ * is still inside the prompt goes back to the trigger; focus the person moved elsewhere stays where it is.
+ */
+function useFocusBackOnClose(open: boolean, promptRef: RefObject<HTMLElement>): RefObject<HTMLButtonElement> {
     const triggerRef = useRef<HTMLButtonElement>(null)
     const wasOpen = useRef(open)
     useEffect(() => {
-        if (wasOpen.current && !open && document.activeElement === document.body) {
+        const focused = document.activeElement
+        if (wasOpen.current && !open && (focused === document.body || promptRef.current?.contains(focused))) {
             triggerRef.current?.focus()
         }
         wasOpen.current = open
-    }, [open])
+    }, [open, promptRef])
     return triggerRef
 }
 
-function AgentPrompt(props: MessageTemplateLogicProps): JSX.Element {
+interface AgentPromptProps extends MessageTemplateLogicProps {
+    containerRef: RefObject<HTMLDivElement>
+}
+
+function AgentPrompt({ containerRef, ...props }: AgentPromptProps): JSX.Element {
     const logic = messageTemplateLogic(props)
     const { changeSentence, agentPrompt, copyAgentPromptDisabledReason } = useValues(logic)
     const { setChangeSentence, copyAgentPrompt } = useActions(logic)
@@ -87,7 +96,12 @@ function AgentPrompt(props: MessageTemplateLogicProps): JSX.Element {
     }, [])
 
     return (
-        <div className="flex flex-col gap-2 p-1 w-96 max-w-full">
+        <div
+            ref={containerRef}
+            role="dialog"
+            aria-label="Edit with your agent"
+            className="flex flex-col gap-2 p-1 w-96 max-w-full"
+        >
             <LemonLabel htmlFor="message-template-change-sentence">Describe the change</LemonLabel>
             <LemonTextArea
                 id="message-template-change-sentence"
@@ -97,23 +111,6 @@ function AgentPrompt(props: MessageTemplateLogicProps): JSX.Element {
                 onPressCmdEnter={copyAgentPrompt}
                 minRows={3}
                 data-attr="message-template-change-sentence"
-            />
-            <LemonCollapse
-                size="small"
-                panels={[
-                    {
-                        key: 'prompt',
-                        header: 'Show full prompt',
-                        content: (
-                            <pre
-                                className="m-0 whitespace-pre-wrap break-words text-xs"
-                                data-attr="message-template-agent-prompt"
-                            >
-                                {agentPrompt}
-                            </pre>
-                        ),
-                    },
-                ]}
             />
             <div className="flex justify-end">
                 <LemonButton
@@ -126,6 +123,25 @@ function AgentPrompt(props: MessageTemplateLogicProps): JSX.Element {
                     Copy prompt
                 </LemonButton>
             </div>
+            <LemonCollapse
+                size="small"
+                panels={[
+                    {
+                        key: 'prompt',
+                        header: 'Show full prompt',
+                        content: (
+                            // Not a <pre>: global styles make every <pre> a scroll container, and a scroll container
+                            // in this collapse inside the popover stays unpainted in Chromium until it scrolls.
+                            <div
+                                className="whitespace-pre-wrap break-words font-mono text-xs"
+                                data-attr="message-template-agent-prompt"
+                            >
+                                {agentPrompt}
+                            </div>
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }
