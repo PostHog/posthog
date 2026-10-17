@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
 
@@ -107,3 +108,17 @@ class TestDocumentEmbeddingsOrderByPushdown(BaseTest):
         assert inner_query.order_by is not None
         assert inner_query.limit is not None
         assert inner_query.offset is None, "OFFSET should not be pushed down to inner query"
+
+    @parameterized.expand(
+        [
+            ("missing_filter", "SELECT document_id FROM document_embeddings", "must filter on model_name"),
+            (
+                "unknown_model",
+                "SELECT document_id FROM document_embeddings WHERE model_name = 'not-a-model'",
+                "Unknown model_name 'not-a-model'",
+            ),
+        ]
+    )
+    def test_invalid_model_name_raises_query_error(self, _name: str, query: str, expected_message: str):
+        with self.assertRaisesRegex(QueryError, expected_message):
+            self._get_inner_query(query)
