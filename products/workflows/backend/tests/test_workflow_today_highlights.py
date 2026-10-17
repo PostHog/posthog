@@ -9,14 +9,14 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from products.today.backend.facade.contracts import HighlightContext
 from products.today.backend.facade.enums import HighlightLabel
-from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import workflow_ideas, workflows
-from products.today.backend.logic.highlight_types import Context
 from products.workflows.backend.facade.contracts import EmailSendingState, OwnedWorkflowHealth
+from products.workflows.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.workflows.backend.today_highlights import health, ideas
 
 WORKFLOW_ID = uuid.UUID("00000000-0000-4000-8000-000000000001")
-CONTEXT = cast(Context, SimpleNamespace(team=SimpleNamespace(id=1), user=None))
+CONTEXT = cast(HighlightContext, SimpleNamespace(team=SimpleNamespace(id=1), user=None))
 
 
 def _workflow(**fields: Any) -> OwnedWorkflowHealth:
@@ -92,11 +92,11 @@ class TestWorkflows(SimpleTestCase):
     def test_a_workflow_shows_what_needs_its_owner(
         self, _name: str, workflow: OwnedWorkflowHealth, expected: list[tuple[HighlightLabel, str, str, str]]
     ) -> None:
-        registered = next(s for s in load_sources() if s.name == "workflows")
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "workflows")
 
         with (
-            patch.object(workflows, "list_owned_workflow_health", return_value=[workflow]),
-            patch.object(workflows, "get_email_sending_state", return_value=None),
+            patch.object(health, "list_owned_workflow_health", return_value=[workflow]),
+            patch.object(health, "get_email_sending_state", return_value=None),
         ):
             found = registered.find(CONTEXT)
 
@@ -112,7 +112,7 @@ class TestWorkflows(SimpleTestCase):
     def test_a_suspended_project_shows_to_workflow_owners(
         self, _name: str, owned: list[OwnedWorkflowHealth], suspended: bool, expected: list[str]
     ) -> None:
-        registered = next(s for s in load_sources() if s.name == "workflows")
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "workflows")
         state = EmailSendingState(
             suspended_at=datetime(2026, 10, 1, tzinfo=UTC) if suspended else None,
             suspension_reason="",
@@ -122,8 +122,8 @@ class TestWorkflows(SimpleTestCase):
         )
 
         with (
-            patch.object(workflows, "list_owned_workflow_health", return_value=owned),
-            patch.object(workflows, "get_email_sending_state", return_value=state),
+            patch.object(health, "list_owned_workflow_health", return_value=owned),
+            patch.object(health, "get_email_sending_state", return_value=state),
         ):
             found = registered.find(CONTEXT)
 
@@ -137,9 +137,9 @@ class TestWorkflows(SimpleTestCase):
         ]
     )
     def test_waiting_workflow_ideas_show_once(self, _name: str, count: int, expected: list[str]) -> None:
-        registered = next(s for s in load_sources() if s.name == "workflow_ideas")
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "workflow_ideas")
 
-        with patch.object(workflow_ideas, "count_waiting_data_suggestions", return_value=count):
+        with patch.object(ideas, "count_waiting_data_suggestions", return_value=count):
             found = registered.find(CONTEXT)
 
         self.assertEqual([(c.title, c.url) for c in found.items], [(title, "/workflows") for title in expected])

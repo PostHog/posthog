@@ -10,10 +10,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.error_tracking.backend.facade.contracts import ErrorTrackingIssueBasics
-from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import rage
-from products.today.backend.logic.highlight_types import Context
+from products.today.backend.facade.contracts import HighlightContext
+from products.web_analytics.backend import today_highlights
 from products.web_analytics.backend.facade.rage_pages import ErrorsBeforeRage, RagePage
+from products.web_analytics.backend.facade.today_highlights import HIGHLIGHT_SOURCES
 
 ISSUE_ID = uuid.UUID("01890000-0000-7000-8000-000000000002")
 PAGE = RagePage(path="/checkout/…", people=12, clicks=340)
@@ -100,7 +100,7 @@ class TestRage(SimpleTestCase):
         expected: list[tuple[str, str, str]],
     ) -> None:
         context = cast(
-            Context,
+            HighlightContext,
             SimpleNamespace(
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
@@ -118,14 +118,14 @@ class TestRage(SimpleTestCase):
             status="active",
             severity=None,
         )
-        registered = next(s for s in load_sources() if s.name == "rage")
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "rage")
 
         with (
-            patch.object(rage, "uses_product", return_value=relevant),
-            patch.object(rage, "find_top_rage_page", return_value=page),
-            patch.object(rage, "find_top_rage_element", return_value=element),
-            patch.object(rage, "find_errors_before_rage", return_value=errors),
-            patch.object(rage, "get_issue_basics", return_value=issue),
+            patch.object(today_highlights, "uses_product", return_value=relevant),
+            patch.object(today_highlights, "find_top_rage_page", return_value=page),
+            patch.object(today_highlights, "find_top_rage_element", return_value=element),
+            patch.object(today_highlights, "find_errors_before_rage", return_value=errors),
+            patch.object(today_highlights, "get_issue_basics", return_value=issue),
         ):
             found = registered.find(context)
 

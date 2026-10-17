@@ -7,13 +7,16 @@ from django.utils import timezone
 from posthog.models import FileSystemViewLog
 
 from products.product_analytics.backend.facade.api import get_insight_series
+from products.today.backend.facade.contracts import (
+    HighlightContext,
+    HighlightFindings,
+    HighlightMetric,
+    HighlightValueFormat,
+)
+from products.today.backend.facade.enums import HighlightInterval, HighlightUnit
+from products.today.backend.facade.highlight_helpers import complete, detect, short
 
-from ...facade import contracts
-from ...facade.enums import HighlightInterval, HighlightUnit
-from ..highlight_rules import short
-from ..highlight_series import pretty, usable_series
-from ..highlight_trends import complete, detect
-from ..highlight_types import Context, Found, Source
+from .series import pretty, usable_series
 
 ROUTINE_WINDOW_DAYS = 28
 DAILY_ROUTINE_DAYS = 8
@@ -25,15 +28,15 @@ ROUTINE_CANDIDATES = 6
 ROUTINE_TILES = 2
 
 
-def find(context: Context) -> Found:
-    metrics: list[contracts.HighlightMetric] = []
+def find_routine(context: HighlightContext) -> HighlightFindings:
+    metrics: list[HighlightMetric] = []
     for short_id in _routine_insights(context):
         metric = context.guard(f"routine {short_id}", partial(_metric, context, short_id), None)
         if metric is not None:
             metrics.append(metric)
         if len(metrics) == ROUTINE_TILES:
             break
-    return Found(pulse=tuple(metrics))
+    return HighlightFindings(pulse=tuple(metrics))
 
 
 def routine_days(view_days: Sequence[date], today: date, warming_up: bool = False) -> int:
@@ -49,7 +52,7 @@ def is_warming_up(today: date) -> bool:
     return (today - VIEW_DAYS_RECORDED_SINCE).days < WARMUP_HISTORY_DAYS
 
 
-def _routine_insights(context: Context) -> list[str]:
+def _routine_insights(context: HighlightContext) -> list[str]:
     views = FileSystemViewLog.objects.filter(
         team=context.team,
         user=context.user,
@@ -64,7 +67,7 @@ def _routine_insights(context: Context) -> list[str]:
     return [ref for days, _viewed_at, ref in ranked if days][:ROUTINE_CANDIDATES]
 
 
-def _metric(context: Context, short_id: str) -> contracts.HighlightMetric | None:
+def _metric(context: HighlightContext, short_id: str) -> HighlightMetric | None:
     insight = get_insight_series(team=context.team, user=context.user, short_id=short_id)
     if insight is None:
         return None
@@ -82,7 +85,7 @@ def _metric(context: Context, short_id: str) -> contracts.HighlightMetric | None
     else:
         line = values[-12:]
     value_format = (
-        contracts.HighlightValueFormat(
+        HighlightValueFormat(
             format=insight.value_format,
             prefix=insight.value_prefix,
             postfix=insight.value_postfix,
@@ -98,7 +101,7 @@ def _metric(context: Context, short_id: str) -> contracts.HighlightMetric | None
     if len(series) > 1 and insight.name:
         measured = short(pretty(name), 18)
         title = f"{short(insight.name, 37 - len(measured))} ({measured})"
-    return contracts.HighlightMetric(
+    return HighlightMetric(
         key=f"insight:{short_id}",
         name=title,
         value=values[-1],
@@ -109,6 +112,3 @@ def _metric(context: Context, short_id: str) -> contracts.HighlightMetric | None
         url=f"/insights/{short_id}",
         value_format=value_format,
     )
-
-
-SOURCE = Source(name="routine", find=find, scopes=("insight:read",), pulse_order=1)

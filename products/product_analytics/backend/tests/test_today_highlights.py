@@ -15,10 +15,17 @@ from posthog.models import FileSystemViewLog
 
 from products.dashboards.backend.facade.api import HomeDashboardInsights, HomeDashboardTile
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
-from products.today.backend.logic.highlight_rules import human, short
-from products.today.backend.logic.highlight_sources import home, routine
-from products.today.backend.logic.highlight_trends import BAD_METRIC, MONEY, UNCLEAR_LABEL, UNKNOWN_DIRECTION
-from products.today.backend.logic.highlight_types import Context
+from products.product_analytics.backend.today_highlights import home, routine
+from products.today.backend.facade.contracts import HighlightContext
+from products.today.backend.facade.highlight_helpers import (
+    BAD_METRIC,
+    MONEY,
+    UNCLEAR_LABEL,
+    UNKNOWN_DIRECTION,
+    human,
+    short,
+)
+from products.today.backend.facade.testing import highlight_context
 
 TODAY = date(2026, 10, 13)
 
@@ -184,7 +191,7 @@ class TestHomeTiles(SimpleTestCase):
             value_format=value_format,
         )
         context = cast(
-            Context,
+            HighlightContext,
             SimpleNamespace(
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
@@ -203,7 +210,7 @@ class TestHomeTiles(SimpleTestCase):
             patch.object(home, "home_dashboard_insights", return_value=home_tiles),
             patch.object(home, "get_insight_series", return_value=found_insight),
         ):
-            found = home.find(context).items
+            found = home.find_home(context).items
 
         self.assertEqual([(c.title, c.detail) for c in found], [expected] if expected else [])
 
@@ -257,7 +264,7 @@ class TestRoutineInsights(BaseTest):
         )
 
         with patch.object(routine, "get_insight_series", return_value=found_insight):
-            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+            pulse = routine.find_routine(highlight_context(team=self.team, user=self.user, today=TODAY)).pulse
 
         self.assertEqual(
             [

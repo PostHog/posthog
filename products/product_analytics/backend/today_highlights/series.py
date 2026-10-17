@@ -4,8 +4,7 @@ from datetime import date
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 from products.product_analytics.backend.facade.contracts import InsightSeries
-
-from .highlight_trends import UNCLEAR_LABEL, stale
+from products.today.backend.facade.highlight_helpers import UNCLEAR_LABEL, stale
 
 CORE_EVENTS = CORE_FILTER_DEFINITIONS_BY_GROUP["events"]
 

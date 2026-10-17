@@ -1,6 +1,9 @@
 import hashlib
 
 from products.error_tracking.backend.facade.api import get_issue_basics
+from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
+from products.today.backend.facade.enums import HighlightLabel
+from products.today.backend.facade.highlight_helpers import human, short, users, uses_product
 from products.web_analytics.backend.facade.rage_pages import (
     ErrorsBeforeRage,
     RagePage,
@@ -8,10 +11,6 @@ from products.web_analytics.backend.facade.rage_pages import (
     find_top_rage_element,
     find_top_rage_page,
 )
-
-from ...facade.enums import HighlightLabel
-from ..highlight_rules import human, short, users, uses_product
-from ..highlight_types import Candidate, Context, Found, Source
 
 RAGE_PAGE = "{people} rage-clicked on {page} in the last 7 days"
 RAGE_PAGE_DETAIL = "{clicks} rage clicks · Top element: ‘{element}’"
@@ -24,12 +23,36 @@ MIN_ERROR_SHARE = 0.3
 NO_ERRORS = ErrorsBeforeRage(sessions=0, issue_id=None, issue_sessions=0)
 
 
-def find(context: Context) -> Found:
+def _error_item(
+    context: HighlightContext, page: RagePage, errors: ErrorsBeforeRage, title: str
+) -> HighlightCandidate | None:
+    issue_id = errors.issue_id
+    share = errors.issue_sessions / errors.sessions if errors.sessions else 0
+    if issue_id is None or errors.issue_sessions < MIN_ERROR_SESSIONS or share < MIN_ERROR_SHARE:
+        return None
+    issue = context.guard("rage_issue", lambda: get_issue_basics(context.team.id, issue_id), None)
+    if issue is None:
+        return None
+    name = f"{issue.name or 'Issue'}: {issue.description}" if issue.description else issue.name or "Issue"
+    return HighlightCandidate(
+        key=f"rage:{page.path}",
+        label=HighlightLabel.RISK,
+        family="replay",
+        importance=0.6,
+        relevance=1.0,
+        title=title,
+        detail=RAGE_PAGE_ERROR_DETAIL.format(pct=f"{share * 100:.0f}", issue=short(name, 50)),
+        url=f"/error_tracking/{issue_id}",
+        ref=issue_id,
+    )
+
+
+def find_rage_page(context: HighlightContext) -> HighlightFindings:
     if not uses_product(context, *RAGE_PRODUCTS):
-        return Found()
+        return HighlightFindings()
     page = context.daily("rage_page", lambda: find_top_rage_page(context.team, context.user))
     if page is None:
-        return Found()
+        return HighlightFindings()
     path_key = hashlib.sha256(page.path.encode()).hexdigest()[:16]
     title = RAGE_PAGE.format(people=users(page.people), page=(page.path or "/")[:40])
     if context.allows("error_tracking:read"):
@@ -42,7 +65,7 @@ def find(context: Context) -> Found:
         )
         error = _error_item(context, page, errors, title)
         if error is not None:
-            return Found(items=(error,))
+            return HighlightFindings(items=(error,))
     top_element = context.guard(
         "rage_element",
         lambda: context.daily(
@@ -52,9 +75,9 @@ def find(context: Context) -> Found:
     )
     element = short(top_element or "", 30)
     clicks = human(page.clicks)
-    return Found(
+    return HighlightFindings(
         items=(
-            Candidate(
+            HighlightCandidate(
                 key=f"rage:{page.path}",
                 label=HighlightLabel.RISK,
                 family="replay",
@@ -68,28 +91,3 @@ def find(context: Context) -> Found:
             ),
         )
     )
-
-
-def _error_item(context: Context, page: RagePage, errors: ErrorsBeforeRage, title: str) -> Candidate | None:
-    issue_id = errors.issue_id
-    share = errors.issue_sessions / errors.sessions if errors.sessions else 0
-    if issue_id is None or errors.issue_sessions < MIN_ERROR_SESSIONS or share < MIN_ERROR_SHARE:
-        return None
-    issue = context.guard("rage_issue", lambda: get_issue_basics(context.team.id, issue_id), None)
-    if issue is None:
-        return None
-    name = f"{issue.name or 'Issue'}: {issue.description}" if issue.description else issue.name or "Issue"
-    return Candidate(
-        key=f"rage:{page.path}",
-        label=HighlightLabel.RISK,
-        family="replay",
-        importance=0.6,
-        relevance=1.0,
-        title=title,
-        detail=RAGE_PAGE_ERROR_DETAIL.format(pct=f"{share * 100:.0f}", issue=short(name, 50)),
-        url=f"/error_tracking/{issue_id}",
-        ref=issue_id,
-    )
-
-
-SOURCE = Source(name="rage", find=find)

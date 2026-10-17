@@ -1,9 +1,8 @@
+from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
+from products.today.backend.facade.enums import HighlightLabel
+from products.today.backend.facade.highlight_helpers import exact, short
 from products.workflows.backend.facade.api import get_email_sending_state, list_owned_workflow_health
 from products.workflows.backend.facade.contracts import OwnedWorkflowHealth
-
-from ...facade.enums import HighlightLabel
-from ..highlight_rules import exact, short
-from ..highlight_types import Candidate, Context, Found, Source
 
 SENDING_SUSPENDED = "Email sending is suspended for this project"
 SENDING_SUSPENDED_DETAIL = "Workflow and broadcast emails are not delivered. Contact support to turn sending back on"
@@ -19,20 +18,9 @@ MIN_FAILED = 10
 MIN_FAILED_SHARE = 0.1
 
 
-def find(context: Context) -> Found:
-    workflows = list_owned_workflow_health(team=context.team, user=context.user, limit=20)
-    if not workflows:
-        return Found()
-    candidates = [candidate for workflow in workflows for candidate in _candidates(workflow)]
-    state = get_email_sending_state(context.team.id)
-    if state is not None and state.suspended_at is not None:
-        candidates.insert(0, _sending_suspended())
-    return Found(items=tuple(candidates))
-
-
-def _sending_suspended() -> Candidate:
+def _sending_suspended() -> HighlightCandidate:
     # Suspension stops every email step in the project, so it outranks any one workflow's problem.
-    return Candidate(
+    return HighlightCandidate(
         key="workflows:email-sending-suspended",
         label=HighlightLabel.RISK,
         family="workflows",
@@ -44,7 +32,7 @@ def _sending_suspended() -> Candidate:
     )
 
 
-def _candidates(workflow: OwnedWorkflowHealth) -> list[Candidate]:
+def _candidates(workflow: OwnedWorkflowHealth) -> list[HighlightCandidate]:
     name = short(workflow.name)
     candidates = []
     if workflow.email_sending_paused:
@@ -100,8 +88,8 @@ def _candidate(
     title: str,
     detail: str,
     tab: str,
-) -> Candidate:
-    return Candidate(
+) -> HighlightCandidate:
+    return HighlightCandidate(
         key=f"workflow:{workflow.workflow_id}:{kind}",
         label=label,
         family="workflows",
@@ -113,4 +101,12 @@ def _candidate(
     )
 
 
-SOURCE = Source(name="workflows", find=find, scopes=("hog_flow:read",))
+def find_workflow_health(context: HighlightContext) -> HighlightFindings:
+    workflows = list_owned_workflow_health(team=context.team, user=context.user, limit=20)
+    if not workflows:
+        return HighlightFindings()
+    candidates = [candidate for workflow in workflows for candidate in _candidates(workflow)]
+    state = get_email_sending_state(context.team.id)
+    if state is not None and state.suspended_at is not None:
+        candidates.insert(0, _sending_suspended())
+    return HighlightFindings(items=tuple(candidates))

@@ -5,12 +5,11 @@ from urllib.parse import quote, urlencode
 from products.dashboards.backend.facade.api import home_dashboard_insights
 from products.product_analytics.backend.facade.api import get_insight_series
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext
+from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
+from products.today.backend.facade.enums import HighlightLabel
+from products.today.backend.facade.highlight_helpers import BAD_METRIC, MONEY, UNKNOWN_DIRECTION, detect, exact, short
 
-from ...facade.enums import HighlightLabel
-from ..highlight_rules import exact, short
-from ..highlight_series import pretty, usable_series
-from ..highlight_trends import BAD_METRIC, MONEY, UNKNOWN_DIRECTION, detect
-from ..highlight_types import Candidate, Context, Found, Source
+from .series import pretty, usable_series
 
 HOME_WORSE = "‘{name}’ {moved} by {pct}% last {period}"
 HOME_WORSE_SERIES = "‘{name}’ ({series}) {moved} by {pct}% last {period}"
@@ -23,10 +22,10 @@ MIN_VALUE = 200
 MIN_DIFFERENCE = 50
 
 
-def find(context: Context) -> Found:
+def find_home(context: HighlightContext) -> HighlightFindings:
     home = home_dashboard_insights(team=context.team, user=context.user, limit=HOME_TILES)
     if home is None:
-        return Found()
+        return HighlightFindings()
     found = [
         context.guard(
             f"tile {tile.insight_short_id}",
@@ -43,7 +42,7 @@ def find(context: Context) -> Found:
         )
         for tile in home.tiles
     ]
-    return Found(items=tuple(candidate for candidate in found if candidate is not None))
+    return HighlightFindings(items=tuple(candidate for candidate in found if candidate is not None))
 
 
 def _url(short_id: str, dashboard_id: int, dashboard: InsightDashboardContext) -> str:
@@ -58,7 +57,9 @@ def _url(short_id: str, dashboard_id: int, dashboard: InsightDashboardContext) -
     return f"/insights/{short_id}?{urlencode(params, quote_via=quote)}"
 
 
-def _tile(context: Context, short_id: str, dashboard_id: int, dashboard: InsightDashboardContext) -> Candidate | None:
+def _tile(
+    context: HighlightContext, short_id: str, dashboard_id: int, dashboard: InsightDashboardContext
+) -> HighlightCandidate | None:
     insight = get_insight_series(team=context.team, user=context.user, short_id=short_id, dashboard=dashboard)
     if insight is None:
         return None
@@ -85,7 +86,7 @@ def _tile(context: Context, short_id: str, dashboard_id: int, dashboard: Insight
     if not money and (max(abs(now), abs(before)) < MIN_VALUE or abs(now - before) < MIN_DIFFERENCE):
         return None
     measured = short(pretty(name), 30) if len(series) > 1 and insight.name else ""
-    return Candidate(
+    return HighlightCandidate(
         key=f"home:{short_id}",
         label=HighlightLabel.RISK,
         family="home",
@@ -105,6 +106,3 @@ def _tile(context: Context, short_id: str, dashboard_id: int, dashboard: Insight
         ref=short_id,
         series=values[-8:],
     )
-
-
-SOURCE = Source(name="home", find=find, scopes=("dashboard:read", "insight:read"))

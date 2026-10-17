@@ -8,10 +8,10 @@ from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
+from products.customer_analytics.backend import today_highlights
 from products.customer_analytics.backend.facade.contracts import KeyMetric
-from products.today.backend.logic.highlight_registry import load_sources
-from products.today.backend.logic.highlight_sources import key_metrics
-from products.today.backend.logic.highlight_types import Context, DailyValueNotReady
+from products.customer_analytics.backend.facade.today_highlights import HIGHLIGHT_SOURCES
+from products.today.backend.facade.contracts import DailyValueNotReady, HighlightContext
 
 TODAY = date(2026, 10, 13)
 
@@ -57,16 +57,16 @@ class TestKeyMetrics(SimpleTestCase):
             metric("activity_event", [20.0] * 35, people=True),
         ]
         context = cast(
-            Context,
+            HighlightContext,
             SimpleNamespace(
                 team=SimpleNamespace(id=1),
                 user=SimpleNamespace(id=2),
                 today=TODAY,
             ),
         )
-        registered = next(s for s in load_sources() if s.name == "key_metrics")
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "key_metrics")
 
-        with patch.object(key_metrics, "get_key_metrics", return_value=metrics):
+        with patch.object(today_highlights, "get_key_metrics", return_value=metrics):
             found = registered.find(context)
 
         self.assertEqual(
@@ -86,8 +86,13 @@ class TestKeyMetrics(SimpleTestCase):
         )
 
     def test_a_pending_calculation_asks_for_a_quick_retry(self) -> None:
-        context = cast(Context, SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=2), today=TODAY))
-        registered = next(s for s in load_sources() if s.name == "key_metrics")
+        context = cast(
+            HighlightContext, SimpleNamespace(team=SimpleNamespace(id=1), user=SimpleNamespace(id=2), today=TODAY)
+        )
+        registered = next(s for s in HIGHLIGHT_SOURCES if s.name == "key_metrics")
 
-        with patch.object(key_metrics, "get_key_metrics", return_value=None), self.assertRaises(DailyValueNotReady):
+        with (
+            patch.object(today_highlights, "get_key_metrics", return_value=None),
+            self.assertRaises(DailyValueNotReady),
+        ):
             registered.find(context)

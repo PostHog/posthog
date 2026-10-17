@@ -35,6 +35,5 @@ Import only from Today's facade:
 `HighlightContext.daily()` caches one value per team, property restrictions and day, so every viewer with the same restrictions shares it.
 Never compute a per-viewer value there without the user id in its name.
 
-**Status:** `backend/logic/highlight_sources/` is deprecated.
-The sources in it still load, through legacy aliases in `logic/highlight_types.py`, until each one moves into its product.
-Do not add a file there and do not copy those files as an example.
+**Status:** every source lives in its owning product.
+`backend/logic/highlight_sources/` and its legacy aliases are gone, so a source there no longer loads.

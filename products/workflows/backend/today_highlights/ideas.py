@@ -1,21 +1,20 @@
+from products.today.backend.facade.contracts import HighlightCandidate, HighlightContext, HighlightFindings
+from products.today.backend.facade.enums import HighlightLabel
+from products.today.backend.facade.highlight_helpers import exact
 from products.workflows.backend.facade.data_suggestions import count_waiting_data_suggestions
-
-from ...facade.enums import HighlightLabel
-from ..highlight_rules import exact
-from ..highlight_types import Candidate, Context, Found, Source
 
 IDEAS = "{count} workflow ideas based on your events are ready"
 IDEA = "1 workflow idea based on your events is ready"
 IDEAS_DETAIL = "Pick one to build it as a draft workflow"
 
 
-def find(context: Context) -> Found:
+def find_workflow_ideas(context: HighlightContext) -> HighlightFindings:
     count = count_waiting_data_suggestions(team=context.team, user=context.user)
     if not count:
-        return Found()
-    return Found(
+        return HighlightFindings()
+    return HighlightFindings(
         items=(
-            Candidate(
+            HighlightCandidate(
                 key="workflow-ideas",
                 label=HighlightLabel.OPPORTUNITY,
                 family="workflows",
@@ -27,6 +26,3 @@ def find(context: Context) -> Found:
             ),
         )
     )
-
-
-SOURCE = Source(name="workflow_ideas", find=find, scopes=("hog_flow:read",))

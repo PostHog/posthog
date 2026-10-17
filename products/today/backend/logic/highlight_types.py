@@ -21,17 +21,7 @@ from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
 )
 
-from ..facade.contracts import (
-    DailyValueNotReady,
-    HighlightCandidate,
-    HighlightContext,
-    HighlightFindings,
-    HighlightSource,
-)
-
-# Legacy names for the sources still in highlight_sources/. New sources use the facade contract.
-Candidate = HighlightCandidate
-Found = HighlightFindings
+from ..facade.contracts import DailyValueNotReady
 
 logger = structlog.get_logger(__name__)
 T = TypeVar("T")
@@ -103,15 +93,3 @@ class Context:
                 self.failures.append(name)
                 capture_exception(error, {"provider": name, "team_id": self.team.id})
             return default
-
-
-def Source(  # noqa: N802 - keeps the legacy name the sources in highlight_sources/ call
-    *, name: str, find: Callable[[Context], HighlightFindings], scopes: tuple[str, ...] = (), pulse_order: int = 0
-) -> HighlightSource:
-    # A legacy source reads Today's own Context. Today always calls it with one, so the cast holds.
-    return HighlightSource(
-        name=name,
-        find=cast(Callable[[HighlightContext], HighlightFindings], find),
-        scopes=scopes,
-        pulse_order=pulse_order,
-    )
