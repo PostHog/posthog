@@ -387,10 +387,11 @@ def get_logs_api_team_rate_limiter() -> RateLimit:
             limit_name="logs_api_per_team",
             get_task_name=lambda *args, **kwargs: f"logs_api:query:per-team:{kwargs.get('team_id')}",
             get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
-            # A slot is held for a whole request, which can run up to four time slices. Each slice can run for the
-            # default HogQL max_execution_time of 60 seconds. The ttl must outlast that, or the slot expires while
-            # the request still queries ClickHouse.
-            ttl=300,
+            # A slot is held for a whole request. The longest request is patterns_diff, which runs six sequential
+            # queries (three per window) of up to 60 seconds each, the default max_execution_time. The ttl must
+            # outlast that, or the slot expires while the request still queries ClickHouse. A worker that dies
+            # without releasing its slot keeps it for the full ttl, so the ttl stays close to that bound.
+            ttl=450,
             retry=0.134,
             # A waiting request holds a web worker, so a burst gets a quick 429 instead of a long queue.
             retry_timeout=2.0,
