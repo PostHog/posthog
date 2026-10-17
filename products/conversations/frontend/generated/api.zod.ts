@@ -10,6 +10,23 @@
 import * as zod from 'zod'
 
 /**
+ * Save your own email signature for support replies in this project.
+ */
+export const conversationsMySignatureCreateBodyTextMax = 1000
+
+export const ConversationsMySignatureCreateBody = /* @__PURE__ */ zod.object({
+    text: zod
+        .string()
+        .max(conversationsMySignatureCreateBodyTextMax)
+        .describe(
+            'Plain-text signature added to the end of support emails you send from this project. Line breaks are kept. Empty means no signature.'
+        ),
+    include_profile_picture: zod
+        .boolean()
+        .describe('Whether to show your Gravatar profile picture next to the signature.'),
+})
+
+/**
  * Handle ticket updates including assignee changes.
  */
 export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod

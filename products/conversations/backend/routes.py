@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.conversations.backend.api import (
+    AgentSignatureViewSet,
     AIContextAccountPropertiesViewSet,
     AIReplyPlaybookViewSet,
     TicketViewSet,
@@ -39,5 +40,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"conversations/ai_context_account_properties",
         AIContextAccountPropertiesViewSet,
         "project_conversations_ai_context_account_properties",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"conversations/my_signature",
+        AgentSignatureViewSet,
+        "project_conversations_my_signature",
         ["team_id"],
     )
