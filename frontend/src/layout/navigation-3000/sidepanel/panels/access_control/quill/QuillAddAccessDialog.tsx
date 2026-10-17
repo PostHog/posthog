@@ -36,6 +36,9 @@ import { QuillPersonAvatar } from '../../../components/QuillPersonAvatar'
 import { accessControlLogic } from '../accessControlLogic'
 import { QuillAccessLevelSelect } from './QuillAccessLevelSelect'
 
+// The same cap as the LemonUI member picker.
+const MAX_PICKER_RESULTS = 100
+
 export interface AddAccessOption {
     key: string
     /** What the search matches against. */
@@ -102,6 +105,8 @@ export function QuillAddAccessDialog(props: QuillAddAccessDialogProps): JSX.Elem
                                 multiple
                                 autoHighlight
                                 items={props.options.map((option) => option.key)}
+                                // Large organizations have thousands of members, so the list shows the top matches only.
+                                limit={MAX_PICKER_RESULTS}
                                 itemToStringLabel={(key: string) => optionsByKey[key]?.searchLabel ?? key}
                                 value={items}
                                 onValueChange={(next: string[]) => setItems(next ?? [])}

@@ -99,7 +99,8 @@ export function QuillActivityList(): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             {allActivity.map((logItem, index) => (
-                <QuillActivityLogRow logItem={logItem} key={index} />
+                // Keyed by the activity, so a row's expanded state never carries over to a different entry.
+                <QuillActivityLogRow logItem={logItem} key={logItem.id ?? index} />
             ))}
             <div className="flex items-center justify-center py-2">
                 {allActivityResponseLoading ? (
