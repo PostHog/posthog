@@ -3,11 +3,14 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import Mock
 
 from django.db import connection
+from django.db.models import Model
 from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
 
 from posthog.api.search import ENTITY_MAP, SEARCHABLE_ENTITIES, class_queryset, search_entities
 from posthog.helpers.full_text_search import build_search_vector, process_query
-from posthog.models import OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, PropertyDefinition, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -223,14 +226,25 @@ class TestSearch(APIBaseTest):
         response = self.client.get("/api/projects/@current/search?q=%21%3A%28%29%5B%5D%26%7C%3C%3E%20str1%20str2")
         self.assertEqual(response.status_code, 200)
 
-    def test_event_definitions(self):
-        EventDefinition.objects.create(name="first event", team=self.team)
-        EventDefinition.objects.create(name="second event", team=self.team)
-        EventDefinition.objects.create(name="third event", team=self.team)
+    @parameterized.expand([("event_definition", EventDefinition), ("property_definition", PropertyDefinition)])
+    def test_taxonomy_definitions_are_scoped_by_indexed_project_key(self, entity: str, klass: type[Model]) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        klass.objects.create(name="first definition", team=self.team)
+        klass.objects.create(name="second definition", team=self.team)
+        klass.objects.create(name="second definition", team=other_team)
 
-        response = self.client.get("/api/projects/@current/search?q=sec&entities=event_definition")
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(f"/api/projects/@current/search?q=sec&entities={entity}")
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["counts"][entity], 1)
+        self.assertEqual([r["extra_fields"]["name"] for r in response.json()["results"]], ["second definition"])
+        table = klass._meta.db_table
+        search_sql = [q["sql"] for q in queries.captured_queries if table in q["sql"]]
+        self.assertTrue(search_sql)
+        for sql in search_sql:
+            self.assertIn(f'COALESCE("{table}"."project_id", "{table}"."team_id")', sql)
+            self.assertNotIn('JOIN "posthog_team"', sql)
 
     def test_early_access_features(self):
         EarlyAccessFeature.objects.create(name="first feature", team=self.team, stage="beta")
