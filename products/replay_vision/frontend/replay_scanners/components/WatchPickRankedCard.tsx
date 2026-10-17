@@ -3,6 +3,7 @@ import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
@@ -12,6 +13,7 @@ import { UnviewedObservationTag } from '../../components/UnviewedObservationTag'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
 import { SCANNER_TYPE_TAG_TYPE } from '../types'
+import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchFeedRowWhy } from './WatchFeedCard'
@@ -29,14 +31,16 @@ const SCORE_DOTS = 5
 
 export function WatchPickRankedCard({ item, position, surface, rank }: WatchPickRankedCardProps): JSX.Element {
     const [hasOpenedPreview, setHasOpenedPreview] = useState(false)
-    const { watchPick } = useActions(watchPicksLogic)
+    const { watchPick, cardSeen } = useActions(watchPicksLogic)
     const { observation, reason } = item
+    const cardRef = useAutoMarkRead(true, () => cardSeen(item, position, surface), CARD_SEEN_DWELL_MS)
     const { title, scannerName, scannerType } = watchPickSummary(observation)
     const signalsCount = reason.signals_count ?? 0
     const notability = typeof reason.notability === 'number' ? reason.notability : null
 
     return (
         <div
+            ref={cardRef}
             className="group relative"
             data-attr="vision-watch-ranked-card"
             onMouseEnter={() => setHasOpenedPreview(true)}

@@ -2,12 +2,14 @@ import { useActions } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { TZLabel } from 'lib/components/TZLabel'
 import { cn } from 'lib/utils/css-classes'
 
 import { ObservationThumbnail } from '../../components/ObservationThumbnail'
 import type { WatchFeedItemApi } from '../../generated/api.schemas'
 import { citedTextToPlainText } from '../../utils/citations'
+import { CARD_SEEN_DWELL_MS } from '../watchFeedTelemetry'
 import { type WatchPickSurface, watchPicksLogic } from '../watchPicksLogic'
 import { watchPickSummary } from '../watchPickSummary'
 import { watchFeedRowWhy } from './WatchFeedCard'
@@ -23,12 +25,14 @@ interface WatchPickRowProps {
 }
 
 export function WatchPickRow({ item, position, surface, isActive, rank }: WatchPickRowProps): JSX.Element {
-    const { watchPick } = useActions(watchPicksLogic)
+    const { watchPick, cardSeen } = useActions(watchPicksLogic)
     const { observation, reason } = item
     const { title, scannerName } = watchPickSummary(observation)
+    const rowRef = useAutoMarkRead(true, () => cardSeen(item, position, surface), CARD_SEEN_DWELL_MS)
 
     return (
         <LemonButton
+            ref={rowRef}
             fullWidth
             size="small"
             active={isActive}

@@ -110,6 +110,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
     hydrate_for_serialization,
 )
+from products.replay_vision.backend.models.replay_observation_feed_dismissal import ReplayObservationFeedDismissal
 from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
@@ -2596,6 +2597,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # Row-gate on each row's snapshot experiment before ranking, so a restricted row can't take a slot.
         candidates = accessible_observations(self.user_access_control, self.team_id, candidates)
         viewer_id = cast(User, request.user).id
+        # Before ranking, so a row the viewer marked not useful neither takes a slot nor shifts the window baselines.
+        candidates = candidates.exclude(
+            Exists(ReplayObservationFeedDismissal.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
+        )
         viewed = Exists(ReplayObservationView.objects.filter(observation_id=OuterRef("id"), user_id=viewer_id))
         candidate_rows = list(
             candidates.annotate(

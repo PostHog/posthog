@@ -52693,6 +52693,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `not_a_real_problem` - Not a real problem
+     * * `already_known` - Already known
+     * * `not_my_area` - Not my area
+     * * `other` - Other
+     */
+    export type FeedDismissalReasonEnum = typeof FeedDismissalReasonEnum[keyof typeof FeedDismissalReasonEnum];
+
+
+    export const FeedDismissalReasonEnum = {
+      NotARealProblem: 'not_a_real_problem',
+      AlreadyKnown: 'already_known',
+      NotMyArea: 'not_my_area',
+      Other: 'other',
+    } as const;
+
+    /**
      * Structured element metadata (inferred selectors, attributes, component hints).
      */
     export type FieldNoteElementContext = { [key: string]: unknown };
@@ -68716,6 +68732,19 @@ export namespace Schemas {
       exported_asset_id?: string | null;
       /** @nullable */
       event_definition_id?: string | null;
+    }
+
+    /**
+     * Why the calling user marked an observation not useful in What to watch.
+     */
+    export interface ObservationFeedDismissal {
+      /** Optional reason the observation was not useful. Omit or send null when the user gave none.
+       *
+       * * `not_a_real_problem` - Not a real problem
+       * * `already_known` - Already known
+       * * `not_my_area` - Not my area
+       * * `other` - Other */
+      reason?: FeedDismissalReasonEnum | null;
     }
 
     export interface ObservationLabelDayCount {

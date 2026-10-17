@@ -856,6 +856,34 @@ export interface CreateTaskFromObservationResponseApi {
 }
 
 /**
+ * * `not_a_real_problem` - Not a real problem
+ * * `already_known` - Already known
+ * * `not_my_area` - Not my area
+ * * `other` - Other
+ */
+export type FeedDismissalReasonEnumApi = (typeof FeedDismissalReasonEnumApi)[keyof typeof FeedDismissalReasonEnumApi]
+
+export const FeedDismissalReasonEnumApi = {
+    NotARealProblem: 'not_a_real_problem',
+    AlreadyKnown: 'already_known',
+    NotMyArea: 'not_my_area',
+    Other: 'other',
+} as const
+
+/**
+ * Why the calling user marked an observation not useful in What to watch.
+ */
+export interface ObservationFeedDismissalApi {
+    /** Optional reason the observation was not useful. Omit or send null when the user gave none.
+     *
+     * * `not_a_real_problem` - Not a real problem
+     * * `already_known` - Already known
+     * * `not_my_area` - Not my area
+     * * `other` - Other */
+    reason?: FeedDismissalReasonEnumApi | null
+}
+
+/**
  * Async-accepted response for POST /vision/scanners/{id}/observations/{id}/retry/.
  */
 export interface RetryResponseApi {
