@@ -157,7 +157,7 @@ export async function computeClickmapBoxes(
     statsRows: ElementStatsResponseApi['results'],
     snapshotDocument: Document,
     snapshotWindow: { scrollX: number; scrollY: number } | null,
-    { dataAttributes, matchLinksByHref, useDiscriminators, onSlice }: ClickmapComputeOptions
+    { dataAttributes, matchLinksByHref, onSlice }: ClickmapComputeOptions
 ): Promise<ClickmapComputeResult> {
     const domIndex = buildDOMIndex(collectAllElementsDeep('*', snapshotDocument) as HTMLElement[])
     const countsByElement = new Map<HTMLElement, ElementCounts>()
@@ -169,7 +169,6 @@ export async function computeClickmapBoxes(
         const match = matchEventToElementUsingIndex(row as unknown as ElementsEventType, domIndex, {
             dataAttributes,
             matchLinksByHref,
-            useDiscriminators,
         })
         if (match) {
             const chain = row.elements as unknown as ElementsEventType['elements']
@@ -497,7 +496,6 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 return
             }
 
-            const useDiscriminators = !!values.featureFlags[FEATURE_FLAGS.HEATMAPS_CLICKMAP_DISCRIMINATORS]
             const { boxes, consistentClicks, inconsistentClicks } = await computeClickmapBoxes(
                 statsRows,
                 snapshotDocument,
@@ -505,7 +503,6 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 {
                     dataAttributes: values.wantedDataAttributes,
                     matchLinksByHref: values.matchLinksByHref,
-                    useDiscriminators,
                     onSlice: breakpoint,
                 }
             )
@@ -514,7 +511,6 @@ export const recordingClickmapLogic = kea<recordingClickmapLogicType>([
                 matched_elements: boxes.length,
                 has_more: !!values.elementStats?.next,
                 ...chainConsistencyProperties({
-                    useDiscriminators,
                     consistentClicks,
                     inconsistentClicks,
                     matchedClicks: boxes.reduce((total, box) => total + box.count, 0),

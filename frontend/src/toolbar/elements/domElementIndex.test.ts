@@ -399,7 +399,6 @@ describe('domElementIndex', () => {
                     { tag_name: 'nav', attr_class: ['menu'] },
                 ],
                 expectedId: 'target',
-                expectedIdWhenOff: null,
             },
             {
                 name: 'breaks a structural tie using the captured text when there is no href',
@@ -414,7 +413,6 @@ describe('domElementIndex', () => {
                     { tag_name: 'div', attr_class: ['toolbar'] },
                 ],
                 expectedId: 'target',
-                expectedIdWhenOff: null,
             },
             {
                 name: 'rejects a lone survivor the chain contradicts and resolves the real element',
@@ -427,7 +425,6 @@ describe('domElementIndex', () => {
                     { tag_name: 'nav', attr_class: ['group', 'expanded'] },
                 ],
                 expectedId: 'target',
-                expectedIdWhenOff: 'decoy',
             },
             {
                 name: 'returns null rather than attributing to an element the chain contradicts',
@@ -440,7 +437,6 @@ describe('domElementIndex', () => {
                     { tag_name: 'nav', attr_class: ['group', 'expanded'] },
                 ],
                 expectedId: null,
-                expectedIdWhenOff: 'decoy',
             },
             {
                 name: 'narrows by href first, then breaks the remaining tie with the captured text',
@@ -456,7 +452,6 @@ describe('domElementIndex', () => {
                     { tag_name: 'nav', attr_class: ['menu'] },
                 ],
                 expectedId: 'target',
-                expectedIdWhenOff: null,
             },
             {
                 name: 'still matches when captured text is truncated relative to the live DOM',
@@ -471,22 +466,16 @@ describe('domElementIndex', () => {
                     { tag_name: 'div', attr_class: ['toolbar'] },
                 ],
                 expectedId: 'target',
-                expectedIdWhenOff: null,
             },
         ]
 
-        it.each(
-            discriminatorCases.flatMap(({ expectedId, expectedIdWhenOff, ...rest }) => [
-                { ...rest, useDiscriminators: true, expected: expectedId },
-                { ...rest, useDiscriminators: false, expected: expectedIdWhenOff },
-            ])
-        )('$name (useDiscriminators=$useDiscriminators)', ({ html, event, useDiscriminators, expected }) => {
+        it.each(discriminatorCases)('$name', ({ html, event, expectedId }) => {
             const { container, cleanup } = createTestDOM(html)
             try {
                 const index = buildDOMIndex(getAllElements(container))
-                const result = matchEventToElementUsingIndex(createEvent(event), index, { useDiscriminators })
+                const result = matchEventToElementUsingIndex(createEvent(event), index)
 
-                expect(result?.element.id ?? null).toBe(expected)
+                expect(result?.element.id ?? null).toBe(expectedId)
             } finally {
                 cleanup()
             }
