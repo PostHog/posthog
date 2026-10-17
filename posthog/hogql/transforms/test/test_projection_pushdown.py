@@ -1,3 +1,6 @@
+import dataclasses
+from collections.abc import Callable
+
 import pytest
 from posthog.test.base import BaseTest
 
@@ -6,22 +9,23 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
-from posthog.hogql.transforms.projection_pushdown import pushdown_projections
+from posthog.hogql.transforms.projection_pushdown import COLUMN_READING_CLAUSES, pushdown_projections
 
 
 class TestProjectionPushdown(BaseTest):
     maxDiff = None
     snapshot: object
 
-    def _optimize(self, query_str: str):
+    def _optimize(self, query_str: str, dialect: HogQLDialect = "hogql"):
         """Helper: parse, resolve, and optimize a query"""
         modifiers = HogQLQueryModifiers(optimizeProjections=False)  # Disable automatic optimization
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=modifiers)
         query = parse_select(query_str)
-        prepared = prepare_ast_for_printing(query, context, dialect="hogql")
+        prepared = prepare_ast_for_printing(query, context, dialect=dialect)
         assert prepared is not None
         optimized = pushdown_projections(prepared, context)
         return optimized
@@ -631,3 +635,190 @@ class TestProjectionPushdown(BaseTest):
         assert isinstance(inner, ast.SelectQuery)
         column_names = {self._col_name(col) for col in inner.select}
         assert column_names == {"event", "properties"}, f"pruner dropped the property base column: got {column_names}"
+
+    @parameterized.expand(
+        [
+            ("array_join", "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, [1, 2] AS b)) AS sub ARRAY JOIN b AS x"),
+            (
+                "window",
+                "SELECT a, row_number() OVER w FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub WINDOW w AS (ORDER BY b)",
+            ),
+            ("qualify", "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub QUALIFY b = 2"),
+            (
+                "interpolate",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub ORDER BY a WITH FILL INTERPOLATE (sub.b)",
+            ),
+            ("limit_by", "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub LIMIT 1 BY b"),
+        ]
+    )
+    def test_column_read_only_by_one_clause_is_kept(self, _name: str, query_str: str):
+        # `b` is read only by the clause under test. If demand collection skips that clause, the pruner
+        # drops `b` from the subquery and ClickHouse fails with an unknown identifier.
+        optimized = self._optimize(query_str)
+
+        inner = optimized.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        assert {self._col_name(col) for col in inner.select} == {"a", "b"}
+
+    @parameterized.expand(
+        [
+            ("order_by", "ORDER BY 3", "hogql", ["a", "c"], lambda q: [o.expr.value for o in q.order_by], [2]),
+            ("limit_by", "LIMIT 1 BY 3", "hogql", ["a", "c"], lambda q: [e.value for e in q.limit_by.exprs], [2]),
+            (
+                "group_by",
+                "GROUP BY 1, 2, 3",
+                "hogql",
+                ["a", "b", "c"],
+                lambda q: [e.value for e in q.group_by],
+                [1, 2, 3],
+            ),
+            (
+                "grouping_sets",
+                "GROUP BY GROUPING SETS ((1, 2, 3), (1))",
+                "hogql",
+                ["a", "b", "c"],
+                lambda q: [e.value for grouping_set in q.group_by for e in grouping_set.exprs],
+                [1, 2, 3, 1],
+            ),
+            ("negative", "ORDER BY -1", "hogql", ["a", "b", "c"], lambda q: [o.expr.value for o in q.order_by], [-1]),
+            ("positional_ref", "ORDER BY #3", "duckdb", ["a", "c"], lambda q: [o.expr.index for o in q.order_by], [2]),
+        ]
+    )
+    def test_positional_reference_keeps_its_column(
+        self,
+        _name: str,
+        clause: str,
+        dialect: HogQLDialect,
+        expected_columns: list[str],
+        positions_of: Callable[[ast.SelectQuery], list[int]],
+        expected_positions: list[int],
+    ):
+        # A position counts select columns, so pruning a column before it makes the position name another
+        # column (wrong rows) or run past the end (an error). A negative position counts from the end, so
+        # any pruning moves it.
+        optimized = self._optimize(
+            f"SELECT a FROM (SELECT * FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b, 3 AS c)) {clause}) AS sub",
+            dialect=dialect,
+        )
+
+        middle = optimized.select_from.table
+        assert isinstance(middle, ast.SelectQuery)
+        inner = middle.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        assert [self._col_name(col) for col in middle.select] == expected_columns
+        assert [self._col_name(col) for col in inner.select] == expected_columns
+        assert positions_of(middle) == expected_positions
+
+    def test_positional_reference_in_cte_is_renumbered_once(self):
+        # A CTE is pruned in its own visit and again by the query that defines it. Renumbering twice
+        # would move `ORDER BY 3` past `c` to the wrong column.
+        optimized = self._optimize(
+            "WITH s AS (SELECT * FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b, 3 AS c)) ORDER BY 3) SELECT a FROM s"
+        )
+
+        cte = optimized.ctes["s"].expr
+        assert isinstance(cte, ast.SelectQuery)
+        assert [self._col_name(col) for col in cte.select] == ["a", "c"]
+        assert [order.expr.value for order in cte.order_by] == [2]
+
+    @parameterized.expand(
+        [
+            ("distinct", "SELECT a FROM (SELECT DISTINCT * FROM (SELECT 1 AS a, 2 AS b)) AS sub"),
+            ("group_by_all", "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b) GROUP BY ALL) AS sub"),
+        ]
+    )
+    def test_select_list_that_defines_rows_keeps_every_column(self, _name: str, query_str: str):
+        # DISTINCT and GROUP BY ALL compare every selected column. Dropping `b` merges rows that differ
+        # only in `b`, so an outer count() returns fewer rows with no error.
+        optimized = self._optimize(query_str)
+
+        inner = optimized.select_from.table
+        assert isinstance(inner, ast.SelectQuery)
+        assert [self._col_name(col) for col in inner.select] == ["a", "b"]
+
+    @parameterized.expand(
+        [
+            (
+                "union_distinct",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b) UNION DISTINCT SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub",
+                [["a", "b"], ["a", "b"]],
+            ),
+            (
+                "intersect",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b) INTERSECT SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub",
+                [["a", "b"], ["a", "b"]],
+            ),
+            (
+                "except",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b) EXCEPT SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub",
+                [["a", "b"], ["a", "b"]],
+            ),
+            (
+                "intersect_inside_union_all",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b) UNION ALL "
+                "(SELECT * FROM (SELECT 1 AS a, 2 AS b) INTERSECT SELECT * FROM (SELECT 1 AS a, 2 AS b))) AS sub",
+                [["a", "b"], ["a", "b"], ["a", "b"]],
+            ),
+            (
+                "position_in_one_branch",
+                "SELECT a FROM ((SELECT * FROM (SELECT 1 AS a, 2 AS b) ORDER BY 2 LIMIT 1) UNION ALL "
+                "SELECT * FROM (SELECT 1 AS a, 2 AS b)) AS sub",
+                [["a", "b"], ["a", "b"]],
+            ),
+            (
+                "explicit_columns_in_one_branch",
+                "SELECT a FROM (SELECT * FROM (SELECT 1 AS a, 2 AS b) UNION ALL SELECT 1 AS a, 2 AS b) AS sub",
+                [["a", "b"], ["a", "b"]],
+            ),
+            (
+                "cte_demands_that_grow_after_the_first_pass",
+                "WITH u AS (SELECT * FROM (SELECT 1 AS a, 2 AS b) UNION ALL SELECT * FROM (SELECT 1 AS a, 2 AS c)) "
+                "SELECT a FROM u UNION ALL SELECT b FROM u",
+                [["a", "b"], ["a", "c"]],
+            ),
+        ]
+    )
+    def test_set_operation_branches_stay_whole_unless_they_prune_alike(
+        self, _name: str, query_str: str, expected_branch_columns: list[list[str]]
+    ):
+        # Branches line up by position. UNION DISTINCT, INTERSECT and EXCEPT compare whole rows, and a
+        # branch that keeps a column its sibling drops makes ClickHouse reject the column counts.
+        optimized = self._optimize(query_str)
+
+        if isinstance(optimized, ast.SelectSetQuery):
+            first = optimized.initial_select_query
+            assert isinstance(first, ast.SelectQuery) and first.ctes is not None
+            set_query = first.ctes["u"].expr
+        else:
+            set_query = optimized.select_from.table
+        assert isinstance(set_query, ast.SelectSetQuery)
+        assert [[self._col_name(col) for col in leaf.select] for leaf in _leaves(set_query)] == expected_branch_columns
+
+
+def _leaves(node: ast.SelectQuery | ast.SelectSetQuery) -> list[ast.SelectQuery]:
+    if isinstance(node, ast.SelectQuery):
+        return [node]
+    return [leaf for query in node.select_queries() for leaf in _leaves(query)]
+
+
+def test_every_select_query_field_is_classified_for_demand_collection():
+    # A clause added to SelectQuery but not to COLUMN_READING_CLAUSES never records the columns it
+    # reads, so the pruner drops them. ctes, select and select_from have their own phases.
+    not_column_reading = {
+        "start",
+        "end",
+        "type",
+        "ctes",
+        "select",
+        "select_from",
+        "distinct",
+        "array_join_op",
+        "group_by_mode",
+        "limit_with_ties",
+        "limit_percent",
+        "settings",
+        "view_name",
+    }
+    fields = {field.name for field in dataclasses.fields(ast.SelectQuery)}
+
+    assert fields == set(COLUMN_READING_CLAUSES) | not_column_reading
