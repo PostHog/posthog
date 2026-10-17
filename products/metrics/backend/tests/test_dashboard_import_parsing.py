@@ -495,12 +495,17 @@ def test_imported_variable_regex_keeps_its_flags() -> None:
     assert [definition.regex for definition in variables.definitions()] == ["/api-(.*)/i"]
 
 
-def test_an_all_value_keeps_its_grafana_text() -> None:
+@pytest.mark.parametrize(
+    "expr, all_value",
+    [('up{job=~"$job"}', "api\\\\..*"), ("up{job=~`$job`}", "api\\..*")],
+)
+def test_an_all_value_keeps_its_grafana_text(expr: str, all_value: str) -> None:
     variables = TemplateVariables.from_templating(
-        [{"name": "job", "type": "custom", "query": "a,b", "allValue": "api\\\\..*", "current": {"value": "$__all"}}]
+        [{"name": "job", "type": "custom", "query": "a,b", "allValue": all_value, "current": {"value": "$__all"}}]
     )
 
-    assert variables.substitute('up{job=~"$job"}').text == 'up{job=~"api\\\\..*"}'
+    assert variables.substitute(expr).text == expr.replace("$job", all_value)
+    assert variables.definitions() == []
 
 
 def test_a_listed_all_matches_only_the_listed_values() -> None:
@@ -590,6 +595,14 @@ def test_a_query_that_saved_values_would_make_too_long_stays_static() -> None:
     job = {"name": "job", "type": "query", "query": 'label_values(up{a=~"$big"}, b)', "current": {"value": "a"}}
 
     assert TemplateVariables.from_templating([big, job]).definitions() == []
+
+
+def test_the_size_bound_counts_both_escapes() -> None:
+    dots = {"name": "dots", "type": "interval", "current": {"value": "." * 1000}}
+    query = "label_values(up{" + ", ".join(f'l{index}=~"$dots"' for index in range(4)) + "}, b)"
+    job = {"name": "job", "type": "query", "query": query, "current": {"value": "a"}}
+
+    assert TemplateVariables.from_templating([dots, job]).definitions() == []
 
 
 def test_a_long_chain_of_unresolvable_variables_stays_static() -> None:
