@@ -15,7 +15,6 @@ import { ApiError } from 'lib/api'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge, useResizeHandleScrollbarPassThrough } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { TileDecorations } from 'lib/components/TileDecorations/TileDecorations'
-import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
@@ -50,6 +49,7 @@ import {
     getLayoutAfterSectionChange,
     getSectionLayouts,
 } from 'products/dashboards/frontend/dashboardTileSections'
+import { useDashboardGridWidth } from 'products/dashboards/frontend/useDashboardGridWidth'
 
 import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardErrorTileItem } from './items/DashboardErrorTileItem'
@@ -58,7 +58,6 @@ const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
 
 const BASE_ROW_HEIGHT = 80
-const GRID_WIDTH_DEBOUNCE_MS = 100
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
@@ -90,7 +89,7 @@ function WithMeasuredWidth({
     children: (width: number) => JSX.Element
 }): JSX.Element {
     const { width, containerRef, mounted } = useContainerWidth({ initialWidth })
-    const debouncedWidth = useDebouncedValue(width, GRID_WIDTH_DEBOUNCE_MS)
+    const debouncedWidth = useDashboardGridWidth(width)
     return <div ref={containerRef as RefObject<HTMLDivElement>}>{mounted && children(debouncedWidth)}</div>
 }
 
@@ -234,7 +233,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
     // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
-    const gridWidth = useDebouncedValue(width, GRID_WIDTH_DEBOUNCE_MS)
+    const gridWidth = useDashboardGridWidth(width)
 
     // Only the whole dashboard's width sets the breakpoint. A group's grid is narrower, and must not switch the
     // dashboard to the one-column layout.
