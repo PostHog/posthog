@@ -41,6 +41,7 @@ describe('groupNamedBySearch', () => {
         { searchQuery: 'session', offered: propertyPicker, expected: null },
         { searchQuery: 'person_id', offered: propertyPicker, expected: null },
         { searchQuery: 'email', offered: propertyPicker, expected: null },
+        { searchQuery: 'constructor', offered: propertyPicker, expected: null },
     ])('maps "$searchQuery" to $expected', ({ searchQuery, offered, expected }) => {
         expect(groupNamedBySearch(searchQuery, offered)).toEqual(expected)
     })
