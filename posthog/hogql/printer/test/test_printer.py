@@ -4010,6 +4010,35 @@ class TestPrinter(BaseTest):
         )
         assert "max_bytes_before_external_group_by=0" in printed, printed
 
+    @parameterized.expand(
+        [
+            (
+                "in_subquery_in_aggregate",
+                "SELECT countIf(distinct_id IN (SELECT distinct_id FROM events)) FROM events",
+                True,
+            ),
+            (
+                "not_in_subquery_in_aggregate",
+                "SELECT uniqIf(person_id, distinct_id NOT IN (SELECT distinct_id FROM events)) FROM events",
+                True,
+            ),
+            (
+                "in_subquery_in_where",
+                "SELECT count() FROM events WHERE distinct_id IN (SELECT distinct_id FROM events)",
+                False,
+            ),
+            ("in_tuple_in_aggregate", "SELECT countIf(distinct_id IN ('a', 'b')) FROM events", False),
+            (
+                "aggregate_inside_in_subquery",
+                "SELECT event FROM events WHERE distinct_id IN (SELECT distinct_id FROM events GROUP BY distinct_id HAVING count() > 1)",
+                False,
+            ),
+        ]
+    )
+    def test_subquery_set_in_aggregate_skips_local_replica(self, _name: str, query: str, expected: bool):
+        printed = self._print(query, settings=HogQLGlobalSettings())
+        assert ("prefer_localhost_replica=0" in printed) == expected, printed
+
     def test_print_query_level_settings(self):
         query = parse_select("SELECT 1 FROM events")
         assert isinstance(query, ast.SelectQuery)

@@ -31,7 +31,7 @@ from posthog.hogql.escape_sql import (
     quote_clickhouse_identifier,
     safe_identifier,
 )
-from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS, find_hogql_aggregation
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -140,9 +140,20 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
 )
 
 
+SET_MEMBERSHIP_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.NotIn,
+        ast.CompareOperationOp.GlobalIn,
+        ast.CompareOperationOp.GlobalNotIn,
+    }
+)
+
+
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
     _reads_native_events_table: bool = False
+    _has_subquery_set_in_aggregation: bool = False
 
     def visit_cte(self, node: ast.CTE):
         if node.materialized is False:
@@ -399,6 +410,13 @@ class ClickHousePrinter(BasePrinter):
             if self._reads_native_events_table:
                 # Property sub-objects and arrays must retain the slashes returned by legacy reads.
                 merged["output_format_json_escape_forward_slashes"] = False
+            # A bugfix workaround for `IN (subquery)` inside an aggregate, e.g. `countIf(x IN (SELECT ...))`.
+            # The set name `__set_<hash>` is part of the aggregate column name. In a distributed query, the local
+            # replica plan computes a different hash than the initiator header, so column matching fails with
+            # `Cannot find column countIf(nullIn(..., __set_<hash>))` (THERE_IS_NO_COLUMN). Same bug class as #64487.
+            # Remote replicas do not fail this way, so send the local shard through the remote path too.
+            if self._has_subquery_set_in_aggregation:
+                merged["prefer_localhost_replica"] = False
             if self.context.emit_top_level_settings:
                 printed = self._print_settings(merged)
                 if printed is not None:
@@ -786,12 +804,27 @@ class ClickHousePrinter(BasePrinter):
 
         return False
 
+    def _is_inside_aggregation(self) -> bool:
+        for stack_node in reversed(self.stack):
+            if isinstance(stack_node, ast.SelectQuery):
+                return False
+            if isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
+                return True
+        return False
+
     def visit_compare_operation(self, node: ast.CompareOperation):
         # $session_id comparisons optimize a real column (not a property), so they stay on the printer. Every
         # property-based skip-index rewrite (materialized column, property group) now runs in ClickHouse property
         # resolution, which emits the optimized form as AST before printing (see clickhouse_property_resolution.py).
         if optimized_session_id := self._get_optimized_session_id_compare_operation(node):
             return optimized_session_id
+
+        if (
+            node.op in SET_MEMBERSHIP_COMPARE_OPS
+            and isinstance(node.right, ast.SelectQuery | ast.SelectSetQuery)
+            and self._is_inside_aggregation()
+        ):
+            self._has_subquery_set_in_aggregation = True
 
         in_join_constraint = any(isinstance(item, ast.JoinConstraint) for item in self.stack)
         # indexHint() is purely an optimizer directive — its result is always true,
