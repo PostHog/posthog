@@ -121,6 +121,7 @@ describe('metricVariables', () => {
         ['a regex with the RE2 any-byte class', 'promql', '\\C+', undefined],
         ['a regex with the any-byte class inside a class', 'promql', '[\\C]', 'regex'],
         ['a PromQL query that is not an options function', 'promql', undefined, 'query', 'up'],
+        ['an options function in capitals', 'promql', undefined, 'query', 'LABEL_VALUES(job)'],
         ['a regex with small counted repeats', 'promql', '\\d{1,3}(\\.\\d{1,3}){3}', undefined],
     ])('checks the regex of %s', (_name, source, regex, field, query = 'label_values(job)') => {
         const variable = { name: 'v', source, query, customValues: ['a'], regex }

@@ -34,7 +34,8 @@ export function MetricVariableForm({ variable }: { variable: MetricsDashboardVar
     const error = ownValue(shownErrors, variable.name)
 
     return (
-        <div className="flex flex-col gap-4 flex-1 min-w-0">
+        // Queries and values hold customer data, so copying them captures no text.
+        <div className="ph-no-capture flex flex-col gap-4 flex-1 min-w-0">
             <div className="flex items-start gap-2">
                 <h3 className="font-mono m-0 truncate flex-1 min-w-0">${variable.name}</h3>
                 <LemonButton
@@ -165,8 +166,7 @@ export function MetricVariableForm({ variable }: { variable: MetricsDashboardVar
                             {previewError ? (
                                 <p className="text-danger text-sm m-0">{previewError}</p>
                             ) : preview?.length ? (
-                                // Query results can hold customer data, so copying a value captures no text.
-                                <div className="ph-no-capture flex flex-wrap gap-1 max-h-28 overflow-y-auto">
+                                <div className="flex flex-wrap gap-1 max-h-28 overflow-y-auto">
                                     {preview.slice(0, PREVIEW_LIMIT).map((option) => (
                                         <LemonTag key={option} className="font-mono">
                                             {option}
