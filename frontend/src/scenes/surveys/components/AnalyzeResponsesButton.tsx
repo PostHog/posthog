@@ -17,7 +17,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 const NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL = 5
 
 function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
-    const { survey, formattedOpenEndedResponses } = useValues(surveyLogic)
+    const { survey, formattedOpenEndedResponses, dataProcessingAccepted } = useValues(surveyLogic)
 
     const maxToolContext = useMemo(
         () => ({
@@ -28,10 +28,15 @@ function useSurveyAnalysisMaxTool(): ReturnType<typeof useMaxTool> {
         [survey.id, survey.name, formattedOpenEndedResponses]
     )
 
+    // Consent also gates the context below, so an organization without AI consent never attaches
+    // its survey responses to PostHog AI.
     const shouldShowMaxAnalysisTool = useMemo(() => {
+        if (!dataProcessingAccepted) {
+            return false
+        }
         const totalResponses = formattedOpenEndedResponses.reduce((acc, curr) => acc + curr.responses.length, 0)
         return totalResponses >= NUM_OF_RESPONSES_FOR_MAX_ANALYSIS_TOOL
-    }, [formattedOpenEndedResponses])
+    }, [formattedOpenEndedResponses, dataProcessingAccepted])
 
     useAttachedContext(
         shouldShowMaxAnalysisTool
