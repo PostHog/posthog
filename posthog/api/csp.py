@@ -239,6 +239,17 @@ def _ip_property(ip: Optional[str]) -> dict:
     return {"$ip": ip} if ip else {}
 
 
+# A site often holds its reporting endpoint to a stricter privacy rule than the rest of the
+# project, because the browser posts reports on its own and no SDK hook can edit them first.
+# `discard_ip` on the report URL drops the address for reports alone, which leaves the
+# project-level "Discard client IP data" setting free to stay off for other events.
+_DISCARD_IP_VALUES = frozenset({"1", "true", "yes"})
+
+
+def _discards_ip(request) -> bool:
+    return (request.GET.get("discard_ip") or "").strip().lower() in _DISCARD_IP_VALUES
+
+
 class CSPReportTooLarge(Exception):
     pass
 
@@ -313,7 +324,7 @@ def process_csp_report(request):
         session_id = request.GET.get("session_id") or str(uuid7())
         version = request.GET.get("v") or "unknown"
         user_agent = request.headers.get("User-Agent")
-        ip = get_ip_address(request)
+        ip = None if _discards_ip(request) else get_ip_address(request)
 
         try:
             sample_rate = request.GET.get("sample_rate", 1.0)
