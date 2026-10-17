@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import cast
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 from posthog.management.desktop_feature_flag_sync import load_desktop_feature_flags
 from posthog.models import Team, User
@@ -32,7 +32,7 @@ INACTIVE_FLAGS = [
     "today-rail-nav",
 ]
 
-FRONTEND_FEATURE_FLAGS_PATH = Path("frontend/src/lib/constants.tsx")
+FRONTEND_FEATURE_FLAGS_PATH = Path(__file__).resolve().parents[3] / "frontend" / "src" / "lib" / "constants.tsx"
 
 FeatureFlagDefinition = str | list[str]
 
@@ -66,6 +66,8 @@ def parse_frontend_feature_flags(lines: Iterable[str]) -> dict[str, FeatureFlagD
 
 
 def load_feature_flags() -> dict[str, FeatureFlagDefinition]:
+    if not FRONTEND_FEATURE_FLAGS_PATH.is_file():
+        raise CommandError(f"Frontend feature flags file not found: {FRONTEND_FEATURE_FLAGS_PATH}")
     flags = parse_frontend_feature_flags(FRONTEND_FEATURE_FLAGS_PATH.read_text(encoding="utf_8").splitlines())
     flags.update(load_desktop_feature_flags())
     return flags
