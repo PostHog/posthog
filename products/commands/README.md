@@ -14,6 +14,10 @@ People with write access to a repository can ask PostHog to do something on a pu
 Each command dispatches into the product that owns the work.
 This product owns the parsing, the checks and the replies, and owns no work of its own.
 
+A command comes in through a channel and acts on a subject.
+The channels are GitHub pull request comments and Slack mentions.
+The subjects are pull requests and, from Slack, PostHog error tracking issues.
+
 [`COMMANDS.generated.md`](COMMANDS.generated.md) lists every command, and [`commands.generated.json`](commands.generated.json) is the same reference for tools.
 Both are generated from `backend/logic/schema.py`, like the `@posthog help` reply.
 
@@ -36,32 +40,69 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 
 ## Commands from Slack
 
-The same commands run from a Slack message that mentions the PostHog app and names the pull request by its URL, before or after the command:
+The same commands run from a Slack message that mentions the PostHog app and names the subject by its URL, before or after the command.
+A pull request is named by its GitHub URL, and an error tracking issue by its URL in this PostHog instance:
 
 ```text
 @PostHog review --deep https://github.com/PostHog/posthog/pull/123
 @PostHog https://github.com/PostHog/posthog/pull/123 review --deep
 @PostHog qa https://github.com/PostHog/posthog/pull/123 check the signup form
+@PostHog resolve https://us.posthog.com/project/2/error_tracking/01890a5d-ac96-774b-b3f2-3e3c8a6d2b11
+@PostHog https://us.posthog.com/project/2/error_tracking/01890a5d-ac96-774b-b3f2-3e3c8a6d2b11 assign
 ```
 
 - Only a message that opens with the app's mention and reads exactly as a command runs one. Free text, such as "can you review this deeply", and a mistyped option go to the agent as before.
 - The `slack-commands` flag decides the rollout per organization, once, inside the Slack webhook. Outside it, the message also goes to the agent.
 - Every command that ran gets an answer in the thread, refusals included, because the message no longer reaches the agent.
+- When the work a command started ends, its result follows in the same thread: the review's findings count, Stamphog's outcome, or the end of the QA run. A pull request comment needs no follow-up, because the work posts its result on the pull request.
 - The Slack app asks `may_hold_command` first, a check with no queries, so most mentions never reach this product. It hands the rest to `accept_slack_mention` inside its webhook, as plain text. This product reads it (`channels/slack/`), runs it in its own task like a pull request comment, and answers in the thread through the Slack integration the mention came in on.
 - A Slack command has no GitHub permission check. It runs as a PostHog account that is a member of the project, like the review trigger in the PostHog API and MCP.
 - It may run as the accounts the Slack app resolves for the person, the ones its agent acts as: first their linked PostHog account, else the member of a connected organization with their Slack email, then every other account linked to their Slack user. The command picks the project first, and the first of these accounts that is a member of it acts there.
 - It reaches only projects of organizations that connected that Slack workspace, the same scope the agent has. In a shared channel that has not approved PostHog, the message goes to the agent, whose approval gate applies.
 
+## Subjects
+
+The subject is the thing a command acts on, such as a pull request.
+A channel names it with a reference: a comment names the pull request it sits on, and a Slack message names a pull request or an error tracking issue by its URL.
+`logic/subjects.py` owns everything that depends on the kind of subject:
+
+- The candidate projects a command may run in, before the rollout. For a pull request, the projects whose GitHub integration uses the installation.
+- How to reach the subject, such as a GitHub client for a pull request.
+- The facts a handler gets, and the refusals before it runs, such as a closed pull request or a fork.
+
+For an error tracking issue, the URL names the issue by id, or by fingerprint as error tracking's Slack alerts link it, and the fingerprint resolves to whichever issue owns it now.
+The project is the one in the URL, and only a URL of this instance counts, because project ids repeat across regions.
+Its reply never repeats the issue's name, because the name comes from captured exception text that people outside the organization can write.
+
+The dispatcher, the identity step and the access step only use the subject through that module.
+Each command declares the kinds it accepts in `subject_kinds`, and dispatch answers when a request names another kind.
+
+To add a kind of subject:
+
+1. Add its reference and facts types to `logic/commands.py`.
+2. Add a class that follows `Subject`, and a case in each function, in `logic/subjects.py`.
+3. Teach the channels that can name it to read it, for example a URL pattern in `channels/slack/parsing.py`.
+4. Add the kind to `subject_kinds` of the commands that accept it.
+
+## Results that come later
+
+The first answer says that the work started.
+A channel that wants the result later gives an address (`follow_up` on the channel), and the handler saves it with `logic/follow_ups.py` before the work ends.
+The products report the end without importing this product: Stamphog and PostHog Review call the callbacks registered in their `facade/finished_review_hooks.py`, and a QA run's terminal save fires the task run signal.
+`receivers.py` registers all three at app start, builds the message in `logic/results.py`, and queues it.
+A follow-up record lives in the cache for a day, so a lost record loses only the follow-up message.
+
 ## Adding a command
 
 Declare the command in `logic/schema.py`: an args dataclass built with `flag()`, `option()` and `text()`, and a `CommandDeclaration` in `COMMAND_DECLARATIONS`.
+Set `subject_kinds` to the kinds of subject the command acts on. The default is pull requests only.
 Set `access` when the target product has a resource in PostHog access control, at the level its own API asks for the same action.
 Leave `allows_forks` off unless the command reads nothing from the pull request head.
 Write a handler in `logic/handlers.py` that takes the args dataclass and calls the target product's facade, then bind the two in `logic/registry.py`.
 Run `hogli build:projections` and commit the regenerated command reference.
 
-A product that wants a command does not need Loops, and does not need to know about GitHub comments.
-It needs a facade function that takes a project, a user and the pull request identifiers.
+A product that wants a command does not need Loops, and does not need to know about GitHub comments or Slack.
+It needs a facade function that takes a project, a user and the subject's identifiers.
 
 ## Trust model
 

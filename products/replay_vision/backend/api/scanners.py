@@ -165,7 +165,13 @@ from products.replay_vision.backend.scanner_dashboard import (
     live_dashboard_ids,
     scanners_ready_for_dashboard,
 )
-from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal, draft_scanner_from_goal_v2
+from products.replay_vision.backend.scanner_draft import (
+    DraftError,
+    UnwatchableExperimentError,
+    draft_scanner_from_goal,
+    draft_scanner_from_goal_v2,
+    scopes_allow_read,
+)
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
     run_inline_scan,
@@ -2028,6 +2034,15 @@ class DraftScannerRequestSerializer(serializers.Serializer):
             "ignored while the goal-based flow's flag is off for the caller."
         ),
     )
+    experiment_id = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=9223372036854775807,
+        help_text=(
+            "Goal-based flow only: a launched experiment the person picked for the scanner to watch. "
+            "The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`."
+        ),
+    )
 
 
 class DraftScannerResponseSerializer(serializers.Serializer):
@@ -2082,14 +2097,6 @@ class DraftScannerResponseSerializer(serializers.Serializer):
         help_text=(
             "Goal-based flow only: the monthly credit cap, set to `monthly_credit_budget` so a "
             "mis-estimate stops the scanner at the credits the user agreed to. Null on the legacy flow."
-        ),
-    )
-    experiment_targeting = ScannerExperimentTargetingField(
-        allow_null=True,
-        help_text=(
-            "Goal-based flow only: the experiment whose participants the draft watches, when the goal "
-            "named one of the project's launched experiments. Null when it named none. Carried "
-            "separately from `query`, which never holds an exposure filter."
         ),
     )
     estimated_monthly_observations = serializers.IntegerField(
@@ -3322,6 +3329,13 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         # actions, experiments) is gated per resource against these scopes inside the drafter.
         allowed_scopes = get_authenticator_scopes(request.successful_authenticator)
         include_business_context = allowed_scopes is None
+        experiment_id = body.validated_data.get("experiment_id") if goal_flow else None
+        # Denied, out-of-scope and nonexistent ids read the same, so the error never confirms an experiment exists.
+        if experiment_id is not None and not (
+            scopes_allow_read(allowed_scopes, "experiment")
+            and is_experiment_accessible(self.user_access_control, self.team_id, experiment_id)
+        ):
+            raise ValidationError({"experiment_id": "Experiment not found in this project."})
 
         try:
             if goal_flow:
@@ -3333,6 +3347,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
                     allowed_scopes=allowed_scopes,
+                    experiment_id=experiment_id,
                 )
             else:
                 drafted = draft_scanner_from_goal(
@@ -3342,6 +3357,10 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     user_access_control=self.user_access_control,
                     include_business_context=include_business_context,
                 )
+        except UnwatchableExperimentError:
+            raise ValidationError(
+                {"experiment_id": "Pick a running experiment that splits people, not groups, into variants."}
+            )
         except DraftError as e:
             # The 503 below is deliberately uniform, so the reason only survives here.
             logger.warning(
@@ -3372,9 +3391,8 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "scanner_type": drafted.scanner_type,
                 # Whether the goal mapped to a real filter or fell back to no targeting.
                 "has_query": bool(drafted.query),
-                # Whether the goal named an experiment, so the scan watches its participants rather
-                # than everyone who reached the same pages.
-                "has_experiment_targeting": drafted.experiment_targeting is not None,
+                "has_experiment_targeting": drafted.scanner_type == ScannerType.EXPERIMENT,
+                "experiment_picked": experiment_id is not None,
                 "sampling_mode": drafted.sampling_mode,
                 "sampling_rate": drafted.sampling_rate,
                 "model": drafted.model,
@@ -3398,7 +3416,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     "sampling_rate": drafted.sampling_rate,
                     "model": drafted.model,
                     "credit_limit": drafted.credit_limit,
-                    "experiment_targeting": drafted.experiment_targeting,
                     "estimated_monthly_observations": drafted.estimated_monthly_observations,
                 }
             ).data

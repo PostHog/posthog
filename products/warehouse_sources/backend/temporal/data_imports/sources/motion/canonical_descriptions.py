@@ -59,4 +59,40 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "customFieldValues": "Values of the custom fields defined on the task.",
         },
     },
+    "recurring_tasks": {
+        "description": "A recurring task template in a Motion workspace, from which Motion creates task instances.",
+        "docs_url": "https://docs.usemotion.com/api-reference/recurring-tasks/get/",
+        "columns": {
+            "id": "Unique identifier for the recurring task.",
+            "workspaceId": "ID of the workspace the recurring task belongs to.",
+            "name": "Recurring task name.",
+            "creator": "User who created the recurring task.",
+            "assignee": "User the recurring task is assigned to.",
+            "project": "Project the recurring task belongs to, when it has one.",
+            "status": "Current status, with whether that status counts as resolved.",
+            "priority": "Priority, such as ASAP, HIGH, MEDIUM, or LOW.",
+            "labels": "Labels applied to the recurring task.",
+            "workspace": "Workspace the recurring task belongs to.",
+        },
+    },
+    "comments": {
+        "description": "A comment on a Motion task.",
+        "docs_url": "https://docs.usemotion.com/api-reference/comments/get/",
+        "columns": {
+            "id": "Unique identifier for the comment.",
+            "taskId": "ID of the task the comment is on.",
+            "content": "HTML content of the comment.",
+            "createdAt": "Date and time the comment was created.",
+            "creator": "User who wrote the comment.",
+        },
+    },
+    "custom_fields": {
+        "description": "A custom field defined in a Motion workspace, which tasks and projects can carry values for.",
+        "docs_url": "https://docs.usemotion.com/api-reference/custom-fields/get/",
+        "columns": {
+            "id": "Unique identifier for the custom field.",
+            "workspaceId": "ID of the workspace the custom field belongs to.",
+            "field": "Type of the custom field, such as text, number, date, select, or person.",
+        },
+    },
 }

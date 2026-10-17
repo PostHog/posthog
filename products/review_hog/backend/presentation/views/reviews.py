@@ -115,6 +115,11 @@ class PerspectiveStatsParamsSerializer(serializers.Serializer):
     )
 
 
+class ReviewTriggerReviewMode(models.TextChoices):
+    FULL = REVIEW_MODE_FULL, "Deep"
+    FLASH = REVIEW_MODE_FLASH, "Standard"
+
+
 class ReviewProgressSerializer(serializers.Serializer):
     review_stage = serializers.ChoiceField(
         choices=REVIEW_STAGES,
@@ -129,6 +134,13 @@ class ReviewProgressSerializer(serializers.Serializer):
     )
     total = serializers.IntegerField(
         allow_null=True, help_text="Work units the stage expects in total; null when unknown."
+    )
+    review_mode = serializers.ChoiceField(
+        choices=ReviewTriggerReviewMode.choices,
+        allow_null=True,
+        help_text="What the in-flight turn runs: 'full' (Deep) or 'flash' (Standard). The row's `review_mode` "
+        "describes the last completed turn, which can differ. Null until the turn records its mode, "
+        "shortly before its review sessions start.",
     )
 
 
@@ -151,11 +163,6 @@ class ReviewResolutionStatusSerializer(serializers.Serializer):
     needs_attention = serializers.IntegerField(
         help_text="Settled threads left for the author: judged worth doing but not safe to fix unattended."
     )
-
-
-class ReviewTriggerReviewMode(models.TextChoices):
-    FULL = REVIEW_MODE_FULL, "Deep"
-    FLASH = REVIEW_MODE_FLASH, "Standard"
 
 
 class ReviewTurnDesign(models.TextChoices):

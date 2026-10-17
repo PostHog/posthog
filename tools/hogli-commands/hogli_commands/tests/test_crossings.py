@@ -191,20 +191,34 @@ class TestGetModelStrings:
         assert crossings._get_model_uses(tree, {"alerts": "alerts"}, LOOKUP) == {}
 
 
+@pytest.fixture
+def products_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    # One product per model-surface shape the scan has to walk: a models package, and a flat models.py.
+    for product, models_path, model in (
+        ("alerts", "models/alert.py", "AlertConfiguration"),
+        ("error_tracking", "models.py", "ErrorTrackingIssue"),
+    ):
+        backend = tmp_path / product / "backend"
+        (backend / models_path).parent.mkdir(parents=True, exist_ok=True)
+        (backend / "apps.py").write_text(f'class Config(AppConfig):\n    label = "{product}"\n')
+        (backend / models_path).write_text(f"class {model}(Model):\n    pass\n")
+    monkeypatch.setattr(crossings, "PRODUCTS_DIR", tmp_path)
+    return tmp_path
+
+
 class TestProductModelLabels:
+    @pytest.mark.usefixtures("products_dir")
     @pytest.mark.parametrize(
         "label,product",
         [
-            # The first two are off MODEL_CROSSINGS, and cover the two model-surface shapes the
-            # scan has to walk: a models package, and a flat models.py.
             ("alerts.AlertConfiguration", "alerts"),
             ("error_tracking.ErrorTrackingIssue", "error_tracking"),
-            ("product_analytics.Insight", "product_analytics"),
         ],
     )
     def test_model_surface_classes_resolve_to_their_product(self, label: str, product: str) -> None:
         assert crossings.product_model_labels().get(label) == product
 
+    @pytest.mark.usefixtures("products_dir")
     def test_products_filter_keeps_only_the_named_product(self) -> None:
         labels = crossings.product_model_labels(["alerts"])
         assert labels and set(labels.values()) == {"alerts"}

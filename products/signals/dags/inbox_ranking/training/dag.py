@@ -28,8 +28,7 @@ graded on the same rows, not a competitor for another family's pointer.
 Both the candidate and the champion asset walk `families_trained_in(MAIN_LOCATION)`, so each family trains on the
 examples of the feature set it declares and decides against its own pointer. A family whose
 examples or metadata are missing that day is logged and skipped: its own series has a gap, and
-every other family still trains, promotes and gets graded. The two embedding families read one text
-rendering each, from separate snapshots, so a missing snapshot costs one family and not the pair.
+every other family still trains, promotes and gets graded.
 The `nn` family is trained by the `signals_ml` location (`nn/dag.py`) and never here.
 
 Two further assets grade the served models on data no example covers. `inbox_ranking_served_scores`
@@ -62,7 +61,6 @@ from products.signals.backend.ranking.features import (
     EMBEDDING_INSERTED_AT_COLUMN,
     FEATURE_SETS,
     REPORT_EMBEDDINGS_EXTRA,
-    TITLE_EMBEDDINGS_EXTRA,
     Extras,
     FeatureSet,
 )
@@ -95,7 +93,6 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
     LABELS_TABLE,
     PROJECT_VECTORS_TABLE,
     STATE_TABLE,
-    TITLE_EMBEDDINGS_TABLE,
 )
 from products.signals.dags.inbox_ranking.training.examples import (
     BASE_STATE_COLUMNS,
@@ -279,13 +276,10 @@ def load_snapshots(
     return snapshots
 
 
-# The dt=D snapshot table behind each embedding side input. One table per rendering, read on its
-# own: a rendering's snapshot can be missing while the other's is present, and the families must
-# not share a fate.
+# The dt=D snapshot table behind each embedding side input, one table per rendering.
 _EXTRA_SNAPSHOT_TABLES: Mapping[str, str] = MappingProxyType(
     {
         REPORT_EMBEDDINGS_EXTRA: EMBEDDINGS_TABLE,
-        TITLE_EMBEDDINGS_EXTRA: TITLE_EMBEDDINGS_TABLE,
     }
 )
 
@@ -372,10 +366,8 @@ _LOOKBACK_MAPPING = dagster.TimeWindowPartitionMapping(
     deps=[
         dagster.AssetDep(STATE_TABLE, partition_mapping=_LOOKBACK_MAPPING),
         dagster.AssetDep(LABELS_TABLE, partition_mapping=_LOOKBACK_MAPPING),
-        # Only dt=D: `embeddings_extras` explains why one snapshot serves the whole window. One
-        # dependency per rendering, so a missing title snapshot costs only the title family.
+        # Only dt=D: `embeddings_extras` explains why one snapshot serves the whole window.
         EMBEDDINGS_TABLE,
-        TITLE_EMBEDDINGS_TABLE,
     ],
     **COMMON_ASSET_KWARGS,
 )
@@ -915,6 +907,16 @@ SERVING_MANIFEST_ASSET = "inbox_ranking_serving_manifest"
 class _ServingStore:
     storage: "ObjectStorageClient"
     bucket: str
+    # A cross-account bucket refuses a write that does not hand ownership to the bucket owner.
+    acl: str | None = None
+
+    def write(self, key: str, content: str | bytes, content_type: str | None = None) -> None:
+        extras: dict[str, str] = {}
+        if content_type is not None:
+            extras["ContentType"] = content_type
+        if self.acl is not None:
+            extras["ACL"] = self.acl
+        self.storage.write(bucket=self.bucket, key=key, content=content, extras=extras or None)
 
 
 @dagster.asset(name=SERVING_MANIFEST_ASSET, deps=["inbox_ranking_model_champion"], **COMMON_ASSET_KWARGS)
@@ -1111,7 +1113,11 @@ def _publish_mirror(
         )
         return False
     try:
-        mirror = _ServingStore(storage=serving_mirror_storage(), bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET)
+        mirror = _ServingStore(
+            storage=serving_mirror_storage(),
+            bucket=settings.INBOX_RANKING_SERVING_MIRROR_BUCKET,
+            acl="bucket-owner-full-control",
+        )
         publish_serving_models(
             context, client, bucket, prefix, manifest.model_copy(update={"project_vectors": None}), mirror
         )
@@ -1163,7 +1169,7 @@ def publish_serving_models(
             )
             if body is None:
                 raise dagster.Failure(f"{entry.key} is missing {name} in the dataset bucket; manifest not written")
-            target.storage.write(bucket=target.bucket, key=f"{entry.prefix}/{name}", content=body, extras=None)
+            target.write(f"{entry.prefix}/{name}", body)
             bytes_copied += len(body)
         copied.append(entry.key)
         context.log.info(f"copied {entry.key} to {target.bucket}/{entry.prefix}")
@@ -1171,12 +1177,7 @@ def publish_serving_models(
         bytes_copied += _publish_project_vectors(
             context, client, bucket, project_vectors_source, manifest.project_vectors, target
         )
-    target.storage.write(
-        bucket=target.bucket,
-        key=serving_manifest_key(prefix),
-        content=manifest.model_dump_json(indent=2),
-        extras={"ContentType": "application/json"},
-    )
+    target.write(serving_manifest_key(prefix), manifest.model_dump_json(indent=2), content_type="application/json")
     return _ModelPublication(copied=copied, present=present, bytes_copied=bytes_copied)
 
 
@@ -1197,7 +1198,7 @@ def _publish_project_vectors(
     body = None if source is None else _read_bytes_if_exists(client, bucket, source)
     if body is None:
         raise dagster.Failure(f"project vectors {source} are missing in the dataset bucket; manifest not written")
-    target.storage.write(bucket=target.bucket, key=target_key, content=body, extras=None)
+    target.write(target_key, body)
     context.log.info(f"copied project vectors to {target.bucket}/{target_key}")
     return len(body)
 

@@ -88,3 +88,11 @@ class BucketedDestination:
     # None for a function bound to no single alert, which fires for several alerts of the team.
     alert_id: str | None
     eligibility: DestinationEligibility
+
+
+@frozen
+class FiringAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str

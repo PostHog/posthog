@@ -115,7 +115,7 @@ class PreparedTrinoCatalog:
         )
 
 
-_CORE_TABLES = frozenset({"events", "persons"})
+_CORE_TABLES = frozenset({"events", "persons", "groups", "raw_groups"})
 _SUPPORTED_PURE_MODIFIERS = frozenset({"personsOnEventsMode", "convertToProjectTimezone"})
 _FIELD_TYPES: dict[DatabaseSerializedFieldType, type[DatabaseField]] = {
     DatabaseSerializedFieldType.INTEGER: IntegerDatabaseField,

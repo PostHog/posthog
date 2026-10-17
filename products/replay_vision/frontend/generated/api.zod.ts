@@ -1335,6 +1335,8 @@ export const visionScannersDraftCreateBodyGoalMax = 2000
 
 export const visionScannersDraftCreateBodyMonthlyCreditBudgetMax = 100000000
 
+export const visionScannersDraftCreateBodyExperimentIdMax = 2147483647
+
 export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
     .object({
         goal: zod
@@ -1348,6 +1350,14 @@ export const VisionScannersDraftCreateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 "Goal-based flow only: credits a month to spend (1 credit = $0.01). The draft picks the `model`, then solves `sampling_mode` and `sampling_rate` so the projected spend lands on this number, and sets `credit_limit` to it as a hard cap. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller."
+            ),
+        experiment_id: zod
+            .number()
+            .min(1)
+            .max(visionScannersDraftCreateBodyExperimentIdMax)
+            .optional()
+            .describe(
+                'Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.'
             ),
     })
     .describe("Body of POST \/vision\/scanners\/draft\/ — the user's goal, stated in their own words.")

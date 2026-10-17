@@ -10,6 +10,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 import structlog
+import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
@@ -17,7 +18,7 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQue
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
-from posthog.ph_client import get_client
+from posthog.ph_client import get_client, ph_scoped_capture
 from posthog.utils import get_instance_region
 
 from products.messaging.backend.facade.api import EmailTemplateContent, EmailTemplateSummary, get_template_email_content
@@ -26,9 +27,16 @@ from products.workflows.backend.facade.contracts import (
     DataSuggestion,
     DataSuggestionNotFound,
     DataSuggestionsResult,
+    MissingInput,
 )
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.data_suggestions import team_context
-from products.workflows.backend.services.data_suggestions.builder import BuildContext, build_workflow, clean_copy
+from products.workflows.backend.services.data_suggestions.builder import (
+    BuildContext,
+    build_workflow,
+    clean_copy,
+    missing_inputs,
+)
 from products.workflows.backend.services.data_suggestions.event_volume import weekly_counts
 from products.workflows.backend.services.data_suggestions.planner import (
     MAX_PLANNED_STEPS,
@@ -49,7 +57,7 @@ from products.workflows.backend.services.data_suggestions.stages import (
     StageClassificationFailed,
     classify_event_stages,
 )
-from products.workflows.backend.services.hog_flow_templates import list_step_templates
+from products.workflows.backend.services.hog_flow_templates import get_function_template_schema, list_step_templates
 
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
@@ -77,7 +85,11 @@ _GENERATING = DataSuggestionsResult(status="generating", suggestions=())
 _BUILDING = BuiltSuggestion(status="building")
 _BUILD_FAILED = BuiltSuggestion(status="failed")
 _UNAVAILABLE = DataSuggestionsResult(status="unavailable", suggestions=())
+# pinned: feature flag key - the frontend gates the same surfaces on it
+FEATURE_FLAG_KEY = "workflows-data-suggestions"
 _ONCE_PER_PERSON_STAGES = frozenset({"signup", "onboarding"})
+# A project without a verified sender cannot pick one yet, so the field says what to do first.
+NO_SENDER_FIELD = "Email sender (no verified sender yet: add a sending domain under Workflows > Channels)"
 
 
 def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
@@ -89,6 +101,28 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     if cache.get(_generation_lock_key(team)) is not None:
         return _GENERATING
     return _read_cache(team) or _UNAVAILABLE
+
+
+def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
+    return bool(
+        user.distinct_id
+        and posthoganalytics.feature_enabled(
+            FEATURE_FLAG_KEY,
+            user.distinct_id,
+            groups={"organization": organization_id},
+            group_properties={"organization": {"id": organization_id}},
+        )
+    )
+
+
+def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
+    """The ideas this person would see on the empty workflows page. Like `get_data_suggestions`, it never runs a model."""
+    if HogFlow.objects.filter(team_id=team.id).exclude(status=HogFlow.State.ARCHIVED).exists():
+        return 0
+    if not is_data_suggestions_enabled(user, str(team.organization_id)):
+        return 0
+    result = get_data_suggestions(team=team)
+    return len(result.suggestions) if result.status == "ready" else 0
 
 
 def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str], None]) -> DataSuggestionsResult:
@@ -110,6 +144,10 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str]
         logger.exception("workflows.data_suggestions.enqueue_failed", team_id=team.id)
         return _UNAVAILABLE
     return _GENERATING
+
+
+def email_sender_ready(*, team: Team) -> bool:
+    return team_context.has_verified_email_sender(team)
 
 
 def needs_new_generation(*, team: Team, refresh: bool) -> bool:
@@ -155,7 +193,7 @@ def start_build(
     """
     if team.organization.is_ai_data_processing_approved is not True or _cached_suggestion(team, suggestion_id) is None:
         raise DataSuggestionNotFound()
-    stored = _read_build(team.id, suggestion_id, caller)
+    stored = _current_build(team, suggestion_id, caller)
     if stored is not None and not (retry and stored.status == "failed"):
         return stored
     # A second click or tab while a build runs would pay for another plan.
@@ -174,9 +212,16 @@ def start_build(
     return _read_build(team.id, suggestion_id, caller) or _BUILDING
 
 
+def build_caller(event_source: str, *, save: bool, user_id: int) -> str:
+    """The key a build is stored under. A saved build is checked with the editor's draft rules, so it differs from an
+    unsaved build for the same caller. A saved build is also kept per user, because its draft can carry access
+    restrictions another editor of the project does not pass."""
+    return f"{event_source}:save:{user_id}" if save else event_source
+
+
 def needs_new_build(*, team: Team, suggestion_id: str, caller: str, retry: bool) -> bool:
     """Whether a build call would start planning, the only case that costs model time."""
-    stored = _read_build(team.id, suggestion_id, caller)
+    stored = _current_build(team, suggestion_id, caller)
     reusable = stored is not None and not (retry and stored.status == "failed")
     return not reusable and cache.get(_build_lock_key(team.id, suggestion_id, caller)) is None
 
@@ -188,9 +233,11 @@ def run_build(
     suggestion_id: str,
     caller: str,
     lock_token: str,
-    is_valid_draft: Callable[[Team, dict[str, Any]], bool],
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+    save_draft: Callable[[Team, User, dict[str, Any]], str] | None = None,
 ) -> None:
-    """The background build that `start_build` queues. It stores the result and releases the lock."""
+    """The background build that `start_build` queues. It stores the result and releases the lock. With `save_draft`
+    it also saves the draft, for callers like agents that cannot save one in the editor."""
     lock_key = _build_lock_key(team_id, suggestion_id, caller)
     try:
         try:
@@ -202,9 +249,12 @@ def run_build(
             if team.organization.is_ai_data_processing_approved is not True or suggestion is None or cached is None:
                 result = _BUILD_FAILED
             else:
-                result = _plan_and_build(
-                    team=team, user=user, suggestion=suggestion, events=cached.events, is_valid_draft=is_valid_draft
+                result, validated = _plan_and_build(
+                    team=team, user=user, suggestion=suggestion, events=cached.events, validate_draft=validate_draft
                 )
+                # A task that outlived its lock would save a second draft next to the newer run's draft.
+                if save_draft is not None and validated is not None and not _lost_lock(lock_key, lock_token):
+                    result = dataclasses.replace(result, workflow_id=save_draft(team, user, validated))
         except Exception as error:
             # Without a stored failure the next poll finds no result and no lock, and queues the same build again.
             logger.exception("workflows.data_suggestions.build_failed", team_id=team_id)
@@ -213,6 +263,9 @@ def run_build(
         ttl = _BUILD_CACHE_SECONDS if result.status == "ready" else FAILURE_CACHE_TTL_SECONDS
         if not _lost_lock(lock_key, lock_token):
             cache.set(_build_key(team_id, suggestion_id, caller), dataclasses.asdict(result), ttl)
+        # Sent after the result is stored, so a slow analytics delivery never keeps a saved draft reading as building.
+        if result.workflow_id is not None and suggestion is not None:
+            _capture_saved_build(user=user, suggestion=suggestion, result=result, caller=caller)
     finally:
         _release(lock_key, lock_token)
 
@@ -223,8 +276,8 @@ def _plan_and_build(
     user: User,
     suggestion: DataSuggestion,
     events: tuple[str, ...],
-    is_valid_draft: Callable[[Team, dict[str, Any]], bool],
-) -> BuiltSuggestion:
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
+) -> tuple[BuiltSuggestion, dict[str, Any] | None]:
     idea = WorkflowIdea(
         name=suggestion.name,
         description=suggestion.description,
@@ -251,7 +304,7 @@ def _plan_and_build(
             analytics_client=analytics_client,
         )
     if plan is None:
-        return _BUILD_FAILED
+        return _BUILD_FAILED, None
 
     built = build_workflow(
         idea,
@@ -266,12 +319,67 @@ def _plan_and_build(
             once_per_person=suggestion.stage in _ONCE_PER_PERSON_STAGES,
         ),
     )
-    if built is None or not is_valid_draft(team, built.workflow):
-        return _BUILD_FAILED
+    if built is None:
+        return _BUILD_FAILED, None
+    validated = validate_draft(team, built.workflow)
     # Saved templates are copied into every email step, and a draft larger than a request body cannot be saved.
-    if len(json.dumps(built.workflow)) > settings.DATA_UPLOAD_MAX_MEMORY_SIZE:
-        return _BUILD_FAILED
-    return BuiltSuggestion(status="ready", workflow=built.workflow, uses_saved_template=built.uses_saved_template)
+    if validated is None or len(json.dumps(built.workflow)) > settings.DATA_UPLOAD_MAX_MEMORY_SIZE:
+        return _BUILD_FAILED, None
+    result = BuiltSuggestion(
+        status="ready",
+        workflow=built.workflow,
+        uses_saved_template=built.uses_saved_template,
+        missing_inputs=_missing_inputs(team, built.workflow),
+    )
+    return result, validated
+
+
+def _current_build(team: Team, suggestion_id: str, caller: str) -> BuiltSuggestion | None:
+    """The stored build. A saved draft is read again, so a deleted draft gets a new build and the blank settings
+    match the draft as it is now, for example after the team added a sender."""
+    stored = _read_build(team.id, suggestion_id, caller)
+    if stored is None or stored.workflow_id is None:
+        return stored
+    actions = team_context.saved_workflow_actions(team, stored.workflow_id)
+    if actions is None:
+        return None
+    return dataclasses.replace(stored, missing_inputs=_missing_inputs(team, {"actions": actions}))
+
+
+def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
+    return missing_inputs(
+        workflow,
+        _input_schemas(workflow),
+        sender_field="Email sender" if team_context.has_verified_email_sender(team) else NO_SENDER_FIELD,
+    )
+
+
+def _input_schemas(workflow: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    template_ids = {(action.get("config") or {}).get("template_id") for action in workflow["actions"]}
+    schemas: dict[str, list[dict[str, Any]]] = {}
+    for template_id in {template_id for template_id in template_ids if isinstance(template_id, str)}:
+        schema = get_function_template_schema(template_id)
+        if schema is not None:
+            schemas[template_id] = list(schema.inputs_schema or [])
+    return schemas
+
+
+def _capture_saved_build(*, user: User, suggestion: DataSuggestion, result: BuiltSuggestion, caller: str) -> None:
+    # The web page sends this event from the browser. A saved build has no browser, so the funnel gets it from here.
+    with ph_scoped_capture() as capture:
+        # pinned: analytics event name - renaming breaks dashboards
+        capture(
+            distinct_id=user.distinct_id,
+            event="workflows data suggestion built",
+            properties={
+                "workflow_id": result.workflow_id,
+                "source": caller.split(":")[0],
+                "trigger_event": suggestion.trigger_event,
+                "stage": suggestion.stage,
+                "uses_saved_template": result.uses_saved_template,
+                "missing_inputs": len(result.missing_inputs),
+            },
+        )
 
 
 def _chosen_template_bodies(
@@ -344,7 +452,9 @@ def _read_build(team_id: int, suggestion_id: str, caller: str) -> BuiltSuggestio
     if not isinstance(stored, dict):
         return None
     try:
-        return BuiltSuggestion(**stored)
+        return BuiltSuggestion(
+            **{**stored, "missing_inputs": tuple(MissingInput(**item) for item in stored.get("missing_inputs") or ())}
+        )
     except TypeError:
         return None
 
