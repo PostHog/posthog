@@ -56,6 +56,13 @@ SOURCE_BINDINGS: dict[SourceKind, SourceBinding] = {
         # only start workflows that find the pool full.
         discovery_limit=settings.ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS,
     ),
+    SourceKind.METRICS: SourceBinding(
+        workflow="metrics-alert-evaluate",
+        task_queue=settings.ALERTS_PLATFORM_EVALUATION_TASK_QUEUE,
+        # The same budget as logs: one evaluate attempt, one record, then the delivery children.
+        evaluation_timeout=dt.timedelta(seconds=75),
+        discovery_limit=DISCOVERY_LIMIT_PER_SOURCE,
+    ),
 }
 
 

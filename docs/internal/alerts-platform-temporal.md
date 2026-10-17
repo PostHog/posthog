@@ -530,6 +530,41 @@ It switches the copies off and keeps their rows, state and history. Checks alrea
 Running the backfill again turns them back on at the production alert's next due time.
 An hourly alert on the platform checks on a UTC grid, while production checks it at the alert's creation minute, so the two stacks check an hourly alert at different minutes.
 
+## Metrics source evaluation
+
+`metrics-alert-evaluate` evaluates one batch key of `source_kind="metrics"` configurations. Its binding is in
+`products/alerts_platform/backend/temporal/sources.py`. The evaluation is a plain function in
+`products/metrics/backend/alert_source_cycle.py`, wired by `products/metrics/backend/temporal/alert_evaluate.py`
+with the same activity split and timeouts as the logs source.
+
+The `source_config` is a `MetricsAlertSource`: the clauses of a `MetricQueryRequest`, an optional formula, the
+clause whose series is evaluated, and the bound under `condition` (`threshold_count`, `threshold_operator`,
+`window_minutes`, the same keys the logs source uses). The threshold is any finite number. The window rules differ
+from logs below the query:
+
+- `window_minutes` must be one of the metrics runner's intervals (1, 5, 15, 60, 360 or 1440). The interval is
+  explicit, never auto-picked, so a retry reads the same buckets and derives the same `evaluation_key`. Any other
+  window is a BROKEN configuration. So is a missing or invalid `condition`, and so is a clause without an
+  aggregation.
+- The window end is the due time clamped to the ingestion checkpoint read from `posthog.metrics_kafka_metrics`
+  (`products/metrics/backend/alert_checkpoint.py`), with the same five-minute staleness cap the logs source uses,
+  then aligned down to the bucket grid so a check never reads a partial bucket.
+- The query reads `evaluation_periods` contiguous windows, so prior breach flags come from the same query and no
+  history row is needed.
+- Each configuration is one query per clause through `run_metric_query`. The seconds left under
+  `BATCH_QUERY_BUDGET_SECONDS` (at most `MAX_QUERY_SECONDS`) are split across the clauses as `max_execution_time`,
+  with `timeout_overflow_mode=throw`. The check skips the unit lookup, which has its own 30-second cap and which an
+  alert does not read. There is no cross-alert cohort: metrics queries are per clause, so the module does not
+  pretend to batch.
+- A missing current value is inconclusive: the alert keeps its state and its failure count and announces nothing.
+- A result with more than one series (a `group_by`) is a failed check that counts toward BROKEN until grouped
+  alerts land.
+
+A metrics configuration owns no destinations yet, so an evaluation records outcomes and history rows and requests
+no delivery. `metrics` is a `SourceKind` but not yet one of the model's `source_kind` choices, so the read API does
+not serve these configurations. Nothing creates a metrics platform configuration yet except `upsert_configuration`,
+so a production tick finds no metrics demand until one is written by hand.
+
 ## Postgres connectivity probe
 
 Each evaluation activity issues one explicit `SELECT 1` and checks for `(1,)` through Django's `default` main writer connection.

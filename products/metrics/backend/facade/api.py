@@ -321,7 +321,13 @@ def _evaluate_formula(
     return result
 
 
-def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricSeries]:
+def run_metric_query(
+    *,
+    team: Team,
+    request: MetricQueryRequest,
+    query_settings: HogQLGlobalSettings | None = None,
+    include_units: bool = True,
+) -> list[MetricSeries]:
     """Execute a metric query and return one `MetricSeries` per
     (clause, label-set) pair — a single ungrouped clause yields exactly one
     series with empty labels, so consumers never branch on single-vs-multi.
@@ -334,6 +340,10 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     With `formula` set, only the formula result series are returned
     (`clause="formula"`); request the clauses separately if you need the
     inputs too. The presentation layer surfaces `ValueError` as a 400.
+
+    `query_settings` overrides the data queries' settings. `include_units=False` skips the unit
+    lookup, for a caller such as an alert check that reads no unit and must keep every query
+    under its own execution cap.
     """
     formula_node_checked = (
         parse_formula(request.formula, frozenset(clause.name for clause in request.clauses))
@@ -355,6 +365,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             quantile=clause.quantile if runner_aggregation == "histogram_quantile" else None,
             metric_type=clause.metric_type.value if clause.metric_type is not None else None,
             range_function=clause.range_function.value if clause.range_function is not None else None,
+            query_settings=query_settings,
         )
         rows = runner.run()
         if runner_aggregation is None:
@@ -371,7 +382,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     # carry no unit and the unit lookup is skipped entirely.
     units_by_fingerprint = (
         {}
-        if formula_node_checked is not None
+        if formula_node_checked is not None or not include_units
         else _units_by_fingerprint(team, {clause.metric_name for clause in request.clauses})
     )
 
