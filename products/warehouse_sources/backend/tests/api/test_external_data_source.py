@@ -6379,6 +6379,7 @@ class TestExternalDataSource(APIBaseTest):
         [
             ("single_schema", "?schemas=Customers", 1),
             ("multiple_schemas", "?schemas=Customers&schemas=Invoices", 2),
+            ("unknown_schema", "?schemas=Missing", 0),
             ("no_filter", "", 2),
         ]
     )
