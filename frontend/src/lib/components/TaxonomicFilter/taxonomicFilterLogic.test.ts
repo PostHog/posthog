@@ -693,9 +693,21 @@ describe('taxonomicFilterLogic', () => {
                 barrierLogic.actions.setSearchQuery('whatever')
             }).toMatchValues({ revealBarrierOpen: false })
 
+            const captureSpy = jest.spyOn(posthog, 'capture')
             await expectLogic(eventsListLogic).toDispatchActions(['loadRemoteItemsSuccess'])
             await expectLogic(barrierLogic).toDispatchActions(['openRevealBarrier']).delay(1)
             expect(barrierLogic.values.revealBarrierOpen).toBe(true)
+
+            const latencyCalls = captureSpy.mock.calls.filter(([event]) => event === 'taxonomic filter search latency')
+            expect(latencyCalls).toHaveLength(1)
+            expect(latencyCalls[0][1]).toMatchObject({
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+                searchQuery: 'whatever',
+                time_to_see_data_ms: expect.any(Number),
+                revealedBy: 'all_groups_settled',
+                pendingGroupTypes: [],
+            })
+            captureSpy.mockRestore()
         })
     })
 
