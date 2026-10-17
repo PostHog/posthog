@@ -61,7 +61,7 @@ class TestDeleteGroupsForTeams(SimpleTestCase):
 
         assert mock_client.delete_groups_batch_for_team.call_count == 3
         req = mock_client.delete_groups_batch_for_team.call_args[0][0]
-        assert req.batch_size == 10000
+        assert req.batch_size == 2000
 
     @patch(_CLIENT_PATCH)
     def test_loops_until_zero_deleted(self, mock_get_client):
@@ -99,7 +99,7 @@ class TestDeleteGroupTypeMappingsForTeams(SimpleTestCase):
 
         assert mock_client.delete_group_type_mappings_batch_for_team.call_count == 3
         req = mock_client.delete_group_type_mappings_batch_for_team.call_args[0][0]
-        assert req.batch_size == 10000
+        assert req.batch_size == 2000
 
     @patch(_CLIENT_PATCH)
     def test_loops_until_zero_deleted(self, mock_get_client):
