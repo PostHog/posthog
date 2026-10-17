@@ -27,6 +27,12 @@ describe('slack template', () => {
 
     const bodyOf = (queueParameters: any): any => parseJSON(queueParameters.body)
 
+    // Slack echoes the posted message back alongside the ids the template returns.
+    const slackOk = {
+        status: 200,
+        body: { ok: true, channel: 'C0ALERTS', ts: '1700000000.000100', message: { blocks: [] } },
+    }
+
     beforeEach(async () => {
         await tester.beforeEach()
     })
@@ -51,12 +57,51 @@ describe('slack template', () => {
             text: 'hello',
         })
 
-        const fetchResponse = await tester.invokeFetchResponse(response.invocation, {
-            status: 200,
-            body: { ok: true },
-        })
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, slackOk)
         expect(fetchResponse.finished).toBe(true)
         expect(fetchResponse.error).toBeUndefined()
+        // A later step reads these to reply under or edit this message.
+        expect(fetchResponse.execResult).toEqual({ channel: 'C0ALERTS', ts: '1700000000.000100' })
+    })
+
+    it('should edit a message when update_ts is set', async () => {
+        const response = await tester.invoke({
+            ...commonInputs,
+            update_ts: '1700000000.000100',
+            thread_ts: '1699999999.000000',
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.invocation.queueParameters).toMatchObject({
+            url: 'https://slack.com/api/chat.update',
+            method: 'POST',
+            headers: { Authorization: 'Bearer xoxb-1234' },
+        })
+        // Slack rejects a chat.update that carries thread_ts or the appearance fields.
+        expect(bodyOf(response.invocation.queueParameters)).toEqual({
+            channel: 'channel',
+            ts: '1700000000.000100',
+            blocks: [],
+            text: 'hello',
+        })
+
+        const fetchResponse = await tester.invokeFetchResponse(response.invocation, slackOk)
+        expect(fetchResponse.error).toBeUndefined()
+        expect(fetchResponse.execResult).toEqual({ channel: 'C0ALERTS', ts: '1700000000.000100' })
+    })
+
+    // The UI writes '' on clear, and an API caller can send null. Neither may reach chat.update,
+    // which answers invalid_arguments when ts is missing.
+    it.each([
+        ['cleared in the UI', ''],
+        ['null', null],
+    ])('should post a new message when update_ts is %s', async (_name, update_ts) => {
+        const response = await tester.invoke({ ...commonInputs, update_ts })
+
+        expect(response.error).toBeUndefined()
+        expect(response.invocation.queueParameters).toMatchObject({
+            url: 'https://slack.com/api/chat.postMessage',
+        })
     })
 
     it.each([
@@ -125,10 +170,21 @@ describe('slack template', () => {
     })
 
     it.each([
-        ['a non-200 status', { status: 400, body: { ok: true } }, "Failed to post message to Slack: 400: {'ok': true}"],
-        ['ok: false', { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],
-    ])('should throw on %s', async (_name, fetchResponse, expectedError) => {
-        let response = await tester.invoke(commonInputs)
+        [
+            'a non-200 status',
+            {},
+            { status: 400, body: { ok: true } },
+            "Failed to post message to Slack: 400: {'ok': true}",
+        ],
+        ['ok: false', {}, { status: 200, body: { ok: false } }, "Failed to post message to Slack: 200: {'ok': false}"],
+        [
+            'a failed edit',
+            { update_ts: '1700000000.000100' },
+            { status: 200, body: { ok: false } },
+            "Failed to update Slack message: 200: {'ok': false}",
+        ],
+    ])('should throw on %s', async (_name, inputs, fetchResponse, expectedError) => {
+        let response = await tester.invoke({ ...commonInputs, ...inputs })
         response = await tester.invokeFetchResponse(response.invocation, fetchResponse)
 
         expect(response.error).toEqual(expectedError)
