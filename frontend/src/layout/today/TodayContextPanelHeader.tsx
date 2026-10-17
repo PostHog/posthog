@@ -54,9 +54,11 @@ function HeaderIconButton({
 }
 
 export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPanelHeaderProps): JSX.Element {
-    const { activeTab, fullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
+    const { activeTab, fullScreenUrl: tabFullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
     const { dock, undock, close, openFullScreen } = useActions(todayContextPanelLogic)
-    const { startNewChat } = useActions(todayAiChatLogic)
+    const { fullScreenUrl: aiFullScreenUrl } = useValues(todayAiChatLogic)
+    const { startNewChat, carryContextToFullScreen } = useActions(todayAiChatLogic)
+    const fullScreenUrl = activeTab === SidePanelTab.Max ? aiFullScreenUrl : tabFullScreenUrl
 
     return (
         <CardHeader
@@ -84,7 +86,12 @@ export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPan
                     <HeaderIconButton
                         label="Open full screen"
                         dataAttr="today-context-panel-full-screen"
-                        onClick={openFullScreen}
+                        onClick={() => {
+                            if (activeTab === SidePanelTab.Max) {
+                                carryContextToFullScreen()
+                            }
+                            openFullScreen()
+                        }}
                         render={<LinkPrimitive to={fullScreenUrl} />}
                     >
                         <IconExpand45 />
