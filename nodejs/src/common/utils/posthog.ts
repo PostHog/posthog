@@ -1,3 +1,4 @@
+import { ConnectError } from '@connectrpc/connect'
 import { PostHog } from 'posthog-node'
 
 import { Team } from '~/types'
@@ -113,8 +114,15 @@ interface ExceptionHint {
     extra: Record<string, any>
 }
 
+// The personhog client tags transient gRPC errors as retriable after its own retries run out.
+// Outer layers retry them again, and personhog_terminal_errors_total already counts them.
+// A capture per error floods error tracking when personhog sheds load.
+function isRetriableGrpcError(exception: unknown): boolean {
+    return exception instanceof ConnectError && (exception as { isRetriable?: unknown }).isRetriable === true
+}
+
 export function captureException(exception: any, hint?: Partial<ExceptionHint>): void {
-    if (posthog) {
+    if (posthog && !isRetriableGrpcError(exception)) {
         let additionalProperties = {}
         if (hint) {
             additionalProperties = {
