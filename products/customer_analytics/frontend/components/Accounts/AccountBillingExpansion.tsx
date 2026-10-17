@@ -127,6 +127,8 @@ export function AccountBillingExpansion({
                                         insightProps: {
                                             dashboardItemId: queryKey as InsightShortId,
                                             dataNodeCollectionId: queryKey,
+                                            // queryKey is synthetic, so insightLogic must not fetch it as a saved insight.
+                                            doNotLoad: true,
                                         },
                                     }}
                                 />
