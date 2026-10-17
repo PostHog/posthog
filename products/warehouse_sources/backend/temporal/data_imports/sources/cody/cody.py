@@ -2,7 +2,7 @@ import io
 import re
 import csv
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Buffer, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 from urllib.parse import urlencode
@@ -29,6 +29,7 @@ REQUEST_TIMEOUT_SECONDS = 300
 MAX_RETRY_ATTEMPTS = 5
 # Yield rows in chunks so huge reports don't build one giant list.
 CHUNK_SIZE = 5000
+RESPONSE_CHUNK_BYTES = 1 << 16
 
 
 class CodyRetryableError(Exception):
@@ -116,6 +117,36 @@ def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) ->
     return response
 
 
+class _ResponseByteStream(io.RawIOBase):
+    """Read a streaming response body through ``iter_content`` as a binary file.
+
+    Wrapping ``response.raw`` directly crashes once the body is read: urllib3 closes
+    the raw stream as it reads the last byte, and a ``TextIOWrapper`` over the
+    now-closed stream raises ``ValueError: I/O operation on closed file`` instead of
+    reporting EOF. ``iter_content`` also turns a dropped connection into a retryable
+    ``requests`` error mid-stream.
+    """
+
+    def __init__(self, response: requests.Response, chunk_size: int) -> None:
+        self._chunks = response.iter_content(chunk_size=chunk_size)
+        self._buffer = b""
+
+    def readable(self) -> bool:
+        return True
+
+    def readinto(self, target: Buffer) -> int:
+        while not self._buffer:
+            try:
+                self._buffer = next(self._chunks)
+            except StopIteration:
+                return 0
+        view = memoryview(target).cast("B")
+        take = min(len(view), len(self._buffer))
+        view[:take] = self._buffer[:take]
+        self._buffer = self._buffer[take:]
+        return take
+
+
 def _parse_csv_rows(lines: Iterable[str], logger: FilteringBoundLogger | None = None) -> Iterator[dict[str, Any]]:
     reader = csv.reader(lines)
     headers: list[str] | None = None
@@ -144,27 +175,32 @@ def _rows_from_response(response: requests.Response, logger: FilteringBoundLogge
     The reports endpoint is documented as CSV; the credits endpoint's format isn't documented,
     so sniff the content type rather than assuming.
     """
-    content_type = response.headers.get("Content-Type", "")
-    if "json" in content_type:
-        # Credit buckets are a small payload; buffering the JSON body is fine.
-        payload = response.json()
-        if isinstance(payload, list):
-            rows = payload
-        elif isinstance(payload, dict):
-            # A wrapped shape like {"buckets": [...]} — take the first list value, else the dict itself.
-            rows = next((value for value in payload.values() if isinstance(value, list)), [payload])
-        else:
-            rows = []
-        for row in rows:
-            if isinstance(row, dict):
-                yield row
-        return
+    try:
+        content_type = response.headers.get("Content-Type", "")
+        if "json" in content_type:
+            # Credit buckets are a small payload; buffering the JSON body is fine.
+            payload = response.json()
+            if isinstance(payload, list):
+                rows = payload
+            elif isinstance(payload, dict):
+                # A wrapped shape like {"buckets": [...]} — take the first list value, else the dict itself.
+                rows = next((value for value in payload.values() if isinstance(value, list)), [payload])
+            else:
+                rows = []
+            for row in rows:
+                if isinstance(row, dict):
+                    yield row
+            return
 
-    # Stream-parse the CSV instead of materializing `response.text`, so an arbitrarily large
-    # report can't exhaust worker memory. `.raw` bypasses requests' content decoding, so turn
-    # it back on for gzipped responses; newline="" lets the csv module handle quoted newlines.
-    response.raw.decode_content = True
-    yield from _parse_csv_rows(io.TextIOWrapper(response.raw, encoding="utf-8", newline=""), logger)
+        # Stream-parse the CSV instead of materializing `response.text`, so an arbitrarily large
+        # report can't exhaust worker memory. `iter_content` decodes gzipped responses;
+        # newline="" lets the csv module handle quoted newlines.
+        text_stream = io.TextIOWrapper(
+            io.BufferedReader(_ResponseByteStream(response, RESPONSE_CHUNK_BYTES)), encoding="utf-8", newline=""
+        )
+        yield from _parse_csv_rows(text_stream, logger)
+    finally:
+        response.close()
 
 
 def validate_credentials(access_token: str, instance_url: str) -> bool:
