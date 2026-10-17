@@ -41,6 +41,7 @@ export function BroadcastPerformance({
         { label: 'Bounced', value: share(stats.bounced, stats.sent), detail: stats.bounced },
         { label: 'Marked as spam', value: share(stats.markedAsSpam, stats.sent), detail: stats.markedAsSpam },
         { label: 'Failed', value: share(stats.failed, stats.sent), detail: stats.failed },
+        { label: 'Unsubscribed', value: share(stats.unsubscribed, stats.sent), detail: stats.unsubscribed },
     ]
     const engagement = [
         { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
@@ -51,7 +52,7 @@ export function BroadcastPerformance({
 
     return (
         <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface-primary p-4">
-            <div className="grid grid-cols-2 gap-4 @xl:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 @xl:grid-cols-3 @4xl:grid-cols-6">
                 {headline.map(({ label, value, detail }) => (
                     <div key={label} className="flex flex-col">
                         <span className="text-xl font-semibold">{value}</span>

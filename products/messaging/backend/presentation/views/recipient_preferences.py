@@ -22,6 +22,7 @@ from products.messaging.backend.facade.preferences import (
     marketing_categories,
     preference_status,
     recipient_preferences,
+    record_unsubscribe_metric,
     replace_preferences,
     set_preferences_column,
     sync_to_customerio,
@@ -159,6 +160,7 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
 
         # Only a genuine transition emits, so token replays and scanner prefetches don't inflate events
         if not was_fully_opted_out:
+            record_unsubscribe_metric(team_id, data, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
             report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
 
         if request.method == "POST":
@@ -281,6 +283,7 @@ def update_preferences(request: HttpRequest) -> JsonResponse:
             and prior_preferences.get(category_id) != PreferenceStatus.OPTED_OUT.value
         ]
         if newly_opted_out:
+            record_unsubscribe_metric(team_id, data, newly_opted_out)
             report_workflows_email_unsubscribed(team_id, identifier, newly_opted_out, "preferences_page")
 
         new_tracking_consent = preferences_dict.get(EMAIL_TRACKING_PREFERENCE_ID)
