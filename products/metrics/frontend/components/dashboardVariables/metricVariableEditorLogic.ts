@@ -24,6 +24,8 @@ import {
     VARIABLE_NAME,
     compileVariableRegex,
     orderVariables,
+    promqlReferencedNames,
+    sqlReferencedNames,
     ownValue,
     reconcileSelection,
     selectionsForRequest,
@@ -223,6 +225,21 @@ export function variableErrors(variables: MetricsDashboardVariable[]): Record<st
             }
         }
         seen.add(variable.name)
+    }
+    const names = new Set(variables.map((variable) => variable.name))
+    for (const variable of variables) {
+        if (ownValue(errors, variable.name) || (variable.source !== 'promql' && variable.source !== 'sql')) {
+            continue
+        }
+        // A label_replace replacement can use `$name` for a regex group, which the server leaves as it is.
+        const referenced =
+            variable.source === 'sql'
+                ? sqlReferencedNames(variable.query)
+                : promqlReferencedNames(variable.query, { replacements: false })
+        const missing = referenced.find((name) => !names.has(name) && !name.startsWith('__') && !/^\d+$/.test(name))
+        if (missing) {
+            errors[variable.name] = { field: 'query', message: `$${missing} is not a variable on this dashboard.` }
+        }
     }
     for (const name of orderVariables(variables).cycle) {
         if (ownValue(errors, name)) {

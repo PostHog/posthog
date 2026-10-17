@@ -1,4 +1,4 @@
-import { redactMetricVariableUrl } from './metricVariableUrlRedaction'
+import { redactMetricVariableUrl, redactMetricVariableUrls } from './metricVariableUrlRedaction'
 
 describe('redactMetricVariableUrl', () => {
     it.each([
@@ -19,6 +19,18 @@ describe('redactMetricVariableUrl', () => {
             date_from: '-7d',
             metricVariables: [{ name: 'env' }],
         })
+    })
+
+    it('redacts every URL property of an event', () => {
+        const filters = { metricVariables: [{ name: 'env', query: 'SELECT private_value' }] }
+        const url = `https://us.posthog.com/dashboard/1?query_filters=${encodeURIComponent(JSON.stringify(filters))}`
+
+        const event = redactMetricVariableUrls({
+            event: '$pageview',
+            properties: { $current_url: url, $session_entry_url: url },
+        } as any)
+
+        expect(JSON.stringify(event)).not.toContain('private_value')
     })
 
     it('leaves a URL without metric variables as it is', () => {
