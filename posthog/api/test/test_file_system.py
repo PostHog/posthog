@@ -795,7 +795,7 @@ class TestFileSystemDeletion(APIBaseTest):
 
         assert undo_response.status_code == status.HTTP_400_BAD_REQUEST
         assert undo_response.json()["detail"] == (
-            f"Cohort 'Retired cohort' (ID {cohort.id}) has been deleted. Choose another cohort or remove this condition."
+            f"Cohort 'Retired cohort' (ID {cohort.id}) has been deleted. Restore the cohort, choose another cohort, or remove this condition."
         )
         assert FeatureFlag.objects_including_soft_deleted.get(pk=flag.pk).deleted is True
 

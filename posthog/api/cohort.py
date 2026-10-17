@@ -85,6 +85,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
+from posthog.scopes import scopes_not_covered
 from posthog.taxonomy.hidden_events import HIDDEN_EVENT_REASON, added_hidden_event
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
@@ -155,6 +156,11 @@ def _workflows_relying_on_cohort(cohort: Cohort) -> list[CohortDependentWorkflow
     return get_active_workflows_using_realtime_cohort(team_id=cohort.team_id, cohort_ids=cohort_ids)
 
 
+def _token_can_read(request: Request, scope_object: str) -> bool:
+    scopes = get_authenticator_scopes(request.successful_authenticator)
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, [f"{scope_object}:read"])
+
+
 def _visible_workflows(
     request: Request,
     user_access_control: Optional[UserAccessControl],
@@ -162,10 +168,7 @@ def _visible_workflows(
     workflows: list[CohortDependentWorkflow],
 ) -> list[CohortDependentWorkflow]:
     # The caller sees the workflows it can view. Callers count every workflow.
-    scopes = get_authenticator_scopes(request.successful_authenticator)
-    if user_access_control is None or (
-        scopes is not None and not {"*", "hog_flow:read", "hog_flow:write"} & set(scopes)
-    ):
+    if user_access_control is None or not _token_can_read(request, "hog_flow"):
         return []
     references = [
         HogFlowReference(id=workflow.id, name=workflow.name, status=workflow.status) for workflow in workflows
@@ -179,6 +182,28 @@ def _visible_workflows(
     return [workflow for workflow in workflows if workflow.id in visible_ids]
 
 
+def _visible_flags(
+    request: Request,
+    user_access_control: Optional[UserAccessControl],
+    flags: list[FeatureFlag],
+) -> list[FeatureFlag]:
+    if user_access_control is None or not _token_can_read(request, "feature_flag"):
+        return []
+    visible_ids = set(
+        user_access_control.filter_queryset_by_access_level(
+            FeatureFlag.objects.filter(id__in=[flag.id for flag in flags]), include_all_if_admin=True
+        ).values_list("id", flat=True)
+    )
+    return [flag for flag in flags if flag.id in visible_ids]
+
+
+def _names_suffix(visible_names: list[str], total: int) -> str:
+    if not visible_names:
+        return ""
+    hidden = total - len(visible_names)
+    return f": {', '.join(visible_names)}" + (f" and {hidden} more" if hidden else "")
+
+
 def _workflow_names_suffix(
     request: Request,
     user_access_control: Optional[UserAccessControl],
@@ -186,10 +211,7 @@ def _workflow_names_suffix(
     workflows: list[CohortDependentWorkflow],
 ) -> str:
     visible = _visible_workflows(request, user_access_control, team_id, workflows)
-    if not visible:
-        return ""
-    hidden = len(workflows) - len(visible)
-    return f": {', '.join(workflow.name for workflow in visible)}" + (f" and {hidden} more" if hidden else "")
+    return _names_suffix([workflow.name for workflow in visible], len(workflows))
 
 
 COHORT_USED_BY_WORKFLOWS_ERROR_CODE = "cohort_used_by_workflows"
@@ -1733,14 +1755,15 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if deleted_state:
                 flags_with_cohort = get_flags_blocking_cohort_deletion(cohort)
                 if flags_with_cohort:
-                    flag_names = [flag.name or flag.key for flag in flags_with_cohort]
+                    visible_flags = _visible_flags(request, self._user_access_control(), flags_with_cohort)
+                    names = _names_suffix([flag.name or flag.key for flag in visible_flags], len(flags_with_cohort))
                     message = (
-                        f"This cohort is used in {len(flags_with_cohort)} feature flag(s): {', '.join(flag_names)}. "
+                        f"This cohort is used in {len(flags_with_cohort)} feature flag(s){names}. "
                         "Remove the cohort from these flags, or archive the flags, before deleting it."
                     )
                     # Resuming a survey enables its targeting flag. That save fails once the flag is archived.
                     survey_flag_ids = Survey.get_internal_flag_ids(project_id=cohort.team.project_id)
-                    if any(flag.id in survey_flag_ids for flag in flags_with_cohort):
+                    if any(flag.id in survey_flag_ids for flag in visible_flags):
                         message += " For a survey's targeting flag, change the survey's targeting or delete the survey instead."
                     raise ValidationError(message)
 

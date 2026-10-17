@@ -114,6 +114,7 @@ from products.feature_flags.backend.facade.api import (
     update_flag,
     user_can_create_flags,
     user_can_edit_flag,
+    validate_flag_restorable,
 )
 from products.feature_flags.backend.facade.filters import (
     restrict_groups_to_cohort,
@@ -1989,8 +1990,7 @@ class ExperimentService:
         an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
         skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
         when the caller lacks feature_flag:write scope or editor access to the flag. The flag
-        also stays archived when the flag API refuses to unarchive it, for example because a
-        release condition targets a deleted cohort.
+        also stays archived when one of its release conditions targets a deleted cohort.
         """
         if not experiment.feature_flag_auto_archived:
             return
@@ -2009,14 +2009,23 @@ class ExperimentService:
         if not can_write_feature_flag or not user_can_edit_flag(feature_flag, team=self.team, user=self.user):
             return
 
+        try:
+            validate_flag_restorable(feature_flag.id, team_id=feature_flag.team_id)
+        except ValidationError:
+            logger.warning(
+                "experiment_flag_unarchive_skipped",
+                experiment_id=experiment.pk,
+                flag_id=feature_flag.pk,
+                team_id=self.team.pk,
+                reason="flag_targets_missing_or_deleted_cohort",
+            )
+            return
+
         # Gated write inside unarchive_experiment's transaction: safe because an
         # archived-only payload matches no approval action (enable/disable detect on
         # `active`, update on `filters`), so the gate can't raise ApprovalRequired here
         # and roll back a just-created change request.
-        try:
-            unarchive_flag(feature_flag, team=self.team, user=self.user, request=request)
-        except ValidationError:
-            return
+        unarchive_flag(feature_flag, team=self.team, user=self.user, request=request)
 
         experiment.feature_flag_auto_archived = False
         experiment.save(update_fields=["feature_flag_auto_archived"])

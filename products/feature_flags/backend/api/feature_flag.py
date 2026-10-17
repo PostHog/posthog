@@ -1199,7 +1199,7 @@ def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     if cohort.deleted:
         label = f"Cohort '{cohort.name}' (ID {cohort.pk})" if cohort.name else f"Cohort with id {cohort.pk}"
         raise serializers.ValidationError(
-            detail=f"{label} has been deleted. Choose another cohort or remove this condition.",
+            detail=f"{label} has been deleted. Restore the cohort, choose another cohort, or remove this condition.",
             code="cohort_does_not_exist",
         )
     return cohort

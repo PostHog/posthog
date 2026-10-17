@@ -5071,7 +5071,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             return "not-an-id"
         return Cohort.objects.create(
             team=self.team,
-            name="Retired cohort",
+            name=None if cohort_state == "deleted_unnamed" else "Retired cohort",
             filters={
                 "properties": {
                     "type": "AND",
@@ -5089,13 +5089,19 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def _unusable_cohort_detail(cohort_state: str, cohort_id: int | str) -> str:
         if cohort_state in ("missing", "malformed"):
             return f"Cohort with id {cohort_id} does not exist"
-        return f"Cohort 'Retired cohort' (ID {cohort_id}) has been deleted. Choose another cohort or remove this condition."
+        label = (
+            f"Cohort with id {cohort_id}"
+            if cohort_state == "deleted_unnamed"
+            else f"Cohort 'Retired cohort' (ID {cohort_id})"
+        )
+        return f"{label} has been deleted. Restore the cohort, choose another cohort, or remove this condition."
 
     @parameterized.expand(
         [
             ("missing_post", "missing", "post"),
             ("deleted_post", "deleted", "post"),
             ("deleted_patch", "deleted", "patch"),
+            ("deleted_unnamed_post", "deleted_unnamed", "post"),
         ]
     )
     def test_writing_filters_with_missing_or_deleted_cohort_is_rejected(
@@ -5141,10 +5147,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
 
-        if mode == "unarchive":
+        if mode == "restore_disabled":
+            response = self.client.patch(url, {"deleted": False}, format="json")
+        elif mode == "unarchive":
             response = self.client.post(f"{url}unarchive/", {}, format="json")
         else:
-            response = turn_flag_on(self.client, url, "restore" if mode == "restore_disabled" else mode)
+            response = turn_flag_on(self.client, url, mode)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
         self.assertLessEqual(
@@ -5158,18 +5166,22 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         flag.refresh_from_db()
         self.assertEqual(flag.version, 7)
 
-    @parameterized.expand([("disable",), ("archive",), ("delete",)])
+    @parameterized.expand([("disable",), ("archive",), ("delete",), ("delete_archived",), ("rename_archived",)])
     def test_restrictive_writes_succeed_with_stored_deleted_cohort(self, action: str) -> None:
+        archived = action.endswith("_archived")
         flag = FeatureFlag.objects.create(
             team=self.team,
             created_by=self.user,
             key="cohort-flag",
             filters=self._cohort_condition_filters(self._unusable_cohort_id("deleted")),
-            active=True,
+            active=not archived,
+            archived=archived,
         )
         url = f"/api/projects/{self.team.id}/feature_flags/{flag.id}/"
-        if action == "delete":
+        if action.startswith("delete"):
             response = self.client.patch(url, {"deleted": True}, format="json")
+        elif action == "rename_archived":
+            response = self.client.patch(url, {"name": "Renamed"}, format="json")
         else:
             response = self.client.post(f"{url}{action}/", {}, format="json")
 

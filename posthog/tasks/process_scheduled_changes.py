@@ -1,6 +1,7 @@
 import os
 import json
 import socket
+from collections.abc import Iterator
 from datetime import UTC, datetime, tzinfo
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -41,6 +42,17 @@ SCHEDULED_CHANGE_MISSED_EXECUTIONS = Counter(
 )
 
 
+def _drf_error_codes(codes: object) -> Iterator[str]:
+    if isinstance(codes, str):
+        yield codes
+    elif isinstance(codes, dict):
+        for value in codes.values():
+            yield from _drf_error_codes(value)
+    elif isinstance(codes, list):
+        for value in codes:
+            yield from _drf_error_codes(value)
+
+
 def is_unrecoverable_error(exception: Exception) -> bool:
     """
     Determine if an exception represents an unrecoverable error that should not be retried.
@@ -59,7 +71,6 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     # Exception types that indicate permanent failures
     unrecoverable_types = (
         ValidationError,
-        DRFValidationError,
         ObjectDoesNotExist,
         IntegrityError,
         ValueError,  # Bad payload structure
@@ -79,6 +90,10 @@ def is_unrecoverable_error(exception: Exception) -> bool:
     ]
 
     if any(indicator in error_message for indicator in permanent_error_indicators):
+        return True
+
+    # The flag API rejects a release condition on a missing or deleted cohort with this code.
+    if isinstance(exception, DRFValidationError) and "cohort_does_not_exist" in _drf_error_codes(exception.get_codes()):
         return True
 
     return isinstance(exception, unrecoverable_types)
