@@ -191,8 +191,10 @@ const notebooksList = (): ToolBase<
                 created_by: params.created_by,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                last_modified_by: params.last_modified_by,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
                 user: params.user,
             },
         })

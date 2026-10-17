@@ -679,6 +679,12 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
                 required=False,
             ),
             OpenApiParameter(
+                "last_modified_by",
+                OpenApiTypes.UUID,
+                description="The UUID of the user who last modified the Notebook",
+                required=False,
+            ),
+            OpenApiParameter(
                 "user",
                 description="If any value is provided for this parameter, return notebooks created by the logged in user.",
                 required=False,
@@ -686,13 +692,18 @@ IDENTITY_ONLY_DETAIL_ACTIONS = frozenset({"collab_presence", "collab_stream", "a
             OpenApiParameter(
                 "date_from",
                 OpenApiTypes.DATETIME,
-                description="Filter for notebooks created after this date & time",
+                description="Filter for notebooks last modified after this date & time",
                 required=False,
             ),
             OpenApiParameter(
                 "date_to",
                 OpenApiTypes.DATETIME,
-                description="Filter for notebooks created before this date & time",
+                description="Filter for notebooks last modified before this date & time",
+                required=False,
+            ),
+            OpenApiParameter(
+                "search",
+                description="Filter for notebooks whose title or text content matches this full-text search term",
                 required=False,
             ),
             OpenApiParameter(
