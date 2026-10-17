@@ -37,10 +37,7 @@ import {
     TimeUnitType,
 } from '~/types'
 
-import {
-    cohortAudienceProperties,
-    messageAudienceUrl,
-} from 'products/workflows/frontend/MessageAudience/messageAudience'
+import { MessageAudience, cohortAudienceProperties } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { urlForNewWorkflowWithTrigger } from 'products/workflows/frontend/Workflows/workflowTriggerPrefill'
 
 /**
@@ -170,6 +167,7 @@ export function createCohortFormData(
                           ).filters.properties,
                           id: undefined,
                       },
+                      filterTestAccounts: cohort.filters.filterTestAccounts,
                   }
         ),
     }
@@ -726,6 +724,13 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
     return null
 }
 
-export function urlForCohortBroadcast(cohort: { id: number; name?: string }): string {
-    return messageAudienceUrl({ properties: cohortAudienceProperties(cohort), source: 'cohort' }, 'broadcast')
+export function cohortBroadcastAudience(cohort: Pick<CohortType, 'id' | 'name'>): MessageAudience {
+    if (typeof cohort.id !== 'number') {
+        return { properties: [], source: 'cohort' }
+    }
+    return {
+        properties: cohortAudienceProperties({ id: cohort.id, name: cohort.name }),
+        source: 'cohort',
+        draftSource: { source: 'cohort', source_id: String(cohort.id) },
+    }
 }

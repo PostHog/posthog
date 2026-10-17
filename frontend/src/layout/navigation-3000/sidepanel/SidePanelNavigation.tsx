@@ -11,9 +11,9 @@ import { cn } from 'lib/utils/css-classes'
 
 import { SidePanelTab } from '~/types'
 
-import { SIDE_PANEL_TABS } from './SidePanel'
 import { sidePanelLogic } from './sidePanelLogic'
 import { sidePanelStateLogic } from './sidePanelStateLogic'
+import { SIDE_PANEL_TABS } from './sidePanelTabs'
 
 interface SidePanelNavigationProps {
     activeTab: SidePanelTab

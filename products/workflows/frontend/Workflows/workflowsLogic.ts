@@ -543,8 +543,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
             setFilters: buildURL,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.workflows()]: (_, searchParams) => {
+    urlToAction(({ actions, values }) => {
+        const syncFiltersFromUrl = (_: Record<string, any>, searchParams: Record<string, any>): void => {
             const status = searchParams['status']
             const type = searchParams['type']
             const triggerType = searchParams['trigger_type']
@@ -561,6 +561,11 @@ export const workflowsLogic = kea<workflowsLogicType>([
             if (!objectsEqual(parsed, values.filters)) {
                 actions.setFilters(parsed, true)
             }
-        },
-    })),
+        }
+        // The list renders on both the bare scene URL and its explicit tab URL, so shared links work from either.
+        return {
+            [urls.workflows()]: syncFiltersFromUrl,
+            [urls.workflows('workflows')]: syncFiltersFromUrl,
+        }
+    }),
 ])

@@ -104,7 +104,7 @@ const ROOTS = [
         label: 'authenticated shell (every logged-in page)',
         // 2026-10-11: 7.09 MiB eager output = 6.29 MiB JS (2463 files) + 0.80 MiB stable CSS.
         // ~8% headroom so routine churn doesn't trip the warn.
-        budgetBytes: 8_015_000,
+        budgetBytes: 7_860_000,
         forbidden: [
             'node_modules/monaco-editor/',
             'src/lib/components/ActivityLog/describers',
@@ -115,6 +115,8 @@ const ROOTS = [
                 verifyPrefix: 'products/dashboards/frontend/widgets/',
             },
             'src/scenes/session-recordings/player/sessionRecordingPlayerLogic.ts',
+            // The wizard run card opens this drawer on click, and the drawer pulls in quill primitives.
+            'products/wizard/frontend/runs/WizardRunDetailsDrawer.tsx',
             // The zod-en-locale-only plugin in common/esbuilder/utils.mjs keeps every locale except
             // `en` out of the build. A hit on another locale means zod moved its locales barrel and
             // the plugin no longer matches it.
@@ -155,7 +157,7 @@ const ROOTS = [
             'src/scenes/project-homepage/today/TodayHome.tsx',
         ],
         label: 'today home path',
-        budgetBytes: 8_270_000,
+        budgetBytes: 8_115_000,
         forbidden: [
             'src/scenes/project-homepage/ai-first/AiFirstHomepage.tsx',
             'src/scenes/project-homepage/today/TodayReportPage.tsx',

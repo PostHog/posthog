@@ -112,7 +112,11 @@ class WebhookTransport(WebhookUrlTransport):
     def check_url(self, url: str) -> None:
         # Plain HTTP would expose the URL, which is the credential, and the alert body to anyone on
         # the path. Teams and Discord URLs are always HTTPS, so only the generic webhook needs this.
-        if urlsplit(url).scheme != "https":
+        try:
+            scheme = urlsplit(url).scheme
+        except ValueError:
+            raise DeliveryError("This webhook destination's URL is not a valid URL.") from None
+        if scheme != "https":
             raise DeliveryError("This webhook destination's URL must use https.")
 
     def body_for(self, message: AlertMessage) -> dict[str, Any]:

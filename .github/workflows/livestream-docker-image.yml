@@ -25,7 +25,7 @@ jobs:
 
         # Skipped on trunk-merge/** branches: merge-queue PRs are ephemeral, nothing
         # pulls images pushed for them, and each constituent PR already built its own.
-        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/')
+        if: github.repository_owner == 'PostHog' && !startsWith(github.head_ref, 'trunk-merge/') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
 
         permissions:
             contents: read
@@ -122,6 +122,6 @@ jobs:
                         },
                         "release": "livestream",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }

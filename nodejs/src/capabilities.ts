@@ -30,6 +30,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
+    cdpCohortMembershipTriggers: true,
 }
 
 /** Realtime Cohorts - cohort membership persistence */
@@ -142,6 +143,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_cohort_membership:
             return {
                 cdpCohortMembership: true,
+            }
+        case PluginServerMode.cdp_cohort_membership_triggers:
+            return {
+                cdpCohortMembershipTriggers: true,
             }
         case PluginServerMode.cdp_legacy_on_event:
             return {

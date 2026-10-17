@@ -172,8 +172,6 @@ devbox:
     devbox:ssh:
         click: hogli_commands.devbox.cli:devbox_ssh
         description: SSH into your devbox
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:exec:
         click: hogli_commands.devbox.cli:devbox_remote_exec
         description: Run a command inside your devbox (non-interactive)
@@ -181,11 +179,9 @@ devbox:
     devbox:open:
         click: hogli_commands.devbox.cli:devbox_open
         description: Open devbox in browser, VS Code, or Cursor
-        untracked: true
     devbox:logs:
         click: hogli_commands.devbox.cli:devbox_logs
         description: Tail devbox build and agent logs
-        # exec-replaces the process (os.execvp): completed events can't fire
         untracked: true
     devbox:destroy:
         click: hogli_commands.devbox.cli:devbox_destroy
@@ -196,8 +192,6 @@ devbox:
     devbox:forward:
         click: hogli_commands.devbox.cli:devbox_forward
         description: Forward PostHog UI to localhost
-        # exec-replaces the process (os.execvp): completed events can't fire
-        untracked: true
     devbox:users:
         click: hogli_commands.devbox.cli:devbox_users
         description: List Coder users (for devbox sharing)

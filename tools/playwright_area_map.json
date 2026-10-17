@@ -136,6 +136,16 @@
             "playwright/e2e/insight-sharing-password.spec.ts",
             "playwright/e2e/shared-insight-unauthenticated.spec.ts"
         ],
+        "products/product_analytics/frontend/insights/insightScene/**": [
+            "playwright/e2e/product-analytics/",
+            "playwright/e2e/insight-sharing-password.spec.ts",
+            "playwright/e2e/shared-insight-unauthenticated.spec.ts"
+        ],
+        "products/product_analytics/frontend/insights/insightQuickStart/**": [
+            "playwright/e2e/product-analytics/",
+            "playwright/e2e/insight-sharing-password.spec.ts",
+            "playwright/e2e/shared-insight-unauthenticated.spec.ts"
+        ],
         "products/product_analytics/frontend/**": ["playwright/e2e/product-analytics/"],
         "products/dashboards/frontend/**": [
             "playwright/e2e/product-analytics/dashboards.spec.ts",
