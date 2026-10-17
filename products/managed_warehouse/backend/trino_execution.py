@@ -18,10 +18,12 @@ if TYPE_CHECKING:
 _Result = TypeVar("_Result")
 
 TRINO_QUERY_SECONDS = 6 * 60 * 60
-# Trino's low-memory killer stops a query when the whole cluster runs out of memory, and asks the
-# client to try again in a few minutes. A query over its own memory limit fails with another name.
-CLUSTER_OUT_OF_MEMORY = "CLUSTER_OUT_OF_MEMORY"
-CLUSTER_OUT_OF_MEMORY_RETRY_DELAYS_SECONDS = (2 * 60, 5 * 60)
+# Trino stops these queries for a cluster fault, not for the query itself, and asks the client to try
+# again in a few minutes. The low-memory killer raises CLUSTER_OUT_OF_MEMORY when the whole cluster runs
+# out of memory. TOO_MANY_REQUESTS_FAILED means a worker node crashed or stopped answering. A query over
+# its own memory limit fails with another name.
+TRANSIENT_TRINO_ERROR_NAMES = frozenset({"CLUSTER_OUT_OF_MEMORY", "TOO_MANY_REQUESTS_FAILED"})
+TRANSIENT_TRINO_ERROR_RETRY_DELAYS_SECONDS = (2 * 60, 5 * 60)
 _executor = ThreadPoolExecutor(thread_name_prefix="trino-model")
 
 logger = structlog.get_logger(__name__)
@@ -82,24 +84,28 @@ async def run_trino_model(
         control.finished.set()
 
 
-def is_cluster_out_of_memory(error: BaseException) -> bool:
-    return getattr(error, "error_name", None) == CLUSTER_OUT_OF_MEMORY
+def is_transient_trino_error(error: BaseException) -> bool:
+    return getattr(error, "error_name", None) in TRANSIENT_TRINO_ERROR_NAMES
 
 
 async def run_trino_model_with_retries(
     execute: Callable[[TrinoQueryControl], _Result],
     *,
     query_seconds: float = TRINO_QUERY_SECONDS,
-    retry_delays: tuple[float, ...] = CLUSTER_OUT_OF_MEMORY_RETRY_DELAYS_SECONDS,
+    retry_delays: tuple[float, ...] = TRANSIENT_TRINO_ERROR_RETRY_DELAYS_SECONDS,
 ) -> _Result:
-    """Run ``execute`` again after a cluster out-of-memory kill. All attempts share one deadline."""
+    """Run ``execute`` again after a transient Trino cluster fault. All attempts share one deadline."""
     deadline = monotonic() + query_seconds
     for delay in retry_delays:
         try:
             return await run_trino_model(execute, query_seconds=deadline - monotonic())
         except Exception as error:
-            if not is_cluster_out_of_memory(error) or monotonic() + delay >= deadline:
+            if not is_transient_trino_error(error) or monotonic() + delay >= deadline:
                 raise
-            logger.warning("Trino cluster is out of memory, retrying the model", retry_in_seconds=delay)
+            logger.warning(
+                "Trino cluster failed the query, retrying the model",
+                error_name=getattr(error, "error_name", None),
+                retry_in_seconds=delay,
+            )
             await asyncio.sleep(delay)
     return await run_trino_model(execute, query_seconds=deadline - monotonic())
