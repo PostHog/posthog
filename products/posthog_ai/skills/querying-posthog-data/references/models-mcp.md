@@ -25,21 +25,21 @@ And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see be
 
 **Sessions have typed tools too.** A session is one agent run — the `$mcp_tool_call` events sharing a `$session_id`:
 
-| question about sessions                                 | tool                                             |
-| ------------------------------------------------------- | ------------------------------------------------ |
-| list sessions (calls, start/end, tools, client, person) | `posthog:mcp-analytics-sessions-list`            |
-| one session's calls, chronological                      | `posthog:mcp-analytics-sessions-tool-calls`      |
-| LLM summary of one session's goal                       | `posthog:mcp-analytics-sessions-generate-intent` |
+| question about sessions                                  | tool                                             |
+| -------------------------------------------------------- | ------------------------------------------------ |
+| list sessions (calls, errors, start/end, client, person) | `posthog:mcp-analytics-sessions-list`            |
+| one session's calls, chronological                       | `posthog:mcp-analytics-sessions-tool-calls`      |
+| LLM summary of one session's goal                        | `posthog:mcp-analytics-sessions-generate-intent` |
 
 Three things to know before using them:
 
 - **7-day lookback by default.** `posthog:mcp-analytics-sessions-tool-calls` and `posthog:mcp-analytics-sessions-generate-intent` both scan 7 days back, so an older session returns empty unless you pass its `session_start` as `date_from`. Carry that value forward from the list row.
 - **They report the raw `$mcp_tool_name`**, not the effective inner tool of a single-exec wrapper call — unlike the per-tool tools above.
-- **The session list has no error filter or error count.** "Which sessions failed?" is a SQL question.
+- **Use `has_errors` for errored sessions.** "Which sessions failed?" is `posthog:mcp-analytics-sessions-list` with `has_errors: true`. Each row has `error_calls`, the number of errored calls in the session.
 
 And two tools cover what SQL can't express at all: `posthog:mcp-analytics-intent-clusters-retrieve` and `posthog:mcp-analytics-intent-clusters-recompute` (embedding-based intent clustering).
 
-**HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, errored-session filtering, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the event-derived typed tools above aren't in your tool list; intent clustering has no SQL fallback.
+**HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, effective tool names within a session — query them with `execute-sql`. It is also the fallback when the event-derived typed tools above aren't in your tool list; intent clustering has no SQL fallback.
 
 ## Key properties
 

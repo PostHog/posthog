@@ -90,7 +90,6 @@ Then offer a natural follow-up from the menu — e.g. after
 **Not covered — use `posthog:execute-sql`:**
 
 - Cross-tool rankings (the tool-quality matrix — "which tool errors most?")
-- Errored-session filtering (the session list has no error filter or error count)
 - Effective tool names inside a session (`posthog:mcp-analytics-sessions-tool-calls`
   returns the raw `$mcp_tool_name`, not the inner tool of a wrapper call)
 - Any custom breakdown
