@@ -11,7 +11,7 @@
 //! stamped.
 //!
 //! The manifest records the split it was captured under. A restore accepts it on any pod whose
-//! partitions that split covers.
+//! partitions that split covers: its own lineage, or during a reshard its parent's.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;

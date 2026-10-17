@@ -139,7 +139,8 @@ pub const CHECKPOINT_FILE_FETCH_STORE_DURATION_SECONDS: &str =
     "checkpoint_file_fetch_store_duration_seconds";
 /// Latency of listing a checkpoint's recent attempt folders from S3 (histogram, seconds).
 pub const CHECKPOINT_LIST_DURATION_SECONDS: &str = "checkpoint_list_duration_seconds";
-/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`cold`) (counter).
+/// Boot store choices, labelled by `source` (`reopen_live`|`pending`|`local`|`s3`|`parent_s3`|`cold`)
+/// (counter). `parent_s3` is a reshard child restoring its parent's lineage.
 pub const CHECKPOINT_RESTORE_TOTAL: &str = "checkpoint_restore_total";
 /// Checkpoint candidates a boot restore tried, labelled by `verdict`
 /// (`published`|`unusable`|`failed`) (counter).
@@ -307,8 +308,9 @@ pub const PARTITIONS_ASSIGNED_TOTAL: &str = "partitions_assigned_total";
 pub const OWNED_PARTITIONS: &str = "owned_partitions";
 /// This pod's place in the partition split, labelled by `pods` and `ordinal`. Always 1 (gauge).
 pub const PARTITION_OWNERSHIP_INFO: &str = "partition_ownership_info";
-/// 1 while the ownership fence holds the boot, labelled by `reason` (`foreign_split`|`unrecognized`),
-/// else 0 (gauge). **Alert on it**: the pod reads not ready until the logged cause clears.
+/// 1 while the ownership fence holds the boot, labelled by `reason`
+/// (`foreign_split`|`unrecognized`|`parent_running`), else 0 (gauge). **Alert on it**: the pod reads
+/// not ready until the logged cause clears.
 pub const OWNERSHIP_FENCE_BLOCKED: &str = "ownership_fence_blocked";
 /// Commits by another split, or with unreadable metadata, that the run-time audit found on an owned
 /// partition, labelled by `topic` (counter). Each one stops the pod.

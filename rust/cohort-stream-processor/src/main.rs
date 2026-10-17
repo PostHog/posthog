@@ -73,7 +73,7 @@ async fn async_main(config: Config) -> Result<()> {
     log_startup(&config);
 
     config.validate_startup()?;
-    let ownership = config.partition_ownership()?;
+    let claim = config.split_claim()?;
 
     let lineage = config
         .checkpoint_enabled
@@ -321,7 +321,7 @@ async fn async_main(config: Config) -> Result<()> {
         )
         .context("checking the checkpoint directory")?;
     }
-    let admitted = AdmittedSplit::admit(ownership, groups.clone()).await;
+    let admitted = AdmittedSplit::admit(claim, groups.clone()).await;
     let (store, restore) = open_store(&config, &admitted, lineage, groups.clone())
         .await
         .context("opening RocksDB state store")?;
@@ -766,6 +766,7 @@ fn log_startup(config: &Config) {
         merge_apply_consumer_group = %config.kafka_merge_apply_consumer_group,
         pod_identity = config.pod_identity().unwrap_or("<none>"),
         pod_count = config.cohort_pod_count,
+        reshard_from_pod_count = ?config.cohort_reshard_from_pod_count,
         recv_batch_size = config.recv_batch_size,
         partition_channel_buffer = config.partition_channel_buffer,
         store_path = %config.store_path,

@@ -518,7 +518,9 @@ impl CohortStore {
     }
 
     /// Records `ownership` in a store written under a split that covers it, and refuses any other
-    /// store. A store from before ownership records adopts the configured one.
+    /// store. A covering split is this pod's own, or in a reshard the split that wrote the
+    /// parent's store or checkpoint. A store from before ownership records adopts the configured
+    /// one.
     fn claim_ownership(&self, ownership: PartitionOwnership) -> Result<(), StoreError> {
         if let Some(recorded) = self.get(Meta::CF, &Meta::encode(&META_POD_PARTITIONS))? {
             match PartitionOwnership::decode(&recorded) {

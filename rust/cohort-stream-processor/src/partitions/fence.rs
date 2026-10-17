@@ -3,7 +3,8 @@
 //! stamps three times.
 //!
 //! 1. **Admission**, before the store opens. A stamp from another split on an owned partition holds
-//!    the boot.
+//!    the boot, unless a reshard names that split as this pod's parent. A reshard child also waits
+//!    until its parent restarts under the new split, then takes its partitions over.
 //! 2. **The claim**, after the store opens. The pod checks the stamps again, stamps every owned
 //!    partition on every group and reads the stamps back, so a broker that drops commit metadata
 //!    stops the pod.
@@ -23,6 +24,7 @@ use metrics::{counter, gauge};
 use tracing::{error, info, warn};
 
 use super::positions::{InputGroups, InputTopic, PositionsError, ResumeOffset};
+use super::split::{Role, SplitClaim};
 use super::stamp::{CommitStamp, Stamp};
 use super::PartitionOwnership;
 use crate::observability::metrics::{OWNERSHIP_FENCE_BLOCKED, OWNERSHIP_FENCE_VIOLATIONS_TOTAL};
@@ -70,11 +72,18 @@ impl InputCommits {
     pub fn commits(&self) -> &BTreeMap<u16, Committed> {
         &self.commits
     }
+
+    fn carries(&self, partition: u16, split: PartitionOwnership) -> bool {
+        self.commits.get(&partition).and_then(Committed::stamp) == Some(&Stamp::Split(split))
+    }
 }
 
 /// The last commits on a set of partitions, on every enabled group.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitLedger {
+    /// Every pod reads the events group, so it alone says whether another split still runs and
+    /// whether a takeover finished. A follower group can be enabled after a reshard, with stamps
+    /// that an older split left.
     events: InputCommits,
     followers: Vec<InputCommits>,
 }
@@ -100,16 +109,57 @@ impl CommitLedger {
         })
     }
 
-    /// The fence decision over a ledger that holds `ownership`'s partitions. An owned partition may
-    /// carry no stamp, from a build before stamps or a standard Kafka tool, or this pod's split.
-    fn admit(&self, ownership: PartitionOwnership) -> Result<(), FenceBlock> {
+    /// The fence decision, over a ledger that holds `claim`'s partitions and, for a child, its
+    /// parent's partitions in the new split.
+    ///
+    /// - Every stamp on an owned partition passes [`Self::check_stamps`].
+    /// - A child takes over only once its parent has stamped one of its own partitions under the
+    ///   new split. A StatefulSet runs one pod per ordinal, so no process runs the old split at the
+    ///   parent's ordinal after that.
+    /// - A child with its own split on any events partition finished its takeover before, because
+    ///   only its claim and its later commits write that stamp. An offset reset removes the stamp
+    ///   from a partition, so the rule cannot require it on every partition.
+    fn admit(&self, claim: &SplitClaim) -> Result<StoreSource, FenceBlock> {
+        self.check_stamps(claim)?;
+        let ownership = claim.ownership();
+        let Role::Child { parent, parent_now } = claim.role() else {
+            return Ok(StoreSource::Own);
+        };
+        if ownership
+            .partitions()
+            .any(|partition| self.events.carries(partition, ownership))
+        {
+            Ok(StoreSource::Own)
+        } else if parent_now
+            .partitions()
+            .any(|partition| self.events.carries(partition, parent_now))
+        {
+            Ok(StoreSource::TakeOver { parent })
+        } else {
+            Err(FenceBlock::ParentRunning { parent })
+        }
+    }
+
+    /// Refuses a stamp on an owned partition that `claim` does not accept. An owned partition may
+    /// carry no stamp, this pod's split, or during a reshard the parent's. A child accepts no stamp
+    /// because its partitions belonged to the parent, which may have run a build without stamps. A
+    /// follower partition may also carry any split that covers this pod, because a pod of that
+    /// split that still runs also commits the events group.
+    fn check_stamps(&self, claim: &SplitClaim) -> Result<(), FenceBlock> {
+        let ownership = claim.ownership();
+        let parent = match claim.role() {
+            Role::Steady => None,
+            Role::Parent { parent } | Role::Child { parent, .. } => Some(parent),
+        };
+        let events = self.events.topic();
         for (topic, partition, stamp) in self.stamps() {
             if !ownership.owns(partition) {
                 continue;
             }
             match stamp {
                 Stamp::Unstamped => {}
-                Stamp::Split(found) if *found == ownership => {}
+                Stamp::Split(found) if *found == ownership || Some(*found) == parent => {}
+                Stamp::Split(found) if topic != events && found.covers(&ownership) => {}
                 Stamp::Split(found) => {
                     return Err(FenceBlock::ForeignSplit {
                         topic: topic.clone(),
@@ -130,12 +180,23 @@ impl CommitLedger {
     }
 }
 
+/// Where an admitted pod's store comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreSource {
+    /// The live store, or this pod's own checkpoint lineage.
+    Own,
+    /// A reshard child takes its partitions over from `parent`, which advanced them. A live store
+    /// without a pending restore is discarded, then `parent`'s checkpoint lineage is restored, or
+    /// the store is created.
+    TakeOver { parent: PartitionOwnership },
+}
+
 /// Why the fence holds the boot.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FenceBlock {
     #[error(
         "{found} committed {topic} partition {partition}: its pods may still run, or the pod count \
-         changed"
+         changed without COHORT_RESHARD_FROM_POD_COUNT"
     )]
     ForeignSplit {
         topic: InputTopic,
@@ -148,15 +209,18 @@ pub enum FenceBlock {
         partition: u16,
         metadata: String,
     },
+    #[error("waiting for the pod that ran {parent} to restart under the new split")]
+    ParentRunning { parent: PartitionOwnership },
 }
 
 impl FenceBlock {
-    const REASONS: [&'static str; 2] = ["foreign_split", "unrecognized"];
+    const REASONS: [&'static str; 3] = ["foreign_split", "unrecognized", "parent_running"];
 
     fn reason(&self) -> &'static str {
         match self {
             Self::ForeignSplit { .. } => Self::REASONS[0],
             Self::Unrecognized { .. } => Self::REASONS[1],
+            Self::ParentRunning { .. } => Self::REASONS[2],
         }
     }
 
@@ -185,41 +249,39 @@ pub enum FenceError {
 /// one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AdmittedSplit {
-    ownership: PartitionOwnership,
+    claim: SplitClaim,
+    source: StoreSource,
 }
 
 impl AdmittedSplit {
-    /// Retries [`Self::try_admit`] with backoff until the fence admits `ownership`. Each read runs
-    /// on a blocking thread, so the health server keeps answering, and the pod reads not ready.
-    pub async fn admit(ownership: PartitionOwnership, groups: Arc<InputGroups>) -> Self {
+    /// Retries [`Self::try_admit`] with backoff until the fence admits `claim`. Each read runs on a
+    /// blocking thread, so the health server keeps answering, and the pod reads not ready.
+    pub async fn admit(claim: SplitClaim, groups: Arc<InputGroups>) -> Self {
         let mut backoff = RETRY_START;
         loop {
             let reader = groups.clone();
-            let attempt = match tokio::task::spawn_blocking(move || {
-                Self::try_admit(ownership, &reader)
-            })
-            .await
-            {
-                Ok(attempt) => attempt,
-                Err(err) => std::panic::resume_unwind(err.into_panic()),
-            };
+            let attempt =
+                match tokio::task::spawn_blocking(move || Self::try_admit(claim, &reader)).await {
+                    Ok(attempt) => attempt,
+                    Err(err) => std::panic::resume_unwind(err.into_panic()),
+                };
             match attempt {
                 Ok(admitted) => {
                     FenceBlock::record(None);
-                    info!(%ownership, "the ownership fence admitted this pod");
+                    info!(%claim, source = ?admitted.source, "the ownership fence admitted this pod");
                     return admitted;
                 }
                 Err(FenceError::Blocked(block)) => {
                     FenceBlock::record(Some(&block));
                     warn!(
-                        %ownership,
+                        %claim,
                         %block,
                         retry_in_secs = backoff.as_secs(),
                         "the ownership fence holds the boot",
                     );
                 }
                 Err(FenceError::Ledger(err)) => warn!(
-                    %ownership,
+                    %claim,
                     error = %err,
                     retry_in_secs = backoff.as_secs(),
                     "reading the commit ledger failed; retrying",
@@ -231,35 +293,50 @@ impl AdmittedSplit {
     }
 
     /// One fence read. Blocks on Kafka.
-    pub fn try_admit(
-        ownership: PartitionOwnership,
-        groups: &InputGroups,
-    ) -> Result<Self, FenceError> {
-        let partitions: BTreeSet<u16> = ownership.partitions().collect();
-        groups.ledger(&partitions)?.admit(ownership)?;
-        Ok(Self { ownership })
+    pub fn try_admit(claim: SplitClaim, groups: &InputGroups) -> Result<Self, FenceError> {
+        let parent_now = match claim.role() {
+            Role::Child { parent_now, .. } => Some(parent_now),
+            Role::Steady | Role::Parent { .. } => None,
+        };
+        let partitions: BTreeSet<u16> = claim
+            .ownership()
+            .partitions()
+            .chain(parent_now.iter().flat_map(PartitionOwnership::partitions))
+            .collect();
+        let source = groups.ledger(&partitions)?.admit(&claim)?;
+        Ok(Self { claim, source })
     }
 
     pub fn ownership(&self) -> PartitionOwnership {
-        self.ownership
+        self.claim.ownership()
+    }
+
+    /// The split the fence admitted, with its place in a reshard.
+    pub fn split_claim(&self) -> SplitClaim {
+        self.claim
+    }
+
+    pub fn source(&self) -> StoreSource {
+        self.source
     }
 
     pub fn stamp(&self) -> CommitStamp {
-        CommitStamp::new(self.ownership)
+        CommitStamp::new(self.ownership())
     }
 
     /// Checks the fence again, then commits every owned partition on every group again with this
     /// pod's stamp, at the group's commit or at the low watermark where the group never committed,
-    /// and reads the stamps back. Blocks on Kafka.
+    /// and reads the stamps back. Run it after the store opens: a child that stops before its claim
+    /// still reads as its parent's, so the next boot takes over again. Blocks on Kafka.
     pub fn claim(self, groups: &InputGroups) -> anyhow::Result<ClaimedSplit> {
-        let partitions: BTreeSet<u16> = self.ownership.partitions().collect();
+        let partitions: BTreeSet<u16> = self.ownership().partitions().collect();
         // Another split can claim while this pod opens its store. The restamp would cover that
         // split's stamps, so the claim checks the fence on the same commits that it overwrites.
         let ledger = groups.ledger(&partitions)?;
-        ledger.admit(self.ownership)?;
+        ledger.check_stamps(&self.claim)?;
         let stamp = self.stamp();
         groups.restamp(&stamp, &ledger)?;
-        let ours = Stamp::Split(self.ownership);
+        let ours = Stamp::Split(self.ownership());
         for input in groups.ledger(&partitions)?.inputs() {
             for (&partition, committed) in input.commits() {
                 let topic = input.topic();
@@ -277,7 +354,7 @@ impl AdmittedSplit {
                 }
             }
         }
-        info!(ownership = %self.ownership, "claimed every owned partition; the stamps read back");
+        info!(ownership = %self.ownership(), "claimed every owned partition; the stamps read back");
         Ok(ClaimedSplit(stamp))
     }
 }
@@ -377,6 +454,14 @@ mod tests {
         .unwrap()
     }
 
+    fn claim(pods: u16, ordinal: u16, reshard_from: Option<u16>) -> SplitClaim {
+        SplitClaim::new(
+            split(pods, ordinal),
+            reshard_from.map(|from| NonZeroU16::new(from).unwrap()),
+        )
+        .unwrap()
+    }
+
     /// `None` is a partition its group never committed.
     fn commits(topic: &str, stamps: [Option<Stamp>; PARTITIONS as usize]) -> InputCommits {
         let commits = (0..PARTITIONS)
@@ -400,20 +485,20 @@ mod tests {
     }
 
     #[test]
-    fn the_fence_admits_a_split_only_over_its_own_or_no_stamps() {
+    fn the_fence_admits_a_split_only_over_its_own_its_ancestors_or_no_stamps() {
         let unstamped = || Some(Stamp::Unstamped);
         let unreadable = || Some(Stamp::Unrecognized("other-tool".to_owned()));
         type Row = (
             &'static str,
-            PartitionOwnership,
+            SplitClaim,
             [Option<Stamp>; 4],
             [Option<Stamp>; 4],
-            Result<(), FenceBlock>,
+            Result<StoreSource, FenceBlock>,
         );
         let rows: Vec<Row> = vec![
             (
-                "unreadable metadata blocks",
-                split(1, 0),
+                "unreadable metadata blocks any role",
+                claim(1, 0, None),
                 [by(1, 0), by(1, 0), unreadable(), by(1, 0)],
                 [by(1, 0), by(1, 0), by(1, 0), by(1, 0)],
                 Err(FenceBlock::Unrecognized {
@@ -423,15 +508,15 @@ mod tests {
                 }),
             ),
             (
-                "its own stamps, none, and partitions never committed",
-                split(2, 1),
+                "steady over its own stamps, none, and partitions never committed",
+                claim(2, 1, None),
                 [by(2, 0), by(2, 1), by(2, 0), unstamped()],
                 [None, by(2, 1), None, None],
-                Ok(()),
+                Ok(StoreSource::Own),
             ),
             (
-                "another split: the pod count changed",
-                split(2, 1),
+                "steady over another split: the pod count changed without a reshard",
+                claim(2, 1, None),
                 [by(2, 0), by(1, 0), by(2, 0), by(1, 0)],
                 [by(2, 0), by(1, 0), by(2, 0), by(1, 0)],
                 Err(FenceBlock::ForeignSplit {
@@ -440,10 +525,72 @@ mod tests {
                     found: split(1, 0),
                 }),
             ),
+            (
+                "steady over a follower that was off through a reshard",
+                claim(2, 1, None),
+                [by(2, 0), by(2, 1), by(2, 0), by(2, 1)],
+                [by(1, 0), by(1, 0), by(1, 0), by(1, 0)],
+                Ok(StoreSource::Own),
+            ),
+            (
+                "parent over its own, its old split's and no stamps",
+                claim(2, 0, Some(1)),
+                [by(2, 0), by(1, 0), unstamped(), by(1, 0)],
+                [by(1, 0), by(1, 0), by(1, 0), by(1, 0)],
+                Ok(StoreSource::Own),
+            ),
+            (
+                "parent over another split",
+                claim(2, 0, Some(1)),
+                [by(4, 0), by(1, 0), by(2, 0), by(1, 0)],
+                [by(1, 0), by(1, 0), by(1, 0), by(1, 0)],
+                Err(FenceBlock::ForeignSplit {
+                    topic: InputTopic::new(EVENTS),
+                    partition: 0,
+                    found: split(4, 0),
+                }),
+            ),
+            (
+                "child with its split on an events partition finished its takeover, though an \
+                 offset reset removed it from another",
+                claim(2, 1, Some(1)),
+                [by(2, 0), by(2, 1), by(2, 0), unstamped()],
+                [by(1, 0), by(1, 0), by(1, 0), unstamped()],
+                Ok(StoreSource::Own),
+            ),
+            (
+                "child takes over once its parent stamped under the new split",
+                claim(2, 1, Some(1)),
+                [by(2, 0), unstamped(), by(1, 0), by(1, 0)],
+                [by(2, 0), by(1, 0), by(1, 0), by(1, 0)],
+                Ok(StoreSource::TakeOver {
+                    parent: split(1, 0),
+                }),
+            ),
+            (
+                "child waits while its parent has not restarted",
+                claim(2, 1, Some(1)),
+                [by(1, 0), unstamped(), by(1, 0), None],
+                [by(1, 0), by(1, 0), by(2, 0), by(1, 0)],
+                Err(FenceBlock::ParentRunning {
+                    parent: split(1, 0),
+                }),
+            ),
+            (
+                "child over another split",
+                claim(2, 1, Some(1)),
+                [by(2, 0), by(1, 0), by(2, 0), by(1, 0)],
+                [by(2, 0), by(1, 0), by(2, 0), by(4, 3)],
+                Err(FenceBlock::ForeignSplit {
+                    topic: InputTopic::new(MERGES),
+                    partition: 3,
+                    found: split(4, 3),
+                }),
+            ),
         ];
-        for (name, ownership, events, merges, expected) in rows {
+        for (name, claim, events, merges, expected) in rows {
             let ledger = CommitLedger::new(commits(EVENTS, events), vec![commits(MERGES, merges)]);
-            assert_eq!(ledger.admit(ownership), expected, "{name}");
+            assert_eq!(ledger.admit(&claim), expected, "{name}");
         }
     }
 }

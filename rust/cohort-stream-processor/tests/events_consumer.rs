@@ -28,7 +28,8 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::num::NonZeroU16;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -44,14 +45,15 @@ use cohort_stream_processor::filters::{
 };
 use cohort_stream_processor::partitions::{
     AdmittedSplit, ClaimedSplit, CohortConsumerContext, InputGroups, InputTopic, OffsetTracker,
-    PartitionOwnership, PartitionRouter, ShuffleMessage, WorkerInbox,
+    PartitionOwnership, PartitionRouter, ShuffleMessage, SplitClaim, Stamp, StoreSource,
+    WorkerInbox,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
 };
 use cohort_stream_processor::stage1::{Stage1State, StatefulRecord};
 use cohort_stream_processor::store::durability::{
-    open_store, CheckpointLineage, CheckpointSweeper, PendingRestore, PodOrdinal, MARKER_FILENAME,
+    open_store, CheckpointSweeper, PendingRestore, PodOrdinal, MARKER_FILENAME,
 };
 use cohort_stream_processor::store::{
     BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
@@ -240,12 +242,11 @@ async fn produce_new_persons(topic: &str, count: u128) -> usize {
 /// The single pod's ownership of the test topics.
 const SINGLE_POD: PartitionOwnership = PartitionOwnership::single(NUM_PARTITIONS as u16);
 
-/// Admits `ownership` through the ownership fence, as the processor does before it opens the
-/// store.
-async fn admit(ownership: PartitionOwnership, groups: &Arc<InputGroups>) -> AdmittedSplit {
+/// Admits `claim` through the ownership fence, as the processor does before it opens the store.
+async fn admit(claim: SplitClaim, groups: &Arc<InputGroups>) -> AdmittedSplit {
     let groups = groups.clone();
     tokio::task::spawn_blocking(move || {
-        AdmittedSplit::try_admit(ownership, &groups).expect("the fence admits the split")
+        AdmittedSplit::try_admit(claim, &groups).expect("the fence admits the split")
     })
     .await
     .expect("the admission panicked")
@@ -273,7 +274,8 @@ async fn claim_events(topic: &str, group: &str, ownership: PartitionOwnership) -
     config.cohort_merge_state_transfer_topic = topic.to_owned();
     config.kafka_merge_apply_consumer_group = format!("{group}-transfers");
     let groups = Arc::new(InputGroups::new(&config));
-    claim(admit(ownership, &groups).await, &groups).await
+    let split = SplitClaim::new(ownership, None).expect("a split outside a reshard");
+    claim(admit(split, &groups).await, &groups).await
 }
 
 async fn build_consumer(
@@ -1318,7 +1320,7 @@ fn build_consumer_finishing_restore(
     offset_commit_interval: Duration,
     restore: PendingRestore,
     claimed: &ClaimedSplit,
-) -> CohortStreamEventsConsumer {
+) -> (CohortStreamEventsConsumer, Arc<EventDispatcher>) {
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         Arc::new(OffsetTracker::new()),
@@ -1329,10 +1331,10 @@ fn build_consumer_finishing_restore(
     ));
     dispatcher.enable_durable_restore();
 
-    CohortStreamEventsConsumer::new(
+    let consumer = CohortStreamEventsConsumer::new(
         Arc::new(events_client(group)),
         topic.to_string(),
-        dispatcher,
+        dispatcher.clone(),
         handle,
         100,
         Duration::from_millis(200),
@@ -1340,7 +1342,8 @@ fn build_consumer_finishing_restore(
         claimed,
         Some(restore),
     )
-    .expect("assign the owned partitions")
+    .expect("assign the owned partitions");
+    (consumer, dispatcher)
 }
 
 /// Each partition's high watermark.
@@ -1355,9 +1358,10 @@ fn high_watermarks(consumer: &StreamConsumer, topic: &str) -> HashMap<i32, i64> 
         .collect()
 }
 
-/// Delete every S3 object under the configured prefix on test exit. Best-effort: builds a throwaway
-/// `object_store` client from the durability config and sweeps the per-test prefix. Any error
-/// building, listing, or deleting is ignored so cleanup never fails a passing test.
+/// Delete every S3 object of the config's lineage under the configured prefix on test exit.
+/// Best-effort: builds a throwaway `object_store` client from the durability config and sweeps the
+/// per-test prefix. Any error building, listing, or deleting is ignored so cleanup never fails a
+/// passing test.
 async fn delete_s3_prefix(config: &Config) {
     use futures::StreamExt;
     use object_store::aws::AmazonS3Builder;
@@ -1390,7 +1394,9 @@ async fn delete_s3_prefix(config: &Config) {
         Ok(store) => store,
         Err(_) => return,
     };
-    let lineage = CheckpointLineage::new(PodOrdinal::STANDALONE);
+    let Ok(lineage) = config.checkpoint_lineage() else {
+        return;
+    };
     let prefix = ObjPath::from(lineage.remote_dir(&d.s3_key_prefix).as_str());
     let mut stream = store.list(Some(&prefix));
     while let Some(entry) = stream.next().await {
@@ -1447,11 +1453,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
 
     // --- Tenure 1: fold, checkpoint through the sweeper, then fold and commit past it. ---
     {
-        let admitted = admit(
-            config.partition_ownership().expect("a standalone split"),
-            &groups,
-        )
-        .await;
+        let admitted = admit(config.split_claim().expect("a standalone split"), &groups).await;
         let store = CohortStore::open(&config.store_config(admitted.ownership()))
             .expect("open tenure-1 store");
         let claimed = claim(admitted, &groups).await;
@@ -1544,11 +1546,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
         .expect("remove checkpoint_local_dir (simulate PVC loss)");
 
     // --- Tenure 2: the boot restores from S3, then the consumer finishes the restore. ---
-    let admitted = admit(
-        config.partition_ownership().expect("a standalone split"),
-        &groups,
-    )
-    .await;
+    let admitted = admit(config.split_claim().expect("a standalone split"), &groups).await;
     let (store2, restore) = open_store(&config, &admitted, Some(lineage), groups.clone())
         .await
         .expect("open the restored store");
@@ -1599,7 +1597,7 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
     let shutdown_handle = handle.clone();
     let _monitor = manager.monitor_background();
     let claimed = claim(admitted, &groups).await;
-    let consumer = build_consumer_finishing_restore(
+    let (consumer, _dispatcher) = build_consumer_finishing_restore(
         &topic,
         &group,
         store2.clone(),
@@ -1678,4 +1676,341 @@ async fn s3_restore_replays_past_the_checkpoint_after_the_broker_moved_on() {
         delete_topic(name).await;
     }
     delete_s3_prefix(&config).await;
+}
+
+/// One matching `$pageview` for each of `persons`, at source offsets from `first_offset`. Returns
+/// the total produced.
+async fn produce_persons(
+    topic: &str,
+    persons: std::ops::RangeInclusive<u128>,
+    first_offset: i64,
+) -> usize {
+    let producer: FutureProducer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("message.timeout.ms", "10000")
+        .create()
+        .expect("create producer");
+    let mut total = 0;
+    for (n, offset) in persons.zip(first_offset..) {
+        let p = person(n);
+        let key = format!("{TEAM}:{p}");
+        producer
+            .send(
+                FutureRecord::to(topic)
+                    .key(&key)
+                    .payload(&envelope(p, 0, offset)),
+                Timeout::After(Duration::from_secs(10)),
+            )
+            .await
+            .expect("produce event");
+        total += 1;
+    }
+    total
+}
+
+/// Each of the first `persons` whose state on one of `partitions` entered the cohort, with that
+/// partition.
+fn entered_by_partition(
+    store: &CohortStore,
+    partitions: impl Iterator<Item = u16> + Clone,
+    lsk: LeafStateKey,
+    persons: u128,
+) -> BTreeMap<u128, u16> {
+    (1..=persons)
+        .filter_map(|n| {
+            partitions.clone().find_map(|partition| {
+                let key = BehavioralKey::new(partition, TEAM as u64, person(n), lsk);
+                let state = store
+                    .get_behavioral(&key)
+                    .unwrap()
+                    .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state);
+                matches!(
+                    state,
+                    Some(Stage1State::BehavioralSingle {
+                        has_match: true,
+                        ..
+                    })
+                )
+                .then_some((n, partition))
+            })
+        })
+        .collect()
+}
+
+/// Pod `ordinal` of two, resharded from one pod, with its own volume under `root`.
+fn reshard_config(
+    root: &std::path::Path,
+    ordinal: u16,
+    prefix: &str,
+    topics: &RestoreTopics,
+) -> Config {
+    // Kubernetes mounts the pod's volume before the process starts.
+    let volume = root.join(format!("pod-{ordinal}"));
+    std::fs::create_dir_all(&volume).expect("create the pod's volume");
+    let mut config = s3_restore_config(
+        &volume.join("db"),
+        &volume.join("checkpoints"),
+        prefix,
+        topics,
+    );
+    config.pod_name = Some(format!("cohort-stream-processor-{ordinal}"));
+    config.cohort_pod_count = NonZeroU16::new(2).unwrap();
+    config.cohort_reshard_from_pod_count = NonZeroU16::new(1);
+    config
+}
+
+/// The split procedure through a real broker and S3. One pod folds every person and takes a
+/// checkpoint, then stops. Two pods start with the reshard marker. Pod 0 reopens its store and drops
+/// the odd partitions. Pod 1 waits for pod 0's claim, restores pod 0's checkpoint, and drops the even
+/// ones. Every person the single pod held stays entered on the one pod that owns its partition, the
+/// events after the split land on both, every commit carries its owner's stamp, and pod 1 uploads in
+/// full under its own lineage.
+// Multi-threaded: finishing the restore commits with `block_in_place`.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires a running Kafka broker (KAFKA_HOSTS) AND an S3-compatible store (CHECKPOINT_S3_*); see module docs"]
+async fn resharding_one_pod_into_two_keeps_every_member() {
+    const BEFORE: u128 = PERSONS + NEW_PERSONS;
+    const AFTER: u128 = BEFORE + 20;
+    let topics = RestoreTopics::unique();
+    let topic = topics.events.clone();
+    let group = topics.group.clone();
+    let prefix = format!("cohort-stream-checkpoints-itest/{}", Uuid::new_v4());
+    for name in topics.all() {
+        create_topic(name).await;
+    }
+    let produced = produce_events(&topic).await + produce_new_persons(&topic, NEW_PERSONS).await;
+
+    let root = TempDir::new().unwrap();
+    let single = {
+        let volume = root.path().join("pod-0");
+        s3_restore_config(
+            &volume.join("db"),
+            &volume.join("checkpoints"),
+            &prefix,
+            &topics,
+        )
+    };
+    let groups = Arc::new(InputGroups::new(&single));
+    let lsk = behavioral_lsk(&behavioral_catalog());
+    let verifier: StreamConsumer = ClientConfig::new()
+        .set("bootstrap.servers", bootstrap_servers())
+        .set("group.id", &group)
+        .set("enable.auto.commit", "false")
+        .create()
+        .expect("create verifier consumer");
+    let every_partition = || 0..NUM_PARTITIONS as u16;
+
+    // --- Tenure 1, one pod: fold every person, checkpoint to S3, stop. ---
+    let control = {
+        let admitted = admit(single.split_claim().unwrap(), &groups).await;
+        let store = CohortStore::open(&single.store_config(admitted.ownership()))
+            .expect("open the single pod's store");
+        let claimed = claim(admitted, &groups).await;
+        let mut manager = Manager::builder("reshard-itest-1")
+            .with_trap_signals(false)
+            .build();
+        let handle = manager.register(
+            "consumer",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+        );
+        let shutdown = handle.clone();
+        let _monitor = manager.monitor_background();
+        let (consumer, dispatcher) = build_consumer_with_restore(
+            &topic,
+            &group,
+            store.clone(),
+            behavioral_catalog(),
+            handle,
+            Arc::new(CaptureSink::new()),
+            Duration::from_millis(250),
+            &claimed,
+            true,
+            100,
+        );
+        let task = tokio::spawn(consumer.process());
+        wait_for_committed(&verifier, &topic, produced as i64, Duration::from_secs(60)).await;
+        CheckpointSweeper::new(
+            store.clone(),
+            dispatcher,
+            groups.clone(),
+            claimed,
+            single.checkpoint_lineage().unwrap(),
+            single.durability_config(),
+            1,
+            tokio_util::sync::CancellationToken::new(),
+        )
+        .run_once()
+        .await;
+        shutdown.request_shutdown();
+        task.await.expect("the single pod panicked");
+        entered_by_partition(&store, every_partition(), lsk, BEFORE)
+    };
+    assert_eq!(
+        control.len(),
+        BEFORE as usize,
+        "the single pod entered every person"
+    );
+
+    // --- Tenure 2, two pods. The parent admits over its own stamps and reopens its store. ---
+    let parent_config = reshard_config(root.path(), 0, &prefix, &topics);
+    let child_config = reshard_config(root.path(), 1, &prefix, &topics);
+    let admitted = admit(parent_config.split_claim().unwrap(), &groups).await;
+    assert_eq!(admitted.source(), StoreSource::Own);
+    let (parent_store, restore) = open_store(
+        &parent_config,
+        &admitted,
+        Some(parent_config.checkpoint_lineage().unwrap()),
+        groups.clone(),
+    )
+    .await
+    .expect("the parent reopens its store");
+    assert!(restore.is_none(), "the parent keeps its live store");
+    let parent_claimed = claim(admitted, &groups).await;
+
+    // The child takes over once the parent has claimed under the new split.
+    let admitted = admit(child_config.split_claim().unwrap(), &groups).await;
+    assert_eq!(
+        admitted.source(),
+        StoreSource::TakeOver {
+            parent: PartitionOwnership::single(NUM_PARTITIONS as u16),
+        }
+    );
+    let child_lineage = child_config.checkpoint_lineage().unwrap();
+    let (child_store, restore) = open_store(
+        &child_config,
+        &admitted,
+        Some(child_lineage),
+        groups.clone(),
+    )
+    .await
+    .expect("the child restores its parent's checkpoint");
+    let restore = restore.expect("the child restores from the parent's lineage");
+    assert_eq!(restore.source().label(), "s3");
+    let child_claimed = claim(admitted, &groups).await;
+
+    let mut manager = Manager::builder("reshard-itest-2")
+        .with_trap_signals(false)
+        .build();
+    let parent_handle = manager.register(
+        "parent",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let child_handle = manager.register(
+        "child",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+    );
+    let shutdown = parent_handle.clone();
+    let _monitor = manager.monitor_background();
+    let (parent, _) = build_consumer_with_restore(
+        &topic,
+        &group,
+        parent_store.clone(),
+        behavioral_catalog(),
+        parent_handle,
+        Arc::new(CaptureSink::new()),
+        Duration::from_millis(250),
+        &parent_claimed,
+        true,
+        100,
+    );
+    let (child, child_dispatcher) = build_consumer_finishing_restore(
+        &topic,
+        &group,
+        child_store.clone(),
+        behavioral_catalog(),
+        child_handle,
+        Arc::new(CaptureSink::new()),
+        Duration::from_millis(250),
+        restore,
+        &child_claimed,
+    );
+    let tasks = [
+        tokio::spawn(parent.process()),
+        tokio::spawn(child.process()),
+    ];
+
+    let produced = produced + produce_persons(&topic, BEFORE + 1..=AFTER, 1_000).await;
+    wait_for_committed(&verifier, &topic, produced as i64, Duration::from_secs(60)).await;
+    CheckpointSweeper::new(
+        child_store.clone(),
+        child_dispatcher,
+        groups.clone(),
+        child_claimed,
+        child_lineage,
+        child_config.durability_config(),
+        1,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .run_once()
+    .await;
+    shutdown.request_shutdown();
+    for task in tasks {
+        task.await.expect("a pod panicked");
+    }
+
+    let owned = |ordinal: u16| every_partition().filter(move |p| p % 2 == ordinal);
+    for (ordinal, store) in [(0, &parent_store), (1, &child_store)] {
+        let given_away: Vec<u16> = owned(1 - ordinal)
+            .filter(|&p| partition_has_state(store, i32::from(p), lsk, AFTER))
+            .collect();
+        assert!(
+            given_away.is_empty(),
+            "pod {ordinal} still holds the partitions it gave away: {given_away:?}",
+        );
+    }
+    let mut entered = entered_by_partition(&parent_store, owned(0), lsk, AFTER);
+    entered.extend(entered_by_partition(&child_store, owned(1), lsk, AFTER));
+    let kept: BTreeMap<u128, u16> = entered
+        .iter()
+        .filter(|&(&n, _)| n <= BEFORE)
+        .map(|(&n, &p)| (n, p))
+        .collect();
+    assert_eq!(kept, control, "every member stays on the partition it had");
+    assert_eq!(
+        entered.keys().copied().collect::<BTreeSet<u128>>(),
+        (1..=AFTER).collect(),
+        "the events after the split entered on both pods",
+    );
+    assert!(entered.values().any(|&p| p % 2 == 1) && entered.values().any(|&p| p % 2 == 0));
+
+    let ledger = groups
+        .ledger(&every_partition().collect())
+        .expect("read the ledger");
+    for input in ledger.inputs() {
+        for (&partition, committed) in input.commits() {
+            let owner = PartitionOwnership::new(
+                NonZeroU16::new(2).unwrap(),
+                PodOrdinal::from(partition % 2),
+                NUM_PARTITIONS as u16,
+            )
+            .unwrap();
+            assert_eq!(
+                committed.stamp(),
+                Some(&Stamp::Split(owner)),
+                "{} partition {partition}",
+                input.topic(),
+            );
+        }
+    }
+
+    let uploaded: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            child_lineage
+                .local_dir(std::path::Path::new(&child_config.checkpoint_local_dir))
+                .join("uploaded.json"),
+        )
+        .expect("the child uploads a checkpoint"),
+    )
+    .unwrap();
+    assert_eq!(uploaded["metadata"]["ordinal"], 1, "under its own lineage");
+    assert_eq!(
+        uploaded["metadata"]["full_upload_at"], uploaded["metadata"]["attempt_timestamp"],
+        "the child's first upload is full, so its chain names nothing in the parent's lineage",
+    );
+
+    for name in topics.all() {
+        delete_topic(name).await;
+    }
+    delete_s3_prefix(&single).await;
+    delete_s3_prefix(&child_config).await;
 }
