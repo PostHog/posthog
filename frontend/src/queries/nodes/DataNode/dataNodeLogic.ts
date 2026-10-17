@@ -186,7 +186,7 @@ function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
         : undefined
 }
 
-const concurrencyController = new ConcurrencyController(1)
+export const concurrencyController = new ConcurrencyController(1)
 const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)

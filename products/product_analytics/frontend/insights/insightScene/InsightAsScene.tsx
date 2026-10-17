@@ -123,6 +123,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                                 showOpenEditorButton: false,
                                 showQueryEditor: actuallyShowQueryEditor,
                                 showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                                showDataChecks: true,
                                 insightProps,
                                 // Flag-gated inside the charts' shared useDateRangeZoom hook.
                                 onDateRangeZoom: zoomDateRange,
