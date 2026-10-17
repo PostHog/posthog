@@ -330,11 +330,14 @@ class TemplateVariables:
                 all_value_as_written=True,
             )
             variables[item["name"]] = variable
-            definition = _live_definition(item["name"], kind, item, variable, datasource_type(item.get("datasource")))
-            if definition is not None:
-                live[item["name"]] = definition
-        kept = dict(list(live.items())[:MAX_LIVE_VARIABLES])
-        return cls(variables, _resolvable(kept, variables))
+            # Checking a definition compiles its regex, so the variables past the cap are not checked.
+            if len(live) < MAX_LIVE_VARIABLES:
+                definition = _live_definition(
+                    item["name"], kind, item, variable, datasource_type(item.get("datasource"))
+                )
+                if definition is not None:
+                    live[item["name"]] = definition
+        return cls(variables, _resolvable(live, variables))
 
     def summary(self) -> dict[str, str]:
         return {
