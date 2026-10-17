@@ -612,6 +612,12 @@ def _force_datetime(expr: ast.Expr) -> ast.Expr:
     )
 
 
+def _validate_date_value(value: ValueT, operator: PropertyOperator) -> TypeGuard[str]:
+    if not isinstance(value, str):
+        raise QueryError(f"{operator} operator requires a string date value")
+    return True
+
+
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
@@ -876,6 +882,7 @@ def _expr_to_compare_op(
             ),
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
+        _validate_date_value(value, operator)
         assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
@@ -896,6 +903,7 @@ def _expr_to_compare_op(
         left, bound = _coerce_ordered_bound(expr, value, property, team)
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
+        _validate_date_value(value, operator)
         assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
@@ -906,6 +914,7 @@ def _expr_to_compare_op(
         left, bound = _coerce_ordered_bound(expr, value, property, team)
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=left, right=ast.Constant(value=bound))
     elif operator == PropertyOperator.IS_DATE_AFTER:
+        _validate_date_value(value, operator)
         assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
