@@ -108,6 +108,8 @@ EXTERNALLY_ABORTED_MARKERS = (
     # Trino killed the query because the whole cluster ran out of memory. A query over its own
     # memory limit fails with an EXCEEDED_*_MEMORY_LIMIT name and still counts.
     "name=CLUSTER_OUT_OF_MEMORY,",
+    # a Trino worker node crashed or stopped answering, so the query never got to finish
+    "name=TOO_MANY_REQUESTS_FAILED,",
 )
 
 STREAM_FAULT_ERROR_PREFIXES = (
