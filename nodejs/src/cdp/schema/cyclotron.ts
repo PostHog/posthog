@@ -135,6 +135,7 @@ export const CyclotronInvocationQueueParametersFetchStandardWebhooksSchema = z.o
 
 export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     type: z.literal('fetch'),
+    mcp_event_subscription: z.never().optional(),
     url: z.string(),
     method: z.string(),
     body: z.union([z.string(), z.null()]).optional(),
@@ -144,6 +145,16 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     standard_webhooks: CyclotronInvocationQueueParametersFetchStandardWebhooksSchema.optional(),
     // An input-key reference, like the `*_input` fields above, so credential header values stay out of the fetch parameters.
     secret_headers_input: z.string().optional(),
+})
+
+export const CyclotronInvocationQueueParametersMcpEventSchema = z.object({
+    type: z.literal('mcp_event'),
+    url: z.string(),
+    body: z.string(),
+    mcp_event_subscription: z.object({
+        id: z.string().uuid(),
+        generation: z.string().uuid(),
+    }),
 })
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
@@ -190,6 +201,9 @@ export type CyclotronInvocationQueueParametersFetchStandardWebhooksType = z.infe
     typeof CyclotronInvocationQueueParametersFetchStandardWebhooksSchema
 >
 export type CyclotronInvocationQueueParametersFetchType = z.infer<typeof CyclotronInvocationQueueParametersFetchSchema>
+export type CyclotronInvocationQueueParametersMcpEventType = z.infer<
+    typeof CyclotronInvocationQueueParametersMcpEventSchema
+>
 export type CyclotronInvocationQueueParametersEmailType = z.infer<typeof CyclotronInvocationQueueParametersEmailSchema>
 export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer<
     typeof CyclotronInvocationQueueParametersSendPushNotificationSchema
@@ -197,5 +211,6 @@ export type CyclotronInvocationQueueParametersSendPushNotificationType = z.infer
 
 export type CyclotronInvocationQueueParametersType =
     | CyclotronInvocationQueueParametersFetchType
+    | CyclotronInvocationQueueParametersMcpEventType
     | CyclotronInvocationQueueParametersEmailType
     | CyclotronInvocationQueueParametersSendPushNotificationType

@@ -2,14 +2,23 @@ import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
 import { DependencyUnavailableError } from '~/common/utils/db/error'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
+import type { AsyncFunctionContext } from '../async-function-registry'
+import { getAsyncFunctionHandler } from '../async-function-registry'
+import '../async-functions/mcp-event-handler'
 import { HogInputsService } from '../services/hog-inputs.service'
-import { HogFunctionType } from '../types'
+import { CyclotronJobInvocationHogFunction, HogFunctionType } from '../types'
 import { MAX_LOG_LENGTH } from '../utils'
 import { currentRuntimeContractHash } from './filter-runtime'
-import { buildHogFunctionInvocations, cloneInvocation, createInvocation } from './invocation-utils'
+import {
+    buildHogFunctionInvocations,
+    cloneInvocation,
+    createInvocation,
+    createInvocationResult,
+} from './invocation-utils'
 
 describe('Invocation utils', () => {
     describe('buildHogFunctionInvocations', () => {
@@ -41,6 +50,40 @@ describe('Invocation utils', () => {
                 name: 'Hog Function',
                 url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
             })
+        })
+
+        it('keeps the matched MCP filter through queue persistence and a config reload', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                encrypted_inputs: { mcp_credential: { value: 'fake-user-credential' } },
+            })
+            fn.filters = structuredClone({ ...fn.filters, mcp_property_dependencies: { event: ['$current_url'] } })
+            const matchedBytecode = structuredClone(fn.filters.bytecode)
+            const { invocations } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+            expect(invocations).toHaveLength(1)
+            const invocation = invocations[0]
+            invocation.state.globals.inputs = {
+                ...invocation.state.globals.inputs,
+                mcp_subscription_id: 'b69e52cb-f4de-47dc-95ae-60801343439b',
+                mcp_generation: 'fe1d8590-2d5c-42c3-99d2-707653293785',
+            }
+            invocation.state = parseJSON(JSON.stringify(invocation.state))
+            fn.filters.bytecode!.push('changed-after-matching')
+            invocation.hogFunction = { ...fn, filters: { ...fn.filters, bytecode: ['_H', 1, 30] } }
+            const result = createInvocationResult<CyclotronJobInvocationHogFunction>(invocation)
+            await getAsyncFunctionHandler('mcpEventFetch')!.execute(
+                ['https://example.com/callback', { eventId: 'sample-event' }],
+                { invocation, globals: invocation.state.globals } as unknown as AsyncFunctionContext,
+                result
+            )
+            expect(result.invocation.queueParameters).toMatchObject({
+                type: 'mcp_event',
+                mcp_event_subscription: { id: invocation.state.globals.inputs.mcp_subscription_id },
+            })
+            expect(result.invocation.state.mcpEvent?.filterBytecode).toEqual(matchedBytecode)
+            expect(JSON.stringify(invocation.state)).not.toContain('fake-user-credential')
         })
 
         it('builds an invocation only when the filters match, counting a filtered metric otherwise', async () => {
