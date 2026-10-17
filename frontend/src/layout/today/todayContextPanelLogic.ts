@@ -104,10 +104,10 @@ export interface todayContextPanelLogicMeta {
         fullScreenUrl: (
             activeTab: SidePanelTab,
             selectedNotebook: string,
-            tickets: any,
-            canCreateTicket: any,
-            supportView: any,
-            currentTicket: any
+            tickets: ConversationTicket[],
+            canCreateTicket: boolean,
+            supportView: SidePanelViewState,
+            currentTicket: ConversationTicket | null
         ) => string | null
     }
 }
