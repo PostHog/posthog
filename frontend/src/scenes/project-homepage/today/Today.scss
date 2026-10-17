@@ -201,6 +201,13 @@ html[data-today-transition]::view-transition-new(root) {
     white-space: nowrap;
 }
 
+.TodayPulse__trigger {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    outline: none;
+}
+
 .TodayPulse__link {
     display: flex;
     flex-direction: column;
@@ -216,9 +223,9 @@ html[data-today-transition]::view-transition-new(root) {
 
 .TodayPulse__row {
     display: flex;
-    flex-wrap: wrap;
     gap: 8px;
     align-items: baseline;
+    min-width: 0;
 }
 
 .TodayPulse__value {
@@ -238,11 +245,10 @@ html[data-today-transition]::view-transition-new(root) {
 
 .TodayPulse__spark {
     display: block;
-    flex: 0 1 64px;
-    align-self: center;
-    min-width: 32px;
-    height: 20px;
-    margin-left: 6px;
+    width: 100%;
+    max-width: 160px;
+    height: 22px;
+    margin-top: 4px;
 }
 
 .TodayHome__headingRow {

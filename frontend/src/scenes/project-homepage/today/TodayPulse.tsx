@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -10,8 +10,12 @@ import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general
 
 import type { HighlightMetricApi } from 'products/today/frontend/generated/api.schemas'
 
+import { TodayChange } from './TodayChange'
+import { todayHighlightsLogic } from './todayHighlightsLogic'
 import { todayNumber } from './todayNumbers'
-import { TodaySparkline, type TodayTone, useTodayTonePalette } from './TodaySparkline'
+import { TodayPulseCard } from './TodayPulseCard'
+import { TodayPulseHoverCard } from './TodayPulseHoverCard'
+import { TodaySparkline, type TodayTone } from './TodaySparkline'
 
 const CHANGE_THRESHOLD = 3
 const MIN_ABSOLUTE_CHANGE = 5
@@ -51,66 +55,70 @@ function metricFormatter(metric: HighlightMetricApi, currency: CurrencyCode): (v
     return (value) => formatAggregationAxisValue(trendsFilter, value, currency)
 }
 
-function TodayChange({ change, tone }: { change: number | null; tone: TodayTone }): JSX.Element | null {
-    const palette = useTodayTonePalette()
-    if (change === null) {
-        return null
-    }
-    const rounded = Math.round(change)
-    return (
-        <span
-            className="TodayChange"
-            translate="no"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={tone === 'neutral' ? undefined : { color: palette[tone] }}
-        >
-            {rounded === 0 ? '0%' : `${rounded > 0 ? '+' : '−'}${Math.abs(rounded)}%`}
-        </span>
-    )
-}
-
 export function TodayPulse({ metrics }: { metrics: HighlightMetricApi[] }): JSX.Element {
     const { baseCurrency } = useValues(teamLogic)
+    const { pulseMetricOpened, pulseMetricPreviewed } = useActions(todayHighlightsLogic)
     return (
         <ul className="TodayPulse" aria-label="Key numbers, against the period before">
-            {metrics.map((metric) => {
+            {metrics.map((metric, position) => {
                 const isInsight = metric.key.startsWith('insight:')
                 const tone = isInsight ? 'neutral' : metricTone(metric.change_pct, metric.value)
-                const formatValue = metricFormatter(metric, baseCurrency)
+                const formatValue = metric.value_format ? metricFormatter(metric, baseCurrency) : todayNumber
                 const content = (
                     <>
                         <span className="TodayPulse__name">{metric.name}</span>
                         <span className="TodayPulse__row">
                             <span className="TodayPulse__value" translate="no">
-                                {metric.value_format ? formatValue(metric.value) : todayNumber(metric.value)}
+                                {formatValue(metric.value)}
                             </span>
                             <TodayChange change={metric.change_pct} tone={tone} />
-                            <span className="TodayPulse__spark">
-                                <TodaySparkline
-                                    values={metric.series}
-                                    labels={seriesLabels(metric)}
-                                    emphasizeLast={metric.interval === 'day' ? 7 : 1}
-                                    tone={tone}
-                                    formatValue={formatValue}
-                                />
-                            </span>
+                        </span>
+                        <span className="TodayPulse__spark">
+                            <TodaySparkline
+                                values={metric.series}
+                                labels={seriesLabels(metric)}
+                                emphasizeLast={metric.interval === 'day' ? 7 : 1}
+                                tone={tone}
+                            />
                         </span>
                     </>
                 )
                 return (
                     <li key={metric.key} className="TodayPulse__metric">
-                        {metric.url ? (
-                            <LinkPrimitive
-                                to={metric.url}
-                                className="TodayPulse__link"
-                                title={metric.name}
-                                data-attr={isInsight ? 'today-pulse-insight' : 'today-pulse-key-metric'}
-                            >
-                                {content}
-                            </LinkPrimitive>
-                        ) : (
-                            content
-                        )}
+                        <TodayPulseHoverCard
+                            onOpen={() => pulseMetricPreviewed(metric, position)}
+                            card={
+                                <TodayPulseCard
+                                    metric={metric}
+                                    tone={tone}
+                                    formatValue={metric.value_format ? formatValue : humanFriendlyNumber}
+                                    onOpen={() => pulseMetricOpened(metric, position)}
+                                />
+                            }
+                        >
+                            {metric.url ? (
+                                <LinkPrimitive
+                                    to={metric.url}
+                                    className="TodayPulse__link"
+                                    data-attr={isInsight ? 'today-pulse-insight' : 'today-pulse-key-metric'}
+                                    onClick={() => pulseMetricOpened(metric, position)}
+                                    onMouseDown={(event) => {
+                                        if (event.button === 0 && (event.metaKey || event.ctrlKey)) {
+                                            pulseMetricOpened(metric, position)
+                                        }
+                                    }}
+                                    onAuxClick={(event) => {
+                                        if (event.button === 1) {
+                                            pulseMetricOpened(metric, position)
+                                        }
+                                    }}
+                                >
+                                    {content}
+                                </LinkPrimitive>
+                            ) : (
+                                content
+                            )}
+                        </TodayPulseHoverCard>
                     </li>
                 )
             })}
