@@ -557,6 +557,14 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         parents_query_dict = self.parents_query_dict.copy()
 
         for source, destination in self.filter_rewrite_rules.items():
+            # A rewrite must never *unscope* the queryset: a rule whose source key
+            # isn't among this request's parents (e.g. an inherited "project_id"
+            # rewrite reached on a team-nested route) can't be applied, and a rule
+            # mapping a key onto itself would otherwise delete the filter it was
+            # meant to rewrite — silently dropping team/org scoping for every
+            # request the viewset serves.
+            if source not in parents_query_dict or source == destination:
+                continue
             parents_query_dict[destination] = parents_query_dict[source]
             del parents_query_dict[source]
 
