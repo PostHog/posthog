@@ -52,6 +52,7 @@ from .conversion_goal_conditions import (
     action_property_keys,
     add_conversion_goal_property_filters,
     conversion_goal_match_expr,
+    conversion_goal_property_expr,
 )
 from .errors import MarketingPrecomputeNotReady
 from .marketing_analytics_config import MarketingAnalyticsConfig
@@ -510,8 +511,9 @@ class ConversionGoalProcessor:
         arrays. The downstream ``build_attribution_pipeline`` consumes this.
         """
         conversion_event: Optional[str] = self.goal.event if self.goal.kind == "EventsNode" else None
+        # The goal's property filters stay out of the shared conditions: they qualify conversion rows only.
+        # Applied to the whole scan, they would also drop every UTM pageview that lacks the property.
         where_conditions = self.get_base_where_conditions()
-        where_conditions = add_conversion_goal_property_filters(where_conditions, self.goal, self.team)
         where_conditions.extend(additional_conditions)
         return self._build_array_collection_subquery(conversion_event, where_conditions)
 
@@ -1179,7 +1181,7 @@ class ConversionGoalProcessor:
                 )
         elif self.goal.kind == "ActionsNode" and self.config.attribution_window_days > 0:
             # For ActionsNode with attribution, we need both action events and pageview events
-            action_conditions = self.get_base_where_conditions()
+            action_conditions = [*self.get_base_where_conditions(), *self._goal_property_conditions()]
             action_filter = self._build_action_event_filter(action_conditions, date_conditions)
             pageview_filter = self._build_pageview_event_filter(date_conditions, utm_source_field)
             event_filter = ast.Or(exprs=[action_filter, pageview_filter])
@@ -1224,7 +1226,8 @@ class ConversionGoalProcessor:
                 left=ast.Field(chain=["events", "event"]),
                 op=ast.CompareOperationOp.Eq,
                 right=ast.Constant(value=conversion_event),
-            )
+            ),
+            *self._goal_property_conditions(),
         ]
 
         # Apply regular date conditions to conversion events
@@ -1306,7 +1309,7 @@ class ConversionGoalProcessor:
             expr=parse_expr(
                 "groupArrayIf(toString(ifNull(events.properties.$session_id, '')), "
                 "{conversion} AND toUnixTimestamp(events.timestamp) > 0)",
-                {"conversion": self._build_conversion_event_condition(conversion_event)},
+                {"conversion": self._build_conversion_row_condition(conversion_event)},
             ),
         )
 
@@ -1335,7 +1338,7 @@ class ConversionGoalProcessor:
                             ast.Call(
                                 name="if",
                                 args=[
-                                    self._build_conversion_event_condition(conversion_event),
+                                    self._build_conversion_row_condition(conversion_event),
                                     ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
                                     ast.Constant(value=0),
                                 ],
@@ -1375,7 +1378,7 @@ class ConversionGoalProcessor:
                             ast.Call(
                                 name="if",
                                 args=[
-                                    self._build_conversion_event_condition(conversion_event),
+                                    self._build_conversion_row_condition(conversion_event),
                                     self._get_conversion_value_expr(),
                                     ast.Constant(value=0),
                                 ],
@@ -1385,6 +1388,18 @@ class ConversionGoalProcessor:
                 ],
             ),
         )
+
+    def _goal_property_conditions(self) -> list[ast.Expr]:
+        property_expr = conversion_goal_property_expr(self.goal, self.team)
+        return [property_expr] if property_expr is not None else []
+
+    def _build_conversion_row_condition(self, conversion_event: Optional[str]) -> ast.Expr:
+        """True for a row in the array-collection scan that counts as a conversion: the event or action,
+        narrowed by the goal's property filters. The scan also reads touchpoint pageviews, so the property
+        filters can't sit in its WHERE clause."""
+        condition = self._build_conversion_event_condition(conversion_event)
+        properties = self._goal_property_conditions()
+        return ast.And(exprs=[condition, *properties]) if properties else condition
 
     def _build_conversion_event_condition(self, conversion_event: Optional[str]) -> ast.Expr:
         """Build condition for conversion event matching"""
@@ -1436,7 +1451,7 @@ class ConversionGoalProcessor:
                             ast.Call(
                                 name="if",
                                 args=[
-                                    self._build_conversion_event_condition(conversion_event),
+                                    self._build_conversion_row_condition(conversion_event),
                                     ast.Call(
                                         name="toString",
                                         args=[
