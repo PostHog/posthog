@@ -147,7 +147,9 @@ def _entry(
     }
 
 
-def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateRange | None) -> dict:
+def run_patterns_diff(
+    team: "Team", query: LogsQuery, baseline_date_range: DateRange | None, *, deadline: float | None = None
+) -> dict:
     """Mine the query's window and a baseline window, and return classified diff entries.
 
     The baseline defaults to the same window shifted back one week — log streams have strong
@@ -168,6 +170,9 @@ def run_patterns_diff(team: "Team", query: LogsQuery, baseline_date_range: DateR
     baseline_runner = PatternsQueryRunner(team=team, query=baseline_query)
     current_runner.use_stored_patterns = False
     baseline_runner.use_stored_patterns = False
+    # Both windows share one deadline, so the whole comparison stays inside the caller's time budget.
+    current_runner.query_deadline = deadline
+    baseline_runner.query_deadline = deadline
     baseline_from = baseline_runner.query_date_range.date_from()
     baseline_to = baseline_runner.query_date_range.date_to()
 

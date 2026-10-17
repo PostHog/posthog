@@ -2,6 +2,7 @@ import re
 import json
 import base64
 import datetime as dt
+from time import monotonic
 from typing import Any
 
 from django.db import models
@@ -93,6 +94,7 @@ __all__ = [
 tracer = trace.get_tracer(__name__)
 logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
+LOGS_API_SLOT_TTL_MARGIN_SECONDS = 30
 MAX_ATTRIBUTE_KEYS = 100
 
 
@@ -1867,7 +1869,10 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             else None
         )
 
-        results = run_patterns_diff(self.team, query, baseline_date_range)
+        # The comparison runs up to six queries. End it before the concurrency slot's ttl, so the slot cannot expire
+        # while the request still queries ClickHouse.
+        deadline = monotonic() + get_logs_api_team_rate_limiter().ttl - LOGS_API_SLOT_TTL_MARGIN_SECONDS
+        results = run_patterns_diff(self.team, query, baseline_date_range, deadline=deadline)
 
         report_user_action(
             request.user,
