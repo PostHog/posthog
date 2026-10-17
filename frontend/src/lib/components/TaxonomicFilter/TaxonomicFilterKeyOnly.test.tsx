@@ -100,11 +100,11 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags], selectingKeyOnly: true })
 
-            await selectRecentCategory()
+            await selectSuggestedCategory()
 
             await waitFor(
                 () =>
-                    expect(screen.getByTestId('prop-filter-recent_filters-0').textContent).toContain(
+                    expect(screen.getByTestId('prop-filter-suggested_filters-0').textContent).toContain(
                         'checkout-redesign'
                     ),
                 { timeout: RENDER_TIMEOUT_MS }
