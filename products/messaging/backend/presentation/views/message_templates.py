@@ -297,7 +297,7 @@ class MessageTemplateSerializer(serializers.Serializer):
 
 
 class MessageTemplateUpdateSerializer(MessageTemplateSerializer):
-    key = serializers.CharField(  # type: ignore[assignment]
+    key = serializers.CharField(
         required=False,
         max_length=TEMPLATE_KEY_MAX_LENGTH,
         help_text="Give a template that has no key one, so code can take it over: the next upload under this key "
