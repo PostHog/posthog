@@ -18,6 +18,7 @@ import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { insightsApi } from 'scenes/insights/utils/api'
 
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import {
     DataVisualizationNode,
@@ -118,6 +119,11 @@ export function getBillingDataVisualizationKey(queryKey: string): string {
     return `InsightViz.${queryKey}`
 }
 
+// A billing query usually returns in seconds. A query that still loads after this time is stalled and gets a retry.
+export const BILLING_QUERY_STALL_TIMEOUT_MS = 60_000
+
+export type BillingQueryStallTrigger = 'timer' | 'tab_mount'
+
 // Inject the account's org and the chosen date range into the saved insight's SQL variables, keyed by their
 // variableId as read from the fetched insight (so this works regardless of the variable UUIDs in each env).
 function buildVariableOverrides(
@@ -180,6 +186,9 @@ export interface accountBillingLogicActions {
     ) => {
         savedInsights: InsightModel<Node<Record<string, any>>>[]
         payload?: any
+    }
+    retryStalledQueries: (trigger: BillingQueryStallTrigger) => {
+        trigger: BillingQueryStallTrigger
     }
     setAllSeriesHidden: (
         shortId: string,
@@ -261,6 +270,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
             seriesKeys,
             hidden,
         }),
+        retryStalledQueries: (trigger: BillingQueryStallTrigger) => ({ trigger }),
     }),
     reducers(({ props }) => ({
         usageInterval: [
@@ -293,7 +303,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
             },
         ],
     })),
-    listeners(({ props, values, cache }) => {
+    listeners(({ actions, props, values, cache }) => {
         const saveConfig = (): void => {
             props.onConfigChange?.({
                 dateRange: values.dateRange,
@@ -319,6 +329,17 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                     `preload-${insight.short_id}`,
                     { pauseOnPageHidden: false }
                 )
+                cache.disposables.add(
+                    () => {
+                        const id = setTimeout(
+                            () => actions.retryStalledQueries('timer'),
+                            BILLING_QUERY_STALL_TIMEOUT_MS
+                        )
+                        return () => clearTimeout(id)
+                    },
+                    `stall-check-${insight.short_id}`,
+                    { pauseOnPageHidden: false }
+                )
             }
         }
 
@@ -334,6 +355,31 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
                 saveConfig()
                 preloadSavedInsights(values.displayInsights ?? [])
                 posthog.capture(AccountsEvents.UsageIntervalChanged, { interval })
+            },
+            retryStalledQueries: ({ trigger }) => {
+                for (const insight of values.displayInsights ?? []) {
+                    if (!insight.query || insight.query.kind !== NodeKind.DataVisualizationNode) {
+                        continue
+                    }
+                    const dataLogic = dataNodeLogic.findMounted({
+                        key: getBillingDataVisualizationKey(values.queryKeyFor(insight.short_id)),
+                        query: (insight.query as DataVisualizationNode).source,
+                    })
+                    const loadingStart = dataLogic?.values.loadingStart
+                    if (!dataLogic?.values.responseLoading || loadingStart == null) {
+                        continue
+                    }
+                    const elapsedMs = performance.now() - loadingStart
+                    if (elapsedMs < BILLING_QUERY_STALL_TIMEOUT_MS) {
+                        continue
+                    }
+                    posthog.capture(AccountsEvents.BillingQueryStalled, {
+                        kind: props.kind,
+                        trigger,
+                        elapsed_ms: Math.round(elapsedMs),
+                    })
+                    dataLogic.actions.loadData()
+                }
             },
             toggleHiddenSeriesKey: ({ shortId, seriesKey, seriesCount }) => {
                 saveConfig()

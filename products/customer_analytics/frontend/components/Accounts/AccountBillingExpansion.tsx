@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import * as burningMoneyHogPng from '@posthog/brand/hoggies/png/burning-money'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
@@ -57,7 +58,12 @@ export function AccountBillingExpansion({
         usageInterval,
         canAggregateUsage,
     } = useValues(logic)
-    const { setDateRange, setUsageInterval } = useActions(logic)
+    const { setDateRange, setUsageInterval, retryStalledQueries } = useActions(logic)
+
+    // The preloaded queries stay mounted across tab switches, so a stalled one gets a retry when the tab opens again.
+    useEffect(() => {
+        retryStalledQueries('tab_mount')
+    }, [retryStalledQueries])
 
     if (!externalId) {
         return <div className="p-4 text-secondary">This account has no linked organization.</div>

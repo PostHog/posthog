@@ -13,6 +13,7 @@ import {
     AccountBillingKind,
     accountBillingLogic,
     BILLING_INSIGHT_SHORT_IDS,
+    BILLING_QUERY_STALL_TIMEOUT_MS,
     getBillingDataVisualizationKey,
 } from './accountBillingLogic'
 import { AccountsEvents } from './constants'
@@ -140,6 +141,31 @@ describe('accountBillingLogic', () => {
 
             await expectLogic(logic).toFinishAllListeners()
             expect(api.query).toHaveBeenCalledTimes(BILLING_INSIGHT_SHORT_IDS[kind].length)
+        })
+
+        it('retries a preloaded query that is still loading after the stall timeout, and reports the stall', async () => {
+            jest.useFakeTimers()
+            try {
+                const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+                jest.spyOn(api, 'query').mockReturnValue(new Promise(() => {}))
+                mountForKind()
+                await jest.advanceTimersByTimeAsync(0)
+                const queryCount = BILLING_INSIGHT_SHORT_IDS[kind].length
+                expect(api.query).toHaveBeenCalledTimes(queryCount)
+
+                logic.actions.retryStalledQueries('tab_mount')
+                expect(api.query).toHaveBeenCalledTimes(queryCount)
+
+                await jest.advanceTimersByTimeAsync(BILLING_QUERY_STALL_TIMEOUT_MS)
+                expect(api.query).toHaveBeenCalledTimes(queryCount * 2)
+                expect(captureSpy).toHaveBeenCalledWith(AccountsEvents.BillingQueryStalled, {
+                    kind,
+                    trigger: 'timer',
+                    elapsed_ms: expect.any(Number),
+                })
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         it('injects the external id into each saved insight variables', async () => {
