@@ -87,6 +87,9 @@ _MAX_PAGES = 20
 _PER_PAGE = 100
 # GitHub lists at most 250 commits for a pull request, which is three pages of _PER_PAGE.
 _MAX_PR_COMMIT_PAGES = 3
+# Waits before each retry of a reactions page that GitHub answered with a 5xx. Most GitHub 5xx
+# responses clear within seconds, and the activity retry is minutes away.
+_SERVER_ERROR_RETRY_DELAYS_SECONDS = (1, 3)
 
 # Ceiling on a single compare diff. The value sits well above any diff that stamphog could have
 # approved, because stamphog's size gate refuses much smaller diffs. It also sits well below the
@@ -553,17 +556,32 @@ class StamphogGitHubClient:
         reactions: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
             path = f"/repos/{repo}/issues/{number}/reactions"
-            response = self._request(
-                "GET",
-                path,
-                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
-                params={"per_page": _PER_PAGE, "page": page},
-            )
-            if response.status_code != 200:
-                raise StamphogGitHubError(
-                    f"Failed to fetch reactions for {repo}#{number}: {response.text[:300]}",
+            for delay in (*_SERVER_ERROR_RETRY_DELAYS_SECONDS, None):
+                response = self._request(
+                    "GET",
+                    path,
+                    endpoint="/repos/{owner}/{repo}/issues/{issue_number}/reactions",
+                    params={"per_page": _PER_PAGE, "page": page},
+                )
+                if response.status_code < 500 or delay is None:
+                    break
+                logger.info(
+                    "stamphog github: 5xx on reactions, retrying",
+                    repo=repo,
+                    number=number,
                     status_code=response.status_code,
                 )
+                time.sleep(delay)
+            if response.status_code != 200:
+                logger.warning(
+                    "stamphog github: failed to fetch reactions",
+                    repo=repo,
+                    number=number,
+                    status_code=response.status_code,
+                    body=response.text[:300],
+                )
+                # A stable message groups every occurrence into one error tracking issue.
+                raise StamphogGitHubError("Failed to fetch PR reactions", status_code=response.status_code)
             items = self._json(response, path)
             reactions.extend(
                 {
