@@ -31,7 +31,7 @@ from posthog.storage import object_storage
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks import image_exporter
 from products.exports.backend.tasks.failure_handler import BrowserlessUnavailable, InvalidExportContext
@@ -191,6 +191,29 @@ class TestImageExporter(APIBaseTest):
             assert self.exported_asset.content_location is None
 
             assert self.exported_asset.content == b"image_data"
+
+    @parameterized.expand([("empty_dashboard", False), ("text_tiles_only", True)])
+    def test_dashboard_export_without_insights_fails_before_render(
+        self,
+        mock_remove: Any,
+        mock_open_file: Any,
+        mock_screenshot_asset: Any,
+        _name: str,
+        with_text_tile: bool,
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Dashboard without insights")
+        if with_text_tile:
+            DashboardTile.objects.create(dashboard=dashboard, text=Text.objects.create(team=self.team, body="Notes"))
+        dashboard_asset = ExportedAsset.objects.create(
+            team=self.team,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            dashboard=dashboard,
+        )
+
+        with self.settings(OBJECT_STORAGE_ENABLED=False), self.assertRaisesRegex(InvalidExportContext, "no insights"):
+            image_exporter.export_image(dashboard_asset)
+
+        mock_screenshot_asset.assert_not_called()
 
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_calculates_all_insights(self, mock_calculate: Any, *args: Any) -> None:
