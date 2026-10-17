@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.schema import (
     FilterLogicalOperator,
     PropertyOperator,
@@ -62,6 +64,34 @@ class TestRecordingsThatMatchPlaylistFilters(APIBaseTest, QueryMatchingTest):
 
         assert self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") is None
         mock_capture_exception.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("json_encoded_object", json.dumps({"date_from": "-7d"}), True),
+            ("not_json", "not json", False),
+            ("json_encoded_list", json.dumps([1, 2]), False),
+        ]
+    )
+    @patch("posthoganalytics.capture_exception")
+    @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
+    def test_string_filters_do_not_raise(
+        self,
+        _name: str,
+        filters: str,
+        should_count: bool,
+        mock_list_recordings_from_query: MagicMock,
+        mock_capture_exception: MagicMock,
+    ):
+        mock_list_recordings_from_query.return_value = RecordingsListingResult(
+            recordings=[], more_recordings_available=False, timings_header="", next_cursor=None
+        )
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="string filters", filters=filters)
+
+        count_recordings_that_match_playlist_filters(playlist.id)
+
+        mock_capture_exception.assert_not_called()
+        assert mock_list_recordings_from_query.called is should_count
+        assert (self.redis_client.get(f"{PLAYLIST_COUNT_REDIS_PREFIX}{playlist.short_id}") is not None) is should_count
 
     @patch("posthoganalytics.capture_exception")
     @patch("posthog.temporal.session_replay.count_playlist_items.counting_logic.list_recordings_from_query")
