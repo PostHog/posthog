@@ -1003,15 +1003,17 @@ class EndpointExecutionService(PydanticModelMixin):
                 "Inline endpoint execution failed",
                 endpoint_name=endpoint.name,
             )
-            capture_exception(
-                e,
-                {
-                    "product": Product.ENDPOINTS,
-                    "team_id": self.team.pk,
-                    "materialized": False,
-                    "endpoint_name": endpoint.name,
-                },
-            )
+            # Exposed HogQL errors come from the customer's query and execute() returns them as a 400.
+            if not isinstance(e, ExposedHogQLError):
+                capture_exception(
+                    e,
+                    {
+                        "product": Product.ENDPOINTS,
+                        "team_id": self.team.pk,
+                        "materialized": False,
+                        "endpoint_name": endpoint.name,
+                    },
+                )
             query_kind = strategy.query_kind if strategy else query.get("kind")
             _emit_endpoint_failure_signal(
                 self.team,

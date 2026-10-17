@@ -316,6 +316,29 @@ class TestEndpoint(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code, response.json())
         self.assertIn("Variable ID(s) not found", response.json()["detail"])
 
+    def test_create_endpoint_rebinds_stale_variable_id_by_code_name(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Event Name", code_name="event_name", type="String", default_value="$pageview"
+        )
+        stale_id = "00000000-0000-0000-0000-000000000001"
+        create_data = {
+            "name": "stale_variable",
+            "query": {
+                "kind": "HogQLQuery",
+                "query": "SELECT count() FROM events WHERE event = {variables.event_name}",
+                "variables": {
+                    stale_id: {"variableId": stale_id, "code_name": "event_name", "value": "$identify"},
+                },
+            },
+        }
+        response = self.client.post(f"/api/environments/{self.team.id}/endpoints/", create_data, format="json")
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+
+        variables = response.json()["query"]["variables"]
+        self.assertEqual(list(variables.keys()), [str(variable.id)])
+        self.assertEqual(variables[str(variable.id)]["variableId"], str(variable.id))
+        self.assertEqual(variables[str(variable.id)]["value"], "$identify")
+
     def test_create_insight_endpoint(self):
         data = {
             "name": "test_insight_query",
