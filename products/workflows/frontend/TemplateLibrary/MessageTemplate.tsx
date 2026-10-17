@@ -31,6 +31,7 @@ import { messageTemplateTestSendLogic } from './messageTemplateTestSendLogic'
 import { NewTemplateAgent } from './NewTemplateAgent'
 import { newTemplateAgentLogic } from './newTemplateAgentLogic'
 import { ReadOnlyTemplatePreview } from './ReadOnlyTemplatePreview'
+import { RefusedEditsBanner } from './RefusedEditsBanner'
 import { SendTestEmailModal } from './SendTestEmailModal'
 import { NEW_TEMPLATE_AGENT_HEADLINES } from './templateAgentContext'
 import { TransactionalEmailApiExample } from './TransactionalEmailApiExample'
@@ -263,6 +264,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                         <CodeManagedSource source={templateSource} />
                     </div>
                 )}
+
+                <RefusedEditsBanner {...props} />
 
                 {isCodeManaged && (
                     <LemonBanner

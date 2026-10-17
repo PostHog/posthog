@@ -71,6 +71,7 @@ export interface messageTemplateLogicValues {
     message: any
     messageLoading: boolean
     originalTemplate: MessageTemplate
+    refusedEdits: MessageTemplate | null
     showTemplateErrors: boolean
     template: MessageTemplate
     templateAllErrors: Record<string, any>
@@ -150,6 +151,9 @@ export interface messageTemplateLogicActions {
         value: true
     }
     duplicateTemplateDone: () => {
+        value: true
+    }
+    duplicateWithMyChanges: () => {
         value: true
     }
     keepMyTemplateVersion: () => {
@@ -279,6 +283,9 @@ export interface messageTemplateLogicActions {
     }
     setOriginalTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
+    }
+    setRefusedEdits: (edits: MessageTemplate | null) => {
+        edits: MessageTemplate | null
     }
     setSyncingExternalEdit: (syncing: boolean) => {
         syncing: boolean
@@ -471,6 +478,17 @@ export type messageTemplateLogicType = MakeLogicType<
     messageTemplateLogicMeta
 >
 
+async function createCopyOf(source: MessageTemplate): Promise<MessageTemplate | null> {
+    try {
+        const copy = await api.messaging.createTemplate(templateCopy(source))
+        lemonToast.success('Template duplicated successfully')
+        return copy
+    } catch (error: any) {
+        lemonToast.error(error?.detail || 'Failed to duplicate template')
+        return null
+    }
+}
+
 export const messageTemplateLogic = kea<messageTemplateLogicType>([
     path(['products', 'workflows', 'frontend', 'messageTemplateLogic']),
     props({} as MessageTemplateLogicProps),
@@ -484,6 +502,8 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
         setOriginalTemplate: (template: MessageTemplate) => ({ template }),
         duplicateTemplate: true,
         duplicateTemplateDone: true,
+        setRefusedEdits: (edits: MessageTemplate | null) => ({ edits }),
+        duplicateWithMyChanges: true,
         deleteTemplate: true,
         setTemplatePickerOpen: (open: boolean) => ({ open }),
         templateEditedElsewhere: (event: ResourceEditedEvent) => ({ event }),
@@ -554,7 +574,15 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             false,
             {
                 duplicateTemplate: () => true,
+                duplicateWithMyChanges: () => true,
                 duplicateTemplateDone: () => false,
+            },
+        ],
+        // Unsaved edits that the server refused because an upload claimed the template back for code.
+        refusedEdits: [
+            null as MessageTemplate | null,
+            {
+                setRefusedEdits: (_, { edits }) => edits,
             },
         ],
         transactionalTab: [
@@ -827,6 +855,17 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         },
         saveTemplateFailure: ({ errorObject }) => {
+            if (errorObject?.code === 'immutable') {
+                // An upload claimed the template back for code. The page locks at once, so a failed reload
+                // can't leave it editable. Only the offered duplicate keeps the refused edits.
+                const claimed = { ...values.originalTemplate, managed_by: 'code' as const }
+                actions.setRefusedEdits(values.template)
+                actions.setExternallyEdited(false)
+                actions.setOriginalTemplate(claimed)
+                actions.resetTemplate(claimed)
+                actions.loadTemplate()
+                return
+            }
             actions.replayDeferredExternalEdit()
             // A 404 means the template no longer resolves for this environment - it was soft-deleted,
             // or it belongs to a different environment than the one currently selected.
@@ -837,10 +876,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                         action: () => router.actions.push(urls.workflows('library')),
                     },
                 })
-                return
-            }
-            if (errorObject?.code === 'immutable') {
-                lemonToast.error(errorObject.detail)
                 return
             }
             lemonToast.error('Failed to save template. Please try again.')
@@ -874,24 +909,31 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 },
             })
         },
-        duplicateTemplate: async () => {
+        duplicateTemplate: async (_, breakpoint) => {
             if (values.templateChanged) {
                 lemonToast.error('Please save your changes before duplicating')
                 actions.duplicateTemplateDone()
                 return
             }
-            try {
-                const duplicatedTemplate = await api.messaging.createTemplate(templateCopy(values.template))
+            const copy = await createCopyOf(values.template)
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
                 posthog.capture('message template duplicated', {
                     template_id: values.originalTemplate.id,
                     code_managed: values.isCodeManaged,
                 })
-                lemonToast.success('Template duplicated successfully')
-                router.actions.push(urls.workflowsLibraryTemplate(duplicatedTemplate.id))
-            } catch (error: any) {
-                lemonToast.error(error?.detail || 'Failed to duplicate template')
-            } finally {
-                actions.duplicateTemplateDone()
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
+            }
+        },
+        duplicateWithMyChanges: async (_, breakpoint) => {
+            const edits = values.refusedEdits
+            const copy = edits && (await createCopyOf(edits))
+            breakpoint()
+            actions.duplicateTemplateDone()
+            if (copy) {
+                actions.setRefusedEdits(null)
+                router.actions.push(urls.workflowsLibraryTemplate(copy.id))
             }
         },
         deleteTemplate: async () => {
