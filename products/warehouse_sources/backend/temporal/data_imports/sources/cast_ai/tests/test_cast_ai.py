@@ -14,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.ca
     get_resource,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import COST_REPORT_STEP_SECONDS
+from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import (
+    COST_REPORT_STEP_SECONDS,
+    WORKLOAD_PRIMARY_KEY,
+    WORKLOAD_REPORT_STEP_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.source import CastAiSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -164,27 +168,64 @@ class TestCastAiFanoutRowFormat:
         assert result.response.primary_keys == ["cluster_id", "createdAt"]
 
 
+class TestCastAiWorkloadPagination:
+    @parameterized.expand(
+        [
+            ("workload_cost_reports",),
+            ("workload_efficiency_reports",),
+            ("workload_data_transfer_costs",),
+        ]
+    )
+    def test_walks_cursor_pages_per_cluster(self, endpoint: str) -> None:
+        workload = {"namespace": "default", "workloadType": "Deployment"}
+        result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
+            endpoint,
+            [
+                ScriptedResponse(json={"items": [{"id": "cluster-1"}]}),
+                ScriptedResponse(json={"items": [{**workload, "workloadName": "api"}], "nextCursor": "page-2"}),
+                ScriptedResponse(json={"items": [{**workload, "workloadName": "worker"}], "nextCursor": ""}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("page.cursor") == [None, None, "page-2"]
+        # The report window is required on every page, not only the first.
+        assert result.requests[2].param("startTime") == result.requests[1].param("startTime") is not None
+        assert result.requests[2].param("endTime") == result.requests[1].param("endTime") is not None
+        assert result.rows == [
+            {**workload, "workloadName": "api", "cluster_id": "cluster-1"},
+            {**workload, "workloadName": "worker", "cluster_id": "cluster-1"},
+        ]
+        assert result.response is not None
+        assert result.response.primary_keys == WORKLOAD_PRIMARY_KEY
+
+
 class TestCastAiFanoutWiring:
     @parameterized.expand(
         [
-            ("cluster_cost_reports", "startTime", "endTime", True),
-            ("cluster_savings_history", "fromDate", "toDate", False),
+            ("cluster_cost_reports", "cost", "startTime", "endTime", COST_REPORT_STEP_SECONDS),
+            ("cluster_savings_history", "estimated-savings-history", "fromDate", "toDate", None),
+            ("cluster_savings_reports", "savings", "startTime", "endTime", COST_REPORT_STEP_SECONDS),
+            ("workload_cost_reports", "workload-costs", "startTime", "endTime", WORKLOAD_REPORT_STEP_SECONDS),
+            ("workload_efficiency_reports", "workload-efficiency", "startTime", "endTime", None),
+            (
+                "workload_data_transfer_costs",
+                "datatransfer-costs",
+                "startTime",
+                "endTime",
+                WORKLOAD_REPORT_STEP_SECONDS,
+            ),
         ]
     )
     def test_fanout_wiring_per_endpoint(
-        self, endpoint: str, start_param: str, end_param: str, expects_step_seconds: bool
+        self, endpoint: str, report: str, start_param: str, end_param: str, step_seconds: int | None
     ) -> None:
-        child_path = (
-            "/v1/cost-reports/clusters/{cluster_id}/cost"
-            if endpoint == "cluster_cost_reports"
-            else "/v1/cost-reports/clusters/{cluster_id}/estimated-savings-history"
-        )
-        cursor_field = "timestamp" if endpoint == "cluster_cost_reports" else "createdAt"
+        child_path = f"/v1/cost-reports/clusters/{{cluster_id}}/{report}"
         result = SourceDriver(CastAiSource(), CastAiSourceConfig(api_key="key")).run(
             endpoint,
             [
                 ScriptedResponse(json={"items": [{"id": "cluster-1"}, {"id": "cluster-2"}]}),
-                ScriptedResponse(json={"items": [{cursor_field: "2026-03-01T00:00:00Z"}]}),
+                ScriptedResponse(json={"items": [{"timestamp": "2026-03-01T00:00:00Z"}]}),
             ],
             resume_state=CastAiResumeConfig(paginator_state={"completed": [child_path.format(cluster_id="cluster-1")]}),
         )
@@ -195,14 +236,12 @@ class TestCastAiFanoutWiring:
             child_path.format(cluster_id="cluster-2"),
         ]
         assert result.params("limit") == [None, None]
-        assert result.rows == [{cursor_field: "2026-03-01T00:00:00Z", "cluster_id": "cluster-2"}]
+        assert result.rows == [{"timestamp": "2026-03-01T00:00:00Z", "cluster_id": "cluster-2"}]
         assert result.requests[0].param(start_param) is None
         assert result.requests[0].param(end_param) is None
         assert result.requests[1].param(start_param) is not None
         assert result.requests[1].param(end_param) is not None
-        assert (result.requests[1].param("stepSeconds") is not None) is expects_step_seconds
-        if expects_step_seconds:
-            assert result.requests[1].param("stepSeconds") == str(COST_REPORT_STEP_SECONDS)
+        assert result.requests[1].param("stepSeconds") == (str(step_seconds) if step_seconds else None)
         assert result.saved_states == [
             CastAiResumeConfig(
                 paginator_state={

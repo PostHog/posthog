@@ -6,7 +6,6 @@ from typing import Any, Optional, cast
 from products.warehouse_sources.backend.temporal.data_imports.sources.cast_ai.settings import (
     CASTAI_BASE_URL,
     CASTAI_ENDPOINTS,
-    COST_REPORT_STEP_SECONDS,
     DEFAULT_LOOKBACK_DAYS,
     CastAiEndpointConfig,
 )
@@ -22,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
+    BasePaginator,
+    JSONResponseCursorPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
@@ -36,7 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 
 @dataclasses.dataclass
 class CastAiResumeConfig:
-    # Opaque framework checkpoint (fan-out resume state for the two report endpoints; the
+    # Opaque framework checkpoint (fan-out resume state for the report endpoints; the
     # "clusters" list has no pagination and is never resumed).
     paginator_state: dict[str, Any]
 
@@ -157,9 +158,9 @@ def cast_ai_source(
             resumable_source_manager.save_state(CastAiResumeConfig(paginator_state=dict(state)))
 
     if endpoint_config.fanout:
-        start_param, end_param = (
-            ("startTime", "endTime") if endpoint == "cluster_cost_reports" else ("fromDate", "toDate")
-        )
+        if endpoint_config.window_params is None:
+            raise ValueError(f"Fan-out endpoint '{endpoint}' must declare its report window params")
+        start_param, end_param = endpoint_config.window_params
         # These reports require a time window on every request (full refresh included) so the
         # literal defaults below are always present; when incremental sync is enabled the
         # framework's incremental config overwrites them with the real last-synced watermark.
@@ -167,8 +168,13 @@ def cast_ai_source(
             start_param: _default_lookback_start(),
             end_param: _now(),
         }
-        if endpoint == "cluster_cost_reports":
-            child_params_extra["stepSeconds"] = COST_REPORT_STEP_SECONDS
+        if endpoint_config.step_seconds is not None:
+            child_params_extra["stepSeconds"] = endpoint_config.step_seconds
+        child_paginator: BasePaginator = (
+            JSONResponseCursorPaginator(cursor_path="nextCursor", cursor_param="page.cursor")
+            if endpoint_config.cursor_paginated
+            else SinglePagePaginator()
+        )
 
         dependent_resource = cast(
             Iterable[Any],
@@ -186,7 +192,7 @@ def cast_ai_source(
                 incremental_config_factory=_report_incremental_config_factory(start_param, end_param),
                 page_size_param=None,
                 parent_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": "items"},
-                child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": "items"},
+                child_endpoint_extra={"paginator": child_paginator, "data_selector": "items"},
                 child_params_extra=child_params_extra,
                 resume_hook=save_checkpoint,
                 initial_paginator_state=initial_paginator_state,
