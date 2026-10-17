@@ -13,7 +13,7 @@ from rest_framework.exceptions import ErrorDetail, ValidationError
 from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.errors import CHQueryErrorNotAnAggregate
+from posthog.errors import CHQueryErrorNotAnAggregate, CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.error_handling import (
@@ -102,6 +102,26 @@ class TestExperimentErrorHandling(BaseTest):
         self.assertIsInstance(call_args[0][0], ClickHouseQueryMemoryLimitExceeded)
         self.assertEqual(call_args[1]["additional_properties"]["experiment_id"], 123)
         self.assertEqual(call_args[1]["additional_properties"]["query_runner"], "Mock")
+
+    @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
+    def test_decorator_converts_too_many_bytes_to_actionable_message(self, _mock_capture):
+        @experiment_error_handler
+        def failing_method(self):
+            raise CHQueryErrorTooManyBytes(
+                "Limit for rows or bytes to read exceeded", code=307, code_name="too_many_bytes"
+            )
+
+        mock_self = Mock(experiment_id=1, metric=None, user_facing=True)
+
+        with self.assertRaises(ValidationError) as context:
+            failing_method(mock_self)
+
+        detail = cast(list[ErrorDetail], context.exception.detail)[0]
+        self.assertEqual(
+            str(detail),
+            "This experiment reads more data than the current limit allows. Try again in a few minutes, or view a shorter time period.",
+        )
+        self.assertEqual(detail.code, "too_many_bytes")
 
     @patch("products.experiments.backend.hogql_queries.error_handling.capture_exception")
     def test_decorator_captures_query_runner_name(self, mock_capture):
