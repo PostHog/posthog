@@ -1,6 +1,7 @@
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 
@@ -227,6 +228,19 @@ describe('surveysLogic', () => {
             expect(responseCountRequests).toHaveLength(2)
             expect(responseCountRequests[1].searchParams.get('survey_ids')).toEqual('survey-2')
             expect(logic.values.surveysResponsesCount).toEqual({ 'survey-1': 12, 'survey-2': 0 })
+        })
+
+        it('does not report an error when the logic unmounts while response counts load', async () => {
+            const captureException = jest.spyOn(posthog, 'captureException')
+            const responseCountRequest = deferred<{ [key: string]: number }>()
+            jest.spyOn(api.surveys, 'getResponsesCount').mockReturnValueOnce(responseCountRequest.promise)
+
+            logic.actions.loadResponsesCount(['survey-1'])
+            logic.unmount()
+            responseCountRequest.resolve({ 'survey-1': 12 })
+            await new Promise((resolve) => setTimeout(resolve, 0))
+
+            expect(captureException).not.toHaveBeenCalled()
         })
     })
 
