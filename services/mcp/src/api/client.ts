@@ -380,15 +380,7 @@ export class ApiClient {
             const response = await this.fetch(url, fetchOptions)
             if (!response.ok) {
                 const errorText = await response.text()
-                throw new PostHogApiError({
-                    status: response.status,
-                    statusText: response.statusText,
-                    body: errorText,
-                    url,
-                    method: opts.method,
-                    retryAfterSeconds:
-                        response.status === 503 ? parseRetryAfterSeconds(response.headers.get('Retry-After')) : null,
-                })
+                throw this.buildApiError(response, errorText, url, opts.method)
             }
             return (await response.text()) as T
         }
@@ -451,13 +443,14 @@ export class ApiClient {
         const parser = createParser({
             onEvent: ({ event, data }) => {
                 const eventType = event ?? 'message'
+                let parsed: T
                 try {
-                    const parsed = JSON.parse(data) as T
-                    opts.onEvent(eventType, parsed)
+                    parsed = JSON.parse(data) as T
                 } catch {
                     // Non-JSON data, pass as-is
-                    opts.onEvent(eventType, data as T)
+                    parsed = data as T
                 }
+                opts.onEvent(eventType, parsed)
             },
         })
 
