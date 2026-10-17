@@ -3,6 +3,7 @@ import uuid
 from typing import Any, cast
 
 from django.conf import settings
+from django.db.models import QuerySet
 
 import boto3
 import posthoganalytics
@@ -28,6 +29,7 @@ from posthog.event_usage import EventSource, get_event_source, is_wizard_self_dr
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
+from posthog.permissions import is_service_auth
 
 from products.access_control.backend.presentation.access_control import (
     AccessControlViewSetMixin,
@@ -42,6 +44,7 @@ from products.warehouse_sources.backend.facade.api import (
     SUPPORTED_FILE_FORMATS,
     build_file_upload_s3_path,
     build_file_upload_url_pattern,
+    denied_table_ids,
     hosted_upload_s3_path,
 )
 from products.warehouse_sources.backend.facade.hogql import (
@@ -527,6 +530,18 @@ class TableViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.M
             .prefetch_related("created_by", "externaldataschema_set")
             .order_by(self.ordering)
         )
+
+    def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
+        queryset = super()._filter_queryset_by_access_level(queryset)
+        if self.action != "list" or is_service_auth(self.request):
+            return queryset
+        # Without resource access the generic filter already keeps only explicit grants and the
+        # reader's own tables, and a rule on a source cannot override either.
+        if not self.user_access_control.has_resource_access("warehouse_table"):
+            return queryset
+        # The generic filter reads rules on tables only. A table also resolves through its source,
+        # so a rule that denies the source must hide its tables from the list too.
+        return queryset.exclude(id__in=denied_table_ids(self.team_id, self.user_access_control))
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: DataWarehouseTable = self.get_object()

@@ -3653,12 +3653,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Bypassed scopes are readable for them, and listing them as restricted would
-        # collide with users who are genuinely denied those resources.
+        # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - self._bypassed_access_scopes
+            restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control
