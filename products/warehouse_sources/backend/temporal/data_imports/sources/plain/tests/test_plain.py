@@ -452,3 +452,18 @@ class TestLookupEndpoints:
         body = result.requests[0].json()
         assert body["variables"].get("filter") == expected_filter
         assert "$filter" in body["query"]
+
+    @pytest.mark.parametrize(
+        "endpoint,expected_sort_mode",
+        [
+            ("companies", "desc"),
+            ("tenants", "desc"),
+            ("users", "asc"),
+            ("label_types", "asc"),
+        ],
+    )
+    def test_source_for_pipeline_sets_sort_mode(self, endpoint, expected_sort_mode):
+        result = _run(endpoint, [_connection_page(endpoint, ["a"], None)])
+
+        assert result.response is not None
+        assert result.response.sort_mode == expected_sort_mode
