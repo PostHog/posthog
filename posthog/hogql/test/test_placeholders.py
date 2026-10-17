@@ -16,7 +16,7 @@ from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.visitor import clear_locations
 
-from common.hogvm.python.utils import HogVMException, HogVMMemoryExceededException, HogVMRuntimeExceededException
+from common.hogvm.python.utils import HogVMException, HogVMRuntimeExceededException
 
 
 class TestParser(SimpleTestCase):
@@ -100,22 +100,39 @@ class TestParser(SimpleTestCase):
                 replace_placeholders(expr, {})
         self.assertIn("took too long", str(context.exception))
 
-    @parameterized.expand([(100, "{length(range(7))}", 1), (16, "{1}", 2)])
+    @parameterized.expand([(100, "{length(range(7))}", 1), (16, "{1}", 2), (16, "{foo}", 2)])
     def test_replace_placeholders_shares_memory(self, budget: int, expression: str, allowed_count: int) -> None:
         allowed = parse_select("SELECT " + ", ".join([expression] * allowed_count))
         oversized = parse_select("SELECT " + ", ".join([expression] * (allowed_count + 1)))
         with patch("posthog.hogql.placeholders.MAX_MEMORY", budget):
-            self.assertEqual(len(cast(ast.SelectQuery, replace_placeholders(allowed, {})).select), allowed_count)
-            with self.assertRaises(HogVMMemoryExceededException):
-                replace_placeholders(oversized, {})
-            self.assertEqual(len(cast(ast.SelectQuery, replace_placeholders(allowed, {})).select), allowed_count)
+            self.assertEqual(
+                len(cast(ast.SelectQuery, replace_placeholders(allowed, {"foo": ast.Constant(value=1)})).select),
+                allowed_count,
+            )
+            with self.assertRaisesRegex(QueryError, "too much memory"):
+                replace_placeholders(oversized, {"foo": ast.Constant(value=1)})
+            self.assertEqual(
+                len(cast(ast.SelectQuery, replace_placeholders(allowed, {"foo": ast.Constant(value=1)})).select),
+                allowed_count,
+            )
 
+    @parameterized.expand([("{1}",), ("{foo}",)])
     @patch("posthog.hogql.placeholders.PLACEHOLDER_EXPANSION_BUDGET", timedelta(seconds=1))
-    def test_replace_placeholders_shares_deadline(self) -> None:
-        query = parse_select("SELECT " + ", ".join(["{1}"] * 100))
+    def test_replace_placeholders_shares_deadline(self, expression: str) -> None:
+        query = parse_select("SELECT " + ", ".join([expression] * 100))
         with patch("posthog.hogql.placeholders.time.monotonic", side_effect=count(0.0, 0.01)):
-            with self.assertRaises((QueryError, HogVMRuntimeExceededException)):
-                replace_placeholders(query, {})
+            with self.assertRaisesRegex(QueryError, "took too long"):
+                replace_placeholders(query, {"foo": ast.Constant(value=1)})
+
+    @patch(
+        "common.hogvm.python.execute.execute_bytecode",
+        side_effect=HogVMRuntimeExceededException(timeout_seconds=5, ops_performed=2),
+    )
+    def test_replace_placeholders_resolves_lookups_without_a_stalled_vm(self, _execute_bytecode) -> None:
+        resolved = replace_placeholders(parse_expr("{foo}"), {"foo": ast.Constant(value=1)})
+        self.assertEqual(clear_locations(resolved), ast.Constant(value=1))
+        with self.assertRaisesRegex(QueryError, "took too long"):
+            replace_placeholders(parse_expr("{foo + 1}"), {"foo": ast.Constant(value=1)})
 
     def test_replace_placeholders_comparison(self):
         expr = clear_locations(parse_expr("timestamp < {timestamp}"))
