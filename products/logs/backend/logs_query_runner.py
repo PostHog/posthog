@@ -237,7 +237,7 @@ def _map_attribute_filter_type(property_filter: LogPropertyFilter) -> LogPropert
     __str. Datetime is left out until there's a decent UI for datetime filtering. Returns
     a copy; filters without a value are returned unchanged.
     """
-    if not property_filter.value:
+    if not _has_filter_value(property_filter):
         return property_filter
 
     property_type = "str"
@@ -331,7 +331,7 @@ class LogsFilterBuilder:
                 if property_filter.type != LogPropertyFilterType.LOG_ATTRIBUTE:
                     continue
 
-                if isinstance(property_filter, LogPropertyFilter) and property_filter.value:
+                if isinstance(property_filter, LogPropertyFilter) and _has_filter_value(property_filter):
                     self.attribute_filters.insert(0, _map_attribute_filter_type(property_filter))
 
         if self.exclude_resource_attribute is not None:
