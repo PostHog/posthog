@@ -38,8 +38,8 @@ await buildInParallel(
         absWorkingDir: frontendDir,
         entryPoints: [entryPoint],
         outfile: path.resolve(outDir, outfileName),
-        // The app requests these by fixed name (e.g. /static/monacoEditorWorker.js), so the
-        // output must not get the production content-hash suffix.
+        // Without the production HTML's hashed-name map, the app requests these by fixed name
+        // (e.g. /static/monacoEditorWorker.js), so the output must not get a content-hash suffix.
         entryNames: '[dir]/[name]',
         bundle: true,
         format: 'esm',
