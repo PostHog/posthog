@@ -1,31 +1,38 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-// People type a category's name to browse it, and no item is called "person" or "events".
-const GROUP_TYPE_BY_TYPED_NAME: Record<string, TaxonomicFilterGroupType> = {
-    person: TaxonomicFilterGroupType.PersonProperties,
-    persons: TaxonomicFilterGroupType.PersonProperties,
-    people: TaxonomicFilterGroupType.PersonProperties,
-    user: TaxonomicFilterGroupType.PersonProperties,
-    users: TaxonomicFilterGroupType.PersonProperties,
-    event: TaxonomicFilterGroupType.Events,
-    events: TaxonomicFilterGroupType.Events,
-    cohort: TaxonomicFilterGroupType.Cohorts,
-    cohorts: TaxonomicFilterGroupType.Cohorts,
-    action: TaxonomicFilterGroupType.Actions,
-    actions: TaxonomicFilterGroupType.Actions,
-    session: TaxonomicFilterGroupType.SessionProperties,
-    sessions: TaxonomicFilterGroupType.SessionProperties,
-    flag: TaxonomicFilterGroupType.FeatureFlags,
-    flags: TaxonomicFilterGroupType.FeatureFlags,
-    'feature flag': TaxonomicFilterGroupType.FeatureFlags,
-    'feature flags': TaxonomicFilterGroupType.FeatureFlags,
+const PERSON_GROUPS = [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Persons]
+const FLAG_GROUPS = [TaxonomicFilterGroupType.EventFeatureFlags, TaxonomicFilterGroupType.FeatureFlags]
+const COHORT_GROUPS = [TaxonomicFilterGroupType.Cohorts, TaxonomicFilterGroupType.CohortsWithAllUsers]
+
+// Pickers offer the same category under different group types, so each name lists them in order of preference.
+const GROUP_TYPES_BY_TYPED_NAME: Record<string, TaxonomicFilterGroupType[]> = {
+    person: PERSON_GROUPS,
+    persons: PERSON_GROUPS,
+    people: PERSON_GROUPS,
+    user: PERSON_GROUPS,
+    users: PERSON_GROUPS,
+    event: [TaxonomicFilterGroupType.Events],
+    events: [TaxonomicFilterGroupType.Events],
+    cohort: COHORT_GROUPS,
+    cohorts: COHORT_GROUPS,
+    action: [TaxonomicFilterGroupType.Actions],
+    actions: [TaxonomicFilterGroupType.Actions],
+    session: [TaxonomicFilterGroupType.SessionProperties],
+    sessions: [TaxonomicFilterGroupType.SessionProperties],
+    flag: FLAG_GROUPS,
+    flags: FLAG_GROUPS,
+    'feature flag': FLAG_GROUPS,
+    'feature flags': FLAG_GROUPS,
 }
 
-/** The category a search names, when the picker offers that category. */
+/**
+ * The category a search names, when the picker offers it. The empty state calls this only after the
+ * search found nothing, so a search for a category's name is taken as a request to browse that category.
+ */
 export function groupNamedBySearch(
     searchQuery: string,
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
 ): TaxonomicFilterGroupType | null {
-    const groupType = GROUP_TYPE_BY_TYPED_NAME[searchQuery.trim().toLowerCase()]
-    return groupType && taxonomicGroupTypes.includes(groupType) ? groupType : null
+    const candidates = GROUP_TYPES_BY_TYPED_NAME[searchQuery.trim().toLowerCase()] ?? []
+    return candidates.find((groupType) => taxonomicGroupTypes.includes(groupType)) ?? null
 }
