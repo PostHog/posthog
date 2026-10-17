@@ -5,6 +5,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { LemonDialog } from '@posthog/lemon-ui'
 
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -1911,6 +1912,39 @@ describe('sqlEditorLogic', () => {
 
             expect(catalogMetrics.values.allMetrics.map((metric) => metric.name)).toEqual([PREFILL.name])
             catalogMetrics.unmount()
+        })
+    })
+
+    describe('Save as cohort', () => {
+        it('saves a SQL cohort with its variables, filters and explicit limit', async () => {
+            const query: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
+                query: 'SELECT id FROM persons WHERE {filters} LIMIT 5',
+                variables: { plan: { variableId: 'plan', code_name: 'plan', value: 'pro' } },
+                filters: { filterTestAccounts: true },
+            }
+            const createCohort = jest.fn((body: Record<string, unknown>) => [201, { id: 42, ...body }])
+            useMocks({
+                post: {
+                    '/api/cohort/': async ({ request }) => createCohort(await request.json()),
+                },
+            })
+            const openForm = jest.spyOn(LemonDialog, 'openForm').mockImplementation(() => {})
+            logic = sqlEditorLogic({ tabId: TAB_ID })
+            logic.mount()
+            logic.actions.setQueryInput(query.query)
+            logic.actions.setSourceQuery({ kind: NodeKind.DataVisualizationNode, source: query })
+
+            const scene = editorSceneLogic({ tabId: TAB_ID })
+            scene.mount()
+            scene.actions.saveAsCohort()
+            await expectLogic(scene).toFinishAllListeners()
+
+            const form = openForm.mock.calls.at(-1)?.[0]
+            expect(form).toBeTruthy()
+            await expectLogic(exportsLogic(), () => form!.onSubmit({ name: 'Pro people' })).toFinishAllListeners()
+            expect(createCohort).toHaveBeenCalledWith({ name: 'Pro people', is_static: true, query })
+            openForm.mockRestore()
         })
     })
 

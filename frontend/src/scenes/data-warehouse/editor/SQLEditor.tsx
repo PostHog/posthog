@@ -501,8 +501,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
         isMultiQuery,
         selectedConnectionId,
         hasEditorChanges,
+        metadata,
     } = useValues(sqlEditorLogic)
-    const { convertToNotebook, openHistoryModal } = useActions(editorSceneLogic)
+    const { convertToNotebook, openHistoryModal, saveAsCohort } = useActions(editorSceneLogic)
     const {
         reviewViewUpdate,
         updateInsight,
@@ -582,6 +583,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                         return
                     }
 
+                    if (item.action === 'cohort') {
+                        saveAsCohort()
+                        return
+                    }
+
                     saveAsView()
                 },
                 accessDisabledReason:
@@ -599,6 +605,7 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             saveAsView,
             saveAsViewAccessDisabledReason,
             saveAsEndpointDisabledReason,
+            saveAsCohort,
         ]
     )
 
@@ -646,6 +653,30 @@ function SQLEditorSceneTitle(): JSX.Element | null {
 
         return undefined
     }, [insightLoading, isSourceQueryLastRun, responseLoading, responseError, response])
+
+    const saveAsCohortDisabledReason = useMemo(() => {
+        if (saveAsDisabledReason) {
+            return saveAsDisabledReason
+        }
+        if (selectedConnectionId) {
+            return 'Switch to PostHog (ClickHouse) to save a cohort'
+        }
+        if (isMultiQuery) {
+            return 'Use a single SQL query to save a cohort'
+        }
+        const tables = metadata?.query?.trim() === queryInput?.trim() ? metadata?.table_names : undefined
+        const hasPersonId =
+            response &&
+            'columns' in response &&
+            response.columns?.some(
+                (column: unknown) =>
+                    column === 'person_id' ||
+                    column === 'actor_id' ||
+                    column === 'distinct_id' ||
+                    (column === 'id' && tables?.some((table) => table === 'persons' || table === 'posthog.persons'))
+            )
+        return hasPersonId ? undefined : 'Return person_id, actor_id, distinct_id, or id from persons'
+    }, [saveAsDisabledReason, selectedConnectionId, isMultiQuery, metadata, queryInput, response])
 
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
@@ -837,6 +868,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                     saveAsEndpointDisabledReason,
                                                                 onClick: () => saveAsEndpoint(),
                                                             },
+                                                            {
+                                                                label: 'Save as cohort...',
+                                                                disabledReason: saveAsCohortDisabledReason,
+                                                                onClick: () => saveAsCohort(),
+                                                            },
                                                         ]}
                                                     />
                                                 ),
@@ -906,6 +942,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                                         saveAsEndpointDisabledReason,
                                                                     onClick: () => saveAsEndpoint(),
                                                                 },
+                                                                {
+                                                                    label: 'Save as cohort...',
+                                                                    disabledReason: saveAsCohortDisabledReason,
+                                                                    onClick: () => saveAsCohort(),
+                                                                },
                                                             ],
                                                         },
                                                         {
@@ -945,9 +986,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     items={secondarySaveMenuItems.map((item) => ({
                                                         ...item,
                                                         disabledReason:
-                                                            (item.action === 'insight'
-                                                                ? saveAsInsightDisabledReason
-                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
+                                                            (item.action === 'cohort'
+                                                                ? saveAsCohortDisabledReason
+                                                                : item.action === 'insight'
+                                                                  ? saveAsInsightDisabledReason
+                                                                  : saveAsDisabledReason) ?? item.accessDisabledReason,
                                                     }))}
                                                 />
                                             ),
@@ -992,9 +1035,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                                     items={secondarySaveMenuItems.map((item) => ({
                                                         ...item,
                                                         disabledReason:
-                                                            (item.action === 'insight'
-                                                                ? saveAsInsightDisabledReason
-                                                                : saveAsDisabledReason) ?? item.accessDisabledReason,
+                                                            (item.action === 'cohort'
+                                                                ? saveAsCohortDisabledReason
+                                                                : item.action === 'insight'
+                                                                  ? saveAsInsightDisabledReason
+                                                                  : saveAsDisabledReason) ?? item.accessDisabledReason,
                                                     }))}
                                                 />
                                             ),
