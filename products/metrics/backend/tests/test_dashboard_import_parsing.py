@@ -1,3 +1,4 @@
+import time
 from typing import Any
 
 import pytest
@@ -611,6 +612,15 @@ def test_a_custom_list_reads_grafana_text_and_value_items() -> None:
     )
 
     assert [definition.customValues for definition in variables.definitions()] == [["prod", "dev", "a,b"]]
+
+
+def test_a_long_custom_list_item_parses_in_linear_time() -> None:
+    item = "a" + " " * 200_000 + "b"
+    started = time.monotonic()
+
+    TemplateVariables.from_templating([{"name": "env", "type": "custom", "query": f"x, {item}, y", "current": {}}])
+
+    assert time.monotonic() - started < 1
 
 
 def test_only_the_first_variables_stay_live() -> None:

@@ -34,7 +34,7 @@ MAX_VALUES = 1000
 # Each change to a selection walks the variables that depend on it, so a dashboard keeps a practical number live.
 MAX_LIVE_VARIABLES = 50
 _CUSTOM_ITEM = re.compile(r"(?:\\,|[^,])+")
-_CUSTOM_KEY_VALUE = re.compile(r"^\s*(.+)\s:\s(.+)$")
+_CUSTOM_SEPARATOR = re.compile(r"\s:\s")
 # Private use characters, which stand for variables while dependencies are checked.
 _MARKER_START = 0xF0000
 _MAX_MARKERS = 0xFFFD
@@ -70,9 +70,10 @@ def _custom_values(query: str) -> list[str]:
     """The values of a Grafana custom list. An item is `value` or `text : value`, and `\\,` is a literal comma."""
     values = []
     for item in _CUSTOM_ITEM.findall(query):
-        text = item.replace("\\,", ",")
-        key_value = _CUSTOM_KEY_VALUE.match(text)
-        value = (key_value.group(2) if key_value else text).strip()
+        text = item.replace("\\,", ",").strip()
+        # Grafana splits `text : value` at the last separator that has text on both sides.
+        separators = [match.start() for match in _CUSTOM_SEPARATOR.finditer(text) if 0 < match.start() < len(text) - 3]
+        value = (text[separators[-1] + 3 :] if separators else text).strip()
         if value:
             values.append(value)
     return values
