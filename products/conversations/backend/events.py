@@ -6,6 +6,7 @@ Staff/system actions use the actor's distinct_id; customer actions use the ticke
 Events are sent to the customer's PostHog project via their team's API token.
 """
 
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Literal
 
@@ -412,16 +413,54 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
     }
 
 
+def _is_customer_email_verified(ticket: Ticket, customer_email: str) -> bool:
+    # A server check attests one identity on a verified ticket: the signed widget distinct_id, the
+    # authenticated sender in email_from, or the platform user's email in distinct_id on Slack and
+    # Teams. An outbound email ticket keeps the recipient's analytics ID in distinct_id, so email
+    # tickets use email_from. The widget form can supply any email, so the email counts as verified
+    # only when it is that attested identity.
+    if ticket.channel_source == Channel.EMAIL:
+        attested_identity = ticket.email_from or ticket.distinct_id
+    else:
+        attested_identity = ticket.distinct_id
+    return (
+        ticket.identity_verified is True
+        and bool(customer_email)
+        and customer_email.lower() == (attested_identity or "").lower()
+    )
+
+
 def _get_customer_properties(ticket: Ticket, *, include_distinct_id: bool = False) -> dict:
     """Customer identity on the ticket, for workflow filters and analytics."""
     traits = ticket.anonymous_traits or {}
+    # The ticket update API stores traits as any JSON value, so the email trait can be a non-string.
+    trait_email = traits.get("email")
+    customer_email = (trait_email if isinstance(trait_email, str) else "") or ticket.email_from or ""
     properties = {
         "customer_name": traits.get("name", ""),
-        "customer_email": traits.get("email") or ticket.email_from or "",
+        "customer_email": customer_email,
+        "customer_email_verified": _is_customer_email_verified(ticket, customer_email),
     }
     if include_distinct_id:
         properties["customer_distinct_id"] = ticket.distinct_id or ""
     return properties
+
+
+def _message_author_identity(ticket: Ticket, item_context: Mapping[str, object]) -> str:
+    # The ticket's attested identity belongs to the person who opened it, but other Slack or Teams
+    # thread members, other email senders, and an unsigned widget session can add messages to it.
+    author: object = None
+    if ticket.channel_source == Channel.EMAIL:
+        if item_context.get("email_sender_authenticated") is True:
+            author = item_context.get("email_from")
+    elif ticket.channel_source == Channel.SLACK:
+        author = item_context.get("slack_author_email")
+    elif ticket.channel_source == Channel.TEAMS:
+        author = item_context.get("teams_author_email")
+    elif ticket.channel_source == Channel.WIDGET:
+        if item_context.get("distinct_id_verified") is True:
+            author = item_context.get("distinct_id")
+    return author if isinstance(author, str) else ""
 
 
 def _get_assignment_properties(ticket: Ticket) -> dict:
@@ -630,13 +669,21 @@ def capture_private_message_sent(
     _capture_team_message(ticket, message_id, None, author, "$conversation_private_message_sent")
 
 
-def capture_message_received(ticket: Ticket, message_id: str, message_content: str) -> None:
+def capture_message_received(
+    ticket: Ticket, message_id: str, message_content: str, item_context: Mapping[str, object] | None = None
+) -> None:
     """Customer sent a message on a ticket."""
     properties = _get_ticket_base_properties(ticket)
     properties["message_id"] = message_id
     properties["message_content"] = (message_content or "")[:1000]
     properties["author_type"] = "customer"
-    properties.update(_get_customer_properties(ticket))
+    customer_properties = _get_customer_properties(ticket)
+    author_identity = _message_author_identity(ticket, item_context or {})
+    customer_properties["customer_email_verified"] = (
+        customer_properties["customer_email_verified"]
+        and author_identity.lower() == customer_properties["customer_email"].lower()
+    )
+    properties.update(customer_properties)
     properties.update(_get_assignment_properties(ticket))
 
     team = ticket.team

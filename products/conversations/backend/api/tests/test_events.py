@@ -16,6 +16,7 @@ from posthog.settings import SITE_URL
 from products.access_control.backend.models.role import Role
 from products.conversations.backend.events import (
     EVENT_SOURCE,
+    _get_customer_properties,
     _resolve_groups_from_analytics,
     capture_message_received,
     capture_message_sent,
@@ -245,6 +246,77 @@ class TestConversationEvents(BaseTest):
 
         call_kwargs = mock_capture.call_args.kwargs
         assert call_kwargs["properties"]["customer_email"] == "customer@example.com"
+
+    @parameterized.expand(
+        [
+            ("authenticated_email", "email", True, "customer@example.com", "customer@example.com", True),
+            ("outbound_email_verified_by_reply", "email", True, "recipient-analytics-id", "customer@example.com", True),
+            ("non_string_trait_email", "email", True, "customer@example.com", 42, True),
+            ("widget_form_email", "widget", True, "customer-123", "customer@example.com", False),
+            ("unauthenticated_email", "email", False, "customer@example.com", "customer@example.com", False),
+        ]
+    )
+    def test_customer_email_verified_requires_attested_email(
+        self, _name, channel_source, identity_verified, distinct_id, trait_email, expected
+    ):
+        ticket = Ticket(
+            team=self.team,
+            channel_source=channel_source,
+            identity_verified=identity_verified,
+            distinct_id=distinct_id,
+            anonymous_traits={"email": trait_email},
+            email_from="customer@example.com",
+        )
+
+        assert _get_customer_properties(ticket)["customer_email_verified"] is expected
+
+    @parameterized.expand(
+        [
+            (
+                "email_authenticated_customer",
+                "email",
+                {"email_from": "customer@example.com", "email_sender_authenticated": True},
+                True,
+            ),
+            (
+                "email_unauthenticated_customer_address",
+                "email",
+                {"email_from": "customer@example.com", "email_sender_authenticated": False},
+                False,
+            ),
+            (
+                "email_other_participant",
+                "email",
+                {"email_from": "colleague@example.com", "email_sender_authenticated": True},
+                False,
+            ),
+            ("slack_ticket_customer", "slack", {"slack_author_email": "Customer@example.com"}, True),
+            ("slack_other_thread_member", "slack", {"slack_author_email": "other@example.com"}, False),
+            ("teams_other_thread_member", "teams", {"teams_author_email": "other@example.com"}, False),
+            (
+                "widget_signed_customer",
+                "widget",
+                {"distinct_id": "customer@example.com", "distinct_id_verified": True},
+                True,
+            ),
+            ("widget_unsigned_customer_id", "widget", {"distinct_id": "customer@example.com"}, False),
+        ]
+    )
+    @patch("products.conversations.backend.events.capture_internal")
+    def test_message_received_verifies_email_only_for_the_ticket_customer(
+        self, _name, channel_source, item_context, expected, mock_capture
+    ):
+        self.ticket.channel_source = channel_source
+        self.ticket.identity_verified = True
+        self.ticket.distinct_id = "customer@example.com"
+        self.ticket.email_from = "customer@example.com"
+        self.ticket.anonymous_traits = {"email": "customer@example.com"}
+
+        capture_message_received(
+            self.ticket, "msg-id", "content", item_context={"author_type": "customer", **item_context}
+        )
+
+        assert mock_capture.call_args.kwargs["properties"]["customer_email_verified"] is expected
 
     @patch("products.conversations.backend.events.capture_internal")
     def test_capture_message_received_uses_team_token(self, mock_capture):
