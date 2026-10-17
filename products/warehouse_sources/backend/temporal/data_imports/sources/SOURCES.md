@@ -131,6 +131,7 @@ the row lists both.
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
 | axiom                            | HTTP                        | requests                                                        | ✅                          |
+| azure_api_management             | HTTP                        | requests                                                        | ✅                          |
 | azure_application_insights       | HTTP                        | requests                                                        | ✅                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
@@ -1040,7 +1041,6 @@ doesn't conflict with concurrent PRs.
 - aws_xray
 - azure_activity_log
 - azure_advisor
-- azure_api_management
 - azure_blob
 - azure_data_explorer
 - azure_data_factory
