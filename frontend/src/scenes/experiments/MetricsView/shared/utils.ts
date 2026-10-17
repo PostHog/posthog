@@ -21,7 +21,9 @@ import {
     isExperimentRatioMetric,
     isExperimentRetentionMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal } from '~/types'
+import { Experiment, ExperimentMetricGoal, ExperimentStatsMethod } from '~/types'
+
+import { getExperimentStatsLevel } from 'products/experiments/frontend/experimentStatsConfig'
 
 export type ExperimentVariantResult = ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian
 
@@ -210,8 +212,33 @@ export function getVariantInterval(result: ExperimentVariantResult): [number, nu
     return null
 }
 
+const INTERVAL_LABELS: Record<ExperimentStatsMethod, string> = {
+    [ExperimentStatsMethod.Bayesian]: 'Credible interval',
+    [ExperimentStatsMethod.Frequentist]: 'Confidence interval',
+}
+
+export function getResultStatsMethod(result: ExperimentVariantResult): ExperimentStatsMethod {
+    return isBayesianResult(result) ? ExperimentStatsMethod.Bayesian : ExperimentStatsMethod.Frequentist
+}
+
 export function getIntervalLabel(result: ExperimentVariantResult): string {
-    return isBayesianResult(result) ? 'Credible interval' : 'Confidence interval'
+    return INTERVAL_LABELS[getResultStatsMethod(result)]
+}
+
+/**
+ * The interval's name together with the level it was computed at, for a column header. A result
+ * carries the method it was computed with, so the title follows the result rather than the
+ * configured method, which can have moved on since the result was cached.
+ */
+export function getIntervalTitle(
+    experiment: Pick<Experiment, 'stats_config'>,
+    result?: ExperimentVariantResult
+): string {
+    const method = result
+        ? getResultStatsMethod(result)
+        : (experiment.stats_config?.method ?? ExperimentStatsMethod.Bayesian)
+
+    return `${INTERVAL_LABELS[method]} (${getExperimentStatsLevel(experiment, method)})`
 }
 
 export function getIntervalBounds(result: ExperimentVariantResult): [number, number] {

@@ -1,6 +1,12 @@
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal, ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
+import type { Experiment } from '~/types'
+import {
+    ExperimentMetricGoal,
+    ExperimentMetricMathType,
+    ExperimentStatsMethod,
+    FunnelConversionWindowTimeUnit,
+} from '~/types'
 
 import {
     type ExperimentVariantResult,
@@ -10,6 +16,7 @@ import {
     formatTickValue,
     getChanceToWin,
     getDefaultMetricTitle,
+    getIntervalTitle,
     getMetricColors,
     getMetricTag,
     isProportionMetric,
@@ -357,4 +364,42 @@ describe('formatMetricValue', () => {
     it('returns "—" when the value is not a number', () => {
         expect(formatMetricValue({ sum: 0, number_of_samples: 0 }, meanMetric())).toBe('—')
     })
+})
+
+describe('getIntervalTitle', () => {
+    const bayesianResult = { method: 'bayesian' } as ExperimentVariantResult
+    const frequentistResult = { method: 'frequentist' } as ExperimentVariantResult
+
+    it.each([
+        [
+            'the configured credible level',
+            { stats_config: { bayesian: { ci_level: 0.9 } } },
+            bayesianResult,
+            'Credible interval (90%)',
+        ],
+        ['the default credible level', {}, bayesianResult, 'Credible interval (95%)'],
+        [
+            'the configured confidence level',
+            { stats_config: { frequentist: { alpha: 0.1 } } },
+            frequentistResult,
+            'Confidence interval (90%)',
+        ],
+        ['the default confidence level', {}, frequentistResult, 'Confidence interval (95%)'],
+        [
+            'the configured method when no result has come back',
+            { stats_config: { method: ExperimentStatsMethod.Frequentist, frequentist: { alpha: 0.2 } } },
+            undefined,
+            'Confidence interval (80%)',
+        ],
+    ])(
+        'reports %s',
+        (
+            _description: string,
+            experiment: Pick<Experiment, 'stats_config'>,
+            result: ExperimentVariantResult | undefined,
+            expected: string
+        ) => {
+            expect(getIntervalTitle(experiment, result)).toBe(expected)
+        }
+    )
 })

@@ -498,6 +498,10 @@ def resolve_bayesian_settings(stats_config: dict | None) -> BayesianSettings:
     )
 
 
+def resolve_frequentist_alpha(stats_config: dict | None) -> float:
+    return _validate_numeric_range(_method_config(stats_config, "frequentist").get("alpha", 0.05), 0.0, 1.0, 0.05)
+
+
 def resolve_frequentist_settings(
     stats_config: dict | None,
     *,
@@ -511,7 +515,7 @@ def resolve_frequentist_settings(
         team_default_tuning_parameter=team_default_sequential_tuning_parameter,
     )
     return FrequentistSettings(
-        alpha=_validate_numeric_range(frequentist_config.get("alpha", 0.05), 0.0, 1.0, 0.05),
+        alpha=resolve_frequentist_alpha(stats_config),
         difference_type=_parse_enum_config(
             frequentist_config.get("difference_type", "RELATIVE"), DifferenceType, DifferenceType.RELATIVE
         ),
