@@ -477,10 +477,8 @@ class EventDefinitionViewSet(
             search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
 
         if exclude_stale:
-            # `last_seen_at` is not indexed: the predicate runs after the project-scoped
-            # pre-filter in `create_event_definitions_sql` has already narrowed the row
-            # set per tenant, and the response is paginated. Worth re-checking with
-            # EXPLAIN if the largest tenants start showing this in slow-query logs.
+            # `posthog_eventdef_proj_seen_idx` serves both arms of this predicate, so the page and the
+            # count read only the fresh and never-seen rows, not the whole project.
             search_query = (
                 search_query
                 + " AND (posthog_eventdefinition.last_seen_at IS NULL"
@@ -533,7 +531,7 @@ class EventDefinitionViewSet(
         requested_ordering = self._requested_ordering()
         order_expressions: list[tuple[str, Literal["ASC", "DESC"]]]
         if bounded and scale is not None and scale.orders_by_name and not requested_ordering:
-            # Nothing indexes `last_seen_at`, so the default recency order sorts every definition the
+            # No index serves the default `last_seen_at::date` order, so it sorts every definition the
             # project has for each page. Name order pages straight from the unique index instead.
             order_expressions = [("name", "ASC")]
         else:
