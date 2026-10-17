@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
 
 from products.data_modeling.backend.logic.incremental import IncrementalConfig
-from products.data_modeling.backend.logic.incremental_filter import find_key_expression
+from products.data_modeling.backend.logic.incremental_filter import bind_window_start, find_key_expression
 
 # Non-deterministic calls make a window irreproducible: two runs over the same window can disagree,
 # so a re-run silently rewrites rows. Warned rather than blocked, because a `now()` in a filter is
@@ -132,7 +132,7 @@ def check_incremental_eligibility(
     the key candidates are pickable names and a config naming an expanded column passes. Without it
     (or when the query does not resolve against it), the raw AST is checked as-is."""
     try:
-        node = parse_select(query)
+        node = bind_window_start(parse_select(query), None)
     except (ExposedHogQLError, ValueError) as err:
         return EligibilityResult(eligible=False, blockers=[f"This query could not be parsed: {err}"])
 

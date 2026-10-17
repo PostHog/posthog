@@ -26,6 +26,7 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.logic.incremental_filter import bind_window_start
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -539,7 +540,7 @@ def get_parents_from_model_query(
         model_query: The HogQL query string to parse.
         database: An optional prebuilt database to reuse for dependency resolution.
     """
-    hogql_query = parse_select(model_query)
+    hogql_query = bind_window_start(parse_select(model_query), None)
     context = HogQLContext(
         team_id=team.pk,
         team=team,

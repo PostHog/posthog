@@ -101,11 +101,16 @@ def execute_trino_shadow_materialization(
 
 
 def _compile(team: Team, query: HogQLQuery, incremental: TrinoIncrementalWrite | None) -> Any:
+    from products.data_modeling.backend.facade.api import (  # noqa: PLC0415 -- the facade loads lazily
+        WINDOW_START_PLACEHOLDER,
+        apply_incremental_filter,
+    )
+
+    # The compiler expands placeholders before select_transform runs, so the window start is bound as a value.
+    since = incremental.since if incremental is not None else None
+    query = query.model_copy(update={"values": {**(query.values or {}), WINDOW_START_PLACEHOLDER: since}})
     select_transform = None
     if incremental is not None:
-        from products.data_modeling.backend.facade.api import (  # noqa: PLC0415 -- the facade loads lazily
-            apply_incremental_filter,
-        )
 
         def select_transform(node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
             return apply_incremental_filter(node, incremental_key=incremental.incremental_key, since=incremental.since)
