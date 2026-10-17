@@ -841,6 +841,18 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         self.assertIn("Lifecycle insights require at least one series.", str(context.exception))
 
+    def test_lifecycle_query_rejects_date_from_after_date_to(self):
+        query = LifecycleQuery(
+            dateRange=DateRange(date_from="2020-01-19", date_to="2020-01-09"),
+            interval=IntervalType.DAY,
+            series=[EventsNode(event="$pageview")],
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            LifecycleQueryRunner(team=self.team, query=query).calculate()
+
+        self.assertEqual(context.exception.get_codes(), ["lifecycle_date_from_after_date_to"])
+
     def test_format_results_aligns_misaligned_status_series(self):
         # Regression: each lifecycle status is grouped independently in ClickHouse and groupArray does
         # not guarantee the per-status (date, count) arrays share length or order. The chart plots every
