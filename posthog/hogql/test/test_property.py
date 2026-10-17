@@ -2248,7 +2248,7 @@ class TestProperty(BaseTest):
     def test_every_negative_operator_is_known(self):
         # A negative operator missing from operator_is_negative silently negates per element on
         # array properties and loses its lowercase index hint, so the name pattern pins the set.
-        by_name = {op for op in PropertyOperator if op.value.startswith(("not_", "is_not"))}
+        by_name = {op for op in PropertyOperator if "not" in op.value.split("_")}
         assert {op for op in PropertyOperator if operator_is_negative(op)} == by_name
 
     def test_flag_evaluates_to_produces_neutral_expr(self):
@@ -2872,6 +2872,11 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ),
             ("event_is_not_set", {"type": "event", "key": "plan", "operator": "is_not_set"}, {"missing"}),
             (
+                "event_is_cleaned_path_not_exact",
+                {"type": "event", "key": "plan", "value": ["free"], "operator": "is_cleaned_path_not_exact"},
+                {"present_nonmatch", "missing"},
+            ),
+            (
                 "person_multi_value_not_icontains_personless",
                 {"type": "person", "key": "email", "value": ["@a.com", "@b.com"], "operator": "not_icontains"},
                 {"present_nonmatch", "present_match", "missing"},
@@ -2900,6 +2905,7 @@ class TestNegativeOperatorNullParityWithData(APIBaseTest):
             ("not_regex",),
             ("not_starts_with",),
             ("not_ends_with",),
+            ("is_cleaned_path_not_exact",),
         ]
     )
     def test_multi_value_negative_operator_drops_row_matching_any_value(self, operator: str):
