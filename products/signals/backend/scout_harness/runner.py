@@ -783,9 +783,10 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
 def _granted_write_scopes(config: SignalScoutConfig) -> list[str]:
     """The extra write scopes this scout's next run actually holds.
 
-    Read through `scout_scope_posture` rather than off the column, so the prompt, the run row, and
-    the analytics events can never name a scope the token drops — a grant made before the allowlist
-    narrowed stops reaching all four at once. A dry run (`emit=False`) holds no grant at all: dry
+    Four places must name the same scopes: the token, the prompt, the run row, and the analytics
+    events. The token gets its scopes from `scout_scope_posture`, so this function reads through it
+    too, not off the column. If the allowlist narrows after a person grants a scope, the posture
+    drops that scope, and all four places drop it together. A dry run (`emit=False`) holds no grant at all: dry
     run exists so a person can watch what a scout would do before it reaches the inbox, and a
     dry run that edits dashboards has already done the thing they wanted to preview.
     """
