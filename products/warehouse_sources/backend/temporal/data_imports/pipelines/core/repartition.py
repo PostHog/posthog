@@ -125,6 +125,12 @@ STOP_GRACE_SECONDS = 120.0
 
 TEMP_URI_SUFFIX = "__repartitioned"
 
+# Share of the budget an md5 bucket fills right after a repartition. A hash spreads new rows over every
+# bucket, so on a growing table every bucket grows, and buckets are a little uneven. A count sized to
+# fill the budget exactly puts the largest bucket back over budget within a day, and the whole table is
+# rewritten again when the cooldown ends. At 0.6 a table must grow by about two thirds first.
+MD5_BUCKET_FILL_FACTOR = 0.6
+
 
 class RepartitionUnpartitionableError(Exception):
     """The table has no column suitable for partitioning — repartition is skipped, not retried."""
@@ -648,6 +654,10 @@ def _datetime_tier_ceiling(schema: ExternalDataSchema) -> PartitionFormat:
     return DATETIME_FORMAT_TIERS[-1]
 
 
+def _md5_bucket_count(total_bytes: int, target_partition_bytes: int) -> int:
+    return max(1, math.ceil(total_bytes / (target_partition_bytes * MD5_BUCKET_FILL_FACTOR)))
+
+
 def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
@@ -656,8 +666,8 @@ def select_repartition_target(
     """Pick the next finer partition scheme, returning (target, reason).
 
     Computes the target directly from measured bytes so one repartition lands under budget rather
-    than stepping blindly: md5 grows the bucket count, numerical shrinks the row-size, datetime steps
-    one format tier finer. An unpartitioned table gets an auto target, which sizes its bucket count
+    than stepping blindly: md5 grows the bucket count with room for growth (see `MD5_BUCKET_FILL_FACTOR`),
+    numerical shrinks the row-size, datetime steps one format tier finer. An unpartitioned table gets an auto target, which sizes its bucket count
     the same way so md5 is reachable whatever its keys turn out to be. When no target is chosen the
     reason explains why (reported in metrics so a skipped table is diagnosable): `within_budget`,
     `datetime_at_finest_tier` (only when there is no primary key distinct from the partition key to
@@ -677,7 +687,7 @@ def select_repartition_target(
 
     if mode == "md5":
         current = schema.partition_count or len(partition_bytes) or 1
-        new_count = max(current + 1, math.ceil(total_bytes / target_partition_bytes))
+        new_count = max(current + 1, _md5_bucket_count(total_bytes, target_partition_bytes))
         return RepartitionTarget(
             partition_keys=keys, trigger_reason="", partition_mode="md5", partition_count=new_count
         ), "selected"
@@ -720,7 +730,7 @@ def select_repartition_target(
                 partition_keys=hash_keys,
                 trigger_reason="",
                 partition_mode="md5",
-                partition_count=max(1, math.ceil(total_bytes / target_partition_bytes)),
+                partition_count=_md5_bucket_count(total_bytes, target_partition_bytes),
             ), "selected"
         return RepartitionTarget(
             partition_keys=keys,
@@ -742,7 +752,7 @@ def select_repartition_target(
         partition_keys=keys,
         trigger_reason="",
         partition_mode=None,
-        partition_count=max(1, math.ceil(total_bytes / target_partition_bytes)),
+        partition_count=_md5_bucket_count(total_bytes, target_partition_bytes),
     ), "selected"
 
 
