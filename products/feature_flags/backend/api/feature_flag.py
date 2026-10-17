@@ -79,6 +79,7 @@ from posthog.models.person.point_in_time_properties import (
 )
 from posthog.models.property import Property
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
+from posthog.personhog_client.interceptor import is_transient_rpc_error
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -3028,7 +3029,16 @@ class FeatureFlagSerializer(
                     from posthog.models.group.util import get_groups_by_type_indices
 
                     group_names: dict[str, str] = {}
-                    for group in get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys):
+                    try:
+                        groups = get_groups_by_type_indices(instance.team_id, group_type_indices, group_keys)
+                    except Exception as exc:
+                        # The names are only for display, so a transient personhog error must not fail the response.
+                        if not is_transient_rpc_error(exc):
+                            raise
+                        logger.warning("Falling back to raw group keys for flag %s", instance.id, exc_info=True)
+                        groups = []
+                        group_names = {key: key for key in group_keys}
+                    for group in groups:
                         name = group.group_properties.get("name")
                         group_names[group.group_key] = str(name) if name else group.group_key
 

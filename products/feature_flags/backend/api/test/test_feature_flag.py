@@ -1,4 +1,5 @@
 import json
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
@@ -7275,7 +7276,17 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             ],
         )
 
-    def test_feature_flag_includes_group_key_names(self):
+    @parameterized.expand(
+        [
+            ("names_resolved", None, {"org-uuid-1": "Acme Corp", "org-uuid-2": "Widget Inc"}),
+            (
+                "personhog_reset_falls_back_to_keys",
+                grpc.StatusCode.UNAVAILABLE,
+                {"org-uuid-1": "org-uuid-1", "org-uuid-2": "org-uuid-2"},
+            ),
+        ]
+    )
+    def test_feature_flag_includes_group_key_names(self, _name, rpc_error_code, expected_names):
         create_group_type_mapping(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
@@ -7320,17 +7331,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/feature_flags/{response.json()['id']}/",
-        )
+        lookup_patch: Any = nullcontext()
+        if rpc_error_code is not None:
+            rpc_error = grpc.RpcError()
+            rpc_error.code = MagicMock(return_value=rpc_error_code)
+            lookup_patch = patch("posthog.models.group.util.get_groups_by_type_indices", side_effect=rpc_error)
+        with lookup_patch:
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        prop = response.json()["filters"]["groups"][0]["properties"][0]
+        prop = response.json()["results"][0]["filters"]["groups"][0]["properties"][0]
         self.assertEqual(prop["key"], "$group_key")
-        self.assertEqual(
-            prop["group_key_names"],
-            {"org-uuid-1": "Acme Corp", "org-uuid-2": "Widget Inc"},
-        )
+        self.assertEqual(prop["group_key_names"], expected_names)
 
     def test_create_feature_flag_in_specific_folder(self):
         response = self.client.post(
