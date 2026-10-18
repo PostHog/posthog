@@ -181,6 +181,11 @@ describe("contextDocument", () => {
       "flag",
     ],
     [
+      "a flag at the canonical path",
+      "https://us.posthog.com/project/1/feature-flags/8",
+      "flag",
+    ],
+    [
       "the same path on another host",
       "https://attacker.example/project/1/feature_flags/8",
       null,
