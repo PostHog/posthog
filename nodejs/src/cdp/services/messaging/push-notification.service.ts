@@ -352,7 +352,6 @@ export class PushNotificationService {
         let otherErrorCount = 0
         const errors: PushSendError[] = []
         let firstError: string | undefined
-        // Logged after the loop, because a skip is only worth a warning when no other channel delivered.
         const skipMessages: string[] = []
         // Which providers took delivery. Only its emptiness is read, to decide whether there is a
         // delivered notification worth capturing.
