@@ -169,7 +169,11 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 @activity.defn
 @asyncify
 def complete_signal_spend(run_id: str) -> None:
-    run = TaskRun.objects.only("team_id", "status").get(id=run_id)
+    run = TaskRun.objects.only("team_id", "status").filter(id=run_id).first()
+    if run is None:
+        # Team/org deletion cascades can hard-delete the row mid-run. A deleted run has no spend to record.
+        log_with_activity_context("Skipping signal spend for deleted task run", run_id=run_id)
+        return
     if run.status in _TERMINAL_STATUSES:
         complete_task_spend(team_id=run.team_id, run_id=run_id)
 
