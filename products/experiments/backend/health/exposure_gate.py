@@ -13,6 +13,7 @@ answer for them is safe to share. The changes of those experiments are reported 
 
 import json
 import hashlib
+from bisect import bisect_left
 from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -49,6 +50,7 @@ from products.experiments.backend.health.bucketing_changes import (
     bucketing_changes_from_activity,
     bucketing_net_effect,
     changes_that_apply,
+    conditions_follow_flag_aggregation,
 )
 from products.experiments.backend.health.context import (
     BucketingChange,
@@ -256,6 +258,10 @@ class _ExposureGate:
         return f"experiment_split_exposure:{experiment.team_id}:{experiment.id}:{digest}"
 
 
+class _ConditionAggregationMismatch(Exception):
+    """A release condition aggregates by person while the flag-level aggregation names a group type."""
+
+
 def _load_flag_history(
     experiment: Experiment, reader_access: ExperimentHealthReaderAccess
 ) -> FlagHistory | FlagHistoryNotChecked | None:
@@ -277,14 +283,26 @@ def _load_flag_history(
         )
 
     changes = _flag_changes_since(team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at)
+    flag = experiment.feature_flag
+    trust_flag_aggregation = conditions_follow_flag_aggregation(flag.aggregation_group_type_index, flag.conditions)
+    relies_on_flag_aggregation = any(
+        change.setting in (BucketingSetting.BUCKETING_IDENTIFIER, BucketingSetting.EXPERIENCE_CONTINUITY)
+        for change in changes.bucketing
+    )
+    if relies_on_flag_aggregation and not trust_flag_aggregation:
+        # The check then counts every identifier change, so it can report one that moved nobody.
+        capture_exception(
+            _ConditionAggregationMismatch(), {"team_id": experiment.team_id, "feature_flag_id": feature_flag_id}
+        )
     # A change the flag service does not read moved nobody, so it neither counts nor needs an exposure window.
     changes = replace(
         changes,
         bucketing=changes_that_apply(
             changes.bucketing,
             feature_flag_id=feature_flag_id,
-            aggregation=experiment.feature_flag.aggregation_group_type_index,
-            bucketing_identifier=experiment.feature_flag.bucketing_identifier,
+            aggregation=flag.aggregation_group_type_index,
+            bucketing_identifier=flag.bucketing_identifier,
+            trust_flag_aggregation=trust_flag_aggregation,
         ),
     )
     history = FlagHistory(
@@ -379,6 +397,9 @@ class _Timeline:
     def __init__(self, changes: _FlagChanges, *, current_key: str, current_split: Split) -> None:
         self._changes = changes
         self._key_changes = [change for change in changes.bucketing if change.setting == BucketingSetting.KEY]
+        # The changes come in time order, so a binary search finds the first change at or after a time.
+        self._key_times = [change.changed_at for change in self._key_changes]
+        self._split_times = [change.changed_at for change in changes.split]
         self._current_key = current_key
         self._current_split = current_split
 
@@ -392,11 +413,13 @@ class _Timeline:
         )
 
     def key_before(self, at: datetime) -> str:
-        key = next((change.before for change in self._key_changes if change.changed_at >= at), self._current_key)
+        index = bisect_left(self._key_times, at)
+        key = self._key_changes[index].before if index < len(self._key_changes) else self._current_key
         return key if isinstance(key, str) else self._current_key
 
     def split_before(self, at: datetime) -> Split:
-        return next((change.before for change in self._changes.split if change.changed_at >= at), self._current_split)
+        index = bisect_left(self._split_times, at)
+        return self._changes.split[index].before if index < len(self._changes.split) else self._current_split
 
     def points_within(self, *, start: datetime, end: datetime) -> list[datetime]:
         return [at for at in self._changes.times if start < at <= end]

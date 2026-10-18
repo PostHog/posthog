@@ -54,7 +54,9 @@ export interface experimentHealthDebugLogicValues {
     activeDomain: HealthDebugDomain
     experimentFacts: SetupFact[]
     exposureFacts: SetupFact[]
+    flagChanges: HealthDebugFlagChange[]
     flagFacts: SetupFact[]
+    flagHistoryFacts: SetupFact[]
     healthDebugChecks: HealthDebugCheck[]
     healthDebugRawData: Record<string, unknown>
     healthDebugSummary: SetupFact[]
@@ -64,8 +66,6 @@ export interface experimentHealthDebugLogicValues {
     healthInputsState: HealthInputsState
     metricFacts: SetupFact[]
     pageMetricCounts: PageMetricCounts
-    flagChanges: HealthDebugFlagChange[]
-    flagHistoryFacts: SetupFact[]
     releaseConditions: HealthDebugReleaseCondition[]
     trafficFacts: SetupFact[]
 }

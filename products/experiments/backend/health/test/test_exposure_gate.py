@@ -145,11 +145,7 @@ class TestLoadFlagHistory(BaseTest):
         first_at = self.launched_at + timedelta(days=1)
         changed_at = [first_at, first_at + timedelta(hours=1), first_at + timedelta(hours=2)]
         self._log_change(changed_at[0], filters=(_filters(_split(50, 50)), _filters(_split(55, 45))))
-        self._log_change(
-            changed_at[1],
-            bucketing_identifier=("distinct_id", "device_id"),
-            ensure_experience_continuity=(True, False),
-        )
+        self._log_change(changed_at[1], bucketing_identifier=("distinct_id", "device_id"))
         self._log_change(
             changed_at[2],
             filters=(
@@ -167,7 +163,6 @@ class TestLoadFlagHistory(BaseTest):
             [(change.changed_at, change.setting) for change in history.counted_bucketing_changes],
             [
                 (changed_at[1], BucketingSetting.BUCKETING_IDENTIFIER),
-                (changed_at[1], BucketingSetting.EXPERIENCE_CONTINUITY),
                 (changed_at[2], BucketingSetting.AGGREGATION),
             ],
         )

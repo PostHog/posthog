@@ -11,10 +11,12 @@ of them gives the people it touches a new draw, so they can get another variant.
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from enum import StrEnum
+from itertools import groupby
 
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.health.context import BucketingChange, BucketingSetting
+from products.feature_flags.backend.facade.filters import condition_aggregation
 
 
 class BucketingChangeShape(StrEnum):
@@ -67,40 +69,79 @@ def bucketing_changes_from_activity(
     return changes
 
 
+def conditions_follow_flag_aggregation(aggregation: object, conditions: Sequence[object]) -> bool:
+    """
+    Whether no release condition aggregates by person while the flag-level aggregation names a group type.
+    `changes_that_apply` relies on this, because it reads only the flag-level aggregation of each save. The flag
+    serializer keeps it true: it sets the flag-level aggregation to null when the conditions mix aggregations.
+    """
+    flag_aggregation = _group_type_index(aggregation)
+    return flag_aggregation is None or all(
+        condition_aggregation(condition, flag_aggregation) is not None
+        for condition in conditions
+        if isinstance(condition, dict)
+    )
+
+
 def changes_that_apply(
-    changes: Sequence[BucketingChange], *, feature_flag_id: int, aggregation: object, bucketing_identifier: object
+    changes: Sequence[BucketingChange],
+    *,
+    feature_flag_id: int,
+    aggregation: object,
+    bucketing_identifier: object,
+    trust_flag_aggregation: bool,
 ) -> tuple[BucketingChange, ...]:
     """
-    The changes that the flag service reads, judged by the flag's settings right after each save. It hashes the
-    group key for a flag that aggregates by a group type, so the bucketing identifier and persistence don't apply
-    there. It hashes the device ID before it reads persistence, so persistence doesn't apply under device ID
-    bucketing either. `aggregation` and `bucketing_identifier` are the flag's current values.
+    The changes as the flag service reads them, save by save. It hashes the group key for a flag that aggregates by
+    a group type, so it does not read the bucketing identifier and persistence there. It hashes the device ID before
+    it reads persistence, so it does not read persistence under device ID bucketing either.
+
+    A setting that changes while the flag service does not read it moves nobody at that save. The new value takes
+    effect at the save after which the flag service reads the setting again, so the change counts there, from the
+    value that the flag service read last.
+
+    `aggregation` and `bucketing_identifier` are the flag's current values. When `trust_flag_aggregation` is false,
+    a release condition can aggregate by person under any flag-level aggregation, so the flag-level aggregation does
+    not stop the flag service from reading the identifier.
     """
-    current = {
+    state: dict[BucketingSetting, str | int | bool | None] = {
         BucketingSetting.AGGREGATION: _normalized(BucketingSetting.AGGREGATION, aggregation, feature_flag_id),
         BucketingSetting.BUCKETING_IDENTIFIER: _normalized(
             BucketingSetting.BUCKETING_IDENTIFIER, bucketing_identifier, feature_flag_id
         ),
     }
+    # Each setting holds the `before` of its first change until that change, and its current value without one.
+    for change in reversed(changes):
+        state[change.setting] = change.before
 
-    def value_after(setting: BucketingSetting, change: BucketingChange) -> str | int | bool | None:
-        # A setting keeps its value until its next change, whose `before` is that value.
-        later = (other for other in changes if other.setting == setting and other.changed_at > change.changed_at)
-        return next((other.before for other in later), current[setting])
-
-    def applies(change: BucketingChange) -> bool:
-        match change.setting:
+    def reads(setting: BucketingSetting) -> bool:
+        by_person = state[BucketingSetting.AGGREGATION] is None or not trust_flag_aggregation
+        match setting:
             case BucketingSetting.BUCKETING_IDENTIFIER:
-                return value_after(BucketingSetting.AGGREGATION, change) is None
+                return by_person
             case BucketingSetting.EXPERIENCE_CONTINUITY:
-                return (
-                    value_after(BucketingSetting.AGGREGATION, change) is None
-                    and value_after(BucketingSetting.BUCKETING_IDENTIFIER, change) == "distinct_id"
-                )
+                return by_person and state[BucketingSetting.BUCKETING_IDENTIFIER] == "distinct_id"
             case _:
                 return True
 
-    return tuple(change for change in changes if applies(change))
+    last_read = {setting: value for setting, value in state.items() if reads(setting)}
+    applied = []
+    for changed_at, saved in groupby(changes, key=lambda change: change.changed_at):
+        for change in saved:
+            state[change.setting] = change.after
+        for setting in BucketingSetting:
+            if setting not in state or not reads(setting):
+                continue
+            # A setting that the flag service never read before has no earlier value to count from. The change
+            # that made the flag service read it, such as an aggregation change, counts instead.
+            if setting in last_read and last_read[setting] != state[setting]:
+                applied.append(
+                    BucketingChange(
+                        changed_at=changed_at, setting=setting, before=last_read[setting], after=state[setting]
+                    )
+                )
+            last_read[setting] = state[setting]
+    return tuple(applied)
 
 
 def bucketing_net_effect(changes: Sequence[BucketingChange]) -> BucketingNetEffect | None:
@@ -157,8 +198,12 @@ def _normalized(setting: BucketingSetting, value: object, feature_flag_id: int) 
             tombstone = f":deleted:{feature_flag_id}"
             return value.removesuffix(tombstone)
         case BucketingSetting.AGGREGATION:
-            return value if isinstance(value, int) and not isinstance(value, bool) else None
+            return _group_type_index(value)
         case BucketingSetting.BUCKETING_IDENTIFIER:
             return "device_id" if value == "device_id" else "distinct_id"
         case BucketingSetting.EXPERIENCE_CONTINUITY:
             return value is True
+
+
+def _group_type_index(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
