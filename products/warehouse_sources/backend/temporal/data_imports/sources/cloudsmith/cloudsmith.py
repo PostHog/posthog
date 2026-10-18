@@ -278,10 +278,13 @@ def _chained_resource(
     )
 
 
-def _make_source_response(config: CloudsmithEndpointConfig, items_fn: Callable[[], Any]) -> SourceResponse:
+def _make_source_response(
+    config: CloudsmithEndpointConfig, items_fn: Callable[[], Any], supports_resume: bool = True
+) -> SourceResponse:
     return SourceResponse(
         name=config.name,
         items=items_fn,
+        supports_resume=supports_resume,
         primary_keys=config.primary_key if isinstance(config.primary_key, list) else [config.primary_key],
         sort_mode=config.sort_mode,
         partition_count=1,
@@ -320,8 +323,9 @@ def cloudsmith_source(
             resumable_source_manager.save_state(CloudsmithResumeConfig(paginator_state=dict(state)))
 
     if endpoint_config.chained_fanout is not None:
+        # A two-level chain saves no checkpoint, so a shutdown cannot hand it off mid-walk.
         chained_items = _chained_resource(endpoint_config, api_key, workspace, team_id, job_id)
-        return _make_source_response(endpoint_config, lambda: chained_items)
+        return _make_source_response(endpoint_config, lambda: chained_items, supports_resume=False)
 
     if endpoint_config.fanout is not None:
         parent_config = CLOUDSMITH_ENDPOINTS[endpoint_config.fanout.parent_name]

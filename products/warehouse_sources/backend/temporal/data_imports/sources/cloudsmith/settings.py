@@ -38,7 +38,7 @@ class CloudsmithChainedFanoutConfig:
     parent_field_renames: dict[str, str]
 
 
-@dataclass
+@dataclass(frozen=True)
 class CloudsmithEndpointConfig:
     name: str
     path: str
