@@ -6,7 +6,7 @@ that dict. The recipe holds what a daily retrain keeps fixed: the learner, the f
 learner's settings, each head's label definition and horizon, the example window and budget, and
 the dataset version. It never holds dates, the `run_id`, row counts or metrics.
 
-The promotion gate compares a candidate only to the champion of its own `model_name`, so two
+The promotion gate grades a candidate only against the served model of its own `model_name`, so two
 recipes under one name would be compared as if they were one series. The candidate asset refuses
 that: it compares its hash with the newest version of the same name, at or before its partition,
 that has one, and fails before it writes the partition when they differ. The fix is a new `model_name`, not an override.
