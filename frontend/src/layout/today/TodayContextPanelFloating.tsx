@@ -15,15 +15,16 @@ import {
 
 import { SidePanelTab } from '~/types'
 
-import { TodayAiLauncher } from './TodayAiLauncher'
 import { TodayContextPanelCard } from './TodayContextPanelCard'
 import { TODAY_CONTEXT_PANEL_DOCK_EDGE, todayContextPanelLogic } from './todayContextPanelLogic'
 
 /** Presses on these inside the header act on them instead of moving the panel. */
 const NOT_A_DRAG_HANDLE = 'button, a, input, [role="menuitem"]'
 
+const LAUNCHER_LABEL = 'Ask PostHog AI'
+
 export function TodayContextPanelFloating(): JSX.Element {
-    const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint, panelTabs, aiLauncher } =
+    const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint, panelTabs, aiIsland } =
         useValues(todayContextPanelLogic)
     const { setFloatingOpen, setFloatingTab, setFloatingOffset, setDockHint, dock } = useActions(todayContextPanelLogic)
     const cardRef = useRef<HTMLDivElement>(null)
@@ -97,19 +98,26 @@ export function TodayContextPanelFloating(): JSX.Element {
                     data-quill
                     className="TodayContextPanelButton pointer-events-none absolute inset-x-0 bottom-4 z-[var(--z-main-nav)] flex justify-center"
                     data-hidden={launcherHidden || undefined}
+                    data-island={aiIsland || undefined}
                     {...(launcherHidden ? { inert: '' } : {})}
                 >
-                    {aiLauncher ? (
-                        <PopoverTrigger
-                            aria-label="Ask PostHog AI"
-                            className="TodayAiLauncherButton pointer-events-auto"
-                            data-attr="today-ai-chat-button"
-                        >
-                            <TodayAiLauncher variant={aiLauncher} />
-                        </PopoverTrigger>
-                    ) : (
-                        // The outline button is see-through, so an opaque pill sits behind it over the page.
-                        <span className="pointer-events-auto rounded-full bg-background shadow-md">
+                    {/* The outline button is see-through, so an opaque pill sits behind it over the page. */}
+                    <span className="pointer-events-auto rounded-full bg-background shadow-md">
+                        {aiIsland ? (
+                            <PopoverTrigger
+                                render={
+                                    <Button
+                                        variant="outline"
+                                        size="lg"
+                                        className="rounded-full px-3.5"
+                                        data-attr="today-ai-chat-button"
+                                    />
+                                }
+                            >
+                                <IconSparkles />
+                                {LAUNCHER_LABEL}
+                            </PopoverTrigger>
+                        ) : (
                             <Tooltip>
                                 <TooltipTrigger
                                     delay={0}
@@ -131,21 +139,20 @@ export function TodayContextPanelFloating(): JSX.Element {
                                 </TooltipTrigger>
                                 <TooltipContent side="top">Ask PostHog AI</TooltipContent>
                             </Tooltip>
-                        </span>
-                    )}
+                        )}
+                    </span>
                 </div>
                 <PopoverContent
                     side="top"
-                    sideOffset={aiLauncher ? ({ anchor }) => -anchor.height : 8}
+                    sideOffset={aiIsland ? ({ anchor }) => -anchor.height : 8}
                     initialFocus={() =>
                         cardRef.current?.querySelector<HTMLElement>('textarea, [contenteditable="true"]') ?? true
                     }
                     className={cn(
                         'w-auto gap-0 border-0 bg-transparent p-0 shadow-none',
-                        aiLauncher && 'TodayContextPanelMorph'
+                        aiIsland && 'TodayContextPanelMorph'
                     )}
                     data-docked={docked || undefined}
-                    data-launcher={aiLauncher ?? undefined}
                     // The drag offset changes on every pointer move, which a class can't express.
                     // eslint-disable-next-line react/forbid-dom-props
                     style={
@@ -162,11 +169,12 @@ export function TodayContextPanelFloating(): JSX.Element {
                         docked={false}
                         tab={floatingActiveTab}
                         onDragStart={startDrag}
-                        className={cn('h-[min(40rem,calc(100vh-10rem))] w-85', !aiLauncher && 'shadow-lg')}
+                        className={cn('h-[min(40rem,calc(100vh-10rem))] w-85', !aiIsland && 'shadow-lg')}
                     />
-                    {aiLauncher && (
+                    {aiIsland && (
                         <span aria-hidden className="TodayContextPanelMorph__face">
-                            <TodayAiLauncher variant={aiLauncher} />
+                            <IconSparkles />
+                            {LAUNCHER_LABEL}
                         </span>
                     )}
                 </PopoverContent>
