@@ -92,3 +92,54 @@ class TestTraceInputs(TestCase):
         self.assertEqual(len(result.observations), 1)
         self.assertEqual(result.observations[0].arguments, {"limit": 2})
         self.assertEqual(result.observations[0].text, "observed")
+
+    def test_rejected_read_with_malformed_arguments_does_not_stop_extraction(self) -> None:
+        def call(index: int, command: str, status: str) -> list[dict]:
+            return [
+                {
+                    "timestamp": "2030-01-01T00:00:00Z",
+                    "notification": {
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "tool_call",
+                                "toolCallId": str(index),
+                                "rawInput": {"command": command},
+                            }
+                        }
+                    },
+                },
+                {
+                    "notification": {
+                        "params": {
+                            "update": {
+                                "sessionUpdate": "tool_call_update",
+                                "toolCallId": str(index),
+                                "status": status,
+                                "rawOutput": {"content": [{"type": "text", "text": f"result {index}"}]},
+                            }
+                        }
+                    }
+                },
+            ]
+
+        with TemporaryDirectory() as temporary:
+            path = Path(temporary)
+            (path / "logs").mkdir()
+            events = [
+                *call(1, 'call notes-list {"limit": 2}', "completed"),
+                *call(2, 'call notes-list {"limit": ', "failed"),
+                *call(3, 'call notes-list {"limit": 3}', "completed"),
+            ]
+            (path / "logs/000000.json").write_text(json.dumps(events))
+            (path / "log-pages.json").write_text(
+                json.dumps(
+                    {
+                        "total_events": len(events),
+                        "pages": [{"path": "logs/000000.json", "first_event_index": 0, "returned": len(events)}],
+                    }
+                )
+            )
+            result = load_trace_inputs(path, read_tools={"notes-list"})
+
+        self.assertIsNone(result.first_write_index)
+        self.assertEqual([observation.arguments for observation in result.observations], [{"limit": 2}, {"limit": 3}])

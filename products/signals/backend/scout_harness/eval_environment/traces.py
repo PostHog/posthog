@@ -105,7 +105,12 @@ def _classify(call: _ToolCall, read_tools: Collection[str]) -> _Read | Literal["
         tool, payload = match.groups()
         if tool not in read_tools:
             return "write"
-        return _Read(tool=tool, arguments=_object(json.loads(payload or "{}")))
+        try:
+            arguments = json.loads(payload or "{}")
+        except json.JSONDecodeError:
+            # Exec rejects invalid JSON before it calls the tool, so the call neither reads nor writes.
+            return "discovery"
+        return _Read(tool=tool, arguments=_object(arguments))
     if isinstance(title, str) and title.startswith("/bin/bash "):
         # Keep only literal cat reads of installed skill files, never shell output generally.
         words = shlex.split(title)
