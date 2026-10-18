@@ -265,6 +265,32 @@ class TestRecordedScoutPrompt(TestCase):
         assert document.recorded_prompt == original
         assert document.prompt_transformations[0].reason not in rendered
 
+    @parameterized.expand(
+        [("no_steering", "", False), ("blank_steering", "  ", False), ("added_steering", "Current steering.", True)]
+    )
+    def test_recorded_prompt_without_steering_block(self, _name: str, run_note: str, appended: bool) -> None:
+        identity = "- **team_id**: `2`\n- **run_id**: `source-run`\n- **started_at**: `2030-01-01T00:00:00Z`"
+        document = RecordedScoutPrompt(
+            team_id=7,
+            config_id=uuid4(),
+            skill_name="example-scout",
+            skill_version=1,
+            allowed_tools=[],
+            recorded_prompt=identity,
+            harness_prompt_version="example-version",
+            frozen_inputs={},
+            frozen_manifest="/private/frozen.json",
+        )
+
+        rendered = document.render(run_id="local-run", started_at=datetime(2030, 1, 3, tzinfo=UTC), run_note=run_note)
+
+        assert rendered.startswith(
+            "- **team_id**: `7`\n- **run_id**: `local-run`\n- **started_at**: `2030-01-03T00:00:00+00:00`"
+        )
+        assert rendered.count("<run_note>") == int(appended)
+        if appended:
+            assert f"<run_note>\n{run_note}\n</run_note>" in rendered
+
     @parameterized.expand([("legacy", False), ("declared", True)])
     def test_prompt_time_replacements_preserve_declared_boundaries_and_legacy_replays(
         self, _name: str, declared: bool

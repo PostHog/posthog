@@ -15,6 +15,7 @@ from products.posthog_ai.eval_harness.environment.storage import require_private
 from products.posthog_ai.eval_harness.environment.transform import EnvironmentTransform
 from products.signals.backend.scout_harness.eval_environment.schema import ScoutPromptTransformation
 from products.signals.backend.scout_harness.eval_environment.trials import FrozenEnvironment
+from products.signals.backend.scout_harness.prompt import _run_note_section
 
 
 class RecordedScoutPrompt(EnvironmentModel):
@@ -68,8 +69,11 @@ class RecordedScoutPrompt(EnvironmentModel):
         prompt, count = re.subn(
             r"<run_note>\n[\s\S]*?\n</run_note>", lambda _: "<run_note>\n" + run_note + "\n</run_note>", prompt
         )
-        if count != 1:
-            raise ValueError("Recorded prompt must contain exactly one one-time steering block.")
+        if count > 1:
+            raise ValueError("Recorded prompt must contain at most one one-time steering block.")
+        if count == 0 and (section := _run_note_section(run_note)):
+            # A run without a note records no block, and the live harness renders the note section last.
+            prompt += "\n\n" + section
         return prompt
 
 
