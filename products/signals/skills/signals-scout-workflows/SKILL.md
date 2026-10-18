@@ -68,6 +68,8 @@ Never suggest against a workflow that is not on this list — the API refuses it
 ### Read the numbers
 
 Per workflow, `workflows-version-stats` with `version=<the workflow's current version>`, `breakdown_by=name`, and `instance_id` set to the email step you are reading.
+Set `after` and `before` to the UTC start and end of the closed days you read, such as `after=2026-10-08T00:00:00Z` and `before=2026-10-15T00:00:00Z`, and sum the days from `after` up to the day before `before`.
+A relative `after=-7d` starts at this hour seven days ago in the project's timezone, so its first day is partial and your numbers will not match the window you file.
 `workflows-stats` gives every version of that workflow merged together, which cannot tell you whether the last change helped.
 The metrics that matter:
 
