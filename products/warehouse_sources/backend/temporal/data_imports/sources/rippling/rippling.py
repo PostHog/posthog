@@ -139,6 +139,9 @@ def rippling_source(
         # Auth (Bearer) via the framework config so the token is redacted from logs/errors.
         "auth": {"type": "bearer", "token": api_token},
         "paginator": RipplingNextLinkPaginator(),
+        # Pin every request (fan-out child paths included) to the base host so a hostile
+        # run id or link can't replay the bearer token elsewhere. `[]` means base_url's host only.
+        "allowed_hosts": [],
     }
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
