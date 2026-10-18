@@ -18,8 +18,8 @@ from typing import Optional, TypeVar, cast
 
 import structlog
 from temporalio import activity, workflow
-from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
 
 with workflow.unsafe.imports_passed_through():
     import asyncio as _asyncio
@@ -38,8 +38,10 @@ with workflow.unsafe.imports_passed_through():
     from products.autoresearch.backend.inference.failures import (
         INFERENCE_WORKFLOW_TIMEOUT,
         UNSCORABLE_AFTER_FAILED_DAYS,
+        fail_lost_scheduled_runs,
         fail_stale_inference_runs,
         find_unscorable_champion,
+        scheduled_run_can_retry,
     )
     from products.autoresearch.backend.inference.person_property import remove_output_person_property
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
@@ -628,6 +630,8 @@ class CoordinatorWorkflowInput:
     run_date: Optional[str] = None
     # Read from the input, so an operator can change it on the schedule without a deploy.
     max_concurrency: int = DEFAULT_COORDINATOR_CONCURRENCY
+    # Set by the catch-up schedule: score again only the pipelines whose scheduled run of the day was lost.
+    catch_up: bool = False
 
 
 @frozen
@@ -639,7 +643,8 @@ class CoordinatorWorkflowResult:
 
 @frozen
 class LoadActivePipelinesInput:
-    pass
+    # Set in catch-up mode. Discovery then lists only the due pipelines whose scheduled run of this date can retry.
+    catch_up_date: Optional[str] = None
 
 
 @frozen
@@ -671,12 +676,13 @@ class PipelineRunOutcome:
 def evaluate_pipeline_outcome(
     pipeline_id: str,
     inference: InferenceWorkflowResult | BaseException | None,
-    validation: ValidationWorkflowResult | BaseException,
+    validation: ValidationWorkflowResult | BaseException | None,
     kickoff: KickoffTrainingResult | BaseException | None,
 ) -> PipelineRunOutcome:
     """Classify one pipeline's step results, treating soft-failed activity results as failures too.
 
-    ``None`` is a step the sweep did not start, because the pipeline was not due for scoring.
+    ``None`` is a step the sweep did not start, because the pipeline was not due for scoring, or
+    because a catch-up sweep only scores.
     """
     errors: list[str] = []
 
@@ -687,7 +693,9 @@ def evaluate_pipeline_outcome(
     elif inference.status == "failed":
         errors.append(f"inference: {inference.error or 'failed'}")
 
-    if isinstance(validation, BaseException):
+    if validation is None:
+        pass
+    elif isinstance(validation, BaseException):
         errors.append(f"validation: {validation}")
     elif validation.status == "failed":
         errors.append(f"validation: {validation.error or 'failed'}")
@@ -735,6 +743,10 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
 
     The result lists the pipelines that are due and did not score yesterday first, so a bounded
     sweep starts the pipelines that missed a day before the others.
+
+    With ``catch_up_date`` it lists only the due pipelines whose latest scheduled run of that date
+    failed with a kind a retry can pass (``scheduled_run_can_retry()``). A pipeline that the daily
+    sweep has not reached yet has no run for the date, so the catch-up does not score it twice.
     """
     fail_stale_inference_runs()
     today = django_timezone.now().date()
@@ -765,6 +777,13 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         # elapsed-time comparison would skip the next day's tick.
         last_scored = pipeline.last_scored_at.date() if pipeline.last_scored_at else None
         score_due = last_scored is None or (today - last_scored).days >= pipeline.cadence_days
+        if inp.catch_up_date is not None and not (
+            score_due
+            and scheduled_run_can_retry(
+                team_id=pipeline.team_id, pipeline_id=str(pipeline.pk), prediction_date=inp.catch_up_date
+            )
+        ):
+            continue
         missed_yesterday = score_due and (last_scored is None or last_scored < yesterday)
         pipelines.append(
             (
@@ -878,6 +897,21 @@ def activity_kickoff_training(inp: KickoffTrainingInput) -> KickoffTrainingResul
     return KickoffTrainingResult(kicked_off=True, reason=kickoff_reason.value)
 
 
+@frozen
+class FailLostInferenceRunsInput:
+    pipeline_id: str
+    team_id: int
+    prediction_date: str
+
+
+@activity.defn(name="autoresearch-coordinator.fail_lost_inference_runs")
+def activity_fail_lost_inference_runs(inp: FailLostInferenceRunsInput) -> int:
+    """Fail the scheduled runs that an inference workflow left RUNNING when it ended in an exception."""
+    return fail_lost_scheduled_runs(
+        team_id=inp.team_id, pipeline_id=inp.pipeline_id, prediction_date=inp.prediction_date
+    )
+
+
 def _sweep_access_block(pipeline: AutoresearchPipeline) -> str | None:
     """Why the sweep may no longer act on this pipeline, or None.
 
@@ -916,6 +950,8 @@ def _tasks_gate(pipeline: AutoresearchPipeline) -> str | None:
 
 # Histories that started before this marker replay the unbounded sweep.
 _BOUNDED_SWEEP_PATCH = "autoresearch-bounded-sweep-2026-10"
+# Histories that started before this marker do not close the runs of a failed inference child.
+_CLOSE_LOST_RUNS_PATCH = "autoresearch-close-lost-runs-2026-10"
 
 
 @workflow.defn(name="autoresearch-coordinator")
@@ -936,6 +972,10 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
     training, then validates. Once every champion has scored, the coordinator scores each
     pipeline's shadow set (``activity_run_shadow_scoring``) under the same bound.
 
+    When an inference child ends in an exception, the coordinator fails the runs it left RUNNING.
+    A catch-up sweep (``catch_up``) scores again only the pipelines whose scheduled run of the day
+    was lost, and skips training kickoff and validation, because the daily sweep already ran them.
+
     Per-pipeline failures — raised exceptions and
     activity results that report a soft failure — are logged and counted in
     pipelines_errored, but do not prevent other pipelines from running.
@@ -951,7 +991,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
 
         active = await workflow.execute_activity(
             activity_load_active_pipelines,
-            LoadActivePipelinesInput(),
+            LoadActivePipelinesInput(catch_up_date=run_date if inp.catch_up else None),
             start_to_close_timeout=timedelta(minutes=2),
             retry_policy=_COORDINATOR_RETRY,
         )
@@ -962,7 +1002,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
 
         outcomes: list[PipelineRunOutcome | BaseException]
         if workflow.patched(_BOUNDED_SWEEP_PATCH):
-            outcomes = await self._run_bounded(active.pipelines, run_date, max(1, inp.max_concurrency))
+            outcomes = await self._run_bounded(active.pipelines, run_date, max(1, inp.max_concurrency), inp.catch_up)
         else:
             outcomes = await _asyncio.gather(
                 *[self._run_pipeline(pipeline, run_date) for pipeline in active.pipelines],
@@ -984,7 +1024,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
         )
 
     async def _run_bounded(
-        self, pipelines: list[ActivePipeline], run_date: str, concurrency: int
+        self, pipelines: list[ActivePipeline], run_date: str, concurrency: int, catch_up: bool
     ) -> list[PipelineRunOutcome | BaseException]:
         """Run every pipeline with at most ``concurrency`` in flight, then every shadow set under the same bound."""
         slots = _asyncio.Semaphore(concurrency)
@@ -994,7 +1034,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
                 return await step()
 
         sweeps = await _asyncio.gather(
-            *[bounded(partial(self._run_pipeline_in_sequence, p, run_date, concurrency)) for p in pipelines],
+            *[bounded(partial(self._run_pipeline_in_sequence, p, run_date, concurrency, catch_up)) for p in pipelines],
             return_exceptions=True,
         )
         # Shadow scoring starts only after every champion has finished, so champions free their memory first.
@@ -1019,11 +1059,15 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
         return [sweep if isinstance(sweep, BaseException) else sweep.outcome for sweep in sweeps]
 
     async def _run_pipeline_in_sequence(
-        self, pipeline: ActivePipeline, run_date: str, concurrency: int
+        self, pipeline: ActivePipeline, run_date: str, concurrency: int, catch_up: bool
     ) -> _PipelineSweep:
-        """On a cadence day score, then kick off training. Then validate. One step at a time, so a pipeline holds one slot."""
+        """On a cadence day score, then kick off training. Then validate. One step at a time, so a pipeline holds one slot.
+
+        A catch-up sweep only scores.
+        """
         pipeline_id = pipeline.pipeline_id
         inference_result: InferenceWorkflowResult | BaseException | None = None
+        validation_result: ValidationWorkflowResult | BaseException | None = None
         kickoff_result: KickoffTrainingResult | BaseException | None = None
         if pipeline.score_due:
             inference_result = await _settle(
@@ -1038,10 +1082,21 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
                     ),
                     id=inference_workflow_id(pipeline_id, run_date),
                     execution_timeout=INFERENCE_WORKFLOW_TIMEOUT,
+                    # A catch-up starts only after the daily sweep's child for the date failed or timed out.
+                    id_reuse_policy=(
+                        WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
+                        if catch_up
+                        else WorkflowIDReusePolicy.ALLOW_DUPLICATE
+                    ),
                 )
             )
-            kickoff_result = await _settle(self._kickoff(pipeline))
-        validation_result = await _settle(self._validate(pipeline, run_date))
+            # A child that failed to start (it is already running) is not a ChildWorkflowError, so its runs stay open.
+            if isinstance(inference_result, ChildWorkflowError) and workflow.patched(_CLOSE_LOST_RUNS_PATCH):
+                await _settle(self._fail_lost_runs(pipeline, run_date))
+            if not catch_up:
+                kickoff_result = await _settle(self._kickoff(pipeline))
+        if not catch_up:
+            validation_result = await _settle(self._validate(pipeline, run_date))
         outcome = self._evaluate(pipeline_id, inference_result, validation_result, kickoff_result)
         return _PipelineSweep(
             outcome=outcome,
@@ -1055,6 +1110,16 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             start_to_close_timeout=_SHADOW_ATTEMPT_TIMEOUT,
             heartbeat_timeout=_HEARTBEAT_TIMEOUT,
             retry_policy=_SHADOW_RETRY,
+        )
+
+    def _fail_lost_runs(self, pipeline: ActivePipeline, run_date: str) -> Awaitable[int]:
+        return workflow.execute_activity(
+            activity_fail_lost_inference_runs,
+            FailLostInferenceRunsInput(
+                pipeline_id=pipeline.pipeline_id, team_id=pipeline.team_id, prediction_date=run_date
+            ),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=5),
         )
 
     def _validate(self, pipeline: ActivePipeline, run_date: str) -> Awaitable[ValidationWorkflowResult]:
@@ -1077,7 +1142,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
         self,
         pipeline_id: str,
         inference: InferenceWorkflowResult | BaseException | None,
-        validation: ValidationWorkflowResult | BaseException,
+        validation: ValidationWorkflowResult | BaseException | None,
         kickoff: KickoffTrainingResult | BaseException | None,
     ) -> PipelineRunOutcome:
         outcome = evaluate_pipeline_outcome(

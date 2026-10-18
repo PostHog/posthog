@@ -7,7 +7,8 @@ Scoring, validation and training live in `../inference/`, `../evaluation/`, and 
 ## What lives here
 
 - `workflows.py`
-  - `AutoresearchCoordinatorWorkflow` (`autoresearch-coordinator`) — the daily tick. Loads active pipelines (`activity_load_active_pipelines`) and runs inference, training kickoff, and validation per pipeline, with at most `CoordinatorWorkflowInput.max_concurrency` pipelines in flight (`DEFAULT_COORDINATOR_CONCURRENCY`, 4). After every champion has scored, it runs `activity_run_shadow_scoring` per completed champion run, under the same bound.
+  - `AutoresearchCoordinatorWorkflow` (`autoresearch-coordinator`) — the daily tick. Loads active pipelines (`activity_load_active_pipelines`) and runs inference, training kickoff, and validation per pipeline, with at most `CoordinatorWorkflowInput.max_concurrency` pipelines in flight (`DEFAULT_COORDINATOR_CONCURRENCY`, 4). After every champion has scored, it runs `activity_run_shadow_scoring` per completed champion run, under the same bound. With `CoordinatorWorkflowInput.catch_up` it runs a catch-up sweep, which scores only.
+  - `activity_fail_lost_inference_runs` — fails the scheduled runs of one pipeline and date that are still `running` (`fail_lost_scheduled_runs()` in `../inference/failures.py`). The coordinator starts it when an inference child ends in a `ChildWorkflowError`, which covers a failed last attempt and the workflow timeout. A child that did not start (its id is already running) does not trigger it, so a live run stays open.
   - `AutoresearchInferenceWorkflow` (`autoresearch-inference`) — `activity_run_inference` for one pipeline. The activity reads the current champion itself, so a retry after a mid-scoring promotion scores with the new one. The sweep sets `defer_shadows`, so the activity scores the champion only.
   - `activity_run_shadow_scoring` — scores the shadow set against the people a champion's completed run scored (`score_shadow_set_for_run()` in `../inference/scoring.py`). It takes only the run id. It has one attempt, because a retry would open a second shadow run per model, and its failure never fails the champion's run or counts as a pipeline error.
   - `AutoresearchValidationWorkflow` (`autoresearch-validation`) — `activity_run_validation` for one pipeline.
@@ -17,7 +18,8 @@ Scoring, validation and training live in `../inference/`, `../evaluation/`, and 
   Each workflow has a typed input/result dataclass pair (`InferenceWorkflowInput` / `InferenceWorkflowResult`, and so on). Activities are named with a `autoresearch-<workflow>.<activity>` convention.
 
 - `schedule.py`
-  `create_autoresearch_daily_schedule()` registers schedule `autoresearch-daily-coordinator` driving workflow id `autoresearch-coordinator`.
+  `create_autoresearch_daily_schedule()` registers schedule `autoresearch-daily-coordinator` driving workflow id `autoresearch-coordinator` at 02:00 UTC, and schedule `autoresearch-catch-up-coordinator` driving workflow id `autoresearch-coordinator-catch-up` at 06:00 UTC with `catch_up=True`.
+  The catch-up has its own workflow id, so it can run while the daily sweep still works through its backlog. Each sweep has its own concurrency bound.
   Overlap policy is **SKIP** — a tick that is still running causes the next one to be dropped rather than queued, so a slow day cannot pile up a backlog of duplicate scoring runs.
   An update keeps the schedule's live state, so a deploy does not resume a schedule an operator paused.
   The queue defaults to `self-driving-task-queue`, which the temporal-worker-self-driving fleet polls. Deploy a worker that polls a new queue before you set `AUTORESEARCH_TASK_QUEUE` to it, or the schedule strands its runs.
@@ -32,10 +34,15 @@ daily schedule
         ├─ activity_load_active_pipelines
         ├─ per pipeline, at most max_concurrency at once, one step at a time:
         │    ├─ AutoresearchInferenceWorkflow   → ../inference/   (champion only)
+        │    │    └─ on ChildWorkflowError: activity_fail_lost_inference_runs
         │    ├─ activity_kickoff_training       → ../training/
         │    └─ AutoresearchValidationWorkflow  → ../evaluation/
         └─ after every pipeline above, per completed champion run, under the same bound:
              └─ activity_run_shadow_scoring     → ../inference/
+
+catch-up schedule (06:00 UTC, catch_up=True)
+   └─ AutoresearchCoordinatorWorkflow
+        └─ the same tree, for lost pipelines only, without kickoff and validation
 ```
 
 The bound exists because each scoring activity holds a feature matrix in worker memory and runs batch queries. An unbounded sweep started every pipeline at the same moment, which overloaded ClickHouse and got the shared worker OOM-killed. A pipeline holds its slot through all its steps, so validation never runs next to its own scoring. Discovery lists the due pipelines that did not score yesterday first, so they get the first slots. The ordering and the bound come from recorded history (the activity result and the workflow input), so they are deterministic.
@@ -45,7 +52,9 @@ The coordinator decides _whether_ each pipeline is due; the child workflows do o
 Validation runs on every daily sweep, because a matured date should not wait for the next scoring day.
 Scoring and training kickoff run on a cadence day only, compared by calendar day, and kickoff starts after scoring ends. Validation starts after kickoff.
 Discovery pauses a pipeline whose creator has lost access to the team, and skips one outside the flag rollout.
-Discovery also fails every inference run still RUNNING after `INFERENCE_WORKFLOW_TIMEOUT` (`fail_stale_inference_runs()` in `../inference/failures.py`), with `failure_kind` `other`, because a lost worker never records an outcome.
+When an inference child ends in an exception, the coordinator fails the runs it left RUNNING, with `failure_kind` `other`, because a lost worker never records an outcome. This is behind `workflow.patched("autoresearch-close-lost-runs-2026-10")`.
+Discovery also fails every inference run still RUNNING after `INFERENCE_WORKFLOW_TIMEOUT` (`fail_stale_inference_runs()` in `../inference/failures.py`). This is the backstop for a run that the coordinator did not close.
+The catch-up sweep lists only the due pipelines whose latest scheduled run of the day failed with a kind a retry can pass (`scheduled_run_can_retry()`). A pipeline with no run for the day is skipped, because the daily sweep may not have reached it yet, and a second start would score it twice. Its inference children use `ALLOW_DUPLICATE_FAILED_ONLY`, so a catch-up starts only after the daily child of the date failed or timed out. It skips training kickoff and validation, because the daily sweep already ran them.
 A retry of a scheduled scoring attempt fills the RUNNING row of the attempt before it, so one date keeps one row.
 Kickoff applies the Tasks entitlement and usage gates `/train` applies, launches at most one run per UTC day, and holds the pipeline row lock through the launch, as `start_training` does.
 Kickoff then follows the research schedule in `../training/schedule.py`, which it derives from the pipeline's training runs and never stores.

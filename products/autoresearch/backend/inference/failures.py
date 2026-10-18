@@ -150,27 +150,71 @@ def _repeatable_failure_days(newest_first: Iterable[AutoresearchRun]) -> dict[da
     return failed_days
 
 
-def fail_stale_inference_runs() -> int:
-    """
-    Fail every inference run, across all teams, that is still RUNNING after ``INFERENCE_WORKFLOW_TIMEOUT``.
-
-    A lost worker, a heartbeat timeout, or a cancellation ends the attempt before the scoring code
-    records an outcome. The kind is ``other``, so ``find_unscorable_champion`` does not count the run.
-    """
+def _fail_lost_runs(runs: QuerySet[AutoresearchRun]) -> int:
     now = django_timezone.now()
-    stale = AutoresearchRun.objects.unscoped().filter(
-        run_type=AutoresearchRun.RunType.INFERENCE,
-        status=AutoresearchRun.Status.RUNNING,
-        started_at__lt=now - INFERENCE_WORKFLOW_TIMEOUT,
-    )
     failed = 0
-    for run in stale:
+    for run in runs:
         run.status = AutoresearchRun.Status.FAILED
         run.error = "Scoring stopped without a result. The worker was lost or the attempt timed out."
         run.metrics["failure_kind"] = FailureKind.OTHER
         run.completed_at = now
         run.save(update_fields=["status", "error", "metrics", "completed_at"])
         failed += 1
+    return failed
+
+
+def fail_stale_inference_runs() -> int:
+    """
+    Fail every inference run, across all teams, that is still RUNNING after ``INFERENCE_WORKFLOW_TIMEOUT``.
+
+    A lost worker, a heartbeat timeout, or a cancellation ends the attempt before the scoring code
+    records an outcome. The kind is ``other``, so ``find_unscorable_champion`` does not count the run.
+    This is the backstop for ``fail_lost_scheduled_runs``.
+    """
+    failed = _fail_lost_runs(
+        AutoresearchRun.objects.unscoped().filter(
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.RUNNING,
+            started_at__lt=django_timezone.now() - INFERENCE_WORKFLOW_TIMEOUT,
+        )
+    )
     if failed:
         logger.warning("autoresearch_stale_inference_runs_failed", count=failed)
     return failed
+
+
+def _scheduled_runs(team_id: int, pipeline_id: str, prediction_date: str) -> QuerySet[AutoresearchRun]:
+    return AutoresearchRun.objects.for_team(team_id).filter(
+        pipeline_id=pipeline_id,
+        run_type=AutoresearchRun.RunType.INFERENCE,
+        scheduled=True,
+        metrics__prediction_date=prediction_date,
+    )
+
+
+def fail_lost_scheduled_runs(*, team_id: int, pipeline_id: str, prediction_date: str) -> int:
+    """
+    Fail the scheduled inference runs of one pipeline and date that are still RUNNING.
+
+    Call it only after the inference workflow of that date has ended, because then no attempt can close them.
+    """
+    failed = _fail_lost_runs(
+        _scheduled_runs(team_id, pipeline_id, prediction_date).filter(status=AutoresearchRun.Status.RUNNING)
+    )
+    if failed:
+        logger.warning("autoresearch_lost_inference_runs_failed", pipeline_id=pipeline_id, count=failed)
+    return failed
+
+
+def scheduled_run_can_retry(*, team_id: int, pipeline_id: str, prediction_date: str) -> bool:
+    """
+    True when the latest scheduled run of the date failed with a kind that can pass on a retry.
+
+    A pipeline with no scheduled run for the date returns False, because the daily sweep may not have reached it yet.
+    """
+    latest = _scheduled_runs(team_id, pipeline_id, prediction_date).order_by("-created_at").first()
+    return (
+        latest is not None
+        and latest.status == AutoresearchRun.Status.FAILED
+        and (latest.metrics or {}).get("failure_kind") not in REPEATABLE_FAILURE_KINDS
+    )
