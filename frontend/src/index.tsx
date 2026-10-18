@@ -115,17 +115,24 @@ function renderApp(): void {
     // children do), React holds its commit until 500ms after the previous fallback appeared.
     loadAppModules()
         .then(([appModule, bootModule]) => {
+            if (showingStylesheetFailure) {
+                return null
+            }
             bootModule.bootApp()
             markBootPhase('app_booted')
             return appModule.App
         })
         .then(
             (LoadedApp) => {
-                if (!showingStylesheetFailure) {
+                if (LoadedApp && !showingStylesheetFailure) {
                     renderInBootBoundaries(<LoadedApp />)
                 }
             },
-            (error) => renderInBootBoundaries(<ThrowBootError error={error} />)
+            (error) => {
+                if (!showingStylesheetFailure) {
+                    renderInBootBoundaries(<ThrowBootError error={error} />)
+                }
+            }
         )
 }
 
