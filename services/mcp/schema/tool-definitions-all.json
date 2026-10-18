@@ -11255,7 +11255,7 @@
         "system_prompt_hint": "Recent sample agent intents for one MCP tool, with harness"
     },
     "query-mcp-tool-stats": {
-        "description": "Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95 latency, unique users, unique sessions, and how many calls carried an intent. Pass toolName (the effective tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the tool-detail UI). Use to answer \"how is tool X doing overall?\" before drilling into failures, users, or neighbours.",
+        "description": "Return the headline numbers for a single MCP tool over the window: calls, errors, p50_ms and p95_ms latency, users, conversations (unique sessions), and with_intent (calls that carried an intent). These fields count only this tool. total_calls and total_conversations count every MCP tool in the same window and filters, not only this tool. Use them only as denominators for this tool's share (calls / total_calls), never as this tool's volume. Pass toolName (the effective tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the tool-detail UI). Use to answer \"how is tool X doing overall?\" before drilling into failures, users, or neighbours.",
         "category": "MCP analytics",
         "feature": "mcp_analytics",
         "summary": "Summarise one MCP tool",
