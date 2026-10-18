@@ -3662,12 +3662,12 @@ Note: DeepSource is a Relay-style GraphQL API at https://api.deepsource.com/grap
 
 ## Demodesk — gaps
 
-Today (6): `demo_templates`, `demos`, `recording_scorecards`, `recording_summaries`, `recordings`, `users`
+Today (8): `demo_templates`, `demos`, `recording_details`, `recording_scorecards`, `recording_summaries`, `recording_transcripts`, `recordings`, `users`
 
 Diffed against: <https://demodesk.com/api/docs/v2/generated.yaml>
 
-- [ ] `Recording transcripts (GET /api/v2/recordings/{token}/transcript)` — analyze conversation content, speaker contributions, and topics across imported meetings (high)
-- [ ] `Recording details, participants, and statistics (GET /api/v2/recordings/{token})` — analyze participant attendance, engagement scores, and feedback scores absent from recording listings (medium)
+- [x] `Recording transcripts (GET /api/v2/recordings/{token}/transcript)` — analyze conversation content, speaker contributions, and topics across imported meetings (high)
+- [x] `Recording details, participants, and statistics (GET /api/v2/recordings/{token})` — analyze participant attendance, engagement scores, and feedback scores absent from recording listings (medium)
 
 Note: Parsed the v2 OpenAPI paths and response schemas, then read the official legacy v1 reference. Existing tables cover meetings, templates, users, recordings, summaries, and scorecards. Missing content needs recording-token fan-out; transcript responses contain paragraph and sentence collections. Auth, webhooks, and writes were excluded; detailed participant and statistics objects were checked separately from list metadata.
 

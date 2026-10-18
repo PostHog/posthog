@@ -115,6 +115,46 @@ DEMODESK_ENDPOINTS: dict[str, DemodeskEndpointConfig] = {
             child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
+    "recording_details": DemodeskEndpointConfig(
+        name="recording_details",
+        path="/v2/recordings/{recording_token}",
+        api_version="v2",
+        primary_keys=["recordingId"],
+        partition_key="createdAt",
+        # The detail endpoint takes no filter, so the watermark bounds the parent `recordings`
+        # listing instead: only recordings updated since the last sync are re-fetched.
+        incremental_fields=[incremental_field("updatedAt")],
+        incremental_param_by_field={"updatedAt": "filter[updated_at_gteq]"},
+        default_incremental_field="updatedAt",
+        sort_mode="desc",
+        fanout=DependentEndpointConfig(
+            parent_name="recordings",
+            resolve_param="recording_token",
+            resolve_field="recordingToken",
+            # The detail row already carries its own `recordingToken`.
+            include_from_parent=[],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "recording_transcripts": DemodeskEndpointConfig(
+        name="recording_transcripts",
+        path="/v2/recordings/{recording_token}/transcript",
+        api_version="v2",
+        # One transcript per recording. It carries no timestamp, so the table is full refresh only.
+        primary_keys=["recordingToken"],
+        fanout=DependentEndpointConfig(
+            parent_name="recordings",
+            resolve_param="recording_token",
+            resolve_field="recordingToken",
+            include_from_parent=["recordingToken"],
+            parent_field_renames={"recordingToken": "recordingToken"},
+            child_response_actions=[
+                {"status_code": 404, "action": "ignore"},
+                # 202 means the transcript is still being processed; the next sync picks it up.
+                {"status_code": 202, "action": "ignore"},
+            ],
+        ),
+    ),
 }
 
 ENDPOINTS = tuple(DEMODESK_ENDPOINTS.keys())

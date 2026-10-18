@@ -1,3 +1,4 @@
+import dataclasses
 from datetime import UTC, datetime
 from typing import Any, Optional, cast
 
@@ -42,7 +43,7 @@ class DemodeskResumeConfig:
     # v1 endpoints checkpoint a page number, v2 endpoints an opaque cursor; one field is set.
     page: int | None = None
     cursor: str | None = None
-    # `recording_summaries`/`recording_scorecards` fan out over `recordings`; this is the
+    # The `recording_*` endpoints fan out over `recordings`; this is the
     # `build_dependent_resource` checkpoint (which parents finished, where the current one
     # stopped), mutually exclusive with `page`/`cursor` above.
     fanout_state: dict[str, Any] | None = None
@@ -116,9 +117,9 @@ def demodesk_client_config(api_key: str, api_version: DemodeskApiVersion) -> Cli
         # `Authorization` is, so `allow_redirects=False` is the only thing that keeps either auth
         # scheme's credential from following a spoofed 3xx off `BASE_URL`.
         "allow_redirects": False,
-        # `recording_summaries` bodies carry free-text AI meeting summaries and `recordings`
-        # carries signed `temporaryDirectUrl` links; keep both out of the shared HTTP sample
-        # store (still metered and logged) rather than trust the name-based scrubbers on
+        # `recording_summaries` and `recording_transcripts` bodies carry free-text meeting content
+        # and `recordings` carries signed `temporaryDirectUrl` links; keep them out of the shared
+        # HTTP sample store (still metered and logged) rather than trust the name-based scrubbers on
         # unstructured content.
         "capture": False,
     }
@@ -207,12 +208,21 @@ def _fanout_resource(
         if state:
             resumable_source_manager.save_state(DemodeskResumeConfig(fanout_state=state))
 
+    fanout = config.fanout
+    if should_use_incremental_field and db_incremental_field_last_value is not None:
+        field_name = incremental_field_name or config.default_incremental_field
+        parent_param = config.incremental_param_by_field.get(field_name or "")
+        if parent_param is not None:
+            fanout = dataclasses.replace(
+                fanout, parent_params={parent_param: to_iso8601(db_incremental_field_last_value)}
+            )
+
     return cast(
         Resource,
         build_dependent_resource(
             endpoint_configs={config.name: config, parent.name: parent},
             child_endpoint=config.name,
-            fanout=config.fanout,
+            fanout=fanout,
             client_config=demodesk_client_config(api_key, config.api_version),
             path_format_values={},
             team_id=team_id,
@@ -220,6 +230,9 @@ def _fanout_resource(
             db_incremental_field_last_value=db_incremental_field_last_value,
             should_use_incremental_field=should_use_incremental_field,
             incremental_field=incremental_field_name,
+            # No child endpoint takes a time filter; an incremental child is bounded through the
+            # parent listing's `parent_params` above.
+            incremental_config_factory=lambda _cursor_path: None,
             # The child endpoints take no page-size param, and the parent's `limit` default already
             # matches PAGE_SIZE, so no size param is sent on either request.
             page_size_param=None,

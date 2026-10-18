@@ -159,6 +159,79 @@ class TestDemodeskFanout:
         assert result.paths == ["/api/v2/recordings", "/api/v2/recordings/tokB/summaries"]
         assert [row["summaryId"] for row in result.rows] == ["sB"]
 
+    @pytest.mark.parametrize(
+        ("should_use_incremental_field", "watermark", "expected_filter"),
+        [
+            (True, datetime(2026, 1, 15, 12, 30, tzinfo=UTC), "2026-01-15T12:30:00Z"),
+            (True, None, None),
+            (False, None, None),
+        ],
+    )
+    def test_recording_details_bounds_parent_listing_by_watermark(
+        self, should_use_incremental_field: bool, watermark: datetime | None, expected_filter: str | None
+    ) -> None:
+        result = _driver().run(
+            "recording_details",
+            route(
+                {
+                    "/v2/recordings": [
+                        ScriptedResponse(
+                            json={"data": [{"recordingToken": "tokA"}], "meta": {"hasNext": False, "limit": 100}}
+                        )
+                    ],
+                    "/v2/recordings/tokA": [
+                        ScriptedResponse(
+                            json={
+                                "data": {
+                                    "recordingId": "10",
+                                    "recordingToken": "tokA",
+                                    "statistics": {"engagementScore": 7, "feedbackScore": 4.5},
+                                }
+                            }
+                        )
+                    ],
+                }
+            ),
+            should_use_incremental_field=should_use_incremental_field,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v2/recordings", "/api/v2/recordings/tokA"]
+        assert result.requests[0].param("filter[updated_at_gteq]") == expected_filter
+        assert [(row["recordingId"], row["statistics"]["engagementScore"]) for row in result.rows] == [("10", 7)]
+
+    def test_recording_transcripts_skip_unready_transcripts(self) -> None:
+        result = _driver().run(
+            "recording_transcripts",
+            route(
+                {
+                    "/v2/recordings": [
+                        ScriptedResponse(
+                            json={
+                                "data": [
+                                    {"recordingToken": "tokA"},
+                                    {"recordingToken": "tokB"},
+                                    {"recordingToken": "tokC"},
+                                ],
+                                "meta": {"hasNext": False, "limit": 100},
+                            }
+                        )
+                    ],
+                    "/v2/recordings/tokA/transcript": [
+                        ScriptedResponse(json={"data": {"language": "en", "paragraphs": []}})
+                    ],
+                    "/v2/recordings/tokB/transcript": [
+                        ScriptedResponse(status=202, json={"error": {"message": "processing"}})
+                    ],
+                    "/v2/recordings/tokC/transcript": [ScriptedResponse(status=204)],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(row["recordingToken"], row["language"]) for row in result.rows] == [("tokA", "en")]
+
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
