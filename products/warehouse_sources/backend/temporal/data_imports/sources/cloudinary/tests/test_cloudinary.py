@@ -1,4 +1,5 @@
 from datetime import date
+from typing import Any
 
 import pytest
 import time_machine
@@ -78,6 +79,31 @@ class TestCloudinarySubfolders:
         assert result.raised is None
         assert [row["path"] for row in result.rows] == ["shop/red shoes", "shop/hats", "shop/red shoes/2026"]
         assert len(result.requests) == 6
+        assert result.saved_states[:2] == [
+            CloudinaryResumeConfig(cursor="p2", pending_folders=["shop", "shop/red shoes"]),
+            CloudinaryResumeConfig(cursor="", pending_folders=["shop/red shoes", "shop/hats"]),
+        ]
+
+    def test_a_resume_continues_the_saved_folder_without_relisting_the_root(self) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            pages: dict[tuple[str, str | None], dict[str, Any]] = {
+                ("/v1_1/my-cloud/folders/shop", "p2"): {"folders": [{"path": "shop/hats"}]},
+            }
+            return ScriptedResponse(json=pages.get((request.path, request.param("next_cursor")), {"folders": []}))
+
+        result = _driver().run(
+            "subfolders",
+            answer,
+            resume_state=CloudinaryResumeConfig(cursor="p2", pending_folders=["shop", "shop/red shoes"]),
+        )
+
+        assert result.raised is None
+        assert [row["path"] for row in result.rows] == ["shop/hats"]
+        assert result.paths == [
+            "/v1_1/my-cloud/folders/shop",
+            "/v1_1/my-cloud/folders/shop/red%20shoes",
+            "/v1_1/my-cloud/folders/shop/hats",
+        ]
 
 
 class TestCloudinaryLastAccessReports:
@@ -148,7 +174,7 @@ class TestCloudinaryUsage:
         )
 
         assert result.raised is None
-        assert result.params("date") == ["2026-10-17", "2026-10-18"]
+        assert result.paths == ["/v1_1/my-cloud/usage/2026-10-17", "/v1_1/my-cloud/usage/2026-10-18"]
         assert [(row["date"], row["plan"]) for row in result.rows] == [("2026-10-17", "Plus"), ("2026-10-18", "Plus")]
         assert result.saved_states == [
             CloudinaryResumeConfig(cursor="2026-10-18"),

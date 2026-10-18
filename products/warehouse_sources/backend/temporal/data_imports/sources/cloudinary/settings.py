@@ -86,7 +86,7 @@ CLOUDINARY_ENDPOINTS: dict[str, CloudinaryEndpointConfig] = {
     ),
     "usage": CloudinaryEndpointConfig(
         name="usage",
-        path="/usage",
+        path="/usage/{date}",
         primary_keys=["date"],
         partition_key="date",
         partition_format="month",

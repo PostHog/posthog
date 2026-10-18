@@ -40,6 +40,8 @@ class CloudinaryResumeConfig:
     cursor: str
     # Set for last access report resources, where a cursor only means something within one report.
     report_id: Optional[str] = None
+    # Set for subfolders: the folders still to list, where `cursor` continues the first one.
+    pending_folders: Optional[list[str]] = None
 
 
 def base_url(cloud_name: str, region: str) -> str:
@@ -99,8 +101,7 @@ def iter_usage(
     day = max(resumed_day, start) if resumed_day else start
     while day <= end:
         for page in client.paginate(
-            path=CLOUDINARY_ENDPOINTS["usage"].path,
-            params={"date": day.isoformat()},
+            path=CLOUDINARY_ENDPOINTS["usage"].path.format(date=day.isoformat()),
             paginator=SinglePagePaginator(),
             data_selector="$",
         ):
@@ -113,26 +114,48 @@ def iter_usage(
 def iter_subfolders(
     client: RESTClient, manager: ResumableSourceManager[CloudinaryResumeConfig]
 ) -> Iterator[list[dict[str, Any]]]:
-    # The folder tree has no listing below the root, so walk it one folder at a time. The walk keeps
-    # no cursor: a hand-off restarts it from the root folders.
+    # The folder tree has no listing below the root, so walk it one folder at a time.
+    resume = manager.load_state() if manager.can_resume() else None
+    cursor: Optional[str] = None
     pending: deque[str] = deque()
-    for page in client.paginate(
-        path=CLOUDINARY_ENDPOINTS["folders"].path, params={"max_results": MAX_RESULTS}, data_selector="folders"
-    ):
-        pending.extend(folder["path"] for folder in page)
-        manager.safe_point()
+    if resume is not None and resume.pending_folders is not None:
+        pending.extend(resume.pending_folders)
+        cursor = resume.cursor or None
+    else:
+        for page in client.paginate(
+            path=CLOUDINARY_ENDPOINTS["folders"].path, params={"max_results": MAX_RESULTS}, data_selector="folders"
+        ):
+            pending.extend(folder["path"] for folder in page)
+            manager.safe_point()
 
+    next_cursor: dict[str, Optional[str]] = {"value": None}
+
+    def remember_cursor(state: Optional[dict[str, Any]], has_next_page: bool) -> None:
+        next_cursor["value"] = str(state["cursor"]) if has_next_page and state and state.get("cursor") else None
+
+    endpoint_config = CLOUDINARY_ENDPOINTS["subfolders"]
     while pending:
         parent = pending.popleft()
         manager.safe_point()
         for page in client.paginate(
-            path=CLOUDINARY_ENDPOINTS["subfolders"].path.format(folder=quote(parent, safe="/")),
-            params=dict(CLOUDINARY_ENDPOINTS["subfolders"].params),
+            path=endpoint_config.path.format(folder=quote(parent, safe="/")),
+            params=dict(endpoint_config.params),
             data_selector="folders",
+            initial_paginator_state={"cursor": cursor} if cursor else None,
+            page_state_hook=remember_cursor,
         ):
             pending.extend(folder["path"] for folder in page)
+            if next_cursor["value"]:
+                manager.save_state(
+                    CloudinaryResumeConfig(cursor=next_cursor["value"], pending_folders=[parent, *pending])
+                )
+            else:
+                manager.save_state(CloudinaryResumeConfig(cursor="", pending_folders=list(pending)))
             if page:
                 yield page
+            else:
+                manager.safe_point()
+        cursor = None
 
 
 def _report_state_hook(
