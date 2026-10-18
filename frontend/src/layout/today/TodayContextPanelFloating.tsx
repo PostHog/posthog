@@ -145,6 +145,7 @@ export function TodayContextPanelFloating(): JSX.Element {
                         aiLauncher && 'TodayContextPanelMorph'
                     )}
                     data-docked={docked || undefined}
+                    data-launcher={aiLauncher ?? undefined}
                     // The drag offset changes on every pointer move, which a class can't express.
                     // eslint-disable-next-line react/forbid-dom-props
                     style={

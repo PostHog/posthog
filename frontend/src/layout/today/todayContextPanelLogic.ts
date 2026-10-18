@@ -25,7 +25,7 @@ export const TODAY_CONTEXT_PANEL_DOCK_EDGE = 64
 
 const NO_OFFSET: TodayContextPanelOffset = { x: 0, y: 0 }
 
-export const TODAY_AI_LAUNCHER_VARIANTS = ['island', 'logomark', 'peek', 'chunky'] as const
+export const TODAY_AI_LAUNCHER_VARIANTS = ['bars', 'sticker', 'chunky', 'window'] as const
 export type TodayAiLauncherVariant = (typeof TODAY_AI_LAUNCHER_VARIANTS)[number]
 
 /**
@@ -200,7 +200,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 if (!flag) {
                     return null
                 }
-                return TODAY_AI_LAUNCHER_VARIANTS.find((variant) => variant === flag) ?? 'island'
+                return TODAY_AI_LAUNCHER_VARIANTS.find((variant) => variant === flag) ?? 'bars'
             },
         ],
         docked: [(s) => [s.sidePanelOpen], (sidePanelOpen: boolean): boolean => sidePanelOpen],

@@ -433,7 +433,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
         transition: none;
     }
 
-    &:active .TodayAiLauncher:not([data-variant='chunky']) {
+    &:active .TodayAiLauncher:not([data-variant='chunky'], [data-variant='window']) {
         transform: scale(0.96);
     }
 }
@@ -583,12 +583,14 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     }
 }
 
+.TodayContextPanelMorph[data-launcher='window'] {
+    --today-ai-button-shape: inset(calc(100% - var(--anchor-height)) calc(50% - var(--anchor-width) / 2) 0 round 6px);
+}
+
 .TodayAiLauncher {
     --launcher-ease: cubic-bezier(0.23, 1, 0.32, 1);
-    --launcher-surface: color-mix(in oklab, var(--muted) 35%, var(--background));
-    --launcher-edge: color-mix(in oklab, var(--foreground) 12%, transparent);
-    --launcher-lift: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
     --launcher-ink: rgb(17 17 17);
+    --launcher-lift: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
 
     position: relative;
     display: block;
@@ -605,66 +607,69 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     .TodayAiLauncher__face {
         position: absolute;
         inset: 0;
-        z-index: 1;
         display: flex;
         align-items: center;
         justify-content: center;
-        overflow: hidden;
-        color: var(--foreground);
-        background-color: var(--launcher-surface);
         border-radius: 9999px;
-        box-shadow:
-            inset 0 0 0 1px var(--launcher-edge),
-            var(--launcher-lift);
     }
 
-    .TodayAiLauncher__mark {
-        position: relative;
-        width: auto;
-        height: 0.875rem;
+    svg {
         overflow: visible;
-
-        [data-logo-part] {
-            transform-box: fill-box;
-            transform-origin: 50% 100%;
-        }
-
-        [data-logo-part='head'] > path {
-            fill: currentcolor;
-        }
     }
 
-    &[data-variant='island'] {
+    &[data-variant='bars'] {
         width: 4.5rem;
 
         .TodayAiLauncher__face {
-            color: var(--background);
             background-color: var(--foreground);
             box-shadow: var(--launcher-lift);
+        }
 
-            &::before {
-                position: absolute;
-                inset: 0;
-                pointer-events: none;
-                content: '';
-                background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='96'%20height='96'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='1.1'%20numOctaves='3'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-0.55'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
-                background-size: 96px 96px;
-                opacity: 0.2;
+        .TodayAiLauncher__bars {
+            height: 1rem;
+
+            path {
+                transform-box: fill-box;
+                transform-origin: 50% 100%;
+            }
+
+            path:nth-child(1) {
+                fill: var(--brand-blue);
+            }
+
+            path:nth-child(2) {
+                fill: var(--brand-red);
+            }
+
+            path:nth-child(3) {
+                fill: var(--brand-yellow);
             }
         }
     }
 
-    &[data-variant='peek'] {
-        width: 3.5rem;
+    &[data-variant='sticker'] {
+        width: 3rem;
+        height: 2.5rem;
 
-        .TodayAiLauncher__hoggie {
-            position: absolute;
-            bottom: 0.875rem;
-            left: calc(50% - 1.125rem);
-            width: 2.25rem;
-            height: auto;
-            transform-origin: 50% 100%;
+        .TodayAiLauncher__sticker {
+            width: 2.75rem;
+            filter: drop-shadow(0 2px 2px rgb(0 0 0 / 18%));
+            transform: rotate(-8deg);
             transition: transform 420ms var(--launcher-ease);
+        }
+
+        .TodayAiLauncher__sticker-edge {
+            fill: white;
+            stroke: white;
+            stroke-linejoin: round;
+            stroke-width: 5;
+        }
+
+        .TodayAiLauncher__sticker-ink {
+            fill: var(--brand-yellow);
+            stroke: var(--launcher-ink);
+            stroke-linejoin: round;
+            stroke-width: 1.75;
         }
     }
 
@@ -675,22 +680,78 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 
         .TodayAiLauncher__face {
             inset: 0 0 3px;
-            color: var(--launcher-ink);
             background-color: var(--brand-yellow);
             box-shadow: inset 0 0 0 1.5px var(--launcher-ink);
             transition: transform 100ms var(--launcher-ease);
         }
+
+        .TodayAiLauncher__dots {
+            display: flex;
+            gap: 4px;
+
+            > span {
+                width: 5px;
+                height: 5px;
+                background-color: var(--launcher-ink);
+                border-radius: 9999px;
+            }
+        }
+    }
+
+    &[data-variant='window'] {
+        width: 4.5rem;
+        height: 2.125rem;
+
+        .TodayAiLauncher__face {
+            flex-direction: column;
+            align-items: stretch;
+            justify-content: flex-start;
+            overflow: hidden;
+            background-color: var(--background);
+            border-radius: 6px;
+            box-shadow:
+                inset 0 0 0 1.5px var(--foreground),
+                3px 3px 0 var(--foreground);
+        }
+
+        .TodayAiLauncher__titlebar {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+            height: 0.625rem;
+            padding-inline: 5px;
+            background-color: color-mix(in oklab, var(--brand-yellow) 70%, var(--background));
+            border-bottom: 1.5px solid var(--foreground);
+
+            > span {
+                width: 4px;
+                height: 4px;
+                border-radius: 9999px;
+                box-shadow: inset 0 0 0 1px var(--foreground);
+            }
+
+            > span:nth-child(1) {
+                background-color: var(--brand-red);
+            }
+        }
+
+        .TodayAiLauncher__caret {
+            width: 6px;
+            height: 2px;
+            margin: auto 0 0.4375rem 0.4375rem;
+            background-color: var(--foreground);
+        }
     }
 }
 
-@keyframes TodayAiLauncher__jump {
+@keyframes TodayAiLauncher__hop {
     0% {
         transform: translateY(0);
         animation-timing-function: cubic-bezier(0.2, 0.7, 0.4, 1);
     }
 
     40% {
-        transform: translateY(-9px);
+        transform: translateY(-4px);
         animation-timing-function: cubic-bezier(0.6, 0, 0.8, 0.4);
     }
 
@@ -699,7 +760,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     }
 
     85% {
-        transform: translateY(-1.5px);
+        transform: translateY(-1px);
     }
 
     100% {
@@ -707,33 +768,23 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     }
 }
 
+@keyframes TodayAiLauncher__blink {
+    50% {
+        opacity: 0;
+    }
+}
+
 .TodayAiLauncherButton:is(:hover, :focus-visible) .TodayAiLauncher {
-    &[data-variant='peek'] .TodayAiLauncher__hoggie {
-        transform: translateY(-4px) rotate(-6deg);
+    &[data-variant='sticker'] .TodayAiLauncher__sticker {
+        transform: rotate(0deg) scale(1.06) translateY(-1px);
     }
 
     &[data-variant='chunky'] .TodayAiLauncher__face {
         transform: translateY(-1px);
     }
-}
 
-@media (prefers-reduced-motion: no-preference) {
-    .TodayAiLauncherButton:is(:hover, :focus-visible) .TodayAiLauncher__mark {
-        [data-logo-part] {
-            animation: TodayAiLauncher__jump 560ms both;
-        }
-
-        [data-logo-part='yellow'] {
-            animation-delay: 40ms;
-        }
-
-        [data-logo-part='red'] {
-            animation-delay: 80ms;
-        }
-
-        [data-logo-part='blue'] {
-            animation-delay: 120ms;
-        }
+    &[data-variant='window'] {
+        transform: translate(-1px, -1px);
     }
 }
 
@@ -741,9 +792,27 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     transform: translateY(3px);
 }
 
-.TodayAiLauncherButton[data-popup-open] .TodayAiLauncher[data-variant='peek'] .TodayAiLauncher__hoggie {
-    transform: translateY(60%);
-    transition: none;
+@media (prefers-reduced-motion: no-preference) {
+    .TodayAiLauncherButton:is(:hover, :focus-visible) .TodayAiLauncher {
+        .TodayAiLauncher__bars path,
+        .TodayAiLauncher__dots > span {
+            animation: TodayAiLauncher__hop 520ms both;
+        }
+
+        .TodayAiLauncher__bars path:nth-child(2),
+        .TodayAiLauncher__dots > span:nth-child(2) {
+            animation-delay: 60ms;
+        }
+
+        .TodayAiLauncher__bars path:nth-child(3),
+        .TodayAiLauncher__dots > span:nth-child(3) {
+            animation-delay: 120ms;
+        }
+
+        .TodayAiLauncher__caret {
+            animation: TodayAiLauncher__blink 1s steps(1) infinite;
+        }
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

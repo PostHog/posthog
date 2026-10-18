@@ -572,7 +572,7 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
-    TODAY_AI_ISLAND: 'today-ai-island', // owner: @puemos, turns the floating AI button into the chat panel; the variant (island, logomark, peek, chunky) picks the button design
+    TODAY_AI_ISLAND: 'today-ai-island', // owner: @puemos, turns the floating AI button into the chat panel; the variant (bars, sticker, chunky, window) picks the button design
     TODAY_PULSE_RANKING: 'today-pulse-ranking',
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
