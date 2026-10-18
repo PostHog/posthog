@@ -10213,10 +10213,10 @@ Today (9): `companies`, `compensations`, `departments`, `employment_types`, `lev
 
 Diffed against: <https://developer.rippling.com/sitemap.xml>
 
-- [ ] `list-time-entries (and get-time-entries)` — clock-in/clock-out records - the highest-volume fact table in Rippling and the basis of all labor analysis (high)
-- [ ] `list-leave-requests` — time-off requests with status and dates, the core absence dataset (high)
-- [ ] `list-worker-payroll-records` — per-worker payroll line items - actual pay, taxes and deductions, not just contracted compensation (high)
-- [ ] `list-payroll-runs` — the payroll period header that payroll records roll up to (high)
+- [x] `list-time-entries (and get-time-entries)` — clock-in/clock-out records - the highest-volume fact table in Rippling and the basis of all labor analysis (high)
+- [x] `list-leave-requests` — time-off requests with status and dates, the core absence dataset (high)
+- [x] `list-worker-payroll-records` — per-worker payroll line items - actual pay, taxes and deductions, not just contracted compensation (high)
+- [x] `list-payroll-runs` — the payroll period header that payroll records roll up to (high)
 - [ ] `list-worker-changes (and list-worker-change-fields)` — the transition history for workers - promotions, transfers, terminations; today only current state is synced (high)
 - [ ] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
 - [ ] `list-titles` — lookup resolving the job title ID carried on workers (high)
