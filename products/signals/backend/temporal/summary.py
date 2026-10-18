@@ -1205,7 +1205,7 @@ async def maybe_autostart_implementation_activity(input: MaybeAutostartImplement
         )
 
 
-@dataclass
+@frozen
 class MarkReportFailedInput:
     team_id: int
     report_id: str

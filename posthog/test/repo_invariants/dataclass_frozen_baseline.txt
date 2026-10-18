@@ -1258,7 +1258,7 @@
 1 products/web_analytics/backend/test/test_weekly_digest_workflows.py
 10 posthog/temporal/ai_observability/trace_summarization/models.py
 9 products/signals/backend/temporal/grouping.py
-10 products/signals/backend/temporal/summary.py
+9 products/signals/backend/temporal/summary.py
 10 products/tasks/backend/temporal/process_task/activities/provision_sandbox.py
 102 posthog/hogql/ast.py
 12 ee/clickhouse/materialized_columns/columns.py
