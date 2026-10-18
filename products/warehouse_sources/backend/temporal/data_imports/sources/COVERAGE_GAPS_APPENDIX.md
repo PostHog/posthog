@@ -12463,10 +12463,10 @@ Today (3): `queues`, `runs`, `schedules`
 
 Diffed against: <https://trigger.dev/docs/llms.txt>
 
-- [ ] `errors (list error groups)` — failed runs grouped by fingerprint with lifecycle state; the headline reliability metric (high)
-- [ ] `deployments (list)` — deploy history and worker versions, the dimension that explains run behavior changes (high)
-- [ ] `runs/{id}/events` — OTel span events per run; the step-level detail behind a run's duration and failure (medium)
-- [ ] `waitpoints/tokens (list)` — waitpoint tokens and their completion state, showing where runs block on external systems (medium)
+- [x] `errors (list error groups)` — failed runs grouped by fingerprint with lifecycle state; the headline reliability metric (high)
+- [x] `deployments (list)` — deploy history and worker versions, the dimension that explains run behavior changes (high)
+- [x] `runs/{id}/events` — OTel span events per run; the step-level detail behind a run's duration and failure (medium)
+- [x] `waitpoints/tokens (list)` — waitpoint tokens and their completion state, showing where runs block on external systems (medium)
 - [ ] `sessions (list)` — durable session records tying multiple runs to one external identity (medium)
 - [ ] `bulk-actions (list)` — bulk cancel/replay operations and their processing counts (low)
 
