@@ -90,6 +90,7 @@ import { conversationsDraftModeLogic } from '../settings/conversationsDraftModeL
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 
 const MESSAGE_POLL_INTERVAL = 5000 // 5 seconds
+const MAX_AI_SOURCE_REFRESH_ATTEMPTS = (5 * 60 * 1000) / MESSAGE_POLL_INTERVAL
 /** Discussions ride the message timer at 1/4 the rate, so ~20s. */
 const DISCUSSION_POLL_EVERY_N_TICKS = 4
 /** Must not exceed the server's replay window, or recovery could adopt a message from an older send. */
@@ -1363,8 +1364,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = (await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)) as Ticket
                 breakpoint()
                 if (values.ticket?.id === ticketId) {
-                    cache.pendingAiSourceRefresh =
-                        ticket.ai_triage?.status === 'in_progress' && !ticket.ai_triage.sources?.length
+                    cache.pendingAiSourceRefresh = ticket.ai_triage?.status === 'in_progress'
                     // Only ai_triage changes: setTicket would reset the unsaved status, priority and tag edits.
                     const currentHumanOutcome = values.ticket.ai_triage?.human_outcome
                     actions.setAiTriage(
@@ -1483,11 +1483,20 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     cache.messagesLoadedForTicketId === ticketId &&
                     results.some((message) => !knownIds.has(message.id) && hasAiCitations(message))
                 cache.messagesLoadedForTicketId = ticketId
-                cache.pendingAiSourceRefresh = cache.pendingAiSourceRefresh || hasNewCitedAiMessage
+                if (hasNewCitedAiMessage) {
+                    cache.pendingAiSourceRefresh = true
+                    cache.aiSourceRefreshAttempts = 0
+                }
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages(results.reverse())
                 if (cache.pendingAiSourceRefresh) {
-                    actions.refreshAiTriage()
+                    const attempts = cache.aiSourceRefreshAttempts ?? 0
+                    if (attempts < MAX_AI_SOURCE_REFRESH_ATTEMPTS) {
+                        cache.aiSourceRefreshAttempts = attempts + 1
+                        actions.refreshAiTriage()
+                    } else {
+                        cache.pendingAiSourceRefresh = false
+                    }
                 }
             } catch {
                 lemonToast.error('Failed to load messages')

@@ -1284,30 +1284,55 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
         expect(logic.values.status).toBe('pending')
     })
 
-    it('retries source refresh when the AI comment arrives before triage finishes', async () => {
+    it.each([
+        { name: 'no prior sources', priorSources: [] },
+        { name: 'sources from an earlier triage run', priorSources: [{ ref: 'old-chunk', title: 'Old FAQ' }] },
+    ])(
+        'retries source refresh with $name when the AI comment arrives before triage finishes',
+        async ({ priorSources }) => {
+            commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+            ticketRetrieveMock
+                .mockResolvedValueOnce({
+                    ...loadedTicket(),
+                    ai_triage: {
+                        status: 'in_progress',
+                        citations: priorSources.map((item) => item.ref),
+                        sources: priorSources,
+                    },
+                })
+                .mockResolvedValue({
+                    ...loadedTicket(),
+                    ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
+                })
+
+            logic.actions.loadMessages()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.ticket?.ai_triage?.sources).toEqual(priorSources)
+
+            logic.actions.loadMessages()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.ticket?.ai_triage?.sources).toEqual([source])
+            expect(ticketRetrieveMock).toHaveBeenCalledTimes(2)
+
+            logic.actions.loadMessages()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(ticketRetrieveMock).toHaveBeenCalledTimes(2)
+        }
+    )
+
+    it('stops source refresh after a triage run stays in progress', async () => {
         commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
-        ticketRetrieveMock
-            .mockResolvedValueOnce({
-                ...loadedTicket(),
-                ai_triage: { status: 'in_progress', citations: [], sources: [] },
-            })
-            .mockResolvedValue({
-                ...loadedTicket(),
-                ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
-            })
+        ticketRetrieveMock.mockResolvedValue({
+            ...loadedTicket(),
+            ai_triage: { status: 'in_progress', citations: [], sources: [] },
+        })
 
-        logic.actions.loadMessages()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.ticket?.ai_triage?.sources).toEqual([])
+        for (let poll = 0; poll < 62; poll++) {
+            logic.actions.loadMessages()
+            await expectLogic(logic).toFinishAllListeners()
+        }
 
-        logic.actions.loadMessages()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.ticket?.ai_triage?.sources).toEqual([source])
-        expect(ticketRetrieveMock).toHaveBeenCalledTimes(2)
-
-        logic.actions.loadMessages()
-        await expectLogic(logic).toFinishAllListeners()
-        expect(ticketRetrieveMock).toHaveBeenCalledTimes(2)
+        expect(ticketRetrieveMock).toHaveBeenCalledTimes(60)
     })
 
     it('does not fetch the ticket again when the poll brings no new AI message', async () => {
