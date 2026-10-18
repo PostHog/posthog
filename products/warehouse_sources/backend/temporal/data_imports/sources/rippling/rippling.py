@@ -1,9 +1,10 @@
-import dataclasses
 from datetime import UTC, date, datetime
 from typing import Any, Optional
 from urllib.parse import urlencode, urljoin, urlsplit
 
 from requests import Response
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
@@ -30,7 +31,7 @@ RIPPLING_BASE_URL = "https://rest.ripplingapis.com"
 RIPPLING_HOST = urlsplit(RIPPLING_BASE_URL).netloc
 
 
-@dataclasses.dataclass
+@frozen
 class RipplingResumeConfig:
     # Rippling cursor pagination returns a `next_link` URL (sometimes relative);
     # we persist it absolutized, so it's all we need to pick back up.
