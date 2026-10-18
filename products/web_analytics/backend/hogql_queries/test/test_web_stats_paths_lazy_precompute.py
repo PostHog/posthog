@@ -46,6 +46,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
 )
 from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
     INSERT_QUERY_TEMPLATE_CAPPED,
+    BackgroundPrecomputeFailed,
     _breakdown_value_expr,
     _entry_breakdown_value_expr,
     _events_session_id_expr,
@@ -151,7 +152,8 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def _run(self, query: WebStatsTableQuery):
         return WebStatsTableQueryRunner(team=self.team, query=query).calculate()
 
-    def test_failed_lazy_read_clears_stale_tag(self):
+    @parameterized.expand([("user_request", None), ("background_warming", "webAnalyticsQueryWarming")])
+    def test_failed_lazy_read_clears_stale_tag(self, _name: str, trigger: str | None) -> None:
         from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags, tag_queries
 
         from products.web_analytics.backend.hogql_queries import stats_table as stats_table_mod
@@ -164,11 +166,18 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             return None
 
         try:
+            if trigger:
+                tag_queries(trigger=trigger)
             with (
                 patch.object(stats_table_mod, "can_use_paths_lazy_precompute", return_value=True),
                 patch.object(stats_table_mod, "execute_paths_lazy_precomputed_read", side_effect=tag_then_fail),
             ):
-                assert runner._maybe_calculate_via_lazy_precompute() is None
+                if trigger:
+                    # A warming run must not fall through to the live join, which needs far more memory.
+                    with self.assertRaises(BackgroundPrecomputeFailed):
+                        runner._maybe_calculate_via_lazy_precompute()
+                else:
+                    assert runner._maybe_calculate_via_lazy_precompute() is None
             assert get_query_tag_value("precompute_stale") is None, (
                 "a failed lazy read must not leave the stale tag to mislabel the fallback"
             )
@@ -958,7 +967,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
     def test_user_ensure_budget_is_shared_across_compare_periods(
         self, _name: str, first_ensure_seconds: float, expected_compare_budget: float | None
     ) -> None:
-
         from posthog.clickhouse.query_tagging import reset_query_tags
 
         from products.web_analytics.backend.hogql_queries import web_stats_paths_lazy_precompute as mod

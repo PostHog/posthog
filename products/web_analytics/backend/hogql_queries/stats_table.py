@@ -56,7 +56,10 @@ from products.web_analytics.backend.hogql_queries.stats_table_strategies import 
     StatsTableQueryStrategy,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner, map_columns
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import lazy_precompute_ineligible_reason
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    is_background_warming_request,
+    lazy_precompute_ineligible_reason,
+)
 from products.web_analytics.backend.hogql_queries.web_stats_frustration_lazy_precompute import (
     can_use_lazy_precompute as can_use_frustration_lazy_precompute,
     execute_lazy_precomputed_read as execute_frustration_lazy_precomputed_read,
@@ -67,6 +70,7 @@ from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute impo
     execute_lazy_precomputed_read,
 )
 from products.web_analytics.backend.hogql_queries.web_stats_paths_lazy_precompute import (
+    BackgroundPrecomputeFailed,
     can_use_lazy_precompute as can_use_paths_lazy_precompute,
     execute_lazy_precomputed_read as execute_paths_lazy_precomputed_read,
 )
@@ -600,7 +604,8 @@ WHERE and(
         """Short-circuit through the PATHS lazy precompute table when eligible.
 
         Returns None when ineligible or on any failure, in which case the caller
-        falls through to the v2/raw HogQL path.
+        falls through to the v2/raw HogQL path. A background warming run raises
+        `BackgroundPrecomputeFailed` on failure instead of falling through.
         """
         if self.query.includeTrafficMetrics or not can_use_paths_lazy_precompute(self):
             return None
@@ -621,6 +626,8 @@ WHERE and(
             # clear it so the fallback response (and its query_log rows) are not
             # mislabeled as stale-served.
             clear_tag("precompute_stale")
+            if is_background_warming_request():
+                raise BackgroundPrecomputeFailed()
             return None
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
