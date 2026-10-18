@@ -144,6 +144,8 @@ def _sql_series(
     if response.get("hasMore") or any(column not in position for column in wanted):
         return None
     labels: dict[tuple[int, str | None], str] = {}
+    copies: dict[str, int] = {}
+    taken: set[str] = set()
     series: dict[tuple[int, str | None], dict[date, float]] = {}
     for row in response.get("results") or []:
         day = _as_date(row[position[x_column]])
@@ -156,11 +158,15 @@ def _sql_series(
                 return None
             key = (index, breakdown)
             if key not in labels:
-                label = str(((axis.get("settings") or {}).get("display") or {}).get("label") or axis["column"])
+                base = str(((axis.get("settings") or {}).get("display") or {}).get("label") or axis["column"])
                 if breakdown is not None:
-                    label = f"{label} · {breakdown}" if len(y_axes) > 1 else breakdown
-                while label in labels.values():
-                    label += " (2)"
+                    base = f"{base} · {breakdown}" if len(y_axes) > 1 else breakdown
+                label, copy = base, copies.get(base, 1)
+                while label in taken:
+                    copy += 1
+                    label = f"{base} ({copy})"
+                copies[base] = copy
+                taken.add(label)
                 labels[key] = label
             points = series.setdefault(key, {})
             if day in points:

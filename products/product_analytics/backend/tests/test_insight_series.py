@@ -142,11 +142,12 @@ class TestSqlSeries(SimpleTestCase):
                     yAxis=[
                         {"column": "a", "settings": {"display": {"label": "Users"}}},
                         {"column": "b", "settings": {"display": {"label": "Users"}}},
+                        {"column": "c", "settings": {"display": {"label": "Users"}}},
                     ]
                 ),
-                {"columns": ["week", "a", "b"], "results": [["2026-10-04", 1, 5], ["2026-10-11", 2, 6]]},
+                {"columns": ["week", "a", "b", "c"], "results": [["2026-10-04", 1, 5, 7], ["2026-10-11", 2, 6, 8]]},
                 WeekStartDay.SUNDAY,
-                ("week", {"Users": [1.0, 2.0], "Users (2)": [5.0, 6.0]}, None, None),
+                ("week", {"Users": [1.0, 2.0], "Users (2)": [5.0, 6.0], "Users (3)": [7.0, 8.0]}, None, None),
             ),
             (
                 "weeks that start on Monday in a Monday project",
