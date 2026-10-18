@@ -146,4 +146,5 @@ def format_line(obs: "ReplayObservation", output: dict[str, Any], *, show_scanne
     # `scanner_name` is annotated by the search hydration so no scanner row is joined; fall back to the relation.
     scanner_name = getattr(obs, "scanner_name", None) or (obs.scanner.name if show_scanner and obs.scanner else "")
     scanner_part = f" {scanner_name}" if show_scanner and scanner_name else ""
-    return f"- (session {session}, {prefix}){scanner_part} {summarize_output(output)}".rstrip()
+    ids = f"observation_id={obs.id}, session_id={session}"
+    return f"- ({ids}, {prefix}){scanner_part} {summarize_output(output)}".rstrip()

@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import Any
 
@@ -233,6 +234,35 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         assert "sess-near" in content
         assert "broken submit button" in content
         assert "score=0" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_returned_observation_id_reaches_the_observation_tools(self):
+        # Max reads only `content`, so the id it passes to retry or label has to come from there.
+        scanner = await self._scanner()
+        session_id = str(uuid.uuid4())
+        obs = await self._observation(scanner, session_id, "user rage-clicked the broken submit button", score=0)
+
+        with (
+            patch(_GENERATE_EMBEDDING_PATH, new_callable=MagicMock, return_value=MagicMock(embedding=[0.1])),
+            patch(_SYNC_EXECUTE_PATH, side_effect=_two_pass([(str(obs.id), 0.1, "")])),
+        ):
+            content, _ = await self._tool()._arun_impl(query="broken button", scanner_id=str(scanner.id))
+
+        match = re.search(r"observation_id=(\S+), session_id=(\S+),", content)
+        assert match is not None, content
+        assert match.groups() == (str(obs.id), session_id)
+
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        retry = RetryReplayVisionObservationTool(team=self.team, user=self.user, config=config)
+        _, retried = await retry._arun_impl(observation_id=match.group(1))
+        # A succeeded observation is not retryable, which proves the lookup found it.
+        assert retried["error"] == "not_retryable"
+
+        # The mix-up a model makes: a recording id where an observation id belongs.
+        content, mixed_up = await retry._arun_impl(observation_id=session_id)
+        assert mixed_up["error"] == "not_found"
+        assert "observation_id" in content and "session_id" in content
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

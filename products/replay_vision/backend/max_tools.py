@@ -138,9 +138,12 @@ the user states an exact result:
 Put only the meaning in `query` (e.g. "broken checkout button"), and the exact outcome in these filters.
 
 # What it returns
-The best-matching observations, ranked by semantic closeness, each with its session (recording) id, the
-scanner it came from, verdict/score/tags, and the reasoning snippet. Cite the matching recordings and
-synthesize the reasons rather than restating each row.
+The best-matching observations, ranked by semantic closeness, each with its `observation_id`, its
+`session_id` (the recording id), the scanner it came from, verdict/score/tags, and the reasoning snippet.
+Cite the matching recordings and synthesize the reasons rather than restating each row.
+
+Pass `observation_id` to retry_replay_vision_observation and label_replay_vision_observation. Pass
+`session_id` to scan_replay_vision_sessions. The two ids are not interchangeable.
 """
 
 VALID_SCANNER_TYPES = {t.value for t in ScannerType}
@@ -674,7 +677,11 @@ search_replay_vision_observations afterwards to read them.
 
 class ScanSessionsArgs(BaseModel):
     session_ids: list[str] = Field(
-        description="Session recording ids to scan. Ask the user rather than guessing if you don't have them."
+        description=(
+            "Session recording ids to scan: the `session_id` values that filter_session_recordings or "
+            "search_replay_vision_observations return. Ask the user rather than guessing if you don't have them. "
+            "Don't substitute the recording open in the player for one the user asked about."
+        )
     )
     prompt: str | None = Field(
         default=None,
@@ -855,8 +862,21 @@ observations can be retried; a succeeded one already has its answer.
 """
 
 
+def _observation_not_found(observation_id: str) -> tuple[str, dict[str, Any]]:
+    return (
+        f"Observation {observation_id} not found. Pass the `observation_id` from search_replay_vision_observations, "
+        "not the recording's `session_id`.",
+        {"error": "not_found"},
+    )
+
+
 class RetryObservationArgs(BaseModel):
-    observation_id: str = Field(description="The failed or ineligible observation to scan again.")
+    observation_id: str = Field(
+        description=(
+            "The `observation_id` of the failed or ineligible observation, from search_replay_vision_observations. "
+            "A recording's `session_id` does not work here."
+        )
+    )
 
 
 class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
@@ -890,7 +910,7 @@ class RetryReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
     def _retry(self, observation_id: str) -> tuple[str, dict[str, Any]]:
         observation = self._observation_for(observation_id)
         if observation is None:
-            return f"Observation {observation_id} not found.", {"error": "not_found"}
+            return _observation_not_found(observation_id)
         try:
             outcome, _ = retry_observation(observation=observation, user=self._user)
         except QuotaLimitExceeded:
@@ -1572,7 +1592,12 @@ accuracy gets tracked, and it feeds prompt improvements later. It costs nothing 
 
 
 class LabelObservationArgs(BaseModel):
-    observation_id: str = Field(description="The observation the user is judging.")
+    observation_id: str = Field(
+        description=(
+            "The `observation_id` of the observation the user is judging, from search_replay_vision_observations. "
+            "A recording's `session_id` does not work here."
+        )
+    )
     is_correct: bool = Field(description="True if the scanner got this recording right, false if it didn't.")
     feedback: str | None = Field(
         max_length=MAX_FEEDBACK_LENGTH,
@@ -1600,7 +1625,7 @@ class LabelReplayVisionObservationTool(ReplayVisionGatesMixin, MaxTool):
     def _label(self, observation_id: str, is_correct: bool, feedback: str | None) -> tuple[str, dict[str, Any]]:
         observation = self._observation_for(observation_id)
         if observation is None:
-            return f"Observation {observation_id} not found.", {"error": "not_found"}
+            return _observation_not_found(observation_id)
         cleaned_feedback = (feedback or "").strip()[:MAX_FEEDBACK_LENGTH]
         # One shared label per observation, like the API: a second rating replaces the first. Atomic
         # because the one-to-one turns two concurrent labels into an IntegrityError rather than a retry.
