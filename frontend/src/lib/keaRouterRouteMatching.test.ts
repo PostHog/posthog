@@ -25,7 +25,7 @@ const routeMatchingTestLogic = kea([
     })),
 ])
 
-// Guards patches/kea-router@3.4.1.patch: urlToAction compiles a route pattern only when the path
+// Guards kea-router 3.4.2: urlToAction compiles a route pattern only when the path
 // starts with the route's static prefix. A wrong prefix would skip a route that should match.
 describe('kea-router route matching', () => {
     beforeEach(() => {
