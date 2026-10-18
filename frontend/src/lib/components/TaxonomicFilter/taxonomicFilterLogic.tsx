@@ -40,6 +40,7 @@ import {
     ListStorage,
     QuickFilterItem,
     META_GROUP_TYPES,
+    withoutSearchOnlyGroups,
     OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
@@ -570,6 +571,7 @@ export interface taxonomicFilterLogicValues {
     }
     metadataSource: AnyDataNode
     mouseInteractionsEnabled: boolean
+    ownsSearchInput: boolean
     propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     propertyFilters: {
         excludedProperties: TaxonomicFilterGroupValueMap
@@ -676,6 +678,7 @@ export interface taxonomicFilterLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         selectedItemMeta: (arg: any) => any
+        ownsSearchInput: (arg: any) => boolean
         showNumericalPropsOnly: (arg: any) => any
         taxonomicFilterLogicKey: (taxonomicFilterLogicKey: string) => string
         eventNames: (arg: any) => any
@@ -778,7 +781,10 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[],
             eventNames: any
         ) => TaxonomicFilterGroupType[]
-        categoryGroupTypes: (taxonomicGroupTypes: TaxonomicFilterGroupType[]) => TaxonomicFilterGroupType[]
+        categoryGroupTypes: (
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            metaGroupTypes: Set<string>
+        ) => TaxonomicFilterGroupType[]
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
@@ -1003,6 +1009,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        // A host that renders its own search input owns the query, so the picker cannot clear it.
+        ownsSearchInput: [
+            () => [(_, props) => props.hideSearchInput],
+            (hideSearchInput: boolean | undefined): boolean => !hideSearchInput,
+        ],
         showNumericalPropsOnly: [
             () => [(_, props) => props.showNumericalPropsOnly],
             (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,
@@ -2302,13 +2313,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         categoryGroupTypes: [
-            (s) => [s.taxonomicGroupTypes],
-            (groupTypes: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] =>
-                groupTypes.filter(
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
+            (groupTypes: TaxonomicFilterGroupType[], metaGroupTypes: Set<string>): TaxonomicFilterGroupType[] => {
+                const categories = groupTypes.filter(
                     (type) =>
                         type !== TaxonomicFilterGroupType.RecentFilters &&
                         type !== TaxonomicFilterGroupType.PinnedFilters
-                ),
+                )
+                return withoutSearchOnlyGroups(
+                    categories,
+                    (type) => type,
+                    (type) => metaGroupTypes.has(type) || META_GROUP_TYPES.has(type)
+                )
+            },
             { resultEqualityCheck: objectsEqual },
         ],
         groupAnalyticsTaxonomicGroupNames: [
