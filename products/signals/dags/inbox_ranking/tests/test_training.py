@@ -73,6 +73,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     _pinned_models,
     _publish_manifest,
     _train_candidate,
+    booster_recipe,
     candidate_metadata,
     champion_object_key,
     embeddings_extras,
@@ -107,6 +108,7 @@ from products.signals.dags.inbox_ranking.training.promotion import (
     PromotionDecision,
     decide_promotion,
 )
+from products.signals.dags.inbox_ranking.training.recipe import RECIPE_HASH_KEY, recipe_hash
 from products.signals.dags.inbox_ranking.training.served import (
     event_model_role,
     served_events,
@@ -1919,6 +1921,8 @@ def test_candidate_metadata_declares_the_set_it_was_fit_on(family):
     assert metadata["feature_set"] == family.feature_set.name
     assert metadata["feature_schema_version"] == family.feature_set.schema_version
     assert model_mismatch(metadata) is None
+    # The next day's recipe check compares against this hash, so it must be the one the check computes.
+    assert metadata[RECIPE_HASH_KEY] == recipe_hash(booster_recipe(family.feature_set))
 
 
 def test_build_examples_carries_the_columns_of_the_set_it_is_given():
