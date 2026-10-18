@@ -412,12 +412,29 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     }
 }
 
-.TodayContextPanelButton > span {
+.TodayAiLauncherButton {
+    display: block;
+    padding: 0;
+    cursor: pointer;
+    background: none;
+    border: 0;
+    border-radius: 9999px;
+    outline: none;
     transition: opacity 60ms linear 200ms;
 
-    &:has([data-popup-open]) {
+    &:focus-visible {
+        box-shadow:
+            0 0 0 2px var(--background),
+            0 0 0 4px var(--ring);
+    }
+
+    &[data-popup-open] {
         opacity: 0;
         transition: none;
+    }
+
+    &:active .TodayAiLauncher {
+        transform: scale(0.96);
     }
 }
 
@@ -520,27 +537,11 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
         bottom: 0;
         left: calc(50% - var(--anchor-width) / 2);
         display: flex;
-        gap: 0.5rem;
-        align-items: center;
-        justify-content: center;
         width: var(--anchor-width);
         height: var(--anchor-height);
-        font-size: var(--text-ui, 0.8125rem);
-        font-weight: 500;
-        line-height: 1.625;
-        color: var(--foreground);
-        white-space: nowrap;
         pointer-events: none;
-        background-color: color-mix(in oklab, var(--muted) 30%, var(--background));
-        border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
-        border-radius: 9999px;
         opacity: 0;
-        transition: opacity 120ms var(--today-ai-ease-out);
-
-        svg {
-            width: 1rem;
-            height: 1rem;
-        }
+        transition: opacity 140ms var(--today-ai-ease-out);
     }
 
     &:is([data-starting-style], [data-ending-style]) .TodayContextPanelMorph__face {
@@ -548,7 +549,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     }
 
     &[data-ending-style] .TodayContextPanelMorph__face {
-        transition-delay: 100ms;
+        transition-delay: 90ms;
     }
 
     &[data-docked][data-ending-style] .TodayContextPanelMorph__face {
@@ -579,5 +580,243 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
             transform: none;
             transition: none;
         }
+    }
+}
+
+.TodayAiLauncher {
+    --launcher-ease: cubic-bezier(0.23, 1, 0.32, 1);
+    --launcher-surface: color-mix(in oklab, var(--muted) 35%, var(--background));
+    --launcher-edge: color-mix(in oklab, var(--foreground) 12%, transparent);
+    --launcher-lift: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
+
+    position: relative;
+    display: block;
+    flex-shrink: 0;
+    width: 4.5rem;
+    height: 2rem;
+    color: var(--foreground);
+    background-color: var(--launcher-surface);
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    box-shadow:
+        inset 0 0 0 1px var(--launcher-edge),
+        var(--launcher-lift);
+    transition: transform 160ms var(--launcher-ease);
+
+    &::before,
+    &::after {
+        position: absolute;
+        pointer-events: none;
+        content: '';
+    }
+
+    .TodayContextPanelMorph__face > & {
+        width: 100%;
+        height: 100%;
+    }
+
+    &[data-variant='island'] {
+        width: 5.5rem;
+        overflow: hidden;
+        background-color: var(--foreground);
+        box-shadow: var(--launcher-lift);
+
+        &::before {
+            inset: 0;
+            background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='96'%20height='96'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='1.1'%20numOctaves='3'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%201%200%200%200%200%201%200%200%200%200%201%200%200%200%201.6%20-0.55'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+            background-size: 96px 96px;
+            opacity: 0.22;
+        }
+
+        .TodayAiLauncher__light {
+            position: absolute;
+            top: calc(50% - 3px);
+            right: 0.75rem;
+            width: 6px;
+            height: 6px;
+            background-color: var(--brand-yellow);
+            border-radius: 9999px;
+            box-shadow: 0 0 6px color-mix(in oklab, var(--brand-yellow) 60%, transparent);
+            transition: transform 420ms var(--launcher-ease);
+        }
+    }
+
+    &[data-variant='grip'] {
+        overflow: hidden;
+        box-shadow:
+            inset 0 0 0 1px var(--launcher-edge),
+            inset 0 1px 0 color-mix(in oklab, white 70%, transparent),
+            inset 0 -2px 3px color-mix(in oklab, var(--foreground) 6%, transparent),
+            var(--launcher-lift);
+
+        .TodayAiLauncher__ribs {
+            position: absolute;
+            inset: 0.375rem -0.5rem;
+            background-image: linear-gradient(
+                90deg,
+                color-mix(in oklab, var(--foreground) 30%, transparent) 1px,
+                color-mix(in oklab, white 80%, transparent) 1px 2px,
+                transparent 2px
+            );
+            background-size: 3px 100%;
+            border-radius: 2px;
+            transition: transform 520ms var(--launcher-ease);
+        }
+
+        &::after {
+            inset: 0;
+            background: linear-gradient(
+                90deg,
+                var(--launcher-surface) 10%,
+                transparent 30%,
+                transparent 70%,
+                var(--launcher-surface) 90%
+            );
+            border-radius: inherit;
+        }
+    }
+
+    &[data-variant='halftone'] {
+        overflow: hidden;
+
+        &::before {
+            inset: 0;
+            background-color: var(--foreground);
+            mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2072%2032'%3E%3Ccircle%20cx='22.0'%20cy='2.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='2.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='2.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='2.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='2.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='2.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='2.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='2.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='2.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='2.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='2.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='2.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='2.0'%20r='1.73'/%3E%3Ccircle%20cx='22.0'%20cy='6.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='6.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='6.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='6.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='6.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='6.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='6.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='6.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='6.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='6.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='6.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='6.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='6.0'%20r='1.73'/%3E%3Ccircle%20cx='22.0'%20cy='10.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='10.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='10.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='10.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='10.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='10.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='10.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='10.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='10.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='10.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='10.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='10.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='10.0'%20r='1.73'/%3E%3Ccircle%20cx='22.0'%20cy='14.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='14.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='14.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='14.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='14.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='14.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='14.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='14.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='14.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='14.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='14.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='14.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='14.0'%20r='1.73'/%3E%3Ccircle%20cx='22.0'%20cy='18.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='18.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='18.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='18.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='18.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='18.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='18.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='18.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='18.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='18.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='18.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='18.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='18.0'%20r='1.73'/%3E%3Ccircle%20cx='22.0'%20cy='22.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='22.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='22.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='22.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='22.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='22.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='22.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='22.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='22.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='22.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='22.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='22.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='22.0'%20r='1.73'/%3E%3Ccircle%20cx='22.0'%20cy='26.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='26.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='26.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='26.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='26.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='26.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='26.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='26.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='26.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='26.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='26.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='26.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='26.0'%20r='1.73'/%3E%3Ccircle%20cx='22.0'%20cy='30.0'%20r='0.39'/%3E%3Ccircle%20cx='26.0'%20cy='30.0'%20r='0.47'/%3E%3Ccircle%20cx='30.0'%20cy='30.0'%20r='0.56'/%3E%3Ccircle%20cx='34.0'%20cy='30.0'%20r='0.65'/%3E%3Ccircle%20cx='38.0'%20cy='30.0'%20r='0.75'/%3E%3Ccircle%20cx='42.0'%20cy='30.0'%20r='0.85'/%3E%3Ccircle%20cx='46.0'%20cy='30.0'%20r='0.96'/%3E%3Ccircle%20cx='50.0'%20cy='30.0'%20r='1.08'/%3E%3Ccircle%20cx='54.0'%20cy='30.0'%20r='1.2'/%3E%3Ccircle%20cx='58.0'%20cy='30.0'%20r='1.33'/%3E%3Ccircle%20cx='62.0'%20cy='30.0'%20r='1.46'/%3E%3Ccircle%20cx='66.0'%20cy='30.0'%20r='1.59'/%3E%3Ccircle%20cx='70.0'%20cy='30.0'%20r='1.73'/%3E%3C/svg%3E")
+                center / 100% 100% no-repeat;
+            opacity: 0.5;
+            transition: opacity 240ms var(--launcher-ease);
+        }
+    }
+
+    &[data-variant='riso'] {
+        width: 2.75rem;
+        height: 2.75rem;
+        overflow: hidden;
+        background-color: var(--background);
+
+        &::before,
+        &::after {
+            inset: 0.6875rem;
+            mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpath%20d='M5%204h14a3%203%200%200%201%203%203v8a3%203%200%200%201-3%203h-8.5L5.5%2021.5V18H5a3%203%200%200%201-3-3V7a3%203%200%200%201%203-3z'/%3E%3C/svg%3E")
+                center / contain no-repeat;
+            opacity: 0.85;
+            transition: transform 260ms var(--launcher-ease);
+        }
+
+        &::before {
+            background-color: var(--brand-blue);
+            transform: translate(-1.5px, 1px);
+        }
+
+        &::after {
+            background-color: var(--brand-red);
+            mix-blend-mode: multiply;
+            transform: translate(1.5px, -1px);
+        }
+
+        .TodayAiLauncher__paper {
+            position: absolute;
+            inset: 0;
+            z-index: 1;
+            background-image: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='96'%20height='96'%3E%3Cfilter%20id='n'%3E%3CfeTurbulence%20type='fractalNoise'%20baseFrequency='0.9'%20numOctaves='3'%20stitchTiles='stitch'/%3E%3CfeColorMatrix%20values='0%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%200%201.4%20-0.5'/%3E%3C/filter%3E%3Crect%20width='100%25'%20height='100%25'%20filter='url%28%23n%29'/%3E%3C/svg%3E");
+            background-size: 96px 96px;
+            border-radius: inherit;
+            opacity: 0.18;
+        }
+    }
+
+    &[data-variant='mac'] {
+        background: none;
+        border: 0;
+        box-shadow: none;
+
+        &::before {
+            inset: 0;
+            background: repeating-conic-gradient(var(--foreground) 0 25%, transparent 0 50%) 0 0 / 2px 2px;
+            border-radius: inherit;
+            transform: translate(3px, 3px);
+        }
+
+        .TodayAiLauncher__face {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            gap: 4px;
+            align-items: center;
+            justify-content: center;
+            background-color: var(--background);
+            border: 1.5px solid var(--foreground);
+            border-radius: inherit;
+            transition: transform 120ms var(--launcher-ease);
+
+            > span {
+                width: 4px;
+                height: 4px;
+                background-color: var(--foreground);
+            }
+        }
+    }
+
+    &[data-variant='dither'] {
+        width: 2.5rem;
+        height: 2.5rem;
+        background-color: var(--background);
+
+        &::before {
+            inset: 1px;
+            background-color: var(--foreground);
+            mask: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEgAAABICAYAAABV7bNHAAAAy0lEQVR42u3aMQqAQAwEQP//6bMXLERjkssEUtnICMuqdxzxsy779fX2AwgQoFHggAABmgX09oa3D3lAgAApnoAAAWoLVC2E3y4gQIB6AXUPaUCAAOUCRRer6GIXHeKAAAGKBRLSgAABygSqFqLZL6uAAAH6F+jvYlitWAICBEgPygxhQIAA5QLt/o0aECBAvYGim+kqto+fMCBAgEKBxn8gAwQIUOoZxbX5fv4nExAgQKkHx8eBAAIEKPVAFBBAgABVnvEAgAABup0TPBs3SEeiSEIAAAAASUVORK5CYII=')
+                center / 100% 100% no-repeat;
+            transition: transform 600ms var(--launcher-ease);
+        }
+    }
+}
+
+.TodayAiLauncherButton:hover .TodayAiLauncher {
+    &[data-variant='island'] .TodayAiLauncher__light {
+        transform: translateX(-1.75rem) scale(1.35);
+    }
+
+    &[data-variant='grip'] .TodayAiLauncher__ribs {
+        transform: translateX(4px);
+    }
+
+    &[data-variant='halftone']::before {
+        opacity: 0.8;
+    }
+
+    &[data-variant='riso']::before,
+    &[data-variant='riso']::after {
+        transform: none;
+    }
+
+    &[data-variant='mac'] .TodayAiLauncher__face {
+        transform: translate(-1px, -1px);
+    }
+
+    &[data-variant='dither']::before {
+        transform: rotate(-24deg);
+    }
+}
+
+.TodayAiLauncherButton:active .TodayAiLauncher[data-variant='mac'] {
+    transform: none;
+
+    .TodayAiLauncher__face {
+        transform: translate(3px, 3px);
+    }
+}
+
+:is(.dark, [theme='dark']) .TodayAiLauncher[data-variant='riso']::after {
+    mix-blend-mode: screen;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .TodayAiLauncher,
+    .TodayAiLauncher *,
+    .TodayAiLauncher::before,
+    .TodayAiLauncher::after {
+        transition: none;
     }
 }
