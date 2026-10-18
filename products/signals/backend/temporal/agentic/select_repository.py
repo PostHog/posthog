@@ -9,7 +9,6 @@ from posthog.models import Organization
 from posthog.models.integration import GitHubIntegrationError
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
-from posthog.temporal.common.activity_context import current_activity_attempt
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import aretry_on_db_connection_drop, close_db_connections
@@ -63,15 +62,12 @@ def _capture_repo_research_event(
     report_id: str,
     result: str | None = None,
     failure_reason: str | None = None,
-    failure_properties: dict | None = None,
 ) -> None:
     properties: dict = {"report_id": report_id}
     if result is not None:
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
-    if failure_properties:
-        properties.update(failure_properties)
     try:
         posthoganalytics.capture(
             event=event,
@@ -179,9 +175,6 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             )
             return result
     except Exception as e:
-        failure_properties: dict = {"error_type": type(e).__name__, "attempt": current_activity_attempt()}
-        if isinstance(e, GitHubIntegrationError) and e.status_code is not None:
-            failure_properties["github_status_code"] = e.status_code
         _capture_repo_research_event(
             "signals_repo_research_completed",
             team,
@@ -189,7 +182,6 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
             input.report_id,
             result="failed",
             failure_reason="agentic_activity_error",
-            failure_properties=failure_properties,
         )
         # Permanent GitHub App auth failures (installation gone/suspended) won't recover via retry.
         if isinstance(e, GitHubIntegrationError) and e.status_code in {401, 403, 404, 410}:

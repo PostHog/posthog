@@ -11,14 +11,12 @@ from unittest.mock import AsyncMock, Mock, patch
 from django.db import OperationalError
 from django.utils import timezone
 
-import temporalio
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.models import Organization, Team, User
-from posthog.models.integration import GitHubIntegrationError
 from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
@@ -669,60 +667,6 @@ async def test_select_repository_activity_retries_transient_db_drop(monkeypatch,
 
     assert result is previous
     assert attempts["n"] == 2
-
-
-@pytest.mark.asyncio
-@pytest.mark.django_db
-@pytest.mark.parametrize(
-    "error,expected_raise,expected_properties",
-    [
-        (RuntimeError("sandbox crashed"), RuntimeError, {"error_type": "RuntimeError", "attempt": 1}),
-        (
-            GitHubIntegrationError("installation gone", status_code=404),
-            temporalio.exceptions.ApplicationError,
-            {"error_type": "GitHubIntegrationError", "attempt": 1, "github_status_code": 404},
-        ),
-    ],
-)
-async def test_select_repository_activity_failure_event_names_the_cause(
-    monkeypatch, ateam, error, expected_raise, expected_properties
-):
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
-        lambda report_id: None,
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id",
-        lambda team_id: 1,
-    )
-
-    async def failing_select_repo(*args, **kwargs):
-        raise error
-
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
-        failing_select_repo,
-    )
-    monkeypatch.setattr(
-        "products.signals.backend.temporal.agentic.select_repository.get_or_create_signals_sandbox_env",
-        lambda *args, **kwargs: "env-id",
-    )
-
-    with (
-        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
-        patch("products.signals.backend.temporal.agentic.select_repository.posthoganalytics.capture") as capture,
-        pytest.raises(expected_raise),
-    ):
-        await select_repository_activity(
-            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
-        )
-
-    completed = [c.kwargs for c in capture.call_args_list if c.kwargs["event"] == "signals_repo_research_completed"]
-    assert len(completed) == 1
-    assert completed[0]["properties"]["result"] == "failed"
-    assert completed[0]["properties"]["failure_reason"] == "agentic_activity_error"
-    for key, value in expected_properties.items():
-        assert completed[0]["properties"][key] == value
 
 
 @pytest.mark.asyncio
