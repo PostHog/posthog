@@ -7361,6 +7361,21 @@
             "readOnlyHint": false
         }
     },
+    "insight-data-checks-run": {
+        "description": "Check the events behind a saved insight for four common problems that make its numbers misleading: events from internal and test users, events from local development, bot and crawler traffic, and events sent twice. Pass the insight's numeric `id` or its 8-character `short_id`. Use it after you create or change a trends, funnel, stickiness, or lifecycle insight, and when the user asks whether an insight's numbers can be trusted. For a query that is not saved as an insight, use `query-data-checks-run`.\n\nOnly event series are checked. The `status` is `unsupported` for a SQL insight, for a series built on an action or a data warehouse table, for an insight that still stores legacy `filters`, and when a property of the project is hidden from you. It is `no_events` when no event matches the insight.\n\nEach check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix` when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to true on the query with `insight-update`. A large insight is checked on a sample: when `sample_rate` is below 1, `events_checked` and the `events` of each check count the sample only. The internal users check reads a smaller sample of its own, so its `events` is an estimate on the same scale.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Run insight data checks",
+        "title": "Run insight data checks",
+        "required_scopes": ["insight:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "insight-data-checks"
+    },
     "insight-delete": {
         "description": "Soft-delete an insight by ID. The insight will be marked as deleted and no longer appear in lists.",
         "category": "Product analytics",
@@ -10427,6 +10442,21 @@
             "readOnlyHint": true
         },
         "feature_flag": "tracing"
+    },
+    "query-data-checks-run": {
+        "description": "Run the insight data checks on a query that is not saved as an insight, such as one you are about to pass to `insight-create`. For a saved insight, use `insight-data-checks-run` with its id instead. The checks look for four common problems that make numbers misleading: events from internal and test users, events from local development, bot and crawler traffic, and events sent twice.\n\nPass the `query` in the shape an insight stores it. Only event series of a trends, funnel, stickiness, or lifecycle query are checked. The `status` is `unsupported` for a SQL query, for a series built on an action or a data warehouse table, and when a property of the project is hidden from you. It is `no_events` when no event matches the query.\n\n```json\n{ \"query\": { \"kind\": \"InsightVizNode\", \"source\": { \"kind\": \"TrendsQuery\", \"series\": [{ \"kind\": \"EventsNode\", \"event\": \"$pageview\" }], \"dateRange\": { \"date_from\": \"-30d\" } } } }\n```\n\nEach check has a `level` (`passed`, `warning`, `problem` or `skipped`), a `result` sentence, and a `fix` when it found something. When `action` is `filter_internal_users`, the fix is to set `filterTestAccounts` to true on the query. A large query is checked on a sample: when `sample_rate` is below 1, `events_checked` and the `events` of each check count the sample only. The internal users check reads a smaller sample of its own, so its `events` is an estimate on the same scale.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Run data checks on an insight query",
+        "title": "Run data checks on an insight query",
+        "required_scopes": ["insight:read", "query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "insight-data-checks"
     },
     "query-error-tracking-issue": {
         "description": "Get compact details for one Error tracking issue.\n\nUse this after `query-error-tracking-issues-list` when you have an `issueId` and need issue status, severity, name/description, first/last seen timestamps, assignee, compact impact counts, top in-app frame, and latest release metadata.\n\nDefaults are intentionally useful: last 7 days, test accounts filtered out, aggregate impact included, and no sparkline unless requested.\n\n# Parameters\n\n- `issueId`: required Error tracking issue UUID.\n- `dateRange`: time range for impact counts and latest-event metadata. Defaults to last 7 days.\n- `includeSparkline`: set true only if a trend/sparkline helps answer the user. When true, `volumeResolution` defaults to 12 if not provided.\n- `volumeResolution`: integer count of equal-width buckets across `dateRange`, from 0 to 200, when sparkline data is needed. It is not a unit such as `hour` or `day`. For daily buckets over the default 7-day range, send `7`.\n- `includeBreakdown`: set true when the user asks where, for whom, or on which platforms the issue happens. It returns the same breakdowns as the issue page, over all matching events: the most common paths (or URLs, when events have no path, as with backend SDKs), screens, browsers, OS, libraries, library versions, and app versions, each with a count, and up to 5 `$session_id` values with the most events. It covers at most the last 30 days of `dateRange`; `range_limited` is true when it covers less than you asked for. Empty dimensions are left out.\n\n# Next steps\n\nUse `query-error-tracking-issue-events` with the same `issueId` only when the user needs a concrete event, a stack trace, code variables, OpenTelemetry trace IDs, or the handled flag. Do not fetch many events to count browsers, URLs, or versions; use `includeBreakdown` instead.\n\nWhen `sample_session_ids` is not empty and the user asks what happened before the error, call `query-session-recordings-list` with `session_ids`.",

@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "string"
+                }
+            ],
+            "description": "Numeric primary key or 8-character `short_id` (for example `AaVQ8Ijw`) identifying the insight."
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}
