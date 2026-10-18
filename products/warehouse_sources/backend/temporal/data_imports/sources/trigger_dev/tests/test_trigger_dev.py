@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev import trigger_dev
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.source import TriggerDevSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.trigger_dev.trigger_dev import (
+    TriggerDevResumeConfig,
     _format_incremental_value,
     _should_stop_desc,
     resolve_base_url,
@@ -204,6 +205,27 @@ class TestRunEventsFanOut:
             "/api/v1/runs/run_a/events",
         ]
         assert result.requests[4].param("page[after]") == "run_quiet"
+
+    def test_stages_the_run_before_its_events_and_resumes_after_it(self) -> None:
+        # A full refresh appends without merging, so a resume must not replay the events of a run
+        # that was already written, even when it is in the middle of a runs page.
+        runs_page = {
+            "data": [
+                {"id": "run_b", "createdAt": "2026-01-12T00:00:00Z"},
+                {"id": "run_a", "createdAt": "2026-01-11T00:00:00Z"},
+            ],
+            "pagination": {},
+        }
+        fresh = _run("run_events", [_json(runs_page), _json({"events": [{"spanId": "s1"}]})] * 2)
+        assert [(s.after, s.last_run_id) for s in fresh.saved_states] == [(None, "run_b"), (None, "run_a")]
+
+        resumed = _run(
+            "run_events",
+            [_json(runs_page), _json({"events": [{"spanId": "s9"}]})],
+            resume_state=TriggerDevResumeConfig(after=None, last_run_id="run_b"),
+        )
+        assert [(r["_runs_id"], r["spanId"]) for r in resumed.rows] == [("run_a", "s9")]
+        assert [r.path for r in resumed.requests] == ["/api/v1/runs", "/api/v1/runs/run_a/events"]
 
 
 class TestClassicPagination:

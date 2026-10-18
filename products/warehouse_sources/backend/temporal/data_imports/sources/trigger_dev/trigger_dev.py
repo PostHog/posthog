@@ -33,6 +33,8 @@ class TriggerDevRetryableError(Exception):
 class TriggerDevResumeConfig:
     # The page[after] cursor of the page to fetch on resume. `None` means the first page.
     after: str | None = None
+    # Only the run fan-out sets this: the runs of the page at `after` up to and including this one are done.
+    last_run_id: str | None = None
 
 
 def resolve_base_url(base_url: str | None) -> str:
@@ -160,6 +162,34 @@ def validate_credentials(api_key: str, base_url: str) -> tuple[bool, str | None]
     return False, f"Trigger.dev returned an unexpected response: {response.status_code}"
 
 
+def _fetch_cursor_page(
+    session: requests.Session,
+    base_url: str,
+    headers: dict[str, str],
+    config: TriggerDevEndpointConfig,
+    logger: FilteringBoundLogger,
+    after: str | None,
+    formatted_cutoff: str | None,
+) -> tuple[list[dict[str, Any]], str | None]:
+    """Fetch one page of a cursor endpoint, returning its rows and the cursor of the next page."""
+    params: dict[str, Any] = {"page[size]": config.page_size, **config.extra_params}
+    if after is None:
+        # The createdAt filter is only sent on the first (uncursored) request. Mixing a time
+        # filter with the cursor is unverified against the live API (no credentials at build
+        # time), so we scope it to page one and bound the rest client-side via _should_stop_desc.
+        if formatted_cutoff is not None and config.created_from_param:
+            params[config.created_from_param] = formatted_cutoff
+    else:
+        params["page[after]"] = after
+
+    data = _fetch_page(session, _build_url(base_url, config.path, params), headers, logger)
+
+    items = data.get("data", []) or []
+    if config.excluded_fields:
+        items = [{k: v for k, v in item.items() if k not in config.excluded_fields} for item in items]
+    return items, (data.get("pagination", {}) or {}).get("next")
+
+
 def _iter_cursor_pages(
     session: requests.Session,
     base_url: str,
@@ -169,42 +199,21 @@ def _iter_cursor_pages(
     resumable_source_manager: ResumableSourceManager[TriggerDevResumeConfig],
     incremental_field: str | None,
     cutoff: datetime | None,
-    stage_next_cursor: bool = True,
 ) -> Iterator[list[dict[str, Any]]]:
     """Walk a cursor endpoint newest-first via page[after], yielding one list of rows per page.
 
-    The resume state is staged before the yield it covers. By default it is the next unread page, so a
-    resumed full refresh never replays a committed page. A caller whose consumer still has work to do
-    per page (the run fan-out) sets `stage_next_cursor=False` to stage the current page instead, so a
-    resume re-reads that whole page.
+    The resume state is the next unread page, staged before the yield it covers, so a resumed full
+    refresh never replays a page that was already written.
     """
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     after: str | None = resume.after if resume else None
     formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
 
     while True:
-        params: dict[str, Any] = {"page[size]": config.page_size, **config.extra_params}
-        if after is None:
-            # The createdAt filter is only sent on the first (uncursored) request. Mixing a time
-            # filter with the cursor is unverified against the live API (no credentials at build
-            # time), so we scope it to page one and bound the rest client-side via _should_stop_desc.
-            if formatted_cutoff is not None and config.created_from_param:
-                params[config.created_from_param] = formatted_cutoff
-        else:
-            params["page[after]"] = after
-
-        url = _build_url(base_url, config.path, params)
-        data = _fetch_page(session, url, headers, logger)
-
-        items = data.get("data", []) or []
-        if config.excluded_fields:
-            items = [{k: v for k, v in item.items() if k not in config.excluded_fields} for item in items]
-        next_after = (data.get("pagination", {}) or {}).get("next")
+        items, next_after = _fetch_cursor_page(session, base_url, headers, config, logger, after, formatted_cutoff)
         stop = _should_stop_desc(items, incremental_field, cutoff)
 
-        if not stage_next_cursor:
-            resumable_source_manager.save_state(TriggerDevResumeConfig(after=after))
-        elif next_after and not stop:
+        if next_after and not stop:
             resumable_source_manager.save_state(TriggerDevResumeConfig(after=next_after))
         yield items
 
@@ -229,26 +238,32 @@ def _iter_run_events(
 ) -> Iterator[list[dict[str, Any]]]:
     """Fetch the span events of each run, walking the runs endpoint as the parent.
 
-    The resume state is the cursor of the runs page being fanned out. A resumed attempt re-reads that
-    page of runs and their events, and merge dedupes the re-pulled rows.
+    The resume state is the runs page cursor plus the last run whose events were yielded, staged before
+    that yield. A resumed attempt re-reads the page and skips the runs up to that one, so a full refresh
+    never appends the events of a run twice.
     """
     runs_config = TRIGGER_DEV_ENDPOINTS["runs"]
-    for runs in _iter_cursor_pages(
-        session,
-        base_url,
-        headers,
-        runs_config,
-        logger,
-        resumable_source_manager,
-        runs_config.default_incremental_field,
-        cutoff,
-        stage_next_cursor=False,
-    ):
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    after: str | None = resume.after if resume else None
+    skip_through: str | None = resume.last_run_id if resume else None
+    formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
+
+    while True:
+        runs, next_after = _fetch_cursor_page(session, base_url, headers, runs_config, logger, after, formatted_cutoff)
+        stop = _should_stop_desc(runs, runs_config.default_incremental_field, cutoff)
+        if skip_through is not None and skip_through not in {run.get("id") for run in runs}:
+            # The run was deleted since the checkpoint, so there is nothing to skip past.
+            skip_through = None
         if not runs:
             resumable_source_manager.safe_point()
+
         for run in runs:
             run_id = run.get("id")
             if not run_id:
+                continue
+            if skip_through is not None:
+                if run_id == skip_through:
+                    skip_through = None
                 continue
             url = _build_url(base_url, config.path.format(run_id=run_id), {})
             try:
@@ -264,7 +279,14 @@ def _iter_run_events(
             if not events:
                 resumable_source_manager.safe_point()
                 continue
+            resumable_source_manager.save_state(TriggerDevResumeConfig(after=after, last_run_id=run_id))
             yield [{**event, "_runs_id": run_id, "_runs_createdAt": run.get("createdAt")} for event in events]
+
+        if stop or not next_after:
+            break
+        after = next_after
+
+    resumable_source_manager.clear_state()
 
 
 def _iter_classic_pages(
