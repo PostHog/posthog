@@ -3,7 +3,7 @@ import datetime as dt
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode, urlparse
+from urllib.parse import quote, urlencode, urlparse
 
 import jwt
 import requests
@@ -258,11 +258,7 @@ def _flatten_envelope_children(
             continue
         # Carry the parent's timestamps so the child table can be synced incrementally against
         # the same `from_date` window that produced its parent, and partitioned on a stable key.
-        parent = {
-            "envelopeId": str(envelope_id),
-            "envelopeCreatedDateTime": envelope.get("createdDateTime"),
-            "envelopeStatusChangedDateTime": envelope.get("statusChangedDateTime"),
-        }
+        parent = _envelope_parent(envelope)
 
         if endpoint.derived_from_envelopes == "recipients":
             rows.extend(_flatten_recipients(envelope, parent))
@@ -274,6 +270,42 @@ def _flatten_envelope_children(
                 rows.extend({**child, **parent} for child in children if isinstance(child, dict))
                 break
     return rows
+
+
+def _envelope_parent(envelope: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "envelopeId": str(envelope["envelopeId"]),
+        "envelopeCreatedDateTime": envelope.get("createdDateTime"),
+        "envelopeStatusChangedDateTime": envelope.get("statusChangedDateTime"),
+    }
+
+
+def _shape_envelope_sub_resource(
+    endpoint: DocusignEndpointConfig, body: dict[str, Any], parent: dict[str, Any]
+) -> list[dict[str, Any]]:
+    if endpoint.envelope_sub_resource == "form_data":
+        return [{**body, **parent}]
+
+    if endpoint.envelope_sub_resource == "audit_events":
+        rows: list[dict[str, Any]] = []
+        for index, event in enumerate(body.get("auditEvents") or []):
+            if not isinstance(event, dict):
+                continue
+            # Each event arrives as a list of name/value pairs (logTime, Action, UserName, ...).
+            fields = {
+                str(item["name"]): item.get("value")
+                for item in event.get("eventFields") or []
+                if isinstance(item, dict) and item.get("name")
+            }
+            rows.append({**fields, **parent, "eventIndex": index})
+        return rows
+
+    # DocuSign can list a template once per envelope document it supplied; keep one row per template.
+    templates: dict[str, dict[str, Any]] = {}
+    for template in body.get("templates") or []:
+        if isinstance(template, dict) and template.get("templateId"):
+            templates.setdefault(str(template["templateId"]), {**template, **parent})
+    return list(templates.values())
 
 
 def get_rows(
@@ -304,9 +336,11 @@ def get_rows(
             start_position = resume.start_position
             logger.debug(f"Resuming DocuSign {endpoint_name} from start_position={start_position}")
 
-    def request_page(position: int) -> dict[str, Any]:
+    def request(path: str, params: dict[str, str]) -> dict[str, Any]:
         nonlocal token
-        url = f"{account.base_url}{endpoint.path}?{urlencode(_build_params(endpoint, position, from_date))}"
+        url = f"{account.base_url}{path}"
+        if params:
+            url = f"{url}?{urlencode(params)}"
 
         def _do() -> requests.Response:
             return api_session.get(url, headers={"Authorization": f"Bearer {token}"}, timeout=REQUEST_TIMEOUT_SECONDS)
@@ -325,12 +359,29 @@ def get_rows(
         return body if isinstance(body, dict) else {}
 
     for _ in range(MAX_PAGES):
-        body = request_page(start_position)
+        body = request(endpoint.path, _build_params(endpoint, start_position, from_date))
         page = [item for item in (body.get(endpoint.data_key) or []) if isinstance(item, dict)]
 
-        rows = _flatten_envelope_children(endpoint, page) if endpoint.derived_from_envelopes else page
-        if rows:
-            yield rows
+        if endpoint.envelope_sub_resource:
+            for envelope in page:
+                if not envelope.get("envelopeId"):
+                    continue
+                parent = _envelope_parent(envelope)
+                sub_resource_path = (
+                    f"{endpoint.path}/{quote(parent['envelopeId'], safe='')}/{endpoint.envelope_sub_resource}"
+                )
+                sub_rows = _shape_envelope_sub_resource(
+                    endpoint, request(sub_resource_path, endpoint.envelope_sub_resource_params), parent
+                )
+                if sub_rows:
+                    yield sub_rows
+                else:
+                    # The staged cursor is the start of this page, so resuming re-reads it whole.
+                    resumable_source_manager.safe_point()
+        else:
+            rows = _flatten_envelope_children(endpoint, page) if endpoint.derived_from_envelopes else page
+            if rows:
+                yield rows
 
         if not endpoint.supports_pagination or not page or not _has_next_page(body, page):
             break
