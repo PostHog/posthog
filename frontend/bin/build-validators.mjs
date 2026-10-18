@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import Ajv from 'ajv'
-import standaloneCode from 'ajv/dist/standalone/index.js'
+import { Validator } from 'ata-validator'
+import { toStandaloneModule } from 'ata-validator/aot'
 import fs from 'fs'
 
 const inputPath = 'src/queries/schema.json'
@@ -8,20 +8,6 @@ const outputPath = 'src/queries/validators.js'
 
 // Load the schema
 const schema = JSON.parse(fs.readFileSync(inputPath, 'utf-8'))
-
-// Create AJV instance and compile schemas
-const ajv = new Ajv({
-    allowUnionTypes: true,
-    code: { source: true, esm: true },
-    // `discriminator` is an OpenAPI keyword used by ts-json-schema-generator (and consumed
-    // by datamodel-codegen to emit Pydantic `Field(discriminator=...)`). It carries routing
-    // information for union types, not validation rules — declare it as a no-op so ajv's
-    // strict mode doesn't reject schemas that use it.
-    keywords: [{ keyword: 'discriminator' }],
-})
-
-// Add the main schema
-ajv.addSchema(schema)
 
 // Define the validators we need
 const validators = [
@@ -32,18 +18,34 @@ const validators = [
     'ExperimentMetric',
 ]
 
-// Compile validators - standaloneCode needs the schema references, not the compiled functions
-const schemaRefs = {}
-for (const name of validators) {
-    schemaRefs[name] = `#/definitions/${name}`
-}
+// Each validator is compiled to a module that imports nothing. schema-guards.ts only reads
+// the boolean, so `abortEarly` leaves the error messages out. `discriminator` (an OpenAPI
+// keyword from ts-json-schema-generator, consumed by datamodel-codegen) carries no
+// validation rules; ata treats unknown keywords as annotations, so it needs no declaration.
+const MODULE_EXPORTS =
+    /\nexport \{ validate, isValid, schemaHash, ataVersion \};\nexport default \{ validate, isValid, schemaHash, ataVersion \};\n$/
 
-// Generate standalone code
-const moduleCode = standaloneCode(ajv, schemaRefs)
+let banner = ''
+const blocks = validators.map((name) => {
+    const source = toStandaloneModule(new Validator({ ...schema, $ref: `#/definitions/${name}` }), { abortEarly: true })
+    // Fail the build rather than write a file that does not export what schema-guards.ts calls.
+    if (!MODULE_EXPORTS.test(source)) {
+        throw new Error(`build-validators: unexpected module shape from ata-validator for ${name}`)
+    }
+    const lines = source.replace(MODULE_EXPORTS, '').split('\n')
+    // The module's leading comments name the ata version that wrote it. Keep them once.
+    const comments = []
+    while (lines[0].startsWith('//')) {
+        comments.push(lines.shift())
+    }
+    banner = comments.join('\n')
+    // Each module in a function of its own, so the five share one file without name clashes.
+    return `export const ${name} = /* @__PURE__ */ (() => {\n${lines.join('\n')}\nreturn isValid\n})()\n`
+})
 
 // Write the output
 const output = `// AUTO-GENERATED FILE - DO NOT EDIT DIRECTLY
-${moduleCode}
-`
+${banner}
+${blocks.join('\n')}`
 
 fs.writeFileSync(outputPath, output)

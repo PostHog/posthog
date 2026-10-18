@@ -342,6 +342,7 @@
         "@types/testing-library__jest-dom": "^5.14.5",
         "@types/zxcvbn": "^4.4.0",
         "ajv": "^8.20.0",
+        "ata-validator": "^1.56.0",
         "caniuse-lite": "^1.0.30001689",
         "concurrently": "catalog:",
         "esbuild-visualizer": "^0.6.0",
