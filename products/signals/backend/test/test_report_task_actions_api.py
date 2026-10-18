@@ -10,7 +10,7 @@ from products.signals.backend.report_task_actions import (
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
 )
-from products.tasks.backend.logic.services.code_usage_gate import organization_deactivated_response
+from products.tasks.backend.facade.access import compute_quota_limit_response
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -99,7 +99,7 @@ class TestReportTaskActionsAPI(APIBaseTest):
         task = Task.objects.get(id=body["task_id"])
         run = TaskRun.objects.get(id=body["run_id"])
         assert task.signal_report_id == report.id
-        assert task.title == report.title.strip()[:255]
+        assert task.title == ("Checkout fails " * 20).strip()[:255]
         assert task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         assert task.repository is None
         assert run.mode == "background"
@@ -177,9 +177,7 @@ class TestReportTaskActionsAPI(APIBaseTest):
     ) -> None:
         report = self._report(prompts=["Why does checkout fail?"])
 
-        with patch(
-            "products.signals.backend.views.usage_limit_response", return_value=organization_deactivated_response()
-        ):
+        with patch("products.signals.backend.views.usage_limit_response", return_value=compute_quota_limit_response()):
             response = self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0})
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
