@@ -1,6 +1,7 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
+import { classifyAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import {
@@ -181,7 +182,11 @@ export class StateManager {
             }
             // A failed refresh must not end a live session. Every API call is authorized again
             // server-side, so the last known scopes cannot grant access the key does not hold.
-            this._reportException(error, 'api_key_refresh_failed')
+            // A rejected credential is an expected outcome, not a fault, so only report other failures.
+            const { reason } = classifyAuthFailure(error)
+            if (reason !== 'invalid_api_key' && reason !== 'inactive_oauth_token') {
+                this._reportException(error, 'api_key_refresh_failed')
+            }
             await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
             return cached
         }

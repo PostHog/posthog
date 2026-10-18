@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
-import { PostHogApiError } from '@/lib/errors'
+import { ErrorCode, PostHogApiError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -202,19 +202,27 @@ describe('StateManager', () => {
             }
         )
 
-        it('keeps the cached scopes when a refresh fails', async () => {
+        it.each([
+            { label: 'an outage', error: new Error('API unreachable'), reported: true },
+            { label: 'a rejected key', error: new Error(ErrorCode.INVALID_API_KEY), reported: false },
+            { label: 'an inactive token', error: new Error(ErrorCode.INACTIVE_OAUTH_TOKEN), reported: false },
+        ])('keeps the cached scopes when a refresh fails from $label', async ({ error, reported }) => {
             vi.useFakeTimers()
             try {
                 const current = vi
                     .fn()
                     .mockResolvedValueOnce({ success: true, data: mockApiKey })
-                    .mockRejectedValue(new Error('API unreachable'))
+                    .mockRejectedValue(error)
                 const api = { config: { apiToken: 'phx_test' }, apiKeys: () => ({ current }) } as unknown as ApiClient
 
                 await new StateManager(cache, api).getApiKey()
                 vi.advanceTimersByTime(3 * 60 * 1000)
 
-                expect((await new StateManager(cache, api).getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                const stateManager = new StateManager(cache, api)
+                const reportSpy = vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
+
+                expect((await stateManager.getApiKey()).scopes).toEqual(mockApiKey.scopes)
+                expect(reportSpy).toHaveBeenCalledTimes(reported ? 1 : 0)
             } finally {
                 vi.useRealTimers()
             }
