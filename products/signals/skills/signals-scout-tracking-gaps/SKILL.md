@@ -38,6 +38,12 @@ A gap with no anchor is memory.
 An anchor with no locatable fix is memory too, unless the fix is a PostHog setting (see "Config-only fixes").
 The best report reads as a fix for a problem the team already has, not as a request to add tracking.
 
+**An anchor counts when people read it.**
+Saved insights are cheap to make, and agents create and edit many of them, so an edit date proves nothing.
+Check `insights-trending-retrieve` (`days=30`, a high `limit`): an insight in that list, or on a dashboard with one that is, is strong demand.
+An insight that nobody opened in 30 days is weak demand, however recent its edit.
+A live inbox report, and a validation check that recorded `unmeasurable`, are strong anchors on their own, because a person or the fleet is waiting for the data.
+
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`).
 The harness prompt carries the report-channel contract; this body adds only the tracking-gaps framing.
 
@@ -51,7 +57,7 @@ Its row says that the project captured events in the last 7 days, so skip step 1
 2. Read `pattern:tracking_gaps:last_sweep` with an exact `key=` read.
    Each anchor family has a sweep date in it. When every family was swept in the last 7 days and nothing named in "Fresh inputs" below is newer than its sweep, close out and say which family is due next.
 
-Fresh inputs that justify a sweep before 7 days: a new or edited saved insight or action, a new experiment or flag rollout change, a newly assigned error issue, an inbox report or scout run that mentions missing data, and a merge after `cursor:tracking_gaps:<owner/repo>`.
+Fresh inputs that justify a sweep before 7 days: a new or edited saved insight or action, a new experiment or flag rollout change, a newly assigned error issue, an inbox report, scout run, or validation check that could not measure something, and a merge after `cursor:tracking_gaps:<owner/repo>`.
 
 ## Get oriented
 
@@ -81,7 +87,11 @@ This family gives the most precise findings and the smallest fixes.
   Search for a code event that already records the outcome. When one exists, it is a config-only fix. When none exists, the fix is an event at the success path, server-side for money and access.
 - **A property that some call sites drop.** A property sits on 5% to 95% of an event, and a saved insight breaks down or filters by it.
 
-Strong demand: several insights rebuild the same thing, an insight sits on a dashboard or was edited in the last 90 days, or a running experiment uses the proxy.
+Measure each proxy against the real data on the same scope: the same pages, surface, and filters.
+Two counts with different scopes always disagree, and that difference is not an error.
+The strongest finding here is a proxy that is wrong today on a dashboard people read, for example a pageview proxy that misses a surface where the action now happens without a URL change.
+File it even when the fix is a setting.
+A URL proxy that is accurate today (the route itself encodes the value) is a weak finding: keep it as a `watch:` entry unless readers or a running experiment depend on it.
 
 ### 2. Owned problems nobody can diagnose
 
@@ -90,7 +100,13 @@ Strong demand: several insights rebuild the same thing, an insight sits on a das
   API, SDK, job, and webhook traffic has no browser session by design. Split by request path before you call a missing session a gap.
   Check person, group, session, and domain context separately, because a clean session check says nothing about identity. Say in the close-out which of the four you checked.
   Missing identity is a gap when the team relies on who an issue hits (an alert or a triage rule on affected users, an issue sorted by reach) or when the user id is already in the event as a plain property and only the distinct id is missing.
-- **A report or scout run that could not measure.** An inbox report, a scout run summary, or a PR follow-up verdict says that a claim could not be checked because no event exists (`scout-runs-list` across the fleet with `text` set to `cannot measure`, `no event`, `not tracked`, or `unmeasurable`).
+- **A failure outcome with one reason.** An outcome event records failures (`result=failed`, `status=error`, a `*_failed` event) with no reason, or with one constant reason, so nobody can split the failures by cause ("Failure events with one reason" in the queries).
+  First check that the cause is not stored under another property name (`kind`, `error_name`, `error_message`).
+  The fix usually sits in the `except` block that captures the event, where the exception is in scope: add its class, the attempt, and the step that failed.
+  When a Temporal workflow catches an `ActivityError`, the real failure is its `activity_type` and `cause`, not `str(e)`.
+- **A report or check that could not measure.** An inbox report, a scout run summary, or a PR follow-up verdict says that a claim could not be checked because no event exists.
+  Read `system.inbox_report_checks` where `last_outcome_reason = 'unmeasurable'`, and search fleet runs (`scout-runs-list`, `text` set to `unmeasurable`, `cannot be measured`, `no event`).
+  Most of these are database or infrastructure claims that product events cannot measure; keep only the ones a product event or property would settle.
 - **A silent failure.** A failure path in a flow people depend on reaches neither analytics nor error tracking (a catch that only shows a toast, a failed request nobody captures), while replays show retries or rage clicks at that point.
   Frame the fix as making the failure visible, and capture the failure where it happens.
 
@@ -123,7 +139,8 @@ These find where to look. They never justify a report on their own.
 ## Config-only fixes
 
 Some gaps close in PostHog, not in code: a better event already exists, so the insights or the experiment should point at it.
-File these only when the error is material (the proxy and the real event disagree by a quarter or more) and the anchor is in active use.
+File these only when the error is material (the proxy and the real event disagree by a quarter or more on the same scope) and people read the anchor.
+Give the exact replacement series or filter, and route the report to the insight's creator.
 Mark them `requires_human_input` with the exact insights and the replacement, and set `repository` to `NO_REPO`.
 
 ## Save memory as you go
@@ -164,7 +181,7 @@ Set the report fields this way:
 - **No anchor.** New code, a route, or a flow with no event, and nobody measuring or asking. Memory only.
 - **The data exists.** The event or property is already captured (check synonyms and wrappers: an internal `track()` helper, Segment or RudderStack `analytics.track`, a forwarded CDP event). At most a config-only note.
 - **Autocapture covers it.** Pageviews, clicks, form submits, and rage clicks, unless `autocapture_opt_out` is on.
-- **Partial by design.** API, SDK, job, and webhook traffic has no browser session. Internal tools, admin pages, tests, and generated or vendored code are out of scope.
+- **Partial by design.** API, SDK, job, and webhook traffic has no browser session. A property that only some events can carry (an origin set only on the app's own records, an optional form field) has a low fill rate by design: read how the insights use it, because an insight that filters to specific values works. Internal tools, admin pages, tests, and generated or vendored code are out of scope.
 - **Deliberate removals.** A collapse whose UI or handler went with the capture call.
 - **Low traffic.** An experiment or flow that is short of users, not short of data.
 - **Personal or secret data.** Never propose a property that holds an email, a name, free text, a token, or a URL with query parameters. Propose ids and enum values.
@@ -185,6 +202,7 @@ When in doubt, write an `anchor:` or `watch:` entry, not a report.
 
 - `project-get`, `read-data-schema`, `execute-sql` over `events` and `system.insights`, `system.actions`, `system.experiments`, `system.feature_flags`, `system.error_tracking_issues`, `system.error_tracking_issue_assignments`: the anchor sweeps in `references/queries.md`.
 - `experiment-get`: an experiment's metric events and filters.
+- `insights-trending-retrieve`: the insights people read, with view counts and their dashboards.
 - `query-error-tracking-issues-list`: issue reach and status.
 - `integrations-list`, `integrations-github-repos-retrieve`, and the read-only `gh` CLI: the repository ladder.
 - `inbox-reports-list` / `inbox-reports-retrieve`: reports already in the inbox, so you edit instead of duplicating.

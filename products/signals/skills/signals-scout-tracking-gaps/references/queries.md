@@ -96,16 +96,42 @@ An action with a code event among its steps is not a proxy.
 SELECT
   toStartOfWeek(timestamp) AS week,
   countIf(matchesAction({action_id})) AS proxy,
-  countIf(event = {event}) AS code_event
+  countIf(event = {event} {same_scope_filter}) AS code_event_same_scope
 FROM events
-WHERE timestamp > now() - INTERVAL 84 DAY
+WHERE timestamp > now() - INTERVAL 42 DAY
   AND event IN ('$autocapture', '$pageview', {event})
 GROUP BY week
 ORDER BY week
 ```
 
-Add a host filter (`properties.$host = '<host>'`) on a project with several sites.
-A gap of a quarter or more, week after week, makes a config-only fix worth a report.
+`{same_scope_filter}` repeats the proxy's own scope on the code event: the URL or path the action's steps match (`AND properties.$pathname LIKE '%/newsletter%'`), the host, the surface.
+Without it the code event counts every page and the two numbers always disagree.
+A gap of a quarter or more on the same scope, week after week, makes a config-only fix worth a report.
+
+### Real events against a URL proxy
+
+A pageview or URL-filtered proxy misses every view that happens without a URL change (an inline player, a modal, a side panel).
+Count the real event split by the page it happened on, and how many of those carried the URL marker the proxy needs:
+
+```sql
+SELECT
+  {page_bucket_expression} AS surface,
+  count() AS events,
+  uniq(person_id) AS people,
+  countIf(properties.$current_url LIKE '%{url_marker}%') AS with_url_marker
+FROM events
+WHERE event = {event} AND timestamp > now() - INTERVAL 1 DAY
+GROUP BY surface
+ORDER BY events DESC
+```
+
+A surface where `with_url_marker` is near zero is a surface the proxy cannot see.
+
+### Is the anchor read?
+
+`insights-trending-retrieve` (`days=30`, `limit=100`) returns the insights people open, with `view_count`, `viewers`, and `dashboards`.
+An anchor in that list, or on a dashboard listed with one that is, has readers.
+`insight-get` returns `last_viewed_at` for the caller only, so it cannot show readership.
 
 ### Synonym search
 
@@ -175,6 +201,57 @@ Request-scoped exceptions that carry random ids and no group, on a product with 
 Two causes are common: the exception is captured outside the request's analytics context, or the request authenticates in the view (API keys, tokens) after the middleware that sets the identity has run.
 Read where the identity is set and where the exception is captured before you propose the fix.
 Read the group types from `system.group_type_mappings` (confirm its columns first) and use the `$group_<index>` column of the type you check.
+
+### Failure events with one reason
+
+```sql
+SELECT
+  event,
+  uniq(coalesce(toString(properties.failure_reason), toString(properties.error_type), toString(properties.error), toString(properties.reason), '')) AS distinct_reasons,
+  any(coalesce(toString(properties.failure_reason), toString(properties.error_type), toString(properties.error), toString(properties.reason), '')) AS sample_reason,
+  count() AS failures
+FROM events
+WHERE timestamp > now() - INTERVAL 7 DAY
+  AND event NOT LIKE '$%'
+  AND (toString(properties.result) IN ('failed', 'error', 'failure')
+    OR toString(properties.status) IN ('failed', 'error', 'failure')
+    OR toString(properties.outcome) IN ('failed', 'error', 'failure')
+    OR event ILIKE '%failed%')
+GROUP BY event
+HAVING failures >= 50
+ORDER BY distinct_reasons ASC, failures DESC
+LIMIT 25
+```
+
+A row with `distinct_reasons` of 0 or 1 is a candidate.
+Before you call it a gap, list the event's error-like keys, because the cause may sit under another name:
+
+```sql
+SELECT event, groupUniqArray(key) AS error_like_keys
+FROM (
+  SELECT event, arrayJoin(arrayFilter(k -> match(lower(k), '(err|fail|reason|exception|code|message|cause|kind)') AND NOT startsWith(k, '$'), JSONExtractKeys(properties))) AS key
+  FROM events
+  WHERE timestamp > now() - INTERVAL 1 DAY AND event IN ({candidate_events})
+)
+GROUP BY event
+```
+
+Then find the demand: saved insights that read the event (`position(toString(query), '"<event>"') > 0` on `system.insights`), and whether people read them.
+
+### Checks that could not measure
+
+```sql
+SELECT toDate(c.last_run_at) AS checked, c.title AS check_title, c.rationale, r.title AS report, r.status AS report_status
+FROM system.inbox_report_checks AS c
+LEFT JOIN system.inbox_reports AS r ON c.report_id = r.id
+WHERE c.last_outcome = 'inconclusive'
+  AND c.last_outcome_reason IN ('unmeasurable', 'needs_manual_verification')
+  AND c.last_run_at > now() - INTERVAL 45 DAY
+ORDER BY c.last_run_at DESC
+LIMIT 50
+```
+
+Keep the checks whose rationale names a missing product event or property ("no event counts", "no event separates", "no property records"). Database, query-plan, and deploy claims are out of scope.
 
 ## Family 3: decisions waiting on data
 
