@@ -205,6 +205,16 @@ def save_recovery_bookkeeping(save_fn: Callable[[], None], *, cohort_id: int, te
             capture_exception(retry_error, additional_properties={"cohort_id": cohort_id, "team_id": team_id})
 
 
+def _schedule_cohort_stats_collection(task: Any, args: list[Any], *, countdown: int, cohort_id: int) -> Any:
+    """Queue the optional stats task. A broker failure must not fail the cohort calculation."""
+    try:
+        return task.apply_async(args=args, countdown=countdown)
+    except Exception as e:
+        logger.warning("cohort_stats_collection_schedule_failed", cohort_id=cohort_id, exc_info=True)
+        capture_exception(e, additional_properties={"cohort_id": cohort_id})
+        return None
+
+
 def run_cohort_query(
     fn, *args, cohort_id: int, history: CohortCalculationHistory | None = None, query: str | None = None, **kwargs
 ):
@@ -241,9 +251,11 @@ def run_cohort_query(
         # Schedule delayed task to collect stats after query_log_archive is synced
         # Only if we have a history record to update and not in test mode
         if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
-            delayed_task = collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+            delayed_task = _schedule_cohort_stats_collection(
+                collect_cohort_query_stats,
+                [cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
                 countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                cohort_id=cohort_id,
             )
 
     try:
@@ -253,13 +265,19 @@ def run_cohort_query(
         # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
         # This avoids waiting the full timeout when the query completed quickly
         if delayed_task and history and query and not settings.TEST:
-            if delayed_task.state in ["PENDING", "RECEIVED"]:
-                delayed_task.revoke()  # Cancel the delayed task
+            try:
+                if delayed_task.state in ["PENDING", "RECEIVED"]:
+                    delayed_task.revoke()  # Cancel the delayed task
+            except Exception as e:
+                logger.warning("cohort_stats_collection_revoke_failed", cohort_id=cohort_id, exc_info=True)
+                capture_exception(e, additional_properties={"cohort_id": cohort_id})
 
             # Run immediately since the query already completed
-            collect_cohort_query_stats.apply_async(
-                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+            _schedule_cohort_stats_collection(
+                collect_cohort_query_stats,
+                [cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
                 countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
+                cohort_id=cohort_id,
             )
 
         return result, end_time
