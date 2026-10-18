@@ -40,7 +40,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.slack_auth import write_auth_state_ok
@@ -146,6 +146,9 @@ class TestParsePosthogResourceLink:
             ("notebook", "https://us.posthog.com/project/42/notebooks/Xy12", "notebook", "Xy12"),
             ("flag", "https://us.posthog.com/project/42/feature_flags/412", "flag", "412"),
             ("inbox_report", f"https://us.posthog.com/project/42/inbox/reports/{_TASK_ID}", "report", _TASK_ID),
+            ("inbox_report_short", f"https://us.posthog.com/project/42/inbox/{_TASK_ID}", "report", _TASK_ID),
+            ("inbox_scout", "https://us.posthog.com/project/42/inbox/scouts/signals-scout-general", None, None),
+            ("inbox_scouts_tab", "https://us.posthog.com/project/42/inbox/scouts", None, None),
             ("insight_new", "https://x.com/project/1/insights/new", None, None),
             (
                 "adhoc_insight",
@@ -886,14 +889,32 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 report = SignalReport.objects.create(
                     team=self.team,
                     title="Checkout drop",
-                    summary="Fewer orders",
+                    summary="Fewer orders since the **release**.\n\n## Evidence\n\nSee [the chart](chart://c1).",
                     status=SignalReport.Status.IN_PROGRESS,
                 )
+                SignalReportArtefact.objects.create(
+                    team=self.team,
+                    report=report,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    content=json.dumps({"priority": "P1"}),
+                )
+                with team_scope(self.team.pk):
+                    SignalReportAssignment.objects.create(
+                        team_id=self.team.pk,
+                        report_id=report.id,
+                        pr_url="https://github.com/PostHog/posthog/pull/7",
+                        repository="posthog/posthog",
+                        pr_number=7,
+                        pr_state=SignalReportAssignment.PrState.OPEN,
+                    )
                 return f"{base}/inbox/reports/{report.pk}", [
                     "Checkout drop",
                     "*In progress*",
+                    "P1 priority",
                     "0 signals",
-                    "Fewer orders",
+                    "Pull request open",
+                    "Fewer orders since the release.",
+                    "View pull request",
                 ]
         raise ValueError(kind)
 

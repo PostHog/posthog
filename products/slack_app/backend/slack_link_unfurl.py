@@ -52,8 +52,12 @@ from products.feature_flags.backend.facade.filters import condition_rollout_perc
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
-from products.signals.backend.models import SignalReport
+from products.signals.backend.artefact_schemas import priority_from_judgment
+from products.signals.backend.briefing_reports import summary_lead
+from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports, primary_pull_request
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportAssignment
 from products.signals.backend.report_access import may_read_reports
+from products.signals.backend.report_lifecycle import effective_report_status
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.link_unfurl_charts import (
     UNFURL_IMAGE_ASSET_TTL,
@@ -234,7 +238,11 @@ def parse_posthog_resource_link(url: str) -> ObjectRef | None:
     artifact_ref = _task_artifact_ref(url)
     if artifact_ref is not None:
         return ObjectRef(kind=TASK_ARTIFACT_KIND, id=artifact_ref.artifact_id or artifact_ref.name or "")
-    return object_ref_for_url(url, _UNFURL_TEMPLATES)
+    ref = object_ref_for_url(url, _UNFURL_TEMPLATES)
+    # Scout pages such as `/inbox/scouts/<name>` share the `/inbox/<tab>/<id>` shape. Only a report id is a uuid.
+    if ref is not None and ref.kind == "report" and _uuid(ref.id) is None:
+        return None
+    return ref
 
 
 def _extract_query_source_kind(query: dict) -> str | None:
@@ -1063,6 +1071,18 @@ def _error_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipR
     )
 
 
+def _report_priority(report: SignalReport) -> str | None:
+    content = (
+        SignalReportArtefact.objects.filter(
+            team_id=report.team_id, report=report, type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
+        )
+        .order_by("-created_at")
+        .values_list("content", flat=True)
+        .first()
+    )
+    return priority_from_judgment(content)
+
+
 def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     report = (
         SignalReport.objects.filter(team_id=ctx.team.pk, pk=ref).exclude(status=SignalReport.Status.DELETED).first()
@@ -1073,13 +1093,21 @@ def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
         return "not_found"
     if not may_read_reports(user=ctx.user, team=ctx.team):
         return "no_access"
+    priority = _report_priority(report)
+    prs = fetch_implementation_prs_for_reports([str(report.id)], team_id=ctx.team.pk).get(str(report.id))
+    pr = primary_pull_request(prs) if prs else None
     return _UnfurlCard(
         label="Inbox report",
         title=report.title or "Untitled report",
-        status=_humanize(report.status),
-        details=(_count(report.signal_count, "signal"),),
-        body=report.summary,
+        status=_humanize(effective_report_status(report.status, team_id=ctx.team.pk)),
+        details=(
+            *((f"{priority} priority",) if priority else ()),
+            _count(report.signal_count, "signal"),
+            *((f"Pull request {pr.state}",) if pr and pr.state != SignalReportAssignment.PrState.UNKNOWN else ()),
+        ),
+        body=summary_lead(report.summary, _MAX_BODY_CHARS),
         timestamp=report.updated_at,
+        button=_CardButton(label="View pull request", url=pr.url) if pr else None,
     )
 
 
