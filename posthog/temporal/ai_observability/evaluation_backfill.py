@@ -21,7 +21,6 @@ from django.utils import timezone
 
 import structlog
 import temporalio
-from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ChildWorkflowError, WorkflowAlreadyStartedError, is_cancelled_exception
 from temporalio.workflow import ParentClosePolicy
@@ -43,7 +42,6 @@ from posthog.temporal.ai_observability.run_aggregate_evaluation import (
 )
 from posthog.temporal.ai_observability.run_evaluation import WorkflowResult
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.client import async_connect
 
 from products.ai_observability.backend.backfill_candidates import count_backfill_candidates, fetch_backfill_candidates
 from products.ai_observability.backend.models.evaluation_backfill import (
@@ -287,18 +285,6 @@ def _child_outcome(result: WorkflowResult) -> ChildOutcome:
     ):
         return ChildOutcome.RETRYABLE
     return ChildOutcome.SKIPPED
-
-
-@temporalio.activity.defn
-async def existing_backfill_child_outcome_activity(child: ChildWorkflow) -> ChildOutcome:
-    client = await async_connect()
-    handle = client.get_workflow_handle(child.workflow_id, result_type=WorkflowResult)
-    if (await handle.describe()).status == WorkflowExecutionStatus.RUNNING:
-        return ChildOutcome.EXISTING
-    try:
-        return _child_outcome(await handle.result())
-    except WorkflowFailureError:
-        return ChildOutcome.RETRYABLE
 
 
 def child_workflow_name_and_id(
@@ -736,7 +722,6 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
         if advance.finished:
             await self._measure_remainder(inputs)
             return
-        await temporalio.workflow.sleep(BACKFILL_TICK_INTERVAL)
         temporalio.workflow.continue_as_new(
             replace(
                 inputs,
@@ -766,16 +751,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             try:
                 handle = await self._start_child_handle(inputs, tick, candidate)
             except WorkflowAlreadyStartedError:
-                outcome = await temporalio.workflow.execute_activity(
-                    existing_backfill_child_outcome_activity,
-                    child,
-                    start_to_close_timeout=ACTIVITY_TIMEOUT,
-                    schedule_to_close_timeout=ACTIVITY_SCHEDULE_TO_CLOSE,
-                    retry_policy=ACTIVITY_RETRY_POLICY,
-                )
-                if outcome != ChildOutcome.RETRYABLE:
-                    return BackfillChildOutcome(outcome=ChildOutcome.EXISTING)
-                handle = await self._start_child_handle(inputs, tick, candidate, retry_completed=True)
+                return BackfillChildOutcome(outcome=ChildOutcome.EXISTING)
             started = True
             started_units.append(candidate.unit_id)
             result = await asyncio.shield(handle)
@@ -903,8 +879,6 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
         inputs: EvaluationBackfillInputs,
         tick: PrepareTickOutput,
         candidate: CandidatePayload,
-        *,
-        retry_completed: bool = False,
     ) -> temporalio.workflow.ChildWorkflowHandle[Any, WorkflowResult]:
         unit_id = candidate.unit_id
         child = child_workflow_name_and_id(
@@ -949,11 +923,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             args,
             id=child.workflow_id,
             task_queue=settings.LLMA_EVALS_TASK_QUEUE,
-            id_reuse_policy=(
-                WorkflowIDReusePolicy.ALLOW_DUPLICATE
-                if retry_completed
-                else WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY
-            ),
+            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
             parent_close_policy=ParentClosePolicy.ABANDON,
             execution_timeout=CHILD_EXECUTION_TIMEOUT,
         )
