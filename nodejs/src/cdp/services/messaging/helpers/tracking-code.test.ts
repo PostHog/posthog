@@ -1,6 +1,12 @@
 import { defaultConfig } from '~/common/config/config'
+import { UUIDT } from '~/common/utils/utils'
 
-import { EmailTrackingCodeSigner, hasEmailSigningKey, trackingCodeMintCounter } from './tracking-code'
+import {
+    EmailTrackingCodeSigner,
+    LEGACY_REDIRECT_CUTOFF_MS,
+    hasEmailSigningKey,
+    trackingCodeMintCounter,
+} from './tracking-code'
 
 const TRACKING_URL = 'http://localhost:8010'
 
@@ -381,14 +387,21 @@ describe('email tracking code', () => {
         })
 
         // Links minted before `ph_sig` carry only a signed ph_id.
-        it('accepts a legacy link with a signed ph_id and no ph_sig', () => {
-            expect(signer.verifyRedirect(signer.generate(invocation), 'https://example.com/', undefined)).toBe(true)
+        it('accepts a legacy link whose invocation predates the cutoff', () => {
+            const code = signer.generate({ ...invocation, id: new UUIDT(LEGACY_REDIRECT_CUTOFF_MS - 1).toString() })
+            expect(signer.verifyRedirect(code, 'https://example.com/', undefined)).toBe(true)
         })
 
+        // Every email carries a signed ph_id in its pixel, so a fresh one must not open the legacy path.
         it.each([
             { name: 'no ph_id', code: undefined },
             { name: 'an unsigned ph_id', code: encodeRaw('fn:inv:1:::') },
             { name: 'a ph_id with a forged signature', code: `${encodeRaw('fn:inv:1:::')}.${'A'.repeat(22)}` },
+            {
+                name: 'a signed ph_id minted today',
+                code: signer.generate({ ...invocation, id: new UUIDT().toString() }),
+            },
+            { name: 'a signed ph_id whose invocation id is no uuid', code: signer.generate(invocation) },
         ])('rejects a link without ph_sig and with $name', ({ code }) => {
             expect(signer.verifyRedirect(code, 'https://evil.example/', undefined)).toBe(false)
         })

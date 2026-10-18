@@ -253,18 +253,30 @@ export class EmailTrackingCodeSigner {
         return `${this.trackingUrl}/public/m/redirect?ph_id=${code}&target=${encodeURIComponent(targetUrl)}&ph_sig=${sig}`
     }
 
-    // Whether the redirect endpoint may send the request to `target`. Links minted before `ph_sig`
-    // existed are still in inboxes and carry only a signed `ph_id`: accept those, but never a
-    // missing or unsigned one, which anybody can build.
+    // Whether the redirect endpoint may send the request to `target`. Links without `ph_sig` are
+    // still in inboxes from before production stopped wrapping anchors. Every email carries a signed
+    // `ph_id` in its pixel, so a signed code alone proves nothing: accept it only when its invocation
+    // was created before that cutoff, which nobody can mint today.
     verifyRedirect(code: unknown, target: unknown, sig: unknown): boolean {
         if (typeof code !== 'string' || typeof target !== 'string' || !target) {
             return false
         }
         if (sig === undefined) {
-            return this.parse(code)?.format === 'signed'
+            const parsed = this.parse(code)
+            return parsed?.format === 'signed' && uuidTimeMs(parsed.invocationId) < LEGACY_REDIRECT_CUTOFF_MS
         }
         return typeof sig === 'string' && this.verifySignature(redirectPayload(code, target), sig)
     }
+}
+
+// Production wrapped anchors in our redirect until #75097 (merged 2026-08-11); a few days of margin
+// for the deploy. Once emails older than this stop being clicked, the fallback can go.
+export const LEGACY_REDIRECT_CUTOFF_MS = Date.parse('2026-08-15T00:00:00Z')
+
+// Invocation ids are UUIDT or UUIDv7, both with the unix time in ms in the first 48 bits.
+function uuidTimeMs(id: string): number {
+    const hex = id.replace(/-/g, '').slice(0, 12)
+    return /^[0-9a-f]{12}$/i.test(hex) ? Number.parseInt(hex, 16) : Number.POSITIVE_INFINITY
 }
 
 // The `redirect:` prefix and the colons keep this apart from a tracking code payload, which is

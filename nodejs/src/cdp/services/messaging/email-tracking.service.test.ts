@@ -17,6 +17,7 @@ import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-to
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
+import { UUIDT } from '~/common/utils/utils'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
@@ -260,14 +261,15 @@ describe('EmailTrackingService', () => {
         // tests run in test env and exercise that path.
         describe('handleEmailTrackingRedirect', () => {
             it('should redirect to the target url and record an email_link_clicked metric', async () => {
-                const phId = signer.generate({
-                    functionId: hogFunction.id,
-                    id: invocationId,
-                    teamId: team.id,
-                })
-                const res = await supertest(app).get(`/public/m/redirect?ph_id=${phId}&target=https://example.com`)
+                const url = new URL(
+                    signer.redirectUrl(
+                        { functionId: hogFunction.id, id: invocationId, teamId: team.id },
+                        'https://example.com/a?b=1'
+                    )
+                )
+                const res = await supertest(app).get(`${url.pathname}${url.search}`)
                 expect(res.status).toBe(302)
-                expect(res.headers.location).toBe('https://example.com')
+                expect(res.headers.location).toBe('https://example.com/a?b=1')
 
                 await waitForExpect(() => {
                     const messages = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
@@ -280,21 +282,21 @@ describe('EmailTrackingService', () => {
                 })
             })
 
-            it('should redirect a link minted by addTrackingToEmail', async () => {
-                const url = new URL(
-                    signer.redirectUrl(
-                        { functionId: hogFunction.id, id: invocationId, teamId: team.id },
-                        'https://example.com/a?b=1'
-                    )
-                )
-                const res = await supertest(app).get(`${url.pathname}${url.search}`)
-                expect(res.status).toBe(302)
-                expect(res.headers.location).toBe('https://example.com/a?b=1')
-            })
-
             // The endpoint is public, so a link on the tracking domain must not send people anywhere else.
             it.each([
                 { name: 'no ph_id', query: () => 'target=https://evil.example' },
+                {
+                    // Every email carries one in its pixel URL.
+                    name: 'a signed ph_id minted today and no ph_sig',
+                    query: () => {
+                        const phId = signer.generate({
+                            functionId: hogFunction.id,
+                            id: new UUIDT().toString(),
+                            teamId: team.id,
+                        })
+                        return `ph_id=${phId}&target=https://evil.example`
+                    },
+                },
                 {
                     name: 'an unsigned ph_id',
                     query: () =>
