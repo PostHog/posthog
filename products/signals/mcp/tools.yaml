@@ -51,12 +51,12 @@ tools:
             `report_action_unavailable` means the action is not available now (the detail says why), and 403
             `report_action_unavailable` means the organization has not approved AI data processing. 403
             `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's
-            session. 409 `report_action_run_active` means a merge run is already working on the report; the body has
-            its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the
-            report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means
-            a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is
-            on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt
-            at that index.
+            session. 409 `report_action_run_active` means a merge run is already working on the report; the body has its
+            `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report
+            reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage
+            limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a
+            Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at
+            that index.
         param_overrides:
             id:
                 aliases:
