@@ -1083,6 +1083,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'self-optimising-workflows',
             'business-knowledge-github-repos',
             'signals-report-checks-replace',
+            'inbox-report-actions-mcp',
             'cross-project-dashboards',
             'warehouse-suggestions',
             'scouts-tool-access',
