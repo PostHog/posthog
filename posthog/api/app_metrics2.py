@@ -199,18 +199,13 @@ def fetch_app_metric_totals(
     instance_id: Optional[str] = None,
     name: Optional[list[str]] = None,
     kind: Optional[list[str]] = None,
-    hour_aligned: bool = False,
 ) -> AppMetricsTotalsResponse:
     """
     Calculate the totals for the app metrics over the given period.
-
-    `hour_aligned` reads whole clock hours over a half-open range, as `fetch_app_metric_totals_by_source` does.
     """
 
     name = name or []
     kind = kind or []
-    bound_expr = "toStartOfHour(timestamp)" if hour_aligned else "timestamp"
-    before_op = "<" if hour_aligned else "<="
 
     # Convert to UTC before formatting — the naive string is read as UTC by toDateTime64, so a
     # team-timezone-aware bound would otherwise shift the window by the team's offset.
@@ -233,8 +228,8 @@ def fetch_app_metric_totals(
         WHERE team_id = %(team_id)s
         AND app_source = %(app_source)s
         AND app_source_id = %(app_source_id)s
-        {f"AND {bound_expr} >= toDateTime64(%(after)s, 6)" if after else ""}
-        {f"AND {bound_expr} {before_op} toDateTime64(%(before)s, 6)" if before else ""}
+        {"AND timestamp >= toDateTime64(%(after)s, 6)" if after else ""}
+        {"AND timestamp <= toDateTime64(%(before)s, 6)" if before else ""}
         {"AND instance_id = %(instance_id)s" if instance_id else ""}
         {"AND metric_name IN %(name)s" if name else ""}
         {"AND metric_kind IN %(kind)s" if kind else ""}

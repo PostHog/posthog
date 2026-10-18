@@ -696,9 +696,8 @@ def version_outcome(
             app_source_id=f"{hog_flow_id}/{version}",
             breakdown_by="name",
             after=after,
-            before=before,
-            # An interval ends where the next one starts, and rows keep an arbitrary timestamp within their hour.
-            hour_aligned=before is not None,
+            # The read includes its upper bound and compares whole seconds; the hour starting at `before` is the next interval's.
+            before=before - timedelta(seconds=1) if before else None,
             instance_id=step_id or None,
             name=[
                 TARGET_SEND_METRIC,
