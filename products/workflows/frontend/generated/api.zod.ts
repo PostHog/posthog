@@ -9,6 +9,18 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Broadcast audiences written by AI from the project's own events. Both calls are free for the customer.
+ */
+export const broadcastAudienceSuggestionsGenerateBodyRefreshDefault = false
+
+export const BroadcastAudienceSuggestionsGenerateBody = /* @__PURE__ */ zod.object({
+    refresh: zod
+        .boolean()
+        .default(broadcastAudienceSuggestionsGenerateBodyRefreshDefault)
+        .describe('Make new suggestions even when the cached ones are still valid.'),
+})
+
 export const hogFlowTemplatesCreateBodyNameMax = 400
 
 export const hogFlowTemplatesCreateBodyImageUrlMax = 8201

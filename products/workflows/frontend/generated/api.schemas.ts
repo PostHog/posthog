@@ -8,6 +8,88 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `ready` - Ready
+ * * `generating` - Generating
+ * * `ai_not_approved` - Ai Not Approved
+ * * `unavailable` - Unavailable
+ */
+export type DataSuggestionsStatusEnumApi =
+    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
+
+export const DataSuggestionsStatusEnumApi = {
+    Ready: 'ready',
+    Generating: 'generating',
+    AiNotApproved: 'ai_not_approved',
+    Unavailable: 'unavailable',
+} as const
+
+/**
+ * * `not_yet` - Not Yet
+ * * `regulars` - Regulars
+ * * `lapsed` - Lapsed
+ */
+export type AudienceSuggestionKindEnumApi =
+    (typeof AudienceSuggestionKindEnumApi)[keyof typeof AudienceSuggestionKindEnumApi]
+
+export const AudienceSuggestionKindEnumApi = {
+    NotYet: 'not_yet',
+    Regulars: 'regulars',
+    Lapsed: 'lapsed',
+} as const
+
+export interface AudienceSuggestionApi {
+    /** Opaque id of this suggestion, valid while the suggestions stay cached. */
+    id: string
+    /** Suggested audience name, written by AI from the project's events. */
+    name: string
+    /** Who the people are and what to tell them. Used as the cohort description and the email brief. */
+    description: string
+    /** One sentence on why the audience is worth a broadcast. */
+    reason: string
+    /** not_yet: did event in the window but not missing_event. regulars: did event at least min_count times in the window. lapsed: did event in the last 90 days but not in the window.
+     *
+     * * `not_yet` - Not Yet
+     * * `regulars` - Regulars
+     * * `lapsed` - Lapsed */
+    kind: AudienceSuggestionKindEnumApi
+    /** The project event the audience is built on. */
+    event: string
+    /**
+     * For not_yet: the event the audience has not done yet. Null otherwise.
+     * @nullable
+     */
+    missing_event: string | null
+    /** The time window in days. */
+    window_days: number
+    /**
+     * For regulars: how many times the event must happen in the window.
+     * @nullable
+     */
+    min_count: number | null
+    /** People in the audience with an email address, counted when the suggestion was made. */
+    reachable_count: number
+    /** A dynamic cohort definition for the audience, in the cohorts endpoint's `filters` format. */
+    cohort_filters: unknown
+}
+
+export interface AudienceSuggestionsResponseApi {
+    /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+     *
+     * * `ready` - Ready
+     * * `generating` - Generating
+     * * `ai_not_approved` - Ai Not Approved
+     * * `unavailable` - Unavailable */
+    status: DataSuggestionsStatusEnumApi
+    /** Up to 3 suggested broadcast audiences. */
+    suggestions: AudienceSuggestionApi[]
+}
+
+export interface DataSuggestionGenerateRequestApi {
+    /** Make new suggestions even when the cached ones are still valid. */
+    refresh?: boolean
+}
+
+/**
  * * `team` - Only team
  * * `organization` - Organization
  * * `global` - Global
@@ -2152,22 +2234,6 @@ export interface DataSuggestionBuildResponseApi {
 }
 
 /**
- * * `ready` - Ready
- * * `generating` - Generating
- * * `ai_not_approved` - Ai Not Approved
- * * `unavailable` - Unavailable
- */
-export type DataSuggestionsStatusEnumApi =
-    (typeof DataSuggestionsStatusEnumApi)[keyof typeof DataSuggestionsStatusEnumApi]
-
-export const DataSuggestionsStatusEnumApi = {
-    Ready: 'ready',
-    Generating: 'generating',
-    AiNotApproved: 'ai_not_approved',
-    Unavailable: 'unavailable',
-} as const
-
-/**
  * * `signup` - Signup
  * * `onboarding` - Onboarding
  * * `trial` - Trial
@@ -2258,11 +2324,6 @@ export interface DataSuggestionsResponseApi {
     suggestions: DataSuggestionApi[]
     /** Whether the project has a verified email sender. Without one, an email workflow can be saved as a draft but cannot send until a sending domain is added and verified. */
     readonly email_sender_ready: boolean
-}
-
-export interface DataSuggestionGenerateRequestApi {
-    /** Make new suggestions even when the cached ones are still valid. */
-    refresh?: boolean
 }
 
 /**

@@ -6,6 +6,7 @@ from posthog.ingress.views import build_webhook_view
 from posthog.utils import opt_slash_path
 
 from products.workflows.backend.presentation.views import (
+    broadcast_audience_suggestions,
     email_drafts,
     hog_flow,
     hog_flow_template,
@@ -36,6 +37,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"workflow_data_suggestions",
         workflow_data_suggestions.WorkflowDataSuggestionsViewSet,
         "project_workflow_data_suggestions",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"broadcast_audience_suggestions",
+        broadcast_audience_suggestions.BroadcastAudienceSuggestionsViewSet,
+        "project_broadcast_audience_suggestions",
         ["team_id"],
     )
     routers.projects.register(

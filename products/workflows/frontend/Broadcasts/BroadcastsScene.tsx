@@ -26,6 +26,7 @@ import {
 import { SendCalendar } from '../SendCalendar/SendCalendar'
 import { SendCalendarTabLabel } from '../SendCalendar/SendCalendarTabLabel'
 import { NewWorkflowModal } from '../Workflows/NewWorkflowModal'
+import { BroadcastAudienceSuggestions } from './audienceSuggestions/BroadcastAudienceSuggestions'
 import { BroadcastsFeaturePreview } from './BroadcastsFeaturePreview'
 import { BroadcastsTable } from './BroadcastsTable'
 import { newBroadcastAgentLogic } from './newBroadcastAgentLogic'
@@ -40,6 +41,7 @@ export function BroadcastsScene(): JSX.Element {
     const { startNewBroadcast } = useActions(newBroadcastAgentLogic)
     // The tab routes are literal paths, so the tab is the last path segment rather than a route param.
     const showCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
+    const showAudienceSuggestions = useFeatureFlag('WORKFLOWS_BROADCAST_AUDIENCE_SUGGESTIONS')
     const lastSegment = location.pathname.split('/').pop() as MessagingNavTabKey | 'calendar'
     const currentTab: MessagingNavTabKey | 'broadcasts' | 'calendar' =
         lastSegment === 'calendar'
@@ -57,6 +59,7 @@ export function BroadcastsScene(): JSX.Element {
         content: (
             <>
                 <BroadcastsFeaturePreview />
+                {showAudienceSuggestions && <BroadcastAudienceSuggestions />}
                 <BroadcastsTable />
             </>
         ),
