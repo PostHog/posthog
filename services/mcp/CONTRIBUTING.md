@@ -342,6 +342,8 @@ For apps that need fully custom logic (like `debug.tsx` or `query-results.tsx`):
          view_prop: data
    ```
 
+   A view that opens links also names `link_prop`, the prop that receives the host's link opener.
+
 2. **Create the entry point** manually at `src/ui-apps/apps/my-custom-app.tsx`.
    This file will NOT be overwritten by the generator.
 

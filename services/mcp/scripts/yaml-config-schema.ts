@@ -477,6 +477,8 @@ const CustomUiAppSchema = z
                 view_prop: z.string(),
                 /** TypeScript type for the tool result. Omit when the component accepts unknown. */
                 data_type: z.string().optional(),
+                /** Prop name that receives the host's link opener, for a view that opens links. */
+                link_prop: z.string().optional(),
             })
             .strict()
             .optional(),
@@ -526,6 +528,7 @@ export interface ResolvedCustomUiApp {
         view_component: string
         view_prop: string
         data_type?: string
+        link_prop?: string
     }
 }
 
