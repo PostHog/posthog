@@ -271,15 +271,29 @@ def previous_recipe_metadata(
     """The `metadata.json` of the newest version of `model_name` at or before `partition_key` that
     carries a recipe hash, or None. A re-run of a partition compares with that partition's own saved
     recipe, so a re-run cannot replace a version with another recipe. A version written before the
-    hash existed is passed over."""
-    folder = f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{model_name}/dt="
-    versions = [
-        common["Prefix"][len(folder) :].rstrip("/")
-        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=folder, Delimiter="/")
-        for common in page.get("CommonPrefixes", [])
-    ]
-    for version in sorted((version for version in versions if version <= partition_key), reverse=True):
-        metadata = _read_json_if_exists(client, bucket, model_object_key(prefix, model_name, version, METADATA_FILE))
+    hash existed is passed over.
+
+    Every dataset version is searched, because a `DATASET_VERSION` bump moves the models to a new
+    folder and would otherwise hide the recipe the name was trained with."""
+    paginator = client.get_paginator("list_objects_v2")
+
+    def folders(parent: str) -> list[str]:
+        return [
+            common["Prefix"]
+            for page in paginator.paginate(Bucket=bucket, Prefix=parent, Delimiter="/")
+            for common in page.get("CommonPrefixes", [])
+        ]
+
+    candidates: list[tuple[str, bool, str]] = []
+    for dataset_folder in folders(f"{prefix}/{MODELS_TABLE}/"):
+        version_folder = f"{dataset_folder}{model_name}/dt="
+        is_current = dataset_folder == f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/"
+        for folder in folders(version_folder):
+            version = folder[len(version_folder) :].rstrip("/")
+            if version <= partition_key:
+                candidates.append((version, is_current, f"{folder}{METADATA_FILE}"))
+    for _, _, key in sorted(candidates, reverse=True):
+        metadata = _read_json_if_exists(client, bucket, key)
         if metadata is not None and metadata.get(RECIPE_HASH_KEY):
             return metadata
     return None

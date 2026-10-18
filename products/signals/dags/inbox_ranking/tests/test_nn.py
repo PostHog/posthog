@@ -15,7 +15,7 @@ from sklearn.metrics import roc_auc_score
 
 from posthog import settings
 
-from products.signals.backend.ranking.features import REPORT_EMBEDDINGS_FEATURE_SET
+from products.signals.backend.ranking.features import PROJECT_VECTOR_KINDS, REPORT_EMBEDDINGS_FEATURE_SET
 from products.signals.backend.ranking.model_contract import model_mismatch
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.overrides import NO_OVERRIDES
@@ -26,7 +26,8 @@ from products.signals.backend.ranking.serving_manifest import (
     ONNX_MODEL_KIND,
     SERVED_ROLE,
 )
-from products.signals.dags.inbox_ranking.common import partition_object_key
+from products.signals.dags.inbox_ranking.common import DATASET_VERSION, partition_object_key
+from products.signals.dags.inbox_ranking.dataset import project_vectors
 from products.signals.dags.inbox_ranking.dataset.dag import EMBEDDINGS_TABLE, LABELS_TABLE
 from products.signals.dags.inbox_ranking.multihead.inputs import NetworkConfig
 from products.signals.dags.inbox_ranking.multihead.local import report_vectors
@@ -47,6 +48,7 @@ from products.signals.dags.inbox_ranking.nn.model import (
     onnx_probabilities,
 )
 from products.signals.dags.inbox_ranking.tests.test_multihead import D0, DAYS, HOLDOUT_DAYS, _SyntheticInbox
+from products.signals.dags.inbox_ranking.training import recipe as recipe_module
 from products.signals.dags.inbox_ranking.training.dag import (
     CHAMPION_FILE,
     METADATA_FILE,
@@ -310,11 +312,15 @@ def test_the_nn_candidate_writes_a_graph_whose_columns_follow_its_recorded_head_
         assert auc > 0.75
 
 
-def _stored_version(model_name: str, version: str, recipe: dict[str, Any] | None) -> tuple[str, bytes]:
+def _stored_version(
+    model_name: str, version: str, recipe: dict[str, Any] | None, dataset_version: str = DATASET_VERSION
+) -> tuple[str, bytes]:
     metadata: dict[str, Any] = {"model_name": model_name, "model_version": version}
     if recipe is not None:
         metadata |= {RECIPE_KEY: recipe, RECIPE_HASH_KEY: recipe_hash(recipe)}
-    return model_object_key(PREFIX, model_name, version, METADATA_FILE), json.dumps(metadata).encode()
+    key = model_object_key(PREFIX, model_name, version, METADATA_FILE)
+    key = key.replace(f"/{DATASET_VERSION}/", f"/{dataset_version}/", 1)
+    return key, json.dumps(metadata).encode()
 
 
 ACTION = HEADS_BY_NAME["action"]
@@ -327,10 +333,15 @@ def _action_recipe(head: Head) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize(
-    "stored, recipe, lookback_days, changed",
+    "stored, recipe, patch, changed",
     [
         ({"2026-08-18": "booster"}, "booster", None, None),
-        ({"2026-08-18": "booster"}, "booster", 120, "lookback_days"),
+        (
+            {"2026-08-18": "booster"},
+            "booster",
+            (settings, "INBOX_RANKING_TRAINING_LOOKBACK_DAYS", 120),
+            "lookback_days",
+        ),
         ({"2026-08-18": "network"}, "network_more_epochs", None, "learner_params.epochs"),
         ({"2026-08-17": "network", "2026-08-18": None}, "network_more_epochs", None, "learner_params.epochs"),
         ({"2026-08-18": None}, "network_more_epochs", None, None),
@@ -339,6 +350,18 @@ def _action_recipe(head: Head) -> dict[str, Any]:
         ({PARTITION: "network"}, "network_more_epochs", None, "learner_params.epochs"),
         ({"2026-08-18": "action"}, "action_without_status_labels", None, "heads.action.status_labels"),
         ({"2026-08-18": "action"}, "action_without_label_columns", None, "heads.action.label_columns"),
+        (
+            {"2026-08-18": "network_with_vectors"},
+            "network_with_vectors",
+            (project_vectors, "HISTORY_LIMIT", 10),
+            "project_vector_settings.history_limit",
+        ),
+        (
+            {"2026-08-18": "network_with_vectors"},
+            "network_with_vectors",
+            (recipe_module, "MIN_PROJECT_HISTORY_REPORTS", 1),
+            "project_vector_settings.min_history_reports",
+        ),
     ],
     ids=[
         "daily_retrain",
@@ -351,13 +374,16 @@ def _action_recipe(head: Head) -> dict[str, Any]:
         "rerun_with_another_recipe",
         "head_status_labels_change",
         "head_label_columns_change",
+        "project_history_limit_change",
+        "project_min_history_change",
     ],
 )
-def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored, recipe, lookback_days, changed):
+def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored, recipe, patch, changed):
     recipes = {
         "booster": lambda: booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET),
         "network": lambda: network_recipe(NetworkConfig(), ()),
         "network_more_epochs": lambda: network_recipe(NetworkConfig(epochs=NetworkConfig().epochs + 5), ()),
+        "network_with_vectors": lambda: network_recipe(NetworkConfig(), PROJECT_VECTOR_KINDS),
         "action": lambda: _action_recipe(ACTION),
         "action_without_status_labels": lambda: _action_recipe(dataclasses.replace(ACTION, status_labels=False)),
         "action_without_label_columns": lambda: _action_recipe(dataclasses.replace(ACTION, label_columns=())),
@@ -366,8 +392,8 @@ def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored
         _stored_version("family", version, None if name is None else recipes[name]())
         for version, name in stored.items()
     )
-    if lookback_days is not None:
-        monkeypatch.setattr(settings, "INBOX_RANKING_TRAINING_LOOKBACK_DAYS", lookback_days)
+    if patch is not None:
+        monkeypatch.setattr(*patch)
     check = lambda: check_recipe(_S3(objects), "bucket", PREFIX, "family", PARTITION, recipes[recipe]())
     if changed is None:
         check()
@@ -375,3 +401,14 @@ def test_check_recipe_refuses_a_new_recipe_under_an_old_name(monkeypatch, stored
     with pytest.raises(dagster.Failure) as failure:
         check()
     assert changed in (failure.value.description or "")
+
+
+def test_check_recipe_finds_the_recipe_under_an_earlier_dataset_version():
+    # A DATASET_VERSION bump moves the models to a new folder, so searching only the current one
+    # would let the old name train on the new dataset with no recipe to compare against.
+    earlier = {**booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET), "dataset_version": "v0"}
+    objects = dict([_stored_version("family", "2026-08-18", earlier, dataset_version="v0")])
+
+    with pytest.raises(dagster.Failure) as failure:
+        check_recipe(_S3(objects), "bucket", PREFIX, "family", PARTITION, booster_recipe(REPORT_EMBEDDINGS_FEATURE_SET))
+    assert "dataset_version" in (failure.value.description or "")

@@ -19,8 +19,9 @@ from typing import Any
 
 from posthog import settings
 
-from products.signals.backend.ranking.features import FeatureSet
+from products.signals.backend.ranking.features import MIN_PROJECT_HISTORY_REPORTS, FeatureSet
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION
+from products.signals.dags.inbox_ranking.dataset import project_vectors
 from products.signals.dags.inbox_ranking.training.heads import Head
 
 RECIPE_KEY = "recipe"
@@ -41,6 +42,15 @@ def model_recipe(
         "feature_set": feature_set.name,
         "feature_schema_version": feature_set.schema_version,
         "project_vector_kinds": list(project_vector_kinds),
+        # Both change the project inputs, so they matter only to a model that reads project vectors.
+        "project_vector_settings": (
+            {
+                "history_limit": project_vectors.HISTORY_LIMIT,
+                "min_history_reports": MIN_PROJECT_HISTORY_REPORTS,
+            }
+            if project_vector_kinds
+            else {}
+        ),
         "learner_params": dict(learner_params),
         "heads": {
             head.name: {
