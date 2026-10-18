@@ -4200,10 +4200,6 @@ snapshots:
         hash: v1.k794b7964.34ad8a85a2da5002455f732293e3de630b4e9e1e11091d4031bab58e4ed88539.5hCYnxTl83IHz0-aJFkhCEYr1A-IrLC1mdbCq1Sxizo
     insights-trendslinechart--default--light:
         hash: v1.k794b7964.e6bbe53c9d152f52f45376b7a9198ef5ca3bd1467ab2c463f0fc5d7521c3f78f.kquj0m0IZswS-b8swP9YO1H6Fij13DbrGjUZRA7orwU
-    insights-trendslinechart--edit-scene-breakdown--dark:
-        hash: v1.k794b7964.7c66c304edcb333ba158dfc06dada3c7ea4656a1900b36bb36c8eec14812cff2.BSSBozzJJBMH_ZDjPrNqPLquyJbjAUrT3D0nCMp4vmQ
-    insights-trendslinechart--edit-scene-breakdown--light:
-        hash: v1.k794b7964.abaf51151241ebaf33815a7904026995c35bde4253834550d18f0690263e058a.vcYddwnsrWFCxXO6GPH5KPknwi7pS9pfKiNvV3m4M5E
     insights-trendslinechart--single-series--dark:
         hash: v1.k794b7964.ffc47456b452837d728ea5023942bd85cb31a99d1e9048e3471f7c8b42174f1b.gpoAQ4aBeUzb4Ulq3bhCHR1NZbaQ2LJIuQEEu4Tjf9g
     insights-trendslinechart--single-series--light:
