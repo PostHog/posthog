@@ -36,6 +36,7 @@ from products.signals.backend.facade.rubrics import (
     get_scout_rubric,
     save_scout_rubric,
 )
+from products.signals.backend.scout_harness.trial_access_policy import scout_trial_team_allowed
 
 if TYPE_CHECKING:
     from rest_framework.views import APIView
@@ -180,7 +181,15 @@ class ScoutRubricGenerateSerializer(serializers.Serializer):
 
 class ScoutRubricAccessPermission(BasePermission):
     def has_permission(self, request: Request, view: APIView) -> bool:
-        return bool(getattr(request.user, "is_staff", False) and getattr(view, "team_id", None) == RUBRIC_TEAM_ID)
+        if (
+            isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication)
+            and request.successful_authenticator.access_token.sandbox_task_id is not None
+        ):
+            return False
+        return bool(
+            getattr(request.user, "is_staff", False)
+            and scout_trial_team_allowed(getattr(view, "team_id", None), production_team_id=RUBRIC_TEAM_ID)
+        )
 
 
 def rubric_response(document: ScoutRubricDocument, *, response_status: int = status.HTTP_200_OK) -> Response:

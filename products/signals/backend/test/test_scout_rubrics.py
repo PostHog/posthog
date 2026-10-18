@@ -43,6 +43,7 @@ from products.signals.backend.scout_harness.rubrics_runner import (
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run
 from products.signals.backend.scout_harness.trial_rubrics import SavedScoutRubricReader
+from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.tasks.backend.facade.contracts import SessionFile
@@ -264,10 +265,14 @@ class TestScoutRubricsAPI(APIBaseTest):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(self.client.get(self.url).json()["revision"], 0)
 
-    @parameterized.expand([("staff", False, False), ("team", True, True)])
-    def test_internal_gate_covers_every_action(self, _name: str, staff: bool, different_team: bool) -> None:
+    @parameterized.expand([("staff", False, False, False), ("team", True, True, False), ("sandbox", True, False, True)])
+    def test_internal_gate_covers_every_action(
+        self, _name: str, staff: bool, different_team: bool, sandbox: bool
+    ) -> None:
         self.user.is_staff = staff
         self.user.save(update_fields=["is_staff"])
+        if sandbox:
+            _authenticate_as_scout(self, scopes="signals_scout_experiment", sandbox_task_id=uuid4())
         with patch(
             "products.signals.backend.presentation.scout_rubrics.RUBRIC_TEAM_ID", -1 if different_team else self.team.id
         ):

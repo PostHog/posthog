@@ -8,6 +8,12 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 
 ## What lives here
 
+- `eval_environment/`
+  Private trace-based environment preparation, immutable reconstruction fingerprints,
+  recorded-prompt replay and budgeted launches through existing Scout trials.
+  The `scout_eval_environment` management command is the checkout entry point.
+  Case data and validation artifacts stay outside Git and outside scout sandboxes.
+
 - `rubrics.py` / `rubrics_runner.py`
   Store revisioned criteria on the scout config and generate separate suggestions in a background sandbox. Read the scout rubrics section of `products/signals/ARCHITECTURE.md` when changing persistence, generation, or access restrictions.
 - `tool_catalogue.py`

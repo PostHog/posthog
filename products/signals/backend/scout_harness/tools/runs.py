@@ -86,7 +86,7 @@ CRON_GAP_SAMPLES = 4
 
 # Part of every `runs_version`. Bump it when `_to_summary` changes its output, so a client that
 # holds a body in the old shape fetches the new one.
-RUNS_VERSION_SCHEMA = 2
+RUNS_VERSION_SCHEMA = 3
 
 # Runaway guard on the fan-out of the per-scout probe. Deliberately a limit on *scouts* rather than
 # on rows: capping rows after the per-scout ranking would drop the slowest scouts' history, which is
@@ -669,6 +669,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
     metadata = dict(row.metadata or {})
     if metadata.pop("scout_trial", None) is not None:
         metadata.pop("triggered_by", None)
+        metadata.pop("eval_prompt_sha256", None)
     return RunSummary(
         run_id=str(row.id),
         skill_name=row.skill_name,

@@ -32,6 +32,7 @@ from products.signals.backend.scout_harness.rubrics import (
     update_generation,
 )
 from products.signals.backend.scout_harness.skill_loader import load_skill_for_run, resolve_report_channel_variant
+from products.signals.backend.scout_harness.trial_access_policy import scout_trial_team_allowed
 from products.signals.backend.scout_harness.trial_state import SCOUT_TRIAL_METADATA_KEY
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -395,7 +396,10 @@ async def run_rubric_generation(team_id: int, config_id: str, generation_id: str
         team = await database_sync_to_async(
             lambda: Team.objects.select_related("organization").get(id=team_id), thread_sensitive=True
         )()
-        if team.id != RUBRIC_TEAM_ID or team.organization.is_ai_data_processing_approved is not True:
+        if (
+            not scout_trial_team_allowed(team.id, production_team_id=RUBRIC_TEAM_ID)
+            or team.organization.is_ai_data_processing_approved is not True
+        ):
             raise ValueError("Rubric generation is not available for this project")
         allowed = await database_sync_to_async(
             lambda: team.all_users_with_access().filter(id=user_id, is_active=True, is_staff=True).exists(),
