@@ -4,6 +4,7 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Literal
 from urllib.parse import quote
 
@@ -108,6 +109,14 @@ class ScoutSlackPermanentDeliveryError(RuntimeError):
     def __init__(self, message: str, *, error_code: str) -> None:
         super().__init__(message)
         self.error_code = error_code
+
+
+class ScoutReportSlackOutcome(StrEnum):
+    POSTED = "posted"
+    UPDATED = "updated"
+    DELETED_AFTER_RENDER = "report_deleted_after_render"
+    NOT_SURFACED_AFTER_RENDER = "report_not_surfaced_after_render"
+    YIELDED_TO_NEWER_DELIVERY = "yielded_to_newer_delivery"
 
 
 def get_scout_slack_destination(output_destinations: object) -> ScoutSlackDestination | None:
@@ -692,7 +701,7 @@ def post_scout_report_to_slack(
     schedule_thread_reply_retry: ScoutSlackReplyRetryScheduler,
     edit_note: str | None = None,
     thread_reports: bool = False,
-) -> None:
+) -> ScoutReportSlackOutcome:
     if report.team_id != run.team_id:
         raise ScoutSlackPermanentDeliveryError(
             "The scout run does not own the configured report",
@@ -744,14 +753,14 @@ def post_scout_report_to_slack(
             report.refresh_from_db()
         except SignalReport.DoesNotExist:
             logger.info("signals_scout.slack_delivery_report_deleted_after_render", report_id=str(report.id))
-            return
+            return ScoutReportSlackOutcome.DELETED_AFTER_RENDER
         if report.status not in DELIVERABLE_REPORT_STATUSES:
             logger.info(
                 "signals_scout.slack_delivery_report_not_surfaced_after_render",
                 report_id=str(report.id),
                 report_status=report.status,
             )
-            return
+            return ScoutReportSlackOutcome.NOT_SURFACED_AFTER_RENDER
         if content_revision is None or report.updated_at == content_revision:
             break
         logger.info("signals_scout.slack_delivery_report_rebuilt_after_content_change", report_id=str(report.id))
@@ -768,7 +777,7 @@ def post_scout_report_to_slack(
             report_id=str(report.id),
             delivery_id=delivery_id,
         )
-        return
+        return ScoutReportSlackOutcome.YIELDED_TO_NEWER_DELIVERY
 
     # The build can hold the worker for the whole render budget, long enough for the workspace to be
     # reconnected, which writes a new token to the same row and revokes the one loaded above. Posting
@@ -893,3 +902,5 @@ def post_scout_report_to_slack(
         # The report was threaded before and is not now, so its lead carries the whole summary.
         _delete_scout_report_replies(client, conversation=conversation, reply_ts=reply_ts)
         _record_reply_ts([])
+
+    return ScoutReportSlackOutcome.UPDATED if existing is not None else ScoutReportSlackOutcome.POSTED

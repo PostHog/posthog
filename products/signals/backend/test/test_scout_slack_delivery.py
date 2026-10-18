@@ -204,6 +204,7 @@ class TestScoutSlackDelivery(BaseTest):
         with (
             patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
             patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
+            patch("products.signals.backend.tasks.get_instance_region", return_value="EU"),
         ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
@@ -216,13 +217,17 @@ class TestScoutSlackDelivery(BaseTest):
                 channel_config,
             )
 
+        assert scoped_capture.call_args.kwargs["event_region"] == "EU"
         assert _delivery_events(scoped_capture) == [
             {
                 "output_type": "report",
+                "output_id": str(report.id),
+                "run_id": str(emission.scout_run_id),
                 "target_kind": expected_target_kind,
                 "thread_reports": False,
                 "has_edit_note": False,
                 "skill_name": "signals-scout-error-tracking",
+                "updated_in_place": False,
                 "result": "delivered",
                 "attempts": 1,
             }
@@ -296,7 +301,10 @@ class TestScoutSlackDelivery(BaseTest):
                 thread_reports=False,
             )
 
-        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
+        ):
             slack_integration.return_value.client = fake_client
             if inbox_row_only:
                 SignalReportSlackThread.objects.for_team(self.team.id).create(
@@ -314,6 +322,7 @@ class TestScoutSlackDelivery(BaseTest):
             report.save()
             deliver("01864f4c-6957-7d3f-8d85-1d775e527266")
 
+        assert _delivery_events(scoped_capture)[-1]["updated_in_place"] is updated_in_place
         posts = fake_client.chat_postMessage.call_args_list
         if not updated_in_place:
             assert "Edited draft with a new date." in posts[-1].kwargs["blocks"][2]["text"]
@@ -970,6 +979,7 @@ class TestScoutSlackDelivery(BaseTest):
                 "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
                 side_effect=_suppress_mid_render,
             ),
+            patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
         ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
@@ -983,6 +993,9 @@ class TestScoutSlackDelivery(BaseTest):
             )
 
         fake_client.chat_postMessage.assert_not_called()
+        [event] = _delivery_events(scoped_capture)
+        assert event["result"] == "skipped"
+        assert event["skip_reason"] == "report_not_surfaced_after_render"
 
     def test_task_rebuilds_report_whose_content_changed_during_render(self) -> None:
         # An edit that changes content during the render window leaves the report deliverable but the
@@ -1074,6 +1087,7 @@ class TestScoutSlackDelivery(BaseTest):
                 "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
                 side_effect=_build,
             ),
+            patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
         ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
@@ -1087,6 +1101,9 @@ class TestScoutSlackDelivery(BaseTest):
             )
 
         fake_client.chat_postMessage.assert_not_called()
+        [event] = _delivery_events(scoped_capture)
+        assert event["result"] == "skipped"
+        assert event["skip_reason"] == "yielded_to_newer_delivery"
 
     @parameterized.expand(
         [

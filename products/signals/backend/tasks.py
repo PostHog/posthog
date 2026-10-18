@@ -25,6 +25,7 @@ from posthog.models.scoping import with_team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
+from posthog.utils import get_instance_region
 
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.implementation_dispatch_tasks import (
@@ -58,6 +59,7 @@ from products.signals.backend.scout_harness.background_bands import refresh_back
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
+    ScoutReportSlackOutcome,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
     _ensure_dm_recipient_eligible,
@@ -442,7 +444,7 @@ def _capture_scout_slack_delivery(team_id: int, properties: dict[str, object]) -
         team = Team.objects.only("id", "uuid", "organization_id").filter(id=team_id).first()
         if team is None:
             return
-        with ph_scoped_capture() as capture:
+        with ph_scoped_capture(event_region=get_instance_region() or "US") as capture:
             capture(
                 distinct_id=str(team.uuid),
                 event="signals_scout_slack_delivery_completed",
@@ -483,6 +485,8 @@ def deliver_scout_slack_output(
     }
     delivery: dict[str, object] = {
         "output_type": output_type,
+        "output_id": output_id,
+        "run_id": run_id,
         "target_kind": "dm" if channel.split("|", 1)[0].strip().startswith(("U", "W")) else "channel",
         "thread_reports": thread_reports,
         "has_edit_note": edit_note is not None,
@@ -551,7 +555,7 @@ def deliver_scout_slack_output(
                     countdown=countdown,
                 )
 
-            post_scout_report_to_slack(
+            outcome = post_scout_report_to_slack(
                 report,
                 run,
                 delivery_id=delivery_id,
@@ -561,6 +565,10 @@ def deliver_scout_slack_output(
                 edit_note=edit_note,
                 thread_reports=thread_reports,
             )
+            if outcome not in (ScoutReportSlackOutcome.POSTED, ScoutReportSlackOutcome.UPDATED):
+                _capture_scout_slack_delivery(team_id, {**delivery, "result": "skipped", "skip_reason": outcome.value})
+                return
+            delivery["updated_in_place"] = outcome == ScoutReportSlackOutcome.UPDATED
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
             return
