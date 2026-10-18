@@ -24,6 +24,7 @@ from posthog.schema import (
     HogQLQueryModifiers,
     HogQLQueryResponse,
     HogQLVariable,
+    IntervalType,
     QueryStatus,
     SessionTableVersion,
 )
@@ -587,6 +588,11 @@ class TestFinestTimeBucket(SimpleTestCase):
                 "select toStartOfInterval(timestamp, interval 15 minute) as b, count() from events group by b",
                 "minute",
             ),
+            (
+                "date_bin",
+                "select date_bin(interval 1 minute, timestamp, toDateTime('2026-01-01')) as b from events",
+                "minute",
+            ),
             ("second_rounds_up_to_minute", "select toStartOfSecond(now64()) as s", "minute"),
             (
                 "finest_wins",
@@ -602,6 +608,33 @@ class TestFinestTimeBucket(SimpleTestCase):
     )
     def test_finest_time_bucket(self, _name: str, sql: str, expected: Optional[str]) -> None:
         assert finest_time_bucket(parse_select(sql)) == expected
+
+    @parameterized.expand(
+        [
+            ("selected_minute", "{filters.interval}", IntervalType.MINUTE, None, True),
+            ("author_default_week", "{filters.interval('week')}", None, None, False),
+            ("query_value_minute", "{bucket}", None, {"bucket": "minute"}, True),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 10, 14, 12, 0, tzinfo=UTC), tick=False)
+    def test_is_stale_uses_filter_interval(
+        self,
+        _name: str,
+        interval_sql: str,
+        interval: Optional[IntervalType],
+        values: Optional[dict[str, str]],
+        expected_stale: bool,
+    ) -> None:
+        runner = HogQLQueryRunner(
+            team=MagicMock(pk=1),
+            query=HogQLQuery(
+                query=f"select dateTrunc({interval_sql}, timestamp) as bucket from events",
+                filters=HogQLFilters(interval=interval),
+                values=values,
+            ),
+        )
+
+        assert runner._is_stale(datetime.now(UTC) - timedelta(minutes=6)) == expected_stale
 
 
 class TestHogQLQueryRunnerStaleness(BaseTest):

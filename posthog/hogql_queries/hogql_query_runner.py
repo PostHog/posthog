@@ -66,8 +66,9 @@ _BUCKET_FUNCTIONS = {
 
 
 class TimeBucketCollector(TraversingVisitor):
-    def __init__(self) -> None:
+    def __init__(self, filter_interval: Optional[str] = None) -> None:
         self.buckets: set[str] = set()
+        self.filter_interval = filter_interval
 
     def visit_call(self, node: ast.Call) -> None:
         bucket = self._bucket_of(node)
@@ -75,20 +76,36 @@ class TimeBucketCollector(TraversingVisitor):
             self.buckets.add(bucket)
         super().visit_call(node)
 
-    @staticmethod
-    def _bucket_of(node: ast.Call) -> Optional[str]:
+    def _bucket_of(self, node: ast.Call) -> Optional[str]:
         name = node.name.lower()
         if name in _BUCKET_FUNCTIONS:
             return _BUCKET_FUNCTIONS[name]
-        if name in ("datetrunc", "date_trunc") and node.args and isinstance(node.args[0], ast.Constant):
-            return _TIME_UNIT_BUCKETS.get(str(node.args[0].value).lower())
-        if name == "tostartofinterval" and len(node.args) > 1 and isinstance(node.args[1], ast.Call):
-            return _TIME_UNIT_BUCKETS.get(node.args[1].name.lower().removeprefix("tointerval"))
+        if name in ("datetrunc", "date_trunc") and node.args:
+            unit = node.args[0]
+            if isinstance(unit, ast.Constant):
+                return _TIME_UNIT_BUCKETS.get(str(unit.value).lower())
+            if isinstance(unit, ast.Placeholder):
+                if unit.chain == ["filters", "interval"]:
+                    return _TIME_UNIT_BUCKETS.get(self.filter_interval or "day")
+                if isinstance(unit.expr, ast.ExprCall) and isinstance(unit.expr.expr, ast.Field):
+                    if unit.expr.expr.chain == ["filters", "interval"]:
+                        default = (
+                            unit.expr.args[0].value
+                            if unit.expr.args and isinstance(unit.expr.args[0], ast.Constant)
+                            else "day"
+                        )
+                        return _TIME_UNIT_BUCKETS.get(self.filter_interval or str(default))
+                return "minute"
+        interval_arg = {"tostartofinterval": 1, "date_bin": 0}.get(name)
+        if interval_arg is not None and len(node.args) > interval_arg and isinstance(node.args[interval_arg], ast.Call):
+            return _TIME_UNIT_BUCKETS.get(node.args[interval_arg].name.lower().removeprefix("tointerval"))
         return None
 
 
-def finest_time_bucket(select_query: ast.SelectQuery | ast.SelectSetQuery) -> Optional[str]:
-    collector = TimeBucketCollector()
+def finest_time_bucket(
+    select_query: ast.SelectQuery | ast.SelectSetQuery, filter_interval: Optional[str] = None
+) -> Optional[str]:
+    collector = TimeBucketCollector(filter_interval)
     collector.visit(select_query)
     return min(collector.buckets, key=_TIME_BUCKETS_FINEST_FIRST.index, default=None)
 
@@ -123,7 +140,8 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
     @cached_property
     def _finest_time_bucket(self) -> Optional[str]:
         try:
-            return finest_time_bucket(parse_select(self.query.query))
+            interval = self.query.filters.interval.value if self.query.filters and self.query.filters.interval else None
+            return finest_time_bucket(self._parse_query()[0], filter_interval=interval)
         except Exception:
             return None
 
