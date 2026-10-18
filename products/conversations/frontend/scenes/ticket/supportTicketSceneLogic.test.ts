@@ -1284,6 +1284,28 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
         expect(logic.values.status).toBe('pending')
     })
 
+    it('loads sources when the first message fetch sees a newer AI comment than the ticket fetch', async () => {
+        stopPolling(logic)
+        ticketGetMock.mockResolvedValue({
+            ...loadedTicket(),
+            ai_triage: { status: 'in_progress', citations: [], sources: [] },
+        })
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+        ticketRetrieveMock.mockResolvedValue({
+            ...loadedTicket(),
+            ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
+        })
+
+        logic = supportTicketSceneLogic({ id: 43 })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['setTicket', 'setMessages', 'refreshAiTriage', 'setAiTriage'])
+
+        expect(logic.values.ticket?.ai_triage?.sources).toEqual([source])
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(ticketRetrieveMock).toHaveBeenCalledTimes(1)
+    })
+
     it('keeps sources from the newer refresh when responses arrive out of order', async () => {
         let finishFirstRefresh!: (ticket: Ticket) => void
         ticketRetrieveMock.mockImplementationOnce(

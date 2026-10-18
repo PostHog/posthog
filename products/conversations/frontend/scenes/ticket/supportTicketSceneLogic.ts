@@ -1479,9 +1479,13 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 // The ticket retrieve is the only response that resolves citations to source titles and
                 // links. Without a fresh fetch, a draft that lands while the ticket is open shows its
                 // sources as unlinked placeholders.
+                const latestCitedAiMessage = results.find(hasAiCitations)
                 const hasNewCitedAiMessage =
-                    cache.messagesLoadedForTicketId === ticketId &&
-                    results.some((message) => !knownIds.has(message.id) && hasAiCitations(message))
+                    cache.messagesLoadedForTicketId === ticketId
+                        ? results.some((message) => !knownIds.has(message.id) && hasAiCitations(message))
+                        : (latestCitedAiMessage?.item_context?.citations?.some(
+                              (citation: string) => !values.ticket?.ai_triage?.citations?.includes(citation)
+                          ) ?? false)
                 cache.messagesLoadedForTicketId = ticketId
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages(results.reverse())
