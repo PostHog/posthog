@@ -160,11 +160,7 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             query_context=SCORING_QUERY,
             scheduled=manual_run is None,
             defer_shadows=inp.defer_shadows,
-            extra_metrics=(
-                {"coordinator_concurrency": inp.coordinator_concurrency}
-                if inp.coordinator_concurrency is not None
-                else None
-            ),
+            extra_metrics=_scheduled_run_metrics(inp) if manual_run is None else None,
         )
     return RunInferenceResult(
         run_id=str(run.pk),
@@ -172,6 +168,14 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
         status=run.status,
         error=run.error or None,
     )
+
+
+def _scheduled_run_metrics(inp: RunInferenceInput) -> dict[str, object]:
+    # The workflow run id lets the coordinator close only the rows of the child execution that failed.
+    metrics: dict[str, object] = {"workflow_run_id": activity.info().workflow_run_id}
+    if inp.coordinator_concurrency is not None:
+        metrics["coordinator_concurrency"] = inp.coordinator_concurrency
+    return metrics
 
 
 def _open_scheduled_run(pipeline: AutoresearchPipeline, prediction_date: str) -> AutoresearchRun | None:
@@ -747,8 +751,13 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     With ``catch_up_date`` it lists only the due pipelines whose latest scheduled run of that date
     failed with a kind a retry can pass (``scheduled_run_can_retry()``). A pipeline that the daily
     sweep has not reached yet has no run for the date, so the catch-up does not score it twice.
+    A catch-up lists nothing while another sweep still scores (``_sweep_in_flight()``), so the two
+    sweeps never exceed one bound together. The next catch-up tick tries again.
     """
     fail_stale_inference_runs()
+    if inp.catch_up_date is not None and _sweep_in_flight():
+        logger.info("autoresearch_catch_up_deferred", catch_up_date=inp.catch_up_date)
+        return LoadActivePipelinesResult(pipelines=[])
     today = django_timezone.now().date()
     yesterday = today - timedelta(days=1)
     # unscoped() because the coordinator's job is exactly to sweep every team. The
@@ -793,6 +802,22 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         )
     pipelines.sort(key=lambda entry: entry[0])
     return LoadActivePipelinesResult(pipelines=[pipeline for _, pipeline in pipelines])
+
+
+def _sweep_in_flight() -> bool:
+    """True when any inference run, champion or shadow, is RUNNING inside one attempt's timeout.
+
+    A RUNNING row older than ``_SCORE_ATTEMPT_TIMEOUT`` has no live attempt behind it, so it does not count.
+    """
+    return (
+        AutoresearchRun.objects.unscoped()
+        .filter(
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            status=AutoresearchRun.Status.RUNNING,
+            started_at__gte=django_timezone.now() - _SCORE_ATTEMPT_TIMEOUT,
+        )
+        .exists()
+    )
 
 
 def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> None:
@@ -902,13 +927,18 @@ class FailLostInferenceRunsInput:
     pipeline_id: str
     team_id: int
     prediction_date: str
+    # The failed child's run id. A catch-up child for the same date has another one, so its live row stays open.
+    workflow_run_id: Optional[str] = None
 
 
 @activity.defn(name="autoresearch-coordinator.fail_lost_inference_runs")
 def activity_fail_lost_inference_runs(inp: FailLostInferenceRunsInput) -> int:
     """Fail the scheduled runs that an inference workflow left RUNNING when it ended in an exception."""
     return fail_lost_scheduled_runs(
-        team_id=inp.team_id, pipeline_id=inp.pipeline_id, prediction_date=inp.prediction_date
+        team_id=inp.team_id,
+        pipeline_id=inp.pipeline_id,
+        prediction_date=inp.prediction_date,
+        workflow_run_id=inp.workflow_run_id,
     )
 
 
@@ -1092,7 +1122,7 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             )
             # A child that failed to start (it is already running) is not a ChildWorkflowError, so its runs stay open.
             if isinstance(inference_result, ChildWorkflowError) and workflow.patched(_CLOSE_LOST_RUNS_PATCH):
-                await _settle(self._fail_lost_runs(pipeline, run_date))
+                await _settle(self._fail_lost_runs(pipeline, run_date, inference_result.run_id))
             if not catch_up:
                 kickoff_result = await _settle(self._kickoff(pipeline))
         if not catch_up:
@@ -1112,11 +1142,14 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=_SHADOW_RETRY,
         )
 
-    def _fail_lost_runs(self, pipeline: ActivePipeline, run_date: str) -> Awaitable[int]:
+    def _fail_lost_runs(self, pipeline: ActivePipeline, run_date: str, workflow_run_id: str) -> Awaitable[int]:
         return workflow.execute_activity(
             activity_fail_lost_inference_runs,
             FailLostInferenceRunsInput(
-                pipeline_id=pipeline.pipeline_id, team_id=pipeline.team_id, prediction_date=run_date
+                pipeline_id=pipeline.pipeline_id,
+                team_id=pipeline.team_id,
+                prediction_date=run_date,
+                workflow_run_id=workflow_run_id,
             ),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=5),

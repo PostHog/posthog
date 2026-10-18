@@ -1,5 +1,6 @@
 import uuid
 import asyncio
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -352,13 +353,15 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             metrics={"prediction_date": row.get("prediction_date", "2026-09-11"), "horizon_days": 30},
         )
         mock_inference.return_value = MagicMock(pk="run-1", rows_scored=0, status="completed", error="")
+        env = ActivityEnvironment()
 
-        ActivityEnvironment().run(
+        env.run(
             activity_run_inference,
             RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
         )
 
         assert mock_inference.call_args.kwargs["run"] == (earlier if reused else None)
+        assert mock_inference.call_args.kwargs["extra_metrics"] == {"workflow_run_id": env.info.workflow_run_id}
 
     def test_load_active_pipelines_fails_inference_runs_left_running(self) -> None:
         pipeline = self._create_pipeline()
@@ -388,48 +391,75 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
     def test_fail_lost_inference_runs_closes_only_the_scheduled_runs_of_the_date(self) -> None:
         pipeline = self._create_pipeline()
 
-        def _running(prediction_date: str, scheduled: bool = True) -> AutoresearchRun:
+        def _running(
+            prediction_date: str, scheduled: bool = True, workflow_run_id: str = "daily-run"
+        ) -> AutoresearchRun:
             return AutoresearchRun.objects.create(
                 pipeline=pipeline,
                 run_type=AutoresearchRun.RunType.INFERENCE,
                 scheduled=scheduled,
                 status=AutoresearchRun.Status.RUNNING,
                 started_at=django_timezone.now() - timedelta(minutes=10),
-                metrics={"prediction_date": prediction_date, "horizon_days": 30},
+                metrics={"prediction_date": prediction_date, "horizon_days": 30, "workflow_run_id": workflow_run_id},
             )
 
         lost = _running("2026-09-11")
         manual = _running("2026-09-11", scheduled=False)
         other_date = _running("2026-09-12")
+        catch_up = _running("2026-09-11", workflow_run_id="catch-up-run")
 
         ActivityEnvironment().run(
             activity_fail_lost_inference_runs,
             FailLostInferenceRunsInput(
-                pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"
+                pipeline_id=str(pipeline.id),
+                team_id=self.team.id,
+                prediction_date="2026-09-11",
+                workflow_run_id="daily-run",
             ),
         )
 
-        for run in (lost, manual, other_date):
+        for run in (lost, manual, other_date, catch_up):
             run.refresh_from_db()
         assert (lost.status, lost.metrics["failure_kind"]) == (AutoresearchRun.Status.FAILED, "other")
         assert lost.completed_at is not None
         assert manual.status == AutoresearchRun.Status.RUNNING
         assert other_date.status == AutoresearchRun.Status.RUNNING
+        assert catch_up.status == AutoresearchRun.Status.RUNNING
 
     @parameterized.expand(
         [
-            ("lost_run_is_retried", [("failed", "other")], None, True),
-            ("not_reached_by_the_daily_sweep_is_skipped", [], None, False),
-            ("scored_today_is_skipped", [("failed", "other"), ("completed", None)], datetime(2026, 9, 11, 3), False),
-            ("still_running_is_skipped", [("failed", "other"), ("running", None)], None, False),
-            ("repeatable_failure_is_skipped", [("failed", "query_failed")], None, False),
-            ("not_due_is_skipped", [("failed", "other")], datetime(2026, 9, 11, 1), False),
+            ("lost_run_is_retried", [("failed", "other")], None, True, False),
+            ("not_reached_by_the_daily_sweep_is_skipped", [], None, False, False),
+            (
+                "scored_today_is_skipped",
+                [("failed", "other"), ("completed", None)],
+                datetime(2026, 9, 11, 3),
+                False,
+                False,
+            ),
+            ("still_running_is_skipped", [("failed", "other"), ("running", None)], None, False, False),
+            ("repeatable_failure_is_skipped", [("failed", "query_failed")], None, False, False),
+            ("not_due_is_skipped", [("failed", "other")], datetime(2026, 9, 11, 1), False, False),
+            ("deferred_while_another_sweep_scores", [("failed", "other")], None, False, True),
         ]
     )
     def test_catch_up_discovery_lists_only_pipelines_whose_run_was_lost(
-        self, _name: str, runs: list[tuple[str, Optional[str]]], scored_at: Optional[datetime], listed: bool
+        self,
+        _name: str,
+        runs: list[tuple[str, Optional[str]]],
+        scored_at: Optional[datetime],
+        listed: bool,
+        sweep_in_flight: bool,
     ) -> None:
         pipeline = self._create_pipeline(last_scored_at=scored_at.replace(tzinfo=UTC) if scored_at else None)
+        if sweep_in_flight:
+            AutoresearchRun.objects.create(
+                pipeline=self._create_pipeline(),
+                run_type=AutoresearchRun.RunType.INFERENCE,
+                status=AutoresearchRun.Status.RUNNING,
+                started_at=django_timezone.now() - timedelta(minutes=10),
+                metrics={"prediction_date": "2026-09-11", "horizon_days": 30, "shadow": True},
+            )
         for index, (status, failure_kind) in enumerate(runs):
             run = AutoresearchRun.objects.create(
                 pipeline=pipeline,
@@ -824,7 +854,11 @@ async def test_coordinator_fails_the_runs_of_a_failed_inference_child(catch_up: 
             )
 
     assert load_inputs == [LoadActivePipelinesInput(catch_up_date="2026-10-18" if catch_up else None)]
-    assert failed_runs == [FailLostInferenceRunsInput(pipeline_id="lost", team_id=1, prediction_date="2026-10-18")]
+    assert [replace(inp, workflow_run_id=None) for inp in failed_runs] == [
+        FailLostInferenceRunsInput(pipeline_id="lost", team_id=1, prediction_date="2026-10-18")
+    ]
+    # Cleanup is scoped to the failed child's execution, so a catch-up child's live row stays open.
+    assert failed_runs[0].workflow_run_id
     assert (result.pipelines_processed, result.pipelines_errored) == (1, 1)
     assert "shadow-scored" in steps
     # The daily sweep already kicked off training and validated, so a catch-up only scores.

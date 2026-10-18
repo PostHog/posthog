@@ -192,15 +192,20 @@ def _scheduled_runs(team_id: int, pipeline_id: str, prediction_date: str) -> Que
     )
 
 
-def fail_lost_scheduled_runs(*, team_id: int, pipeline_id: str, prediction_date: str) -> int:
+def fail_lost_scheduled_runs(
+    *, team_id: int, pipeline_id: str, prediction_date: str, workflow_run_id: str | None = None
+) -> int:
     """
     Fail the scheduled inference runs of one pipeline and date that are still RUNNING.
 
     Call it only after the inference workflow of that date has ended, because then no attempt can close them.
+    With ``workflow_run_id`` it fails only the rows of that child execution, so a catch-up child that
+    started for the same date in the meantime keeps its live row.
     """
-    failed = _fail_lost_runs(
-        _scheduled_runs(team_id, pipeline_id, prediction_date).filter(status=AutoresearchRun.Status.RUNNING)
-    )
+    runs = _scheduled_runs(team_id, pipeline_id, prediction_date).filter(status=AutoresearchRun.Status.RUNNING)
+    if workflow_run_id is not None:
+        runs = runs.filter(metrics__workflow_run_id=workflow_run_id)
+    failed = _fail_lost_runs(runs)
     if failed:
         logger.warning("autoresearch_lost_inference_runs_failed", pipeline_id=pipeline_id, count=failed)
     return failed
