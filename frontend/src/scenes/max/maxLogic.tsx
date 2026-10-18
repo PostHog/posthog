@@ -48,6 +48,12 @@ export const PENDING_MAX_CONTEXT_KEY = 'posthog.pending_max_context'
 /** Maximum age for restored context (5 minutes) */
 const PENDING_CONTEXT_MAX_AGE_MS = 5 * 60 * 1000
 
+/** A deep-linked prompt (`/ai?ask=`) that waits for the active thread to mount and send it. */
+export interface PendingAsk {
+    prompt: string
+    uiContext?: Partial<MaxUIContext>
+}
+
 /** Stored context structure for sessionStorage */
 interface StoredMaxContext {
     context: Partial<MaxUIContext>
@@ -194,6 +200,7 @@ export interface maxLogicValues {
     messagesLoading: boolean
     onAcceptSessionFilters: ((filters: RecordingUniversalFilters) => void) | null
     panelId: any
+    pendingAsk: PendingAsk | null
     pendingBindTaskId: string | null
     question: string
     threadLogicKey: string
@@ -317,6 +324,9 @@ export interface maxLogicActions {
     }
     setFillInHint: (hint: string | null) => {
         hint: string | null
+    }
+    setPendingAsk: (pendingAsk: PendingAsk | null) => {
+        pendingAsk: PendingAsk | null
     }
     setPendingBindTaskId: (taskId: string | null) => {
         taskId: string | null
@@ -465,6 +475,7 @@ export const maxLogic = kea<maxLogicType>([
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
         setPendingBindTaskId: (taskId: string | null) => ({ taskId }),
+        setPendingAsk: (pendingAsk: PendingAsk | null) => ({ pendingAsk }),
     }),
 
     reducers(({ props }) => ({
@@ -564,6 +575,15 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
+
+        pendingAsk: [
+            null as PendingAsk | null,
+            {
+                setPendingAsk: (_, { pendingAsk }) => pendingAsk,
+                startNewConversation: () => null,
+                openConversation: () => null,
+            },
+        ],
     })),
 
     selectors({
@@ -1036,11 +1056,9 @@ export const maxLogic = kea<maxLogicType>([
                     return
                 }
 
-                window.setTimeout(() => {
-                    // ensure maxThreadLogic is mounted
-                    // Pass context directly to askMax to avoid timing issues
-                    actions.askMax(askPrompt, true, uiContext)
-                }, 100)
+                // On a cold load the thread logic for this chat is often not mounted yet, and `askMax` only
+                // reaches mounted threads. The active thread sends the pending prompt once it mounts.
+                actions.setPendingAsk({ prompt: askPrompt, uiContext })
                 return
             }
 

@@ -270,21 +270,32 @@ describe('maxLogic', () => {
             expect(sessionStorage.getItem(PENDING_MAX_CONTEXT_KEY)).toBeNull()
         })
 
-        it('auto-sends via askMax without prefilling when AI consent is granted', async () => {
+        it('auto-sends via askMax once the thread mounts, even when it mounts late', async () => {
             initKeaTests(true, undefined, undefined, {
                 ...MOCK_DEFAULT_ORGANIZATION,
                 is_ai_data_processing_approved: true,
             })
             useMocks(maxMocks)
+            const uiContext = { dashboards: [] }
+            sessionStorage.setItem(
+                PENDING_MAX_CONTEXT_KEY,
+                JSON.stringify({ context: uiContext, timestamp: Date.now() })
+            )
             router.actions.push(urls.ai(undefined, 'Explore my traces'))
 
             logic = maxLogic({ panelId: 'test' })
             logic.mount()
 
-            await expectLogic(logic).toDispatchActions([
-                logic.actionCreators.askMax('Explore my traces', true, undefined),
-            ])
+            await expectLogic(logic).toNotHaveDispatchedActions(['askMax'])
             expect(logic.values.question).toBe('')
+
+            threadLogic = maxThreadLogic(logic.values.threadLogicProps)
+            threadLogic.mount()
+
+            await expectLogic(logic).toDispatchActions([
+                logic.actionCreators.askMax('Explore my traces', true, uiContext),
+            ])
+            expect(logic.values.pendingAsk).toBeNull()
         })
     })
 
