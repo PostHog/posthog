@@ -247,6 +247,30 @@ class TestRunEventsFanOut:
         assert [r["_runs_id"] for r in resumed.rows] == ["run_a"]
         assert [r.path for r in resumed.requests] == ["/api/v1/runs", "/api/v1/runs/run_a/events"]
 
+    def test_runs_before_the_cutoff_cost_no_events_request(self) -> None:
+        # The page that crosses the watermark still lists older runs. They were synced before, and each
+        # one would cost a request.
+        runs_page = {
+            "data": [
+                {"id": "run_new", "createdAt": "2026-01-12T00:00:00Z"},
+                {"id": "run_old", "createdAt": "2026-01-05T00:00:00Z"},
+            ],
+            "pagination": {"next": "run_old"},
+        }
+        result = _run(
+            "run_events",
+            [_json(runs_page), _json({"events": [{"spanId": "s1"}]})],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 1, 10, tzinfo=UTC),
+        )
+        assert [r["_runs_id"] for r in result.rows] == ["run_new"]
+        assert [r.path for r in result.requests] == ["/api/v1/runs", "/api/v1/runs/run_new/events"]
+
+    def test_runs_without_events_are_staged_so_a_resume_skips_them(self) -> None:
+        runs_page = {"data": [{"id": "run_quiet", "createdAt": "2026-01-12T00:00:00Z"}], "pagination": {}}
+        result = _run("run_events", [_json(runs_page), _json({"events": []})])
+        assert [s.last_run_id for s in result.saved_states] == ["run_quiet"]
+
 
 class TestClassicPagination:
     def test_walks_pages_until_total_and_never_checkpoints(self) -> None:

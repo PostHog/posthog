@@ -277,23 +277,25 @@ def _iter_run_events(
                 ):
                     continue
                 skip_through = None
+            if cutoff is not None and _is_older_than_cutoff(run.get("createdAt"), cutoff):
+                # Runs from before the cutoff were synced already; the page only crosses it to end the walk.
+                continue
             url = _build_url(base_url, config.path.format(run_id=run_id), {})
             try:
-                data = _fetch_page(session, url, headers, logger)
+                events = _fetch_page(session, url, headers, logger).get("events", []) or []
             except requests.HTTPError as e:
                 # A run deleted between the runs page and this request has no events left to sync.
-                if e.response is not None and e.response.status_code == 404:
-                    resumable_source_manager.safe_point()
-                    continue
-                raise
+                if e.response is None or e.response.status_code != 404:
+                    raise
+                events = []
 
-            events = data.get("events", []) or []
-            if not events:
-                resumable_source_manager.safe_point()
-                continue
+            # Stage the run even when it has no events, so a resume does not repeat its request.
             resumable_source_manager.save_state(
                 TriggerDevResumeConfig(after=after, last_run_id=run_id, last_run_created_at=run.get("createdAt"))
             )
+            if not events:
+                resumable_source_manager.safe_point()
+                continue
             yield [{**event, "_runs_id": run_id, "_runs_createdAt": run.get("createdAt")} for event in events]
 
         if stop or not next_after:
