@@ -1667,7 +1667,7 @@ pull request in one walk, so it costs one request per page instead of one per pu
 
 ## Bitrise — gaps
 
-Today (8): `apps`, `artifacts`, `branches`, `builds`, `organization_members`, `organizations`, `pipelines`, `workflows`
+Today (12): `activities`, `apps`, `archived_builds`, `artifacts`, `available_stacks`, `branches`, `build_requests`, `builds`, `organization_members`, `organizations`, `pipelines`, `workflows`
 
 Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 
@@ -1675,10 +1675,10 @@ Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 - [x] `/organizations/{org-slug}/members` — org membership records for attributing builds to people (medium)
 - [x] `/organizations` — lookup resolving the org that owns each app we already sync (medium)
 - [x] `/apps/{app-slug}/branches` — branch lookup for grouping build history (medium)
-- [ ] `/apps/{app-slug}/archived-builds` — extends build history past the live builds window (medium)
-- [ ] `/apps/{app-slug}/build-requests` — queued/pending build requests reveal CI backlog (low)
-- [ ] `/me/activities` — account-level activity event feed (low)
-- [ ] `/available-stacks` — lookup for the stack identifier carried on builds (low)
+- [x] `/apps/{app-slug}/archived-builds` — extends build history past the live builds window (medium)
+- [x] `/apps/{app-slug}/build-requests` — queued/pending build requests reveal CI backlog (low)
+- [x] `/me/activities` — account-level activity event feed (low)
+- [x] `/available-stacks` — lookup for the stack identifier carried on builds (low)
 
 ## BlandAI — **thin**
 
@@ -7813,10 +7813,10 @@ Today (3): `Daily`, `Hourly`, `Monthly`
 
 Diffed against: <https://dev.meteostat.net/api/stations>
 
-- [ ] `Meta Data (GET /stations/meta)` — resolve station_id values into station names, coordinates, elevation, and country (high)
-- [ ] `Climate Normals (GET /stations/normals)` — compare observed weather with long-term monthly averages to measure climate anomalies (medium)
-- [ ] `Point Data (GET /point/hourly; GET /point/daily; GET /point/monthly)` — join weather to business locations through coordinates, without selecting individual weather stations (medium)
-- [ ] `Point Climate Normals (GET /point/normals)` — compare weather at business locations with normal monthly conditions (medium)
+- [x] `Meta Data (GET /stations/meta)` — resolve station_id values into station names, coordinates, elevation, and country (high)
+- [x] `Climate Normals (GET /stations/normals)` — compare observed weather with long-term monthly averages to measure climate anomalies (medium)
+- [x] `Point Data (GET /point/hourly; GET /point/daily; GET /point/monthly)` — join weather to business locations through coordinates, without selecting individual weather stations (medium)
+- [x] `Point Climate Normals (GET /point/normals)` — compare weather at business locations with normal monthly conditions (medium)
 
 Note: The official station and point reference pages, including their GitHub Markdown sources, provided the GET operation list. Existing tables call only station observation endpoints for configured station IDs. Station details need one request per station; point tables need coordinate inputs. Nearby station discovery and the MCP interface are excluded.
 
@@ -9554,10 +9554,10 @@ Today (8): `CodingMetrics`, `CollaborationMetrics`, `Commits`, `PullRequests`, `
 
 Diffed against: <https://appfire.atlassian.net/wiki/spaces/FD/pages/1802600473>
 
-- [ ] `User Aliases (GET /v3/customer/core/user_alias/)` — resolve user_alias_id values on commits and connect vendor identities to Flow users (high)
-- [ ] `Pull Request Projects (GET /v3/customer/core/pull_request_projects/)` — resolve project IDs on pull requests and link their projects to repositories (high)
-- [ ] `Ticket Projects (GET /v3/customer/core/ticket_projects/)` — identify the issue tracker projects that contain synced tickets (high)
-- [ ] `Team Membership (GET /v3/customer/core/team_membership)` — connect users to teams for engineering activity analysis by team (high)
+- [x] `User Aliases (GET /v3/customer/core/user_alias/)` — resolve user_alias_id values on commits and connect vendor identities to Flow users (high)
+- [x] `Pull Request Projects (GET /v3/customer/core/pull_request_projects/)` — resolve project IDs on pull requests and link their projects to repositories (high)
+- [x] `Ticket Projects (GET /v3/customer/core/ticket_projects/)` — identify the issue tracker projects that contain synced tickets (high)
+- [x] `Team Membership (GET /v3/customer/core/team_membership)` — connect users to teams for engineering activity analysis by team (high)
 - [ ] `DORA Metrics (GET /dora/build-release/change/lead_time/; GET /dora/build-release/deployment/frequency/; GET /dora/build-release/incident/change_failure_rate/; GET /dora/build-release/incident/time_to_restore/)` — measure deployment frequency, change failure rate, recovery time, and change lead time (high)
 - [ ] `Ticket Metrics (GET /ticket-delivery/metrics/)` — track Flow velocity, cycle time, queue time, backflow rate, and jitter (high)
 - [ ] `Pull Request Events (GET /v3/customer/core/pull_request_events/)` — analyze review approvals and pull request state changes over time (medium)
@@ -10183,10 +10183,10 @@ Today (3): `Listings`, `Orders`, `Payouts`
 
 Diffed against: <https://www.reverb-api.com/docs>
 
-- [ ] `Payout line items (GET /api/my/payouts/{payout_id}/line_items)` — reconcile payout totals with orders, fees, refunds, and individual financial entries (high)
-- [ ] `Refund requests (GET /api/my/refund_requests/selling)` — measure returned orders, refund amounts, reasons, and seller response status (high)
-- [ ] `Selling payments (GET /api/my/payments/selling)` — reconcile order payments and payment methods with sales and payouts (high)
-- [ ] `Bump statistics (GET /api/listings/{listing_id}/bump)` — compare promotion costs, impressions, and attributed sales across listings (medium)
+- [x] `Payout line items (GET /api/my/payouts/{payout_id}/line_items)` — reconcile payout totals with orders, fees, refunds, and individual financial entries (high)
+- [x] `Refund requests (GET /api/my/refund_requests/selling)` — measure returned orders, refund amounts, reasons, and seller response status (high)
+- [x] `Selling payments (GET /api/my/payments/selling)` — reconcile order payments and payment methods with sales and payouts (high)
+- [x] `Bump statistics (GET /api/listings/{listing_id}/bump)` — compare promotion costs, impressions, and attributed sales across listings (medium)
 - [ ] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
 - [ ] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium)
 - [ ] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
@@ -10213,10 +10213,10 @@ Today (9): `companies`, `compensations`, `departments`, `employment_types`, `lev
 
 Diffed against: <https://developer.rippling.com/sitemap.xml>
 
-- [ ] `list-time-entries (and get-time-entries)` — clock-in/clock-out records - the highest-volume fact table in Rippling and the basis of all labor analysis (high)
-- [ ] `list-leave-requests` — time-off requests with status and dates, the core absence dataset (high)
-- [ ] `list-worker-payroll-records` — per-worker payroll line items - actual pay, taxes and deductions, not just contracted compensation (high)
-- [ ] `list-payroll-runs` — the payroll period header that payroll records roll up to (high)
+- [x] `list-time-entries (and get-time-entries)` — clock-in/clock-out records - the highest-volume fact table in Rippling and the basis of all labor analysis (high)
+- [x] `list-leave-requests` — time-off requests with status and dates, the core absence dataset (high)
+- [x] `list-worker-payroll-records` — per-worker payroll line items - actual pay, taxes and deductions, not just contracted compensation (high)
+- [x] `list-payroll-runs` — the payroll period header that payroll records roll up to (high)
 - [ ] `list-worker-changes (and list-worker-change-fields)` — the transition history for workers - promotions, transfers, terminations; today only current state is synced (high)
 - [ ] `list-leave-balances (and list-leave-accruals)` — accrued and remaining balance per worker per policy, the standard PTO liability metric (high)
 - [ ] `list-titles` — lookup resolving the job title ID carried on workers (high)
@@ -11865,8 +11865,8 @@ Diffed against: <https://developer.systeme.io/llms.txt>
 
 - [ ] `Subscriptions (GET /api/payment/subscriptions)` — analyze subscription growth, cancellations, and recurring revenue by price plan (high)
 - [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high)
-- [ ] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
-- [ ] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
+- [x] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
+- [x] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
 - [ ] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
 - [ ] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
 - [ ] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
@@ -12463,10 +12463,10 @@ Today (3): `queues`, `runs`, `schedules`
 
 Diffed against: <https://trigger.dev/docs/llms.txt>
 
-- [ ] `errors (list error groups)` — failed runs grouped by fingerprint with lifecycle state; the headline reliability metric (high)
-- [ ] `deployments (list)` — deploy history and worker versions, the dimension that explains run behavior changes (high)
-- [ ] `runs/{id}/events` — OTel span events per run; the step-level detail behind a run's duration and failure (medium)
-- [ ] `waitpoints/tokens (list)` — waitpoint tokens and their completion state, showing where runs block on external systems (medium)
+- [x] `errors (list error groups)` — failed runs grouped by fingerprint with lifecycle state; the headline reliability metric (high)
+- [x] `deployments (list)` — deploy history and worker versions, the dimension that explains run behavior changes (high)
+- [x] `runs/{id}/events` — OTel span events per run; the step-level detail behind a run's duration and failure (medium)
+- [x] `waitpoints/tokens (list)` — waitpoint tokens and their completion state, showing where runs block on external systems (medium)
 - [ ] `sessions (list)` — durable session records tying multiple runs to one external identity (medium)
 - [ ] `bulk-actions (list)` — bulk cancel/replay operations and their processing counts (low)
 
@@ -12951,10 +12951,10 @@ Today (3): `folders`, `showcases`, `videos`
 
 Diffed against: <https://raw.githubusercontent.com/vimeo/openapi/master/api.yaml>
 
-- [ ] `Folder videos (GET /me/projects/{project_id}/videos)` — link synced videos to their folders for reporting by collection (high)
-- [ ] `Showcase videos (GET /me/albums/{album_id}/videos)` — link synced videos to showcases and compare content across curated collections (high)
-- [ ] `Video comments and replies (GET /videos/{video_id}/comments; GET /videos/{video_id}/comments/{comment_id}/replies)` — analyze audience feedback and discussion on each video (medium)
-- [ ] `Video likes (GET /videos/{video_id}/likes)` — measure audience engagement and identify viewers who like each video (medium)
+- [x] `Folder videos (GET /me/projects/{project_id}/videos)` — link synced videos to their folders for reporting by collection (high)
+- [x] `Showcase videos (GET /me/albums/{album_id}/videos)` — link synced videos to showcases and compare content across curated collections (high)
+- [x] `Video comments and replies (GET /videos/{video_id}/comments; GET /videos/{video_id}/comments/{comment_id}/replies)` — analyze audience feedback and discussion on each video (medium)
+- [x] `Video likes (GET /videos/{video_id}/likes)` — measure audience engagement and identify viewers who like each video (medium)
 - [ ] `Video tags (GET /videos/{video_id}/tags)` — group video performance by topic using the tags assigned to each video (medium)
 - [ ] `Followers (GET /me/followers)` — analyze the account audience and follower acquisition (medium)
 
