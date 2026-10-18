@@ -20,6 +20,7 @@ const delayStep = (id: string, config: Record<string, unknown>): HogFlowAction =
     }) as HogFlowAction
 
 const SAVED_ID = 'wf-visit-1'
+const OTHER_ID = 'wf-visit-2'
 
 const PAGEVIEW_TRIGGER = {
     type: 'event',
@@ -132,16 +133,72 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
-    it('reports the leave once, by beacon, when the person closes the tab', async () => {
+    it('reports the leave by beacon when the tab closes, and starts a new visit when the browser restores the page', async () => {
         const visit = await openEditor({ id: 'new' })
 
         window.dispatchEvent(new Event('pagehide'))
+        window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
         visit.unmount()
 
+        expect(captured('workflow editor opened')).toHaveLength(2)
         const leaves = captureSpy.mock.calls.filter(([name]) => name === 'workflow editor left')
         expect(leaves).toEqual([
             ['workflow editor left', expect.objectContaining({ start_path: 'blank' }), { transport: 'sendBeacon' }],
+            ['workflow editor left', expect.objectContaining({ start_path: 'blank' }), undefined],
         ])
+    })
+
+    it('starts a fresh visit when the saved workflow is not the next one opened', async () => {
+        const created = { ...NEW_WORKFLOW, id: SAVED_ID }
+        useMocks({
+            post: { '/api/environments/:team_id/hog_flows/': created },
+            get: {
+                [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: created,
+                [`/api/environments/:team_id/hog_flows/${OTHER_ID}/`]: { ...created, id: OTHER_ID },
+            },
+        })
+        const draftProps = { id: 'new' }
+        const draftVisit = await openEditor(draftProps)
+        await expectLogic(workflowLogic(draftProps), () => {
+            workflowLogic(draftProps).actions.submitWorkflow()
+        }).toDispatchActions(['saveWorkflowSuccess'])
+        draftVisit.unmount()
+
+        ;(await openEditor({ id: OTHER_ID })).unmount()
+        ;(await openEditor({ id: SAVED_ID })).unmount()
+
+        expect(captured('workflow editor opened').map(({ workflow_id }) => workflow_id)).toEqual([
+            null,
+            OTHER_ID,
+            SAVED_ID,
+        ])
+    })
+
+    it('reports a moved step as the last edit when the save after it fails', async () => {
+        const draft = {
+            ...NEW_WORKFLOW,
+            id: SAVED_ID,
+            actions: [...NEW_WORKFLOW.actions, delayStep('wait_valid', { delay_duration: '10m' })],
+        }
+        useMocks({
+            get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: draft },
+            patch: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: () => [500, {}] },
+        })
+        const props = { id: SAVED_ID }
+        const visit = await openEditor(props)
+
+        workflowLogic(props).actions.setWorkflowValues({
+            edges: [
+                { from: 'trigger_node', to: 'wait_valid', type: 'continue' },
+                { from: 'wait_valid', to: 'exit_node', type: 'continue' },
+            ],
+        })
+        await expectLogic(workflowLogic(props), () => {
+            workflowLogic(props).actions.submitWorkflow()
+        }).toDispatchActions(['saveWorkflowFailure'])
+        visit.unmount()
+
+        expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'step_edited' })])
     })
 
     it('reports which steps block a draft from going live', async () => {

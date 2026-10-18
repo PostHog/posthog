@@ -243,11 +243,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
     const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
+    const showsBuilder = !editTemplateId && (!isSavedWorkflow || activeTab === 'workflow')
 
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
-                {!editTemplateId && <WorkflowEditorVisitTracker {...workflowProps} />}
+                {showsBuilder && <WorkflowEditorVisitTracker {...workflowProps} />}
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
                 {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
