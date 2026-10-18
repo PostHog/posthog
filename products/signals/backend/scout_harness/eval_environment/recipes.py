@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import os
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal, Self
-from uuid import UUID, uuid5
+from uuid import UUID, uuid4, uuid5
 
 from pydantic import AwareDatetime, Field, JsonValue, model_validator
 
@@ -143,6 +144,14 @@ class EventRecipe(EnvironmentModel):
     def write_events(self, path: Path) -> None:
         events = self.events()
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        with path.open("xb"):
-            path.chmod(0o600)
-        EVENT_TABLE.write(path, events)
+        if path.exists():
+            raise FileExistsError(f"The events file already exists: {path}")
+        temporary = path.with_name(f".{path.stem}.{uuid4().hex}.parquet")
+        with temporary.open("xb"):
+            temporary.chmod(0o600)
+        try:
+            EVENT_TABLE.write(temporary, events)
+            # A hard link publishes only a complete file and still refuses to replace an existing one.
+            os.link(temporary, path)
+        finally:
+            temporary.unlink()

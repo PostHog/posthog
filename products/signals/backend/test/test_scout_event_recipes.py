@@ -1,11 +1,15 @@
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import RFC_4122, UUID, uuid5
 
 from unittest import TestCase
+from unittest.mock import patch
 
 from pydantic import ValidationError
 
-from products.posthog_ai.eval_harness.environment.schema import EnvironmentEvent
+from products.posthog_ai.eval_harness.environment.schema import EVENT_TABLE, EnvironmentEvent
+from products.signals.backend.scout_harness.eval_environment import recipes
 from products.signals.backend.scout_harness.eval_environment.recipes import EventGroupRecipe, EventRecipe
 
 
@@ -55,6 +59,40 @@ class TestEventRecipes(TestCase):
             uuid5(recipe.namespace, "example:0"),
             uuid5(recipe.namespace, "example:1"),
         }
+
+    def test_write_events_publishes_only_a_complete_file(self) -> None:
+        cutoff = datetime(2030, 1, 2, tzinfo=UTC)
+        recipe = EventRecipe(
+            namespace=UUID("00000000-0000-4000-8000-000000000002"),
+            source_cutoff=cutoff,
+            groups=[
+                EventGroupRecipe(
+                    key="example",
+                    event="example_call",
+                    count=2,
+                    start=cutoff - timedelta(hours=2),
+                    end=cutoff,
+                    organization_properties=["organization"],
+                    organization_frequencies={"example-org": 2},
+                    generated_timestamps=[cutoff - timedelta(hours=1)] * 2,
+                    properties={"organization": "example-org"},
+                )
+            ],
+        )
+        with TemporaryDirectory() as temporary:
+            output = Path(temporary) / "events.parquet"
+            with (
+                patch.object(recipes.EVENT_TABLE, "write", side_effect=OSError("disk full")),
+                self.assertRaises(OSError),
+            ):
+                recipe.write_events(output)
+            assert list(Path(temporary).iterdir()) == []
+
+            recipe.write_events(output)
+            assert list(EVENT_TABLE.read(output)) == recipe.events()
+            assert [path.name for path in Path(temporary).iterdir()] == ["events.parquet"]
+            with self.assertRaises(FileExistsError):
+                recipe.write_events(output)
 
     def test_generated_uuidv7_rejects_timestamps_before_the_unix_epoch(self) -> None:
         cutoff = datetime(1970, 1, 1, tzinfo=UTC)
