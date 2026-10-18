@@ -7,6 +7,8 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
@@ -87,7 +89,8 @@ def run_extractor(
     working alert over a load problem, so it keeps the ordinary failure path.
 
     A SQL insight that ClickHouse rejects with a user-safe error, such as a column type mismatch,
-    gets the same verdict: the owner wrote the query, and it fails the same way until they fix it.
+    or that HogQL rejects before ClickHouse runs it, such as tables from different clusters in one
+    query, gets the same verdict: the owner wrote the query, and it fails the same way until they fix it.
     Other kinds keep the ordinary path, because PostHog builds their SQL and the error can be a bug.
     """
     try:
@@ -98,6 +101,10 @@ def run_extractor(
         raise AlertExtractionError(rule_violation_message(err)) from err
     except ExposedCHQueryError as err:
         if isinstance(err, CH_TRANSIENT_ERRORS) or get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
+            raise
+        raise AlertExtractionError(str(err)) from err
+    except ExposedHogQLError as err:
+        if get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
             raise
         raise AlertExtractionError(str(err)) from err
 
