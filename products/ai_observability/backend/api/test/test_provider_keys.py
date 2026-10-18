@@ -741,20 +741,34 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
-    def test_can_create_zeabur_provider_key(self, mock_validate):
-        mock_validate.return_value = (LLMProviderKey.State.OK, None)
-
+    def test_cannot_create_new_zeabur_provider_key(self, mock_validate):
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
             {"provider": "zeabur", "name": "Zeabur AI Hub Key", "api_key": "sk-zeabur-test-key-12345"},
         )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("no longer accepts new keys", str(response.data))
+        self.assertFalse(LLMProviderKey.objects.exists())
+        mock_validate.assert_not_called()
 
-        key = LLMProviderKey.objects.first()
-        assert key is not None
-        self.assertEqual(key.provider, "zeabur")
-        self.assertEqual(key.state, LLMProviderKey.State.OK)
-        mock_validate.assert_called_once_with("zeabur", "sk-zeabur-test-key-12345", team_id=self.team.id)
+    @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
+    def test_existing_zeabur_provider_key_can_still_be_renamed(self, mock_validate):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="zeabur",
+            name="Zeabur AI Hub Key",
+            encrypted_config={"api_key": "sk-zeabur-test-key-12345"},
+            state=LLMProviderKey.State.OK,
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/",
+            {"name": "Renamed"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        key.refresh_from_db()
+        self.assertEqual(key.name, "Renamed")
 
     @patch("products.ai_observability.backend.api.provider_keys.validate_provider_key")
     def test_zeabur_key_rejects_invalid_format(self, mock_validate):

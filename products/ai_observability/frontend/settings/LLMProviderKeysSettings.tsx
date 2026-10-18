@@ -363,8 +363,9 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         onChange={handleProviderChange}
                         options={LLM_PROVIDER_SELECT_OPTIONS.filter(
                             ({ value }) =>
-                                value !== 'system_one' ||
-                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] === true
+                                value !== 'zeabur' &&
+                                (value !== 'system_one' ||
+                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] === true)
                         )}
                         className="mt-1"
                         fullWidth
