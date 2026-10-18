@@ -2069,7 +2069,10 @@ class InsightViewSet(
         # Insights are retrieved under /environments/ because they include team-specific query results,
         # but they are in fact project-level, rather than environment-level
         assert self.team.project_id is not None
-        queryset = self.queryset.filter(team__project_id=self.team.project_id)
+        # Resolve the project's team ids first. A filter on `team__project_id` joins posthog_team, and the
+        # planner then cannot seek `dashboarditem_team_lmod_idx`, so large projects scan the whole heap.
+        project_team_ids = list(Team.objects.filter(project_id=self.team.project_id).values_list("id", flat=True))
+        queryset = self.queryset.filter(team_id__in=project_team_ids)
 
         include_deleted = False
 
