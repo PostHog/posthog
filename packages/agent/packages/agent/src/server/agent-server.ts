@@ -225,6 +225,13 @@ export const SSE_KEEPALIVE_INTERVAL_MS = 25_000;
 // cut once, without letting a hard upstream outage loop forever.
 const MAX_UPSTREAM_TURN_RETRIES = 2;
 const UPSTREAM_TURN_RETRY_DELAY_MS = 5_000;
+
+// The delay doubles per attempt. Half of it is random, so many runs that hit
+// the same capacity gap do not retry at the same moment.
+export function upstreamTurnRetryDelayMs(attempt: number): number {
+  const ceiling = UPSTREAM_TURN_RETRY_DELAY_MS * 2 ** (attempt - 1);
+  return ceiling / 2 + Math.random() * (ceiling / 2);
+}
 const PENDING_ARTIFACT_MAX_ATTEMPTS = 4;
 const PENDING_ARTIFACT_RETRY_DELAY_MS = 500;
 
@@ -2874,7 +2881,7 @@ export class AgentServer {
           },
         );
         await new Promise((resolve) =>
-          setTimeout(resolve, UPSTREAM_TURN_RETRY_DELAY_MS),
+          setTimeout(resolve, upstreamTurnRetryDelayMs(retries)),
         );
         if (this.session !== originatingSession) {
           throw new Error(
