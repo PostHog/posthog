@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use super::person::{
     bulk_primary_labels, claim_lifecycle_marks, lock_persons_by_uuids, release_lifecycle_marks,
-    MarkKind,
+    LockedPerson, MarkKind,
 };
 use super::{PostgresStorage, DB_QUERY_DURATION};
 use crate::storage::error::{StorageError, StorageResult};
@@ -32,9 +32,9 @@ impl PersonRepair for PostgresStorage {
         let uuids: Vec<Uuid> = floors.iter().map(|(uuid, _)| *uuid).collect();
         // A lifecycle saga holds no row lock between its steps and later writes an absolute version,
         // so a raise must take the person's mark, or the saga would lower the version it raised.
-        let (mark_op_id, _) =
+        let (mark_op_id, claimed_ids) =
             claim_lifecycle_marks(&mut tx, team_id, &uuids, MarkKind::Restore).await?;
-        let locked = lock_persons_by_uuids(&mut tx, team_id, &uuids).await?;
+        let locked = lock_claimed_persons(&mut tx, team_id, &claimed_ids).await?;
 
         let (raise_ids, raise_mins): (Vec<i64>, Vec<i64>) = floors
             .iter()
@@ -276,6 +276,44 @@ async fn insert_restored_distinct_ids(
         }
     }
     Ok(by_person)
+}
+
+/// Lock the claimed persons in id order, keyed by uuid. Locking by id, not uuid, leaves out a person
+/// created under a requested uuid after the claim, which holds no mark; it is reported missing.
+async fn lock_claimed_persons(
+    tx: &mut Transaction<'_, Postgres>,
+    team_id: i64,
+    claimed_ids: &[i64],
+) -> StorageResult<HashMap<Uuid, LockedPerson>> {
+    if claimed_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query!(
+        r#"
+        SELECT id::bigint as "id!", uuid as "uuid!",
+               COALESCE(version, 0)::bigint as "version!", is_deleted as "is_deleted!"
+        FROM posthog_person
+        WHERE team_id = $1 AND id = ANY($2)
+        ORDER BY id FOR UPDATE
+        "#,
+        team_id as i32,
+        claimed_ids
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| {
+            (
+                row.uuid,
+                LockedPerson {
+                    id: row.id,
+                    version: row.version,
+                    is_deleted: row.is_deleted,
+                },
+            )
+        })
+        .collect())
 }
 
 async fn begin_with_lock_timeout(
