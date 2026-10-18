@@ -12,9 +12,11 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import { FIRST_WORKFLOW_CARD_DISMISS_KEY, firstWorkflowCardLogic } from './firstWorkflowCardLogic'
 
+const MIDDLE_MOUSE_BUTTON = 1
+
 export function FirstWorkflowCard(): JSX.Element {
-    const { triggerEventLoading } = useValues(firstWorkflowCardLogic)
-    const { openFirstWorkflow, reportShown, reportDismissed } = useActions(firstWorkflowCardLogic)
+    const { firstWorkflowUrl } = useValues(firstWorkflowCardLogic)
+    const { reportShown, reportClicked, reportDismissed } = useActions(firstWorkflowCardLogic)
 
     useEffect(() => {
         reportShown()
@@ -23,14 +25,13 @@ export function FirstWorkflowCard(): JSX.Element {
     return (
         <div className="w-full">
             <Link
-                to={urls.workflowNew()}
-                className={triggerEventLoading ? 'cursor-progress text-primary opacity-70' : 'text-primary'}
-                aria-busy={triggerEventLoading}
+                to={firstWorkflowUrl ?? urls.workflowNew()}
+                className="text-primary"
                 data-attr="nav-panel-first-workflow-card"
-                onClick={(event) => {
-                    event.preventDefault()
-                    if (!triggerEventLoading) {
-                        openFirstWorkflow()
+                onClick={() => reportClicked()}
+                onAuxClick={(event) => {
+                    if (event.button === MIDDLE_MOUSE_BUTTON) {
+                        reportClicked()
                     }
                 }}
             >
