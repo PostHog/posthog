@@ -11865,8 +11865,8 @@ Diffed against: <https://developer.systeme.io/llms.txt>
 
 - [ ] `Subscriptions (GET /api/payment/subscriptions)` — analyze subscription growth, cancellations, and recurring revenue by price plan (high)
 - [ ] `Email statistics (GET /api/mailing/statistics/newsletters; GET /api/mailing/statistics/campaign-steps; GET /api/mailing/statistics/automation-emails)` — compare messages sent, opens, clicks, bounces, and spam reports across email types (high)
-- [ ] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
-- [ ] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
+- [x] `Digital products (GET /api/payment/digital-products)` — analyze the digital product catalog alongside courses and subscription offerings (medium)
+- [x] `Physical products (GET /api/payment/physical-products)` — analyze physical product offerings and compare them with digital products (medium)
 - [ ] `Campaigns (GET /api/mailing/campaigns)` — analyze automated email campaigns alongside newsletters (medium)
 - [ ] `Campaign steps (GET /api/mailing/campaigns/{campaignId}/steps)` — connect email performance to each message and its position in a campaign (medium)
 - [ ] `Funnels (GET /api/funnels)` — identify marketing funnels for comparisons with contacts and their source URLs (medium)
