@@ -6,8 +6,8 @@ description: >
   or compute whether users come back (retention / churn), how frequently they engage (stickiness / power
   users / DAU-WAU-MAU ratio), or the composition of the active base (new / returning / resurrecting / dormant
   lifecycle). These three are one engagement family sharing a start-event/return-event vocabulary and an
-  interval granularity; this skill treats them together and helps pick the right lens: retention for the
-  return-rate cohort matrix, stickiness for the frequency distribution, lifecycle for growth quality. On
+  interval granularity; this skill helps pick the right lens: retention for the return-rate cohort matrix,
+  stickiness for the frequency distribution, lifecycle for growth quality. On
   PostHog, model them in HogQL (mirroring query-retention / query-stickiness / query-lifecycle); in dbt,
   build fct_retention / fct_stickiness / fct_lifecycle marts with tests. Read modeling-warehouse-foundations
   first; feeds the retention validation used by modeling-activation-metrics.
