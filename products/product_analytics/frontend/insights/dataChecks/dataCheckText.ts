@@ -81,7 +81,6 @@ function fixOf(check: InsightDataCheckApi, filtersTestAccounts: boolean): string
     }
 }
 
-/** The words for one check's result, from the fields the server returns. */
 export function dataCheckText(check: InsightDataCheckApi, filtersTestAccounts: boolean): DataCheckText {
     const name = DATA_CHECK_NAMES[check.key]
     if (check.level === 'skipped') {

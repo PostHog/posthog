@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconWarning } from '@posthog/icons'
+import { IconCheck, IconWarning } from '@posthog/icons'
 import { Dot, Spinner, cn } from '@posthog/quill'
 
 import { pluralize } from 'lib/utils/strings'
@@ -36,25 +36,6 @@ function statusLabel(status: InsightDataChecksStatus, findingCount: number): str
     }
 }
 
-// The library's tick is a filled shape with a fixed weight. This one is a line, so its weight can match the ring.
-function Tick(): JSX.Element {
-    return (
-        <svg
-            viewBox="0 0 16 16"
-            className="size-4"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth={2}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-        >
-            <path d="M3.5 8.5 6.5 11.5 12.5 4.5" />
-        </svg>
-    )
-}
-
-/** The result of the data checks on the events behind an insight. It opens the list of checks. */
 export function InsightDataChecks({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
     const { findings, labelOpen, status } = useValues(insightDataChecksLogic(insightProps))
 
@@ -85,7 +66,7 @@ export function InsightDataChecks({ insightProps }: { insightProps: InsightLogic
                 className="inline-flex size-5 shrink-0 items-center justify-center transition-opacity duration-500 starting:opacity-0"
             >
                 {status === 'passed' ? (
-                    <Tick />
+                    <IconCheck className="size-4" />
                 ) : status === 'checking' ? (
                     <Spinner className="size-3.5" />
                 ) : status === 'no_events' || status === 'inconclusive' ? (

@@ -49,7 +49,6 @@ import {
 
 import { ChartAlternatives } from 'products/product_analytics/frontend/insights/chartAlternatives/ChartAlternatives'
 import { InsightDataChecks } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecks'
-import { InsightDataChecksState } from 'products/product_analytics/frontend/insights/dataChecks/InsightDataChecksState'
 import { Funnel } from 'products/product_analytics/frontend/insights/funnels/Funnel'
 import { FunnelCanvasLabel } from 'products/product_analytics/frontend/insights/funnels/FunnelCanvasLabel'
 import { FunnelCorrelation } from 'products/product_analytics/frontend/insights/funnels/FunnelCorrelation/FunnelCorrelation'
@@ -630,7 +629,6 @@ export function InsightVizDisplay({
                     </>
                 )}
             </div>
-            {showsDataChecks && <InsightDataChecksState insightProps={insightProps} />}
             <ResultCustomizationsModal />
             {renderAIAnalysisSection()}
             {renderTable()}

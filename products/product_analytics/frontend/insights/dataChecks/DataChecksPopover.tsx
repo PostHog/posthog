@@ -22,10 +22,17 @@ function summary(status: InsightDataChecksStatus, coverage: InsightDataChecksCov
     if (status === 'failed') {
         return "The checks didn't finish. The chart's own numbers are not affected."
     }
-    if (!coverage?.events_checked) {
-        return 'No events match this chart, so there is nothing to check.'
+    if (!coverage) {
+        return 'No check could run on this chart.'
     }
-    return `Checked ${humanFriendlyNumber(coverage.events_checked)} events from the newest ${pluralize(coverage.days_checked, 'day')} of this chart.`
+    const days = pluralize(coverage.days_checked, 'day')
+    if (coverage.events_checked === 0) {
+        return `No events in the newest ${days} of this chart, so there is nothing to check.`
+    }
+    if (coverage.events_checked === null) {
+        return `Checked the events from the newest ${days} of this chart.`
+    }
+    return `Checked ${humanFriendlyNumber(coverage.events_checked)} events from the newest ${days} of this chart.`
 }
 
 export interface DataChecksPopoverProps {
