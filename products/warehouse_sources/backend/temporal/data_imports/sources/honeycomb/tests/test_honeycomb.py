@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.honeycomb.
     HoneycombResumeConfig,
     HoneycombRetryableError,
     HoneycombSloCountsUnavailableError,
+    HoneycombUnsafeUrlError,
     _base_url,
     get_rows,
     validate_credentials,
@@ -56,7 +57,9 @@ class _FakeSession:
         self._responses = list(responses)
         self.requested_urls: list[str] = []
 
-    def get(self, url: str, headers: dict[str, str] | None = None, timeout: int | None = None) -> requests.Response:
+    def get(
+        self, url: str, headers: dict[str, str] | None = None, timeout: int | None = None, **kwargs: Any
+    ) -> requests.Response:
         self.requested_urls.append(url)
         return self._responses.pop(0)
 
@@ -229,7 +232,9 @@ class _UrlSession:
         self._responses = responses
         self.requested_urls: list[str] = []
 
-    def get(self, url: str, headers: dict[str, str] | None = None, timeout: int | None = None) -> requests.Response:
+    def get(
+        self, url: str, headers: dict[str, str] | None = None, timeout: int | None = None, **kwargs: Any
+    ) -> requests.Response:
         self.requested_urls.append(url)
         if url not in self._responses:
             raise AssertionError(f"unexpected URL requested: {url}")
@@ -390,6 +395,19 @@ class TestSignals:
         assert batches == [[{"id": "s1"}], [{"id": "s2"}]]
         assert [state.next_url for state in manager.saved] == [f"{US}/1/signals?page[after]=c1"]
 
+    @parameterized.expand(
+        [
+            ("absolute_next_link_off_origin", "https://attacker.example/collect"),
+            ("protocol_relative_next_link", "//attacker.example/collect"),
+        ]
+    )
+    def test_next_link_off_origin_fails_without_sending_the_key(self, _name: str, next_link: str) -> None:
+        responses = {SIGNALS_FIRST_PAGE: {"signals": [{"id": "s1"}], "links": {"next": next_link}}}
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            with pytest.raises(HoneycombUnsafeUrlError):
+                _collect_signals_endpoint("signals", responses, _FakeResumableManager(), mp)
+
     def test_resume_starts_from_saved_next_url(self, monkeypatch: Any) -> None:
         resume_url = f"{US}/1/signals?page[after]=c1"
         responses = {resume_url: {"signals": [{"id": "s2"}], "links": {"next": None}}}
@@ -433,10 +451,11 @@ class TestSignalHistoricalAnomalies:
                 "signal_historical_anomalies", responses, _FakeResumableManager(), mp, last_value
             )
 
-        assert len(batches) == len(window_starts)
-        assert batches[0] == [
-            {"id": f"a{first_start}", "started_at": first_start, "signal_id": "s1"},
-            {"id": f"b{first_start}", "started_at": first_start, "signal_id": "s1"},
+        # One batch per page, so a window never buffers every Signal before yielding.
+        assert len(batches) == 2 * len(window_starts)
+        assert batches[:2] == [
+            [{"id": f"a{first_start}", "started_at": first_start, "signal_id": "s1"}],
+            [{"id": f"b{first_start}", "started_at": first_start, "signal_id": "s1"}],
         ]
         assert session.requested_urls[-1] == _anomalies_url("gone", window_starts[-1], NOW)
 

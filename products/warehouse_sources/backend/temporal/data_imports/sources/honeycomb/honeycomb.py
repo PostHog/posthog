@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -65,6 +65,10 @@ class HoneycombSloCountsUnavailableError(Exception):
     pass
 
 
+class HoneycombUnsafeUrlError(Exception):
+    pass
+
+
 @dataclasses.dataclass(frozen=True)
 class HoneycombResumeConfig:
     # The fan-out dataset currently being processed, bookmarked by its stable slug (not a
@@ -96,8 +100,14 @@ def _base_url(region: str) -> str:
     wait=wait_exponential_jitter(initial=1, max=60),
     reraise=True,
 )
-def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger):
-    response = session.get(url, headers=headers, timeout=60)
+def _fetch_page(
+    session: requests.Session,
+    url: str,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    allow_redirects: bool = True,
+):
+    response = session.get(url, headers=headers, timeout=60, allow_redirects=allow_redirects)
 
     # Honeycomb rate limits per key/team and returns 429 on exceed; retry those plus
     # transient 5xx with exponential backoff.
@@ -160,6 +170,11 @@ def _fetch_slo_counts_buckets(
     return buckets if isinstance(buckets, list) else []
 
 
+def _is_same_origin(url: str, base_url: str) -> bool:
+    candidate, base = urlsplit(url), urlsplit(base_url)
+    return (candidate.scheme, candidate.netloc) == (base.scheme, base.netloc)
+
+
 def _iter_cursor_pages(
     session: requests.Session,
     base_url: str,
@@ -171,9 +186,15 @@ def _iter_cursor_pages(
     """Walk a cursor-paginated endpoint, yielding each page's rows with the next page's URL.
 
     Rows sit under ``response_key`` and ``links.next`` holds a relative URL for the next page,
-    null on the last one."""
+    null on the last one. The API key rides in a header on every request, so a next link or
+    redirect that leaves the Honeycomb origin fails the sync instead of being followed."""
     while True:
-        data = _fetch_page(session, url, headers, logger).json()
+        if not _is_same_origin(url, base_url):
+            raise HoneycombUnsafeUrlError(f"Honeycomb: refusing to request a URL outside {base_url}")
+        response = _fetch_page(session, url, headers, logger, allow_redirects=False)
+        if response.is_redirect:
+            raise HoneycombUnsafeUrlError(f"Honeycomb: refusing to follow a redirect from {base_url}")
+        data = response.json()
         if not isinstance(data, dict):
             logger.warning(f"Honeycomb: expected a JSON object from {url}, got {type(data).__name__}; skipping")
             return
@@ -393,7 +414,7 @@ def _iter_signals(
     """Emit every Signal page by page, bookmarking the next page's URL."""
     assert config.response_key is not None
     resume = manager.load_state() if manager.can_resume() else None
-    if resume is not None and resume.next_url is not None:
+    if resume is not None and resume.next_url is not None and _is_same_origin(resume.next_url, base_url):
         url = resume.next_url
         logger.debug(f"Honeycomb: resuming {config.name} from {url}")
     else:
@@ -417,10 +438,11 @@ def _iter_signal_historical_anomalies(
     manager: ResumableSourceManager[HoneycombResumeConfig],
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    """Emit resolved anomalies, one batch per time window across every Signal.
+    """Emit resolved anomalies page by page, walking time windows oldest first across every Signal.
 
-    Windows are the outer loop so a batch never holds rows older than an earlier batch's
-    window, which keeps the ascending `started_at` watermark safe to checkpoint per batch."""
+    Each page is yielded as it arrives, so a checkpoint can move the watermark into the current
+    window before every Signal is read. That loses no rows: the watermark never passes the window
+    end, and the next sync re-reads SIGNAL_ANOMALIES_REREAD (at least one window) behind it."""
     assert config.response_key is not None
     now = int(datetime.now(UTC).timestamp())
     floor = now - int(SIGNAL_ANOMALIES_LOOKBACK.total_seconds())
@@ -438,20 +460,19 @@ def _iter_signal_historical_anomalies(
     while window_start < now:
         window_end = min(window_start + window_seconds, now)
         query = urlencode({"start_time": window_start, "end_time": window_end, "page[size]": CURSOR_PAGE_SIZE})
-        rows: list[dict[str, Any]] = []
         for signal_id in signal_ids:
             url = f"{base_url}{config.path.format(signal_id=signal_id)}?{query}"
             try:
                 for anomalies, _ in _iter_cursor_pages(session, base_url, url, headers, config.response_key, logger):
-                    rows.extend({**anomaly, "signal_id": signal_id} for anomaly in anomalies)
+                    if anomalies:
+                        yield [{**anomaly, "signal_id": signal_id} for anomaly in anomalies]
+                    else:
+                        manager.safe_point()
             except requests.HTTPError as exc:
                 # A Signal deleted since the listing 404s; its anomalies are genuinely gone.
                 if exc.response is None or exc.response.status_code != 404:
                     raise
-            if not rows:
                 manager.safe_point()
-        if rows:
-            yield rows
         window_start = window_end
 
 
