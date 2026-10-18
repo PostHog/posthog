@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 
 import { useMocks } from '~/mocks/jest'
@@ -95,6 +95,17 @@ describe('SessionRecordingsPlaylistTroubleshooting', () => {
         expect(screen.queryByTestId('replay-empty-state-troubleshooting-clear-filters')).not.toBeInTheDocument()
 
         scopedLogic.unmount()
+    })
+
+    it('offers to remove the default duration filter, which a link that omits it and a reset both keep', () => {
+        renderTroubleshooting()
+
+        const removeDuration = screen.getByTestId('replay-empty-state-troubleshooting-remove-duration-filter')
+        expect(removeDuration).toHaveTextContent('Remove the duration filter (> 5 active seconds)')
+
+        fireEvent.click(removeDuration)
+
+        expect(logic.values.filters.duration).toEqual([])
     })
 
     it('offers to show hidden recordings when the setting is on, even with a zero client count', () => {

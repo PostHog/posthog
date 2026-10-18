@@ -4,22 +4,28 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 
+import { humanFriendlyDurationFilter } from '../filters/DurationFilter'
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { hideViewedRecordings } = useValues(playerSettingsLogic)
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount, totalFiltersCount, isScopedByCaller } = useValues(sessionRecordingsPlaylistLogic)
+    const { hiddenRecordingsCount, totalFiltersCount, isScopedByCaller, filters } =
+        useValues(sessionRecordingsPlaylistLogic)
     const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     const recordingsAreHidden = hideViewedRecordings !== false
     const hasFilters = totalFiltersCount > 0
+    // The default duration filter applies to every link that does not set one, and a reset keeps it,
+    // so the viewer needs its own way to see and remove it.
+    const durationFilter = isScopedByCaller ? undefined : filters.duration?.[0]
 
     useEffect(() => {
         posthog.capture('recording list empty state shown', {
             hidden_recordings_count: hiddenRecordingsCount,
             total_filters_count: totalFiltersCount,
+            has_duration_filter: !!durationFilter,
         })
     }, [])
     // Clearing would drop the caller's scoping, leaving a list that no longer matches the surface.
@@ -60,6 +66,19 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                                 onClick={() => resetFilters()}
                             >
                                 Clear filters
+                            </LemonButton>
+                        </li>
+                    )}
+                    {durationFilter && (
+                        <li>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
+                                data-attr="replay-empty-state-troubleshooting-remove-duration-filter"
+                                onClick={() => setFilters({ duration: [] })}
+                            >
+                                {`Remove the duration filter (${humanFriendlyDurationFilter(durationFilter, durationFilter.key)})`}
                             </LemonButton>
                         </li>
                     )}
