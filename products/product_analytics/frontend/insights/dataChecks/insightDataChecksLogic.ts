@@ -234,18 +234,24 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         reportDataChecksViewed: true,
         reportFixPromptSent: (check: InsightDataCheckApi, destination: string) => ({ check, destination }),
     }),
-    loaders({
+    loaders(({ cache }) => ({
         dataChecksRun: [
             null as DataChecksRun | null,
             {
                 loadDataChecks: async (query: DataChecksQuery): Promise<DataChecksRun | null> => {
+                    // Leaving the insight cancels the run, queued or running, so it does not hold the chart queue.
+                    // A hidden tab keeps it, because a person comes back to the result.
+                    const abortController = new AbortController()
+                    cache.disposables.add(() => () => abortController.abort(), 'dataChecksRun', {
+                        pauseOnPageHidden: false,
+                    })
                     try {
                         // The checks hold the same server slots as charts, so they wait behind the charts in the queue.
                         const result = await concurrencyController.run({
                             debugTag: 'InsightDataChecks',
+                            abortController,
                             fn: async () => {
                                 // A stalled request would block every later run, which waits for this one to end.
-                                const abortController = new AbortController()
                                 const timeout = setTimeout(() => abortController.abort(), DATA_CHECKS_TIMEOUT_MS)
                                 try {
                                     return await insightsDataChecksCreate(
@@ -266,7 +272,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                 },
             },
         ],
-    }),
+    })),
     reducers({
         requestedQuery: [
             null as DataChecksQuery | null,
