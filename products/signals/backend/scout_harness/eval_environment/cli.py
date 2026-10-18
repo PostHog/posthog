@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.db import transaction
+
 from pydantic import TypeAdapter, ValidationError
 
 from products.posthog_ai.eval_harness.environment.cli import load_backend, parse_cutoff
@@ -73,8 +75,10 @@ class ScoutEnvironmentCommand:
                 if seed.team_id != result.team_id or seed.environment_id != case.environment_id:
                     raise ValueError("The saved scout seed belongs to another environment.")
             else:
-                seed = ScoutEnvironmentState.seed(case, receipt)
-                write_private_json(seed_path, seed)
+                # Commit the seeded rows only once the seed receipt exists, so a failed write can be retried.
+                with transaction.atomic():
+                    seed = ScoutEnvironmentState.seed(case, receipt)
+                    write_private_json(seed_path, seed)
             print(json.dumps({"team_id": seed.team_id, "config_id": str(seed.config_id), "paid_calls": 0}))
 
     def freeze(self, case_path: Path, bundle: Path) -> None:
