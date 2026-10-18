@@ -354,11 +354,5 @@ class TestSampleCapture:
     @parameterized.expand([("runs", True), ("waitpoint_tokens", False)])
     def test_capture_is_off_when_a_field_is_excluded(self, endpoint: str, expected: bool) -> None:
         # HTTP samples are stored before excluded_fields is applied, so the callback URL would leak.
-        manager = MagicMock()
-        manager.can_resume.return_value = False
-        with patch.object(trigger_dev, "make_tracked_session") as make_session:
-            make_session.return_value.get.return_value = MagicMock(
-                status_code=200, json=lambda: {"data": [], "pagination": {}}
-            )
-            list(trigger_dev.get_rows("tr_prod_x", BASE_URL, endpoint, MagicMock(), manager))
-        assert make_session.call_args.kwargs["capture"] is expected
+        result = _run(endpoint, [_json({"data": [], "pagination": {}})])
+        assert result.session_options[0]["capture"] is expected
