@@ -1122,6 +1122,7 @@ export enum PropertyOperator {
     In = 'in',
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
+    IsCleanedPathNotExact = 'is_cleaned_path_not_exact',
     FlagEvaluatesTo = 'flag_evaluates_to',
     SemverEq = 'semver_eq',
     SemverNeq = 'semver_neq',

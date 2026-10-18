@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { ActivityScope } from '~/types'
 
 import { ExperimentMetaBar } from 'products/experiments/frontend/components/ExperimentMetaBar'
-import { ExperimentHealthDebug } from 'products/experiments/frontend/health/ExperimentHealthDebug'
+import { ExperimentHealthDebug } from 'products/experiments/frontend/health/debug/ExperimentHealthDebug'
 import { ExperimentHealthPanel } from 'products/experiments/frontend/health/ExperimentHealthPanel'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 import { LegacyExperimentView } from 'products/experiments/frontend/legacy/LegacyExperimentView'
@@ -154,9 +154,9 @@ export function ExperimentView(): JSX.Element {
     }
 
     // Ordered as: results (Metrics), configuration (Settings, Code, Variants),
-    // feature tabs (Recordings, User feedback), audit trail (History). Which of these actually
-    // render is resolved by experimentSceneLogic's availableTabs, so the tab set, the URL, and the
-    // tracked tab stay in agreement.
+    // feature tabs (Recordings, User feedback), audit trail (History), staff debugging (Health debug).
+    // Which of these actually render is resolved by experimentSceneLogic's availableTabs, so the tab set,
+    // the URL, and the tracked tab stay in agreement.
     const tabs: LemonTab<ExperimentTab>[] = (
         [
             { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
@@ -170,6 +170,7 @@ export function ExperimentView(): JSX.Element {
                 label: 'History',
                 content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
             },
+            { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
         ] satisfies LemonTab<ExperimentTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
 
@@ -197,7 +198,6 @@ export function ExperimentView(): JSX.Element {
                     )}
                     <ExperimentMetaBar />
                     <ExperimentHealthPanel />
-                    <ExperimentHealthDebug />
                     <ExperimentHeader />
                     <LemonTabs
                         // Fall back to the default tab if the active one is conditionally hidden
