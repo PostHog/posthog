@@ -1106,6 +1106,9 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
     }
 
 
+_ACCESS_DENIED_CODES = ("403", "AccessDenied")
+
+
 def _object_exists(client, bucket: str, key: str) -> bool:
     try:
         client.head_object(Bucket=bucket, Key=key)
@@ -1174,7 +1177,13 @@ def _recent_models(
         key = model_key(model_name, (end - datetime.timedelta(days=offset)).isoformat())
         try:
             metadata, reason = _pin_metadata(client, bucket, prefix, key)
-        except (ClientError, ValueError) as error:
+        except ValueError as error:
+            metadata, reason = None, f"could not read the model: {error!r}"
+        except ClientError as error:
+            # S3 answers 403 for a missing key when the role cannot list the prefix. Any other error,
+            # such as throttling, fails the publish so the retry policy runs instead of a smaller manifest.
+            if error.response.get("Error", {}).get("Code") not in _ACCESS_DENIED_CODES:
+                raise
             metadata, reason = None, f"could not read the model: {error!r}"
         if metadata is None:
             context.log.info(f"recent model {key} skipped: {reason}")

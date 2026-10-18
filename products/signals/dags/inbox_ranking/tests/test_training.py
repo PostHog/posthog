@@ -2686,6 +2686,41 @@ def test_recent_versions_come_from_the_window_and_skip_a_version_missing_its_boo
     ]
 
 
+class _FailingVersionS3(_ModelStoreS3):
+    def __init__(self, objects: dict[str, bytes], *, failing_prefix: str, code: str):
+        super().__init__(objects)
+        self.failing_prefix = failing_prefix
+        self.code = code
+
+    def get_object(self, *, Bucket, Key):
+        if Key.startswith(self.failing_prefix):
+            raise ClientError({"Error": {"Code": self.code}}, "GetObject")
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
+@pytest.mark.parametrize("code,published", [("AccessDenied", True), ("SlowDown", False), ("InternalError", False)])
+def test_a_recent_version_read_error_skips_only_a_missing_key(monkeypatch, code, published):
+    # A throttled read that skipped the version would publish a manifest without it and bypass
+    # the asset retry, so only the 403 S3 gives for a missing key may drop a recent version.
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    base = _serving_dataset_s3(prefix, "2026-08-19")
+    client = _FailingVersionS3(
+        base.objects,
+        failing_prefix=model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-08-19", ""),
+        code=code,
+    )
+    store = _AppObjectStore()
+
+    if published:
+        _run_serving_manifest(monkeypatch, store, dataset_client=client)
+        manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+        assert [entry.model_version for entry in manifest.models] == ["2026-08-15"]
+    else:
+        with pytest.raises(ClientError):
+            _run_serving_manifest(monkeypatch, store, dataset_client=client)
+        assert serving_manifest_key(prefix) not in store.objects
+
+
 def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
     # A model version is immutable, so re-copying it every day would move the boosters of every
     # entry, one of which is 1536 columns wide, for no change.
