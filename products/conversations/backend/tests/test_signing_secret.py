@@ -65,7 +65,9 @@ class TestSigningSecret(BaseTest):
         assert cached is not None
         self.assertEqual(cached.secret_api_token, "phs_previous_secret")
         self.assertEqual(cached.secret_api_token_backup, "phs_expired_backup")
-        self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=backup_row.pk).exists())
+        # The rollback also discarded the mirror row minted for the new token.
+        mirror_rows = list(ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("pk", flat=True))
+        self.assertEqual(mirror_rows, [backup_row.pk])
 
     def test_failed_backup_cleanup_rolls_the_deletion_back(self):
         self.team.secret_api_token = "phs_current_primary_value"

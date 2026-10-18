@@ -2,11 +2,20 @@
 const BOOT_TIMING_EVENT = 'app boot timing'
 const SAMPLE_RATE = 0.05
 
-export type BootPhase = 'entry' | 'app_modules_loaded' | 'app_ready' | 'scene_loaded' | 'scene_rendered'
+export type BootPhase =
+    | 'entry'
+    | 'app_modules_loaded'
+    | 'css_ready'
+    | 'app_booted'
+    | 'app_first_render'
+    | 'app_ready'
+    | 'scene_loaded'
+    | 'scene_rendered'
 
 export interface BootContext {
     scene?: string
     logged_in?: boolean
+    render_app_as_update?: boolean
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}
