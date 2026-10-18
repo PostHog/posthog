@@ -164,32 +164,45 @@ class TestAutumnSourceBehavior:
             {"license_plan_id": "seat", "parent_plan_id": "team", "usage": 1, "customer_id": "cus_3"},
         ]
         assert result.saved_states == [
-            AutumnResumeConfig(next_cursor=None, customer_index=1),
-            AutumnResumeConfig(next_cursor=None, customer_index=2),
-            AutumnResumeConfig(next_cursor="cursor-1", customer_index=0),
-            AutumnResumeConfig(next_cursor="cursor-1", customer_index=1),
-            AutumnResumeConfig(next_cursor="cursor-1", customer_index=2),
+            AutumnResumeConfig(next_cursor=None, last_customer_id="cus_1"),
+            AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_2"),
+            AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_3"),
         ]
         assert result.raised is None
 
-    def test_licenses_resume_refetches_the_customer_page_and_skips_done_customers(self) -> None:
+    @pytest.mark.parametrize(
+        ("page_ids", "expected_customer_ids"),
+        [
+            (["cus_2", "cus_3", "cus_4"], ["cus_4"]),
+            # cus_2 was deleted after the checkpoint, so the page is replayed rather than skipping cus_3.
+            (["cus_3", "cus_4"], ["cus_3", "cus_4"]),
+        ],
+    )
+    def test_licenses_resume_skips_customers_done_before_the_checkpoint(
+        self, page_ids: list[str], expected_customer_ids: list[str]
+    ) -> None:
         responses = [
-            ScriptedResponse(json={"list": [{"id": "cus_2"}, {"id": "cus_3"}], "next_cursor": None}),
-            ScriptedResponse(json={"list": [{"license_plan_id": "seat", "parent_plan_id": "team"}]}),
+            ScriptedResponse(json={"list": [{"id": customer_id} for customer_id in page_ids], "next_cursor": None}),
+            *[ScriptedResponse(json={"list": []}) for _ in expected_customer_ids],
         ]
-        result = self._driver().run(
-            "Licenses",
-            responses,
-            resume_state=AutumnResumeConfig(next_cursor="cursor-1", customer_index=1),
-            api_version="2.4.0",
-        )
+        state = AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_3")
+        if page_ids[0] == "cus_3":
+            state = AutumnResumeConfig(next_cursor="cursor-1", last_customer_id="cus_2")
+        result = self._driver().run("Licenses", responses, resume_state=state, api_version="2.4.0")
 
-        assert [request.json() for request in result.requests] == [
-            {"limit": 100, "start_cursor": "cursor-1"},
-            {"customer_id": "cus_3"},
-        ]
-        assert [row["customer_id"] for row in result.rows] == ["cus_3"]
+        assert result.requests[0].json() == {"limit": 100, "start_cursor": "cursor-1"}
+        assert [request.json()["customer_id"] for request in result.requests[1:]] == expected_customer_ids
         assert result.raised is None
+
+    def test_licenses_repeated_customer_cursor_fails_instead_of_looping(self) -> None:
+        responses = [
+            ScriptedResponse(json={"list": [], "next_cursor": "cursor-1"}),
+            ScriptedResponse(json={"list": [], "next_cursor": "cursor-1"}),
+        ]
+        result = self._driver().run("Licenses", responses, api_version="2.4.0")
+
+        assert len(result.requests) == 2
+        assert isinstance(result.raised, ValueError)
 
     @pytest.mark.parametrize(
         ("endpoint", "selector", "row_id"),
