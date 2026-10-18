@@ -347,6 +347,61 @@ describe('email tracking code', () => {
         })
     })
 
+    describe('verifyRedirect', () => {
+        const invocation = { functionId: 'fn', id: 'inv', teamId: 1 }
+        const redirect = (target: string): URLSearchParams =>
+            new URL(signer.redirectUrl(invocation, target)).searchParams
+        const verify = (q: URLSearchParams): boolean =>
+            signer.verifyRedirect(
+                q.get('ph_id') ?? undefined,
+                q.get('target') ?? undefined,
+                q.get('ph_sig') ?? undefined
+            )
+
+        it('accepts the link that was minted', () => {
+            expect(verify(redirect('https://example.com/a?b=1'))).toBe(true)
+        })
+
+        it('rejects a minted link whose target was swapped', () => {
+            const q = redirect('https://example.com/')
+            q.set('target', 'https://evil.example/')
+            expect(verify(q)).toBe(false)
+        })
+
+        it('rejects a signature reused with another tracking code', () => {
+            const q = redirect('https://example.com/')
+            q.set('ph_id', signer.generate({ ...invocation, id: 'other' }))
+            expect(verify(q)).toBe(false)
+        })
+
+        it('rejects a signature from a key that is not configured', () => {
+            const other = new EmailTrackingCodeSigner('a-completely-different-key-32-chr', TRACKING_URL)
+            const q = new URL(other.redirectUrl(invocation, 'https://example.com/')).searchParams
+            expect(verify(q)).toBe(false)
+        })
+
+        // Links minted before `ph_sig` carry only a signed ph_id.
+        it('accepts a legacy link with a signed ph_id and no ph_sig', () => {
+            expect(signer.verifyRedirect(signer.generate(invocation), 'https://example.com/', undefined)).toBe(true)
+        })
+
+        it.each([
+            { name: 'no ph_id', code: undefined },
+            { name: 'an unsigned ph_id', code: encodeRaw('fn:inv:1:::') },
+            { name: 'a ph_id with a forged signature', code: `${encodeRaw('fn:inv:1:::')}.${'A'.repeat(22)}` },
+        ])('rejects a link without ph_sig and with $name', ({ code }) => {
+            expect(signer.verifyRedirect(code, 'https://evil.example/', undefined)).toBe(false)
+        })
+
+        it('rejects a missing or repeated target', () => {
+            const code = signer.generate(invocation)
+            expect(signer.verifyRedirect(code, undefined, undefined)).toBe(false)
+            expect(signer.verifyRedirect(code, ['https://example.com/', 'https://evil.example/'], undefined)).toBe(
+                false
+            )
+        })
+    })
+
     describe('mint metric', () => {
         const mintCount = async (format: string): Promise<number> => {
             const metric = await trackingCodeMintCounter.get()

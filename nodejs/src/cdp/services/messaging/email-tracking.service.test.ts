@@ -280,6 +280,45 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            it('should redirect a link minted by addTrackingToEmail', async () => {
+                const url = new URL(
+                    signer.redirectUrl(
+                        { functionId: hogFunction.id, id: invocationId, teamId: team.id },
+                        'https://example.com/a?b=1'
+                    )
+                )
+                const res = await supertest(app).get(`${url.pathname}${url.search}`)
+                expect(res.status).toBe(302)
+                expect(res.headers.location).toBe('https://example.com/a?b=1')
+            })
+
+            // The endpoint is public, so a link on the tracking domain must not send people anywhere else.
+            it.each([
+                { name: 'no ph_id', query: () => 'target=https://evil.example' },
+                {
+                    name: 'an unsigned ph_id',
+                    query: () =>
+                        `ph_id=${Buffer.from('fn:inv:1:::').toString('base64url')}&target=https://evil.example`,
+                },
+                {
+                    name: 'a minted link with another target',
+                    query: () => {
+                        const url = new URL(
+                            signer.redirectUrl(
+                                { functionId: hogFunction.id, id: invocationId, teamId: team.id },
+                                'https://example.com'
+                            )
+                        )
+                        url.searchParams.set('target', 'https://evil.example')
+                        return url.search.slice(1)
+                    },
+                },
+            ])('should not redirect with $name', async ({ query }) => {
+                const res = await supertest(app).get(`/public/m/redirect?${query()}`)
+                expect(res.status).toBe(404)
+                expect(res.headers.location).toBeUndefined()
+            })
+
             it('should return 404 if the target is not provided', async () => {
                 const phId = signer.generate({
                     functionId: hogFunction.id,

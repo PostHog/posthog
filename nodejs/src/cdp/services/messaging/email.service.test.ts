@@ -976,7 +976,7 @@ describe('EmailService', () => {
             // ph_id may be unsigned (base64url only) or signed (base64url + `.` + signature) depending on
             // ENCRYPTION_SALT_KEYS. Match the structure, not the exact value.
             expect(emails[0].html).toMatch(
-                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
+                /^<body>Hi! <a href="http:\/\/localhost:8010\/public\/m\/redirect\?ph_id=[A-Za-z0-9._-]+&target=https%3A%2F%2Fexample\.com&ph_sig=[A-Za-z0-9_-]+">Click me<\/a><img src="http:\/\/localhost:8010\/public\/m\/pixel\?ph_id=[A-Za-z0-9._-]+" style="display: none;" \/><\/body>$/
             )
         })
     })

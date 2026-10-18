@@ -245,7 +245,30 @@ export class EmailTrackingCodeSigner {
         return `${this.trackingUrl}/public/m/pixel?ph_id=${this.generate(invocation, isTest)}`
     }
 
+    // The `ph_sig` binds the target to the tracking code, so the public redirect endpoint only sends
+    // the recipient to the link that was in the email and cannot be used as an open redirect.
     redirectUrl(invocation: TrackingInvocation, targetUrl: string, isTest = false): string {
-        return `${this.trackingUrl}/public/m/redirect?ph_id=${this.generate(invocation, isTest)}&target=${encodeURIComponent(targetUrl)}`
+        const code = this.generate(invocation, isTest)
+        const sig = this.signPayload(redirectPayload(code, targetUrl), this.signingKeys[0])
+        return `${this.trackingUrl}/public/m/redirect?ph_id=${code}&target=${encodeURIComponent(targetUrl)}&ph_sig=${sig}`
     }
+
+    // Whether the redirect endpoint may send the request to `target`. Links minted before `ph_sig`
+    // existed are still in inboxes and carry only a signed `ph_id`: accept those, but never a
+    // missing or unsigned one, which anybody can build.
+    verifyRedirect(code: unknown, target: unknown, sig: unknown): boolean {
+        if (typeof code !== 'string' || typeof target !== 'string' || !target) {
+            return false
+        }
+        if (sig === undefined) {
+            return this.parse(code)?.format === 'signed'
+        }
+        return typeof sig === 'string' && this.verifySignature(redirectPayload(code, target), sig)
+    }
+}
+
+// The `redirect:` prefix and the colons keep this apart from a tracking code payload, which is
+// plain base64url, so one signature can never be replayed as the other.
+function redirectPayload(code: string, target: string): string {
+    return `redirect:${code}:${target}`
 }

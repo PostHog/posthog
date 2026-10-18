@@ -572,9 +572,9 @@ export class EmailTrackingService {
     // Same rationale as handleEmailTrackingPixel: skip in production (SES webhooks own
     // click tracking), but emit in dev/test where maildev never produces webhooks.
     public handleEmailTrackingRedirect(req: ModifiedRequest, res: express.Response): void {
-        const { target } = req.query
+        const { ph_id, target, ph_sig } = req.query
 
-        if (!target) {
+        if (!this.trackingCodeSigner.verifyRedirect(ph_id, target, ph_sig)) {
             res.status(404).send('Not found')
             return
         }
