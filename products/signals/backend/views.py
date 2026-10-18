@@ -205,6 +205,7 @@ from products.signals.backend.report_read_state import (
 from products.signals.backend.report_task_actions import (
     AI_CONSENT_DISABLED_REASON,
     INBOX_REPORT_ACTION_EVENT,
+    ReportActionState,
     ReportTaskActionContext,
     ReportTaskActionStartError,
     active_merge_run,
@@ -3149,7 +3150,7 @@ class SignalReportViewSet(
                 response=SignalReportTaskActionErrorSerializer,
                 description=(
                     "The report reached its task limit (code `signal_report_task_cap`), the per-user creation "
-                    "limit fired (code `throttled`), or the organization reached its usage limit"
+                    "limit fired (code `throttled`), or the organization reached its usage limit or is deactivated"
                 ),
             ),
         },
@@ -3181,7 +3182,10 @@ class SignalReportViewSet(
         context = ReportTaskActionContext(team=self.team, user=user)
         data = request.validated_data
         kind = ReportTaskActionKind(data["action"])
-        report_action = resolve_report_task_action(context, report, kind, data.get("suggested_prompt_index"))
+        state = ReportActionState.read(report)
+        report_action = resolve_report_task_action(
+            context, report, kind, data.get("suggested_prompt_index"), state=state
+        )
         if report_action is None:
             raise exceptions.NotFound("This report has no suggested prompt at that index.")
 
@@ -3189,7 +3193,9 @@ class SignalReportViewSet(
             report_user_action(
                 user,
                 INBOX_REPORT_ACTION_EVENT,
-                inbox_report_action_properties(report, report_action, outcome=outcome, limit_code=limit_code),
+                inbox_report_action_properties(
+                    report, report_action, outcome=outcome, state=state, limit_code=limit_code
+                ),
                 team=self.team,
                 organization=self.organization,
                 request=request,
@@ -3221,7 +3227,9 @@ class SignalReportViewSet(
 
         if limit_response := usage_limit_response(user, self.team_id):
             capture("limited", "usage_limit")
-            return limit_response
+            return self._task_action_error(
+                str(limit_response.data["code"]), str(limit_response.data["error"]), limit_response.status_code
+            )
 
         # The run starts repo-less unless the caller passes the Desktop gate, the same rule the tasks
         # create endpoint applies to an inbox discussion.

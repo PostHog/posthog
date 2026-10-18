@@ -94,6 +94,9 @@ _MESSAGE_CONTEXT_TAG = re.compile(r"<(/?)((?:posthog_(?:(?:un)?trusted_)?|slack_
 _LINE_BREAK = re.compile(r"\r\n|[\r\n]")
 
 
+TASK_TITLE_MAX_LENGTH = 255
+
+
 @frozen
 class ReportActionState:
     """The parts of a report's current state that decide which actions it offers."""
@@ -243,9 +246,10 @@ def resolve_report_task_action(
     report: SignalReport,
     kind: ReportTaskActionKind,
     suggested_prompt_index: int | None = None,
+    state: ReportActionState | None = None,
 ) -> ReportTaskAction | None:
     """The action as the report's current state resolves it, or None when the report has no such entry."""
-    state = ReportActionState.read(report)
+    state = state or ReportActionState.read(report)
     if kind == ReportTaskActionKind.GET_IT_MERGED:
         return get_it_merged_action(context, report, state)
     if suggested_prompt_index is None:
@@ -314,7 +318,8 @@ def runtime_selection(*, team_id: int, user_id: int) -> dict[str, str]:
 def task_create_data(report: SignalReport, prompt: str) -> dict:
     """The task fields the inbox sends for a discussion, as validated data for the tasks facade."""
     return {
-        "title": (report.title or "").strip() or "Ask AI about report",
+        # A report title can be longer than a task title allows.
+        "title": ((report.title or "").strip() or "Ask AI about report")[:TASK_TITLE_MAX_LENGTH],
         "description": prompt,
         "origin_product": tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
         "signal_report": report,

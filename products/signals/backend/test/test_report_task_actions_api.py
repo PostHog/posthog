@@ -10,6 +10,7 @@ from products.signals.backend.report_task_actions import (
     MERGE_PR_REQUEST,
     REPORT_DISCUSSION_STATE_INSTRUCTIONS,
 )
+from products.tasks.backend.logic.services.code_usage_gate import organization_deactivated_response
 from products.tasks.backend.models import Task, TaskRun
 
 
@@ -25,10 +26,12 @@ class TestReportTaskActionsAPI(APIBaseTest):
         self.organization.is_ai_data_processing_approved = True
         self.organization.save()
 
-    def _report(self, status_: str = SignalReport.Status.READY, prompts: list[str] | None = None) -> SignalReport:
+    def _report(
+        self, status_: str = SignalReport.Status.READY, prompts: list[str] | None = None, title: str = "Checkout fails"
+    ) -> SignalReport:
         return SignalReport.objects.create(
             team=self.team,
-            title="Checkout fails",
+            title=title,
             summary="Checkout fails for some users",
             status=status_,
             suggested_prompts=prompts or [],
@@ -85,7 +88,7 @@ class TestReportTaskActionsAPI(APIBaseTest):
     def test_get_it_merged_starts_a_background_run_and_refuses_a_second_one(
         self, workflow: MagicMock, _flag_mock: MagicMock
     ) -> None:
-        report = self._report()
+        report = self._report(title="Checkout fails " * 20)
         self._attach_pr(report, "approved")
 
         with patch("products.signals.backend.views.report_user_action") as capture:
@@ -96,6 +99,7 @@ class TestReportTaskActionsAPI(APIBaseTest):
         task = Task.objects.get(id=body["task_id"])
         run = TaskRun.objects.get(id=body["run_id"])
         assert task.signal_report_id == report.id
+        assert task.title == report.title.strip()[:255]
         assert task.origin_product == Task.OriginProduct.SIGNAL_REPORT
         assert task.repository is None
         assert run.mode == "background"
@@ -109,6 +113,7 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert properties["surface"] == "api"
         assert properties["outcome"] == "success"
         assert properties["question_intent"] == "merge_pr"
+        assert properties["has_pr"] is True
 
         second = self._run(report, {"action": "get_it_merged"})
 
@@ -166,3 +171,18 @@ class TestReportTaskActionsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not Task.objects.filter(signal_report=report).exists()
+
+    def test_usage_limit_refusal_uses_the_declared_error_shape(
+        self, workflow: MagicMock, _flag_mock: MagicMock
+    ) -> None:
+        report = self._report(prompts=["Why does checkout fail?"])
+
+        with patch(
+            "products.signals.backend.views.usage_limit_response", return_value=organization_deactivated_response()
+        ):
+            response = self._run(report, {"action": "suggested_prompt", "suggested_prompt_index": 0})
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert set(response.json()) == {"code", "detail"}
+        assert not Task.objects.filter(signal_report=report).exists()
+        workflow.assert_not_called()
