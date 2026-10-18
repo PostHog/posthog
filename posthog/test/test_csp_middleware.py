@@ -110,10 +110,11 @@ class TestCSPMiddleware(APIBaseTest):
         # A devbox serves Vite from its Coder host, so a policy naming only localhost renders a blank page.
         with override_settings(JS_URL="https://frontend--devbox--jane.coder.example.com"):
             response = self.client.get("/")
-        script_src = next(
-            part for part in response["Content-Security-Policy"].split("; ") if part.startswith("script-src ")
-        ).split()
-        assert {"http://localhost:8234", "https://frontend--devbox--jane.coder.example.com"} <= set(script_src)
+        directives = {
+            part.split()[0]: set(part.split()[1:]) for part in response["Content-Security-Policy"].split("; ")
+        }
+        assert {"http://localhost:8234", "https://frontend--devbox--jane.coder.example.com"} <= directives["script-src"]
+        assert {"ws://localhost:8234", "wss://frontend--devbox--jane.coder.example.com"} <= directives["connect-src"]
 
     def test_replay_player_frame_serves_the_mount_node_without_a_session(self):
         # Shared recordings render the player for logged-out viewers.

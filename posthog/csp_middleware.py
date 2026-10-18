@@ -304,7 +304,11 @@ class CSPMiddleware:
             elif settings.SITE_URL.endswith(".dev.posthog.dev"):
                 resource_url = "https://*.dev.posthog.dev"
 
-            connect_debug_url = "ws://localhost:8234" if settings.DEBUG or settings.TEST else ""
+            connect_debug_url = ""
+            if settings.DEBUG or settings.TEST:
+                # Vite's HMR socket connects to the bundle host, and an `https:` source does not admit `wss:`.
+                bundle_socket_origin = bundle_origin.replace("https://", "wss://", 1).replace("http://", "ws://", 1)
+                connect_debug_url = " ".join(dict.fromkeys(filter(None, ["ws://localhost:8234", bundle_socket_origin])))
             object_storage_source = object_storage_upload_source()
             # The image exporter renders replay exports in the bare /exporter document, and a frame of
             # that render calls eval. 'report-sample' puts the first 40 characters of the evaluated
