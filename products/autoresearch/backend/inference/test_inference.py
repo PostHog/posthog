@@ -1099,6 +1099,7 @@ class _Cadence:
     run: AutoresearchRun
     capture: MagicMock
     materialize: MagicMock
+    stored_persons: dict[str, list[str]]
 
 
 @time_machine.travel("2026-09-11T12:00:00Z", tick=False)
@@ -1152,7 +1153,13 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             )
 
         capture = _capture_accepting_everything()
+        stored_persons: dict[str, list[str]] = {}
         with (
+            patch.object(
+                scoring, "write_scored_persons", side_effect=lambda key, ids: stored_persons.update({key: sorted(ids)})
+            ),
+            patch.object(scoring, "read_scored_persons", side_effect=stored_persons.get),
+            patch.object(scoring, "delete_scored_persons", side_effect=stored_persons.pop),
             patch.object(
                 scoring,
                 "read_bundle",
@@ -1170,7 +1177,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
                 assert capture.call_count == 1
                 score_shadow_set_for_run(AutoresearchRun.objects.get(pk=run.pk))
                 run.refresh_from_db()
-        return _Cadence(run=run, capture=capture, materialize=materialize)
+        return _Cadence(run=run, capture=capture, materialize=materialize, stored_persons=stored_persons)
 
     def _shadow_runs(self, model: AutoresearchModel) -> list[AutoresearchRun]:
         return list(AutoresearchRun.objects.filter(model=model, run_type=AutoresearchRun.RunType.INFERENCE))
@@ -1191,6 +1198,12 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
 
         assert run.status == AutoresearchRun.Status.COMPLETED
         assert sorted(c.kwargs["feature_sql"] for c in materialize.call_args_list) == sorted(expected_queries)
+        # A deferred phase anchors on the people the champion scored, not on a second population query.
+        champion_people = sorted(row["distinct_id"] for row in _SHADOW_ROWS) if deferred else None
+        assert [c.kwargs.get("anchor_person_ids") for c in materialize.call_args_list] == [champion_people] * len(
+            expected_queries
+        )
+        assert cadence.stored_persons == {}
         assert sorted(run.metrics["shadow_models"]["completed"]) == sorted(
             str(m.pk) for m in (same_sql, other_a, other_b)
         )

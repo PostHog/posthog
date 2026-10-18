@@ -1315,6 +1315,7 @@ def build_inference_features_sql(
     target_definition: dict[str, Any] | None = None,
     team: "Team | None" = None,
     rolling: RollingSelection | None = None,
+    anchor_person_ids: list[str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the inference-time query: the agent's feature_sql with {anchors}
@@ -1325,16 +1326,24 @@ def build_inference_features_sql(
 
     Caller substitutes {lookback_days} in feature_sql before calling.
     ``rolling`` selects a rolling subset of the anchors, as in ``build_inference_anchors_sql``.
+    ``anchor_person_ids`` replaces the population with exactly these persons at ``cutoff_ts``, so a
+    later query scores the people an earlier run scored even if person data changed since.
     """
-    anchors_sql, anchors_values = build_inference_anchors_sql(
-        lookback_days=lookback_days,
-        inference_population=inference_population,
-        cutoff_ts=cutoff_ts,
-        target_event=target_event,
-        target_definition=target_definition,
-        team=team,
-        rolling=rolling,
-    )
+    if anchor_person_ids is not None:
+        if cutoff_ts is None:
+            raise ValueError("Fixed anchors need an explicit cutoff_ts")
+        anchors_sql = "SELECT toUUID(arrayJoin({anchor_person_ids})) AS person_id, toInt({cutoff_ts}) AS cutoff_ts"
+        anchors_values: dict[str, Any] = {"anchor_person_ids": anchor_person_ids, "cutoff_ts": cutoff_ts}
+    else:
+        anchors_sql, anchors_values = build_inference_anchors_sql(
+            lookback_days=lookback_days,
+            inference_population=inference_population,
+            cutoff_ts=cutoff_ts,
+            target_event=target_event,
+            target_definition=target_definition,
+            team=team,
+            rolling=rolling,
+        )
     # Wrap the inference anchors query as the {anchors} subquery — agent's
     # feature_sql references columns (person_id, cutoff_ts) just like training.
     anchors_subquery = f"({anchors_sql.strip()})"

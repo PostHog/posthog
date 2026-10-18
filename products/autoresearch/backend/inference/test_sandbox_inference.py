@@ -1,6 +1,8 @@
 import io
 import json
+import uuid
 import base64
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -206,6 +208,23 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
         assert run.call_args.kwargs["query_context"] == count.call_args.kwargs["query_context"] == BATCH_QUERY
         assert [r["distinct_id"] for r in score_data.rows] == ["s1", "s2"]
         assert score_data.eligible == 2
+
+    def test_score_data_with_fixed_anchors_scores_exactly_those_people(self):
+        pipeline = self._pipeline()
+        people = [str(uuid.uuid4()) for _ in range(3)]
+
+        with patch.object(sandbox_inference, "count_inference_anchors") as count:
+            score_data = _materialize_score_data(
+                team=self.team,
+                pipeline=pipeline,
+                feature_sql="SELECT a.person_id AS distinct_id, count() AS events_total FROM {anchors} a GROUP BY a.person_id",
+                cutoff_ts=int(datetime(2026, 9, 11, tzinfo=UTC).timestamp()),
+                anchor_person_ids=people,
+            )
+
+        count.assert_not_called()
+        assert sorted(str(row["distinct_id"]) for row in score_data.rows) == sorted(people)
+        assert score_data.eligible == 3
 
     @parameterized.expand(
         [
