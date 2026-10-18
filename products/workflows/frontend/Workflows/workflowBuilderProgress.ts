@@ -59,5 +59,5 @@ export function classifyEdit(before: HogFlow, after: HogFlow): WorkflowBuilderEd
     if (!objectsEqual(triggerOf(before)?.config, triggerOf(after)?.config)) {
         return 'trigger'
     }
-    return objectsEqual(before.actions, after.actions) ? null : 'step_edited'
+    return objectsEqual(before.actions, after.actions) && objectsEqual(before.edges, after.edges) ? null : 'step_edited'
 }
