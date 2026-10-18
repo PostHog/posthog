@@ -174,13 +174,13 @@ Each report follows `references/tracking-plan.md`:
 
 - **Title**: the consequence for the person who needs the data, then the gap. For example "Checkout success cannot be split by plan: 4 dashboard insights rebuild it from the thank-you URL".
 - **Why merge this**: the case for the change, as its own section with the heading and first line `references/tracking-plan.md` gives, so the pull request carries it to its reviewer:
+  - **Worth merging if**: the condition under which the change pays off, or "without condition". It comes first, so the reviewer can decide from the first line.
   - **Today**: what is wrong or impossible now, and for whom, with a link the reviewer can open and its readership. A wrong number goes next to the true one.
   - **Unlocks**: who sees what, where, after the merge, what that place shows today, and the decision it changes, with who makes it.
   - **Limits**: what it does not answer, what already answers part of it, that the data starts at deploy, when the first readout is useful, and the volume it adds.
   - **If not merged**: what stays wrong.
-  - **Worth merging if**: the condition under which the change pays off, or "without condition".
 - **The absence proof**: the property or event search that came back empty, the code check, and the other sources you checked (error tracking, logs, warehouse tables) with why they are not enough.
-- **Earlier attempts**: open and closed pull requests for the same change. When earlier ones went stale, say what is different now.
+- **Earlier attempts**: open and closed pull requests for the same change. When earlier ones went stale, also put one line in "Why merge this" that names them and says what is different now, because the pull request keeps only that section.
 - **The fix**: one to three call sites, each with the file and function, the event or property in the repository's convention, and where the value comes from.
 - **After the merge**: which insights, actions, or experiment metrics to point at the new data, and the query that shows the data arrived.
 - **Guardrails** for the implementing agent, and the matching PostHog instrumentation skill name.
