@@ -156,6 +156,26 @@ describe('GroupTypeManager()', () => {
     })
 
     describe('fetchGroupTypeIndex()', () => {
+        it('stores and resolves a type with a NUL byte as its sanitized form', async () => {
+            jest.mocked(hub.groupRepository.insertGroupType).mockClear()
+
+            expect(
+                await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'comp\u0000any', TEST_TIMESTAMP)
+            ).toEqual(0)
+
+            expect(hub.groupRepository.insertGroupType).toHaveBeenCalledWith(
+                teamId,
+                projectId,
+                'comp\uFFFDany',
+                0,
+                TEST_TIMESTAMP
+            )
+            expect(
+                await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, 'comp\u0000any', TEST_TIMESTAMP)
+            ).toEqual(0)
+            expect(hub.groupRepository.insertGroupType).toHaveBeenCalledTimes(1)
+        })
+
         it('returns null without inserting when the type exceeds the column length', async () => {
             jest.mocked(hub.groupRepository.insertGroupType).mockClear()
 

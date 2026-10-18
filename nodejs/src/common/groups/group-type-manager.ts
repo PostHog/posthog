@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 import { Counter } from 'prom-client'
 
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { asPostgresParameterText, timeoutGuard } from '~/common/utils/db/utils'
+import { asPostgresParameterText, sanitizeString, timeoutGuard } from '~/common/utils/db/utils'
 import { LazyLoader, LoaderRetryOptions } from '~/common/utils/lazy-loader'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -89,12 +89,14 @@ export class GroupTypeManager {
         groupType: string,
         eventTimestamp: DateTime
     ): Promise<GroupTypeIndex | null> {
-        if (asPostgresParameterText(groupType).length > MAX_GROUP_TYPE_LENGTH) {
+        // Postgres text cannot hold a NUL byte, so the stored and looked-up type is the sanitized one.
+        const groupTypeText = sanitizeString(asPostgresParameterText(groupType))
+        if (groupTypeText.length > MAX_GROUP_TYPE_LENGTH) {
             groupTypeTooLongCounter.inc()
             return null
         }
 
-        const existingIndex = await this.lookupGroupTypeIndex(projectId, groupType)
+        const existingIndex = await this.lookupGroupTypeIndex(projectId, groupTypeText)
         if (existingIndex !== null) {
             return existingIndex
         }
@@ -116,7 +118,7 @@ export class GroupTypeManager {
         const [groupTypeIndex, isInsert] = await this.groupRepository.insertGroupType(
             teamId,
             projectId,
-            groupType,
+            groupTypeText,
             nextAvailableIndex,
             eventTimestamp
         )
@@ -127,7 +129,7 @@ export class GroupTypeManager {
         if (isInsert && groupTypeIndex !== null) {
             // TODO: Is the `group type ingested` event being valuable? If not, we can remove
             // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
-            await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+            await this.captureGroupTypeInsert(teamId, groupTypeText, groupTypeIndex)
         }
         return groupTypeIndex
     }
