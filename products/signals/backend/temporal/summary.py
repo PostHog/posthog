@@ -90,6 +90,22 @@ EMPTY_FETCH_RETRY_ATTEMPTS = 6
 EMPTY_FETCH_RETRY_INTERVAL = timedelta(seconds=10)
 
 
+def describe_workflow_failure(error: BaseException) -> tuple[str | None, str]:
+    failed_step: str | None = None
+    cause: BaseException = error
+    if isinstance(error, temporalio.exceptions.ActivityError):
+        failed_step = error.activity_type
+        cause = error.cause or error
+    elif isinstance(error, temporalio.exceptions.ChildWorkflowError):
+        failed_step = error.workflow_type
+        cause = error.cause or error
+    if isinstance(cause, temporalio.exceptions.ApplicationError) and cause.type:
+        return failed_step, cause.type
+    if isinstance(cause, temporalio.exceptions.TimeoutError) and cause.type is not None:
+        return failed_step, f"TimeoutError.{cause.type.name}"
+    return failed_step, type(cause).__name__
+
+
 def _capture_report_event(
     event: str,
     team: Team,
@@ -103,6 +119,8 @@ def _capture_report_event(
     pending_reason: str | None = None,
     chart_count: int | None = None,
     charts_enabled: bool | None = None,
+    failed_step: str | None = None,
+    error_type: str | None = None,
 ) -> None:
     properties: dict = {
         "report_id": report_id,
@@ -124,6 +142,10 @@ def _capture_report_event(
         properties["charts_enabled"] = charts_enabled
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+    if failed_step is not None:
+        properties["failed_step"] = failed_step
+    if error_type is not None:
+        properties["error_type"] = error_type
     if pending_reason is not None:
         properties["pending_reason"] = pending_reason
 
@@ -692,6 +714,7 @@ class SignalReportSummaryWorkflow:
                     )
             return has_new_signals
         except Exception as e:
+            failed_step, error_type = describe_workflow_failure(e)
             await workflow.execute_activity(
                 mark_report_failed_activity,
                 MarkReportFailedInput(
@@ -701,6 +724,8 @@ class SignalReportSummaryWorkflow:
                     failure_reason="agentic_activity_error",
                     signal_count=signal_count,
                     source_products=source_products,
+                    failed_step=failed_step,
+                    error_type=error_type,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -1188,6 +1213,8 @@ class MarkReportFailedInput:
     failure_reason: str | None = None
     signal_count: int = 0
     source_products: list[str] = field(default_factory=list)
+    failed_step: str | None = None
+    error_type: str | None = None
 
 
 @temporalio.activity.defn
@@ -1232,6 +1259,8 @@ async def mark_report_failed_activity(input: MarkReportFailedInput) -> None:
         source_products=input.source_products,
         result="failed",
         failure_reason=input.failure_reason,
+        failed_step=input.failed_step,
+        error_type=input.error_type,
     )
     logger.debug(
         f"Marked report {input.report_id} as failed",

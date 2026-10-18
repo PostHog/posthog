@@ -3,6 +3,13 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+    TimeoutType,
+)
+
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -14,6 +21,7 @@ from products.signals.backend.temporal.summary import (
     MarkReportPendingInput,
     MarkReportReadyInput,
     ResetReportToPotentialInput,
+    describe_workflow_failure,
     mark_report_failed_activity,
     mark_report_in_progress_activity,
     mark_report_pending_input_activity,
@@ -116,6 +124,8 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
                 failure_reason="safety_judge_rejected",
                 signal_count=3,
                 source_products=["zendesk"],
+                failed_step="safety_judge_activity",
+                error_type="SafetyRejected",
             )
         )
 
@@ -126,8 +136,45 @@ async def test_failed_fires_completed_with_failure_reason(ateam):
     assert kwargs["properties"]["result"] == "failed"
     assert "chart_count" not in kwargs["properties"]
     assert kwargs["properties"]["failure_reason"] == "safety_judge_rejected"
+    assert kwargs["properties"]["failed_step"] == "safety_judge_activity"
+    assert kwargs["properties"]["error_type"] == "SafetyRejected"
     assert kwargs["properties"]["signal_count"] == 3
     assert kwargs["properties"]["source_products"] == ["zendesk"]
+
+
+def _activity_error(cause: BaseException) -> ActivityError:
+    error = ActivityError(
+        "Activity task failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="select_repository_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = cause
+    return error
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        (
+            _activity_error(ApplicationError("boom", type="GitHubIntegrationError")),
+            ("select_repository_activity", "GitHubIntegrationError"),
+        ),
+        (
+            _activity_error(
+                TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+            ),
+            ("select_repository_activity", "TimeoutError.START_TO_CLOSE"),
+        ),
+        (_activity_error(ApplicationError("boom")), ("select_repository_activity", "ApplicationError")),
+        (RuntimeError("boom"), (None, "RuntimeError")),
+    ],
+)
+def test_describe_workflow_failure_names_the_failed_step_and_cause(error, expected):
+    assert describe_workflow_failure(error) == expected
 
 
 @pytest.mark.asyncio
