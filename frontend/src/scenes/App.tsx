@@ -1,7 +1,7 @@
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { Suspense, useEffect, useLayoutEffect, useState } from 'react'
+import React, { Suspense, useEffect, useLayoutEffect } from 'react'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
@@ -15,7 +15,7 @@ import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
 import { markBootPhase } from 'lib/utils/bootTiming'
-import { lazyWithRetry } from 'lib/utils/retryImport'
+import { lazyWithRetry, retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -26,11 +26,10 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { AuthenticatedShellFallback } from './AuthenticatedShellFallback'
-import { getLoadedAuthenticatedShell, loadAuthenticatedShell } from './authenticatedShellLoader'
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 import { mountSupportRouter } from './mountSupportRouter'
 
-const LazyAuthenticatedShell = React.lazy(() => loadAuthenticatedShell().then((shell) => ({ default: shell })))
+const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 // Lazy for the same reason as AuthenticatedShell: the gate renders SceneTitleSection, whose static
 // graph is most of the authenticated navigation. Importing it here put ~3.7 MiB of logged-in UI on
@@ -137,10 +136,6 @@ function AppScene(): JSX.Element | null {
         useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
-    // A shell that suspends on the first logged-in render makes React hold that commit for its fallback throttle.
-    // The entry loads the shell first for a logged-in page, so render it directly. The choice is fixed for the
-    // lifetime of this component, because a change of component type would remount the whole shell.
-    const [AuthenticatedShell] = useState(() => getLoadedAuthenticatedShell() ?? LazyAuthenticatedShell)
 
     // App mounts this component on the first commit where appLogic's `showApp` is true.
     useLayoutEffect(() => markBootPhase('app_ready', { logged_in: !!user }), [user])
@@ -158,7 +153,7 @@ function AppScene(): JSX.Element | null {
                 : (cb: () => void) => setTimeout(cb, 200)
         idle(() => {
             void Promise.all([
-                loadAuthenticatedShell(),
+                import('./AuthenticatedShell'),
                 import('lib/components/ProductEmptyState/ProductEmptyStateGate'),
             ]).catch(() => {
                 /* prefetch is best-effort; the real Suspense load will surface failures */
