@@ -4,8 +4,10 @@ import re
 import json
 import shlex
 from collections.abc import Collection, Iterator
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from typing import Literal
 
 from pydantic import JsonValue
 
@@ -73,12 +75,58 @@ def _events(run_directory: Path) -> Iterator[dict[str, JsonValue]]:
         raise ValueError("Trace event count does not match its index.")
 
 
+@dataclass(frozen=False)
+class _ToolCall:
+    event_index: int
+    timestamp: JsonValue
+    raw_input: dict[str, JsonValue]
+    title: JsonValue
+    completed_index: int | None = None
+    text: str = ""
+
+
+@frozen
+class _Read:
+    tool: str
+    arguments: dict[str, JsonValue]
+
+
+def _classify(call: _ToolCall, read_tools: Collection[str]) -> _Read | Literal["write", "discovery"]:
+    command = call.raw_input.get("command")
+    title = call.title
+    if isinstance(command, str):
+        match = re.fullmatch(r"call\s+([\w:-]+)\s*(.*)", command, re.DOTALL)
+        if match is None:
+            if command.split(maxsplit=1)[0:1] in (["search"], ["info"], ["schema"], ["tools"], ["learn"]):
+                return "discovery"
+            return "write"
+        tool, payload = match.groups()
+        if tool not in read_tools:
+            return "write"
+        return _Read(tool=tool, arguments=_object(json.loads(payload or "{}")))
+    if isinstance(title, str) and title.startswith("/bin/bash "):
+        # Keep only literal cat reads of installed skill files, never shell output generally.
+        words = shlex.split(title)
+        if len(words) != 3 or words[1] != "-lc":
+            return "write"
+        shell_words = shlex.split(words[2])
+        if (
+            not shell_words
+            or shell_words[0] != "cat"
+            or any(
+                not path.startswith("/") or "/skills/" not in path or not path.endswith(".md")
+                for path in shell_words[1:]
+            )
+        ):
+            return "write"
+        paths: list[JsonValue] = list(shell_words[1:])
+        return _Read(tool="local-skill-read", arguments={"paths": paths})
+    return "write"
+
+
 def load_trace_inputs(run_directory: Path, *, read_tools: Collection[str]) -> TraceInputs:
     """Extract completed reads before the first write, without reading result files."""
-    observations: list[TraceObservation] = []
-    local_file_reads: list[TraceObservation] = []
-    pending: dict[str, TraceObservation] = {}
-    first_write_index = None
+    calls: dict[str, _ToolCall] = {}
     for index, event in enumerate(_events(run_directory)):
         notification = _object(event.get("notification"))
         update = _object(_object(notification.get("params")).get("update"))
@@ -86,69 +134,53 @@ def load_trace_inputs(run_directory: Path, *, read_tools: Collection[str]) -> Tr
         if not isinstance(call_id, str):
             continue
         kind = update.get("sessionUpdate")
-        if kind == "tool_call":
-            raw_input = _object(update.get("rawInput"))
-            command = raw_input.get("command")
-            title = update.get("title")
-            if isinstance(command, str):
-                match = re.fullmatch(r"call\s+([\w:-]+)\s*(.*)", command, re.DOTALL)
-                if match is None:
-                    if command.split(maxsplit=1)[0:1] in (["search"], ["info"], ["schema"], ["tools"], ["learn"]):
-                        continue
-                    first_write_index = index
-                    break
-                tool, payload = match.groups()
-                if tool not in read_tools:
-                    first_write_index = index
-                    break
-                arguments = _object(json.loads(payload or "{}"))
-            elif isinstance(title, str) and title.startswith("/bin/bash "):
-                # Keep only literal cat reads of installed skill files, never shell output generally.
-                words = shlex.split(title)
-                if len(words) != 3 or words[1] != "-lc":
-                    first_write_index = index
-                    break
-                shell_words = shlex.split(words[2])
-                if (
-                    not shell_words
-                    or shell_words[0] != "cat"
-                    or any(
-                        not path.startswith("/") or "/skills/" not in path or not path.endswith(".md")
-                        for path in shell_words[1:]
-                    )
-                ):
-                    first_write_index = index
-                    break
-                tool = "local-skill-read"
-                paths: list[JsonValue] = list(shell_words[1:])
-                arguments = {"paths": paths}
-            else:
-                first_write_index = index
-                break
-            timestamp = event.get("timestamp")
-            if not isinstance(timestamp, str):
-                raise ValueError("Trace tool calls need a timestamp.")
-            pending[call_id] = TraceObservation(
-                event_index=index,
-                timestamp=datetime.fromisoformat(timestamp),
-                tool=tool,
-                arguments=arguments,
-                text="",
-            )
-        elif kind == "tool_call_update" and update.get("status") == "completed" and call_id in pending:
-            call = pending.pop(call_id)
+        if kind == "tool_call" and call_id not in calls:
+            calls[call_id] = _ToolCall(event_index=index, timestamp=event.get("timestamp"), raw_input={}, title=None)
+        elif kind != "tool_call_update" or call_id not in calls:
+            continue
+        # Claude streams arguments: the opening call carries empty input and later updates carry the rest.
+        call = calls[call_id]
+        raw_input = _object(update.get("rawInput"))
+        if raw_input:
+            call.raw_input = raw_input
+        title = update.get("title")
+        if isinstance(title, str):
+            call.title = title
+        if update.get("status") == "completed" and call.completed_index is None:
             raw_output = _object(update.get("rawOutput"))
-            text = _text_blocks(raw_output.get("content")) or _text_blocks(update.get("content"))
-            observation = TraceObservation(
-                event_index=call.event_index,
-                timestamp=call.timestamp,
-                tool=call.tool,
-                arguments=call.arguments,
-                text=text,
-            )
-            (local_file_reads if call.tool == "local-skill-read" else observations).append(observation)
+            call.completed_index = index
+            call.text = _text_blocks(raw_output.get("content")) or _text_blocks(update.get("content"))
+
+    first_write_index = None
+    reads: list[tuple[_ToolCall, _Read]] = []
+    for call in calls.values():
+        classified = _classify(call, read_tools)
+        if classified == "discovery":
+            continue
+        if classified == "write":
+            first_write_index = call.event_index
+            break
+        reads.append((call, classified))
+
+    observations: list[TraceObservation] = []
+    local_file_reads: list[TraceObservation] = []
+    for call, read in reads:
+        if call.completed_index is None:
+            continue
+        if first_write_index is not None and call.completed_index > first_write_index:
+            continue
+        if not isinstance(call.timestamp, str):
+            raise ValueError("Trace tool calls need a timestamp.")
+        observation = TraceObservation(
+            event_index=call.event_index,
+            timestamp=datetime.fromisoformat(call.timestamp),
+            tool=read.tool,
+            arguments=read.arguments,
+            text=call.text,
+        )
+        (local_file_reads if read.tool == "local-skill-read" else observations).append(observation)
     return TraceInputs(
-        observations=sorted(observations, key=lambda observation: observation.event_index),
+        observations=observations,
         first_write_index=first_write_index,
-        local_file_reads=sorted(local_file_reads, key=lambda observation: observation.event_index),
+        local_file_reads=local_file_reads,
     )

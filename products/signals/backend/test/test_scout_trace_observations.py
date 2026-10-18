@@ -4,25 +4,45 @@ from tempfile import TemporaryDirectory
 
 from unittest import TestCase
 
+from parameterized import parameterized
+
 from products.signals.backend.scout_harness.eval_environment.traces import load_trace_inputs
 
 
 class TestTraceInputs(TestCase):
-    def test_reads_stop_at_first_unrecognized_call(self) -> None:
+    @parameterized.expand([("complete", False), ("streamed", True)])
+    def test_reads_stop_at_first_unrecognized_call(self, _name: str, streamed: bool) -> None:
         def call(index: int, command: str) -> list[dict]:
+            opening = {
+                "timestamp": "2030-01-01T00:00:00Z",
+                "notification": {
+                    "params": {
+                        "update": {
+                            "sessionUpdate": "tool_call",
+                            "toolCallId": str(index),
+                            "title": "mcp__posthog__exec",
+                            "rawInput": {} if streamed else {"command": command},
+                        }
+                    }
+                },
+            }
+            streamed_inputs = [command[: len(command) // 2], command] if streamed else []
             return [
-                {
-                    "timestamp": "2030-01-01T00:00:00Z",
-                    "notification": {
-                        "params": {
-                            "update": {
-                                "sessionUpdate": "tool_call",
-                                "toolCallId": str(index),
-                                "rawInput": {"command": command},
+                opening,
+                *(
+                    {
+                        "notification": {
+                            "params": {
+                                "update": {
+                                    "sessionUpdate": "tool_call_update",
+                                    "toolCallId": str(index),
+                                    "rawInput": {"command": partial},
+                                }
                             }
                         }
-                    },
-                },
+                    }
+                    for partial in streamed_inputs
+                ),
                 {
                     "notification": {
                         "params": {
@@ -60,7 +80,7 @@ class TestTraceInputs(TestCase):
             (path / "result.json").write_text("private heldout")
             result = load_trace_inputs(path, read_tools={"notes-list"})
 
-        self.assertEqual(result.first_write_index, 2)
+        self.assertEqual(result.first_write_index, 4 if streamed else 2)
         self.assertEqual(len(result.observations), 1)
         self.assertEqual(result.observations[0].arguments, {"limit": 2})
         self.assertEqual(result.observations[0].text, "observed")
