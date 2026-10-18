@@ -1,4 +1,4 @@
-# Tracking gaps: query shapes
+# Instrumentation gaps: query shapes
 
 HogQL for `execute-sql`, validated against a busy project.
 Every query on `events` keeps a `timestamp` bound. Start with the window shown and widen it only when the query returns in time.
@@ -292,7 +292,7 @@ GROUP BY event
 
 Compare with the step before the metric (the composer was viewed, the form was opened). A step that fires while its outcome never does is a candidate. Low counts on both mean low traffic.
 
-## Family 4: tracking that broke
+## Family 4: instrumentation that broke
 
 ```sql
 WITH referenced AS (

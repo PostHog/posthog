@@ -1,9 +1,9 @@
 ---
-name: signals-scout-tracking-gaps
-scout-display-name: Tracking gaps
+name: signals-scout-instrumentation-gaps
+scout-display-name: Instrumentation gaps
 description: >
   Signals scout for data a team already needs and does not have: a metric rebuilt from URLs or CSS selectors,
-  an owned error nobody can tie to a user, a rollout or experiment with no outcome event, tracking a change removed.
+  an owned error nobody can tie to a user, a rollout or experiment with no outcome event, instrumentation a change removed.
   Files small fixes located in the code and routed to the person who needs the data.
 compatibility: >
   PostHog Signals agent (Claude sandbox).
@@ -15,7 +15,7 @@ allowed_tools:
   - edit_report
 metadata:
   owner_team: signals
-  scope: tracking_gaps
+  scope: instrumentation_gaps
 scout-precheck-query: |
   SELECT 1 AS events_seen
   FROM events
@@ -23,11 +23,11 @@ scout-precheck-query: |
   LIMIT 1
 ---
 
-# Signals scout: tracking gaps
+# Signals scout: instrumentation gaps
 
 You find data a team already needs and does not have, and you hand them the smallest code change that captures it.
-You do not audit tracking for its own sake.
-A gap that nobody needs is real, and it is still noise: a tracking-only pull request that nobody asked for goes stale and closes unmerged.
+You do not audit instrumentation for its own sake.
+A gap that nobody needs is real, and it is still noise: an instrumentation-only pull request that nobody asked for goes stale and closes unmerged.
 
 **The discriminator is a demand anchor plus a located fix. A finding needs both.**
 
@@ -36,7 +36,7 @@ A gap that nobody needs is real, and it is still noise: a tracking-only pull req
 
 A gap with no anchor is memory.
 An anchor with no locatable fix is memory too, unless the fix is a PostHog setting (see "Config-only fixes").
-The best report reads as a fix for a problem the team already has, not as a request to add tracking.
+The best report reads as a fix for a problem the team already has, not as a request to add instrumentation.
 
 **An anchor counts when people read it.**
 Saved insights are cheap to make, and agents create and edit many of them, so an edit date proves nothing.
@@ -45,7 +45,7 @@ An insight that nobody opened in 30 days is weak demand, however recent its edit
 A live inbox report, and a validation check that recorded `unmeasurable`, are strong anchors on their own, because a person or the fleet is waiting for the data.
 
 You author reports directly via the report channel (`scout-emit-report` / `scout-edit-report`).
-The harness prompt carries the report-channel contract; this body adds only the tracking-gaps framing.
+The harness prompt carries the report-channel contract; this body adds only the instrumentation-gaps framing.
 
 ## Quick close-out
 
@@ -53,21 +53,21 @@ A scheduled run can start with a `<precheck_result>` block.
 Its row says that the project captured events in the last 7 days, so skip step 1 when the block is present.
 
 1. When `top_events` in the profile is empty, confirm with one `execute-sql` count over 30 days.
-   With no events, write `not-in-use:tracking_gaps:team{team_id}` and close out.
-2. Read `pattern:tracking_gaps:last_sweep` with an exact `key=` read.
+   With no events, write `not-in-use:instrumentation_gaps:team{team_id}` and close out.
+2. Read `pattern:instrumentation_gaps:last_sweep` with an exact `key=` read.
    Each anchor family has a sweep date in it. When every family was swept in the last 7 days and nothing named in "Fresh inputs" below is newer than its sweep, close out and say which family is due next.
 
-Fresh inputs that justify a sweep before 7 days: a new or edited saved insight or action, a new experiment or flag rollout change, a newly assigned error issue, an inbox report, scout run, or validation check that could not measure something, and a merge after `cursor:tracking_gaps:<owner/repo>`.
+Fresh inputs that justify a sweep before 7 days: a new or edited saved insight or action, a new experiment or flag rollout change, a newly assigned error issue, an inbox report, scout run, or validation check that could not measure something, and a merge after `cursor:instrumentation_gaps:<owner/repo>`.
 
 ## Get oriented
 
-- `scout-scratchpad-search` (`text=tracking_gaps`, `keys_only=true`), then `key=` reads for what you need: `config:`, `roster:`, `pattern:`, `cursor:`, `anchor:`, `watch:`, `report:`, `reviewer:`, `followup:`, `addressed:`, `noise:`.
-- `scout-runs-list` (`skill_name=signals-scout-tracking-gaps`, last 14 days): what earlier runs checked, filed, and ruled out.
+- `scout-scratchpad-search` (`text=instrumentation_gaps`, `keys_only=true`), then `key=` reads for what you need: `config:`, `roster:`, `pattern:`, `cursor:`, `anchor:`, `watch:`, `report:`, `reviewer:`, `followup:`, `addressed:`, `noise:`.
+- `scout-runs-list` (`skill_name=signals-scout-instrumentation-gaps`, last 14 days): what earlier runs checked, filed, and ruled out.
 - `scout-project-profile-get`: `top_events`, `products_in_use`, `product_intents`, `recent_actions`, `recent_experiments`, `recent_feature_flags`, `integrations`, and `existing_inbox_reports`.
 - `project-get`: `autocapture_opt_out`, `test_account_filters`, and the project token.
 - **Find the repository** with the ladder in `references/repositories.md` (read it with `skill-file-get`).
   With no repository, sweep the anchors anyway, keep code gaps as `watch:` entries, and say in the close-out that a pinned repository turns them into pull requests.
-- **Learn the tracking idioms** of each repository once and cache them in `pattern:tracking_gaps:idioms:<owner/repo>`.
+- **Learn the instrumentation idioms** of each repository once and cache them in `pattern:instrumentation_gaps:idioms:<owner/repo>`.
   A fix in the repository's own idiom gets merged. A fix in a foreign idiom gets rewritten or ignored.
 
 ## The anchors
@@ -117,7 +117,7 @@ A URL proxy that is accurate today (the route itself encodes the value) is a wea
 - **A silent failure.** A failure path in a flow people depend on reaches neither analytics nor error tracking (a catch that only shows a toast, a form submit whose server error is dropped, a failed request nobody captures), while people retry or rage-click at that point.
   Find it from repeated failed requests per person on one endpoint (a request-failure event with the status and path), then rage clicks on the same page, then the code's failure path.
   Frame the fix as making the failure visible to the user and countable by reason: show the server's message, and capture the failure with its code where it happens.
-  This shape (a user-facing fix plus the tracking that proves it) is the one teams merge most readily.
+  This shape (a user-facing fix plus the instrumentation that proves it) is the one teams merge most readily.
 
 ### 3. Decisions waiting on data
 
@@ -125,11 +125,11 @@ A URL proxy that is accurate today (the route itself encodes the value) is a wea
   The code fix is the outcome event in the flagged path. Recommend an experiment in the report when the outcome already exists.
 - **An experiment that cannot conclude for lack of data.** A running experiment's metric event does not fire, fires only on the client while the outcome happens on the server, or lacks the property its metric filters on.
   Compare the metric event with its siblings (the step before it fires, the outcome never does) and read the code before you decide.
-  Low volume from low traffic is not a tracking gap. Leave it to the experiments scout.
+  Low volume from low traffic is not an instrumentation gap. Leave it to the experiments scout.
 - **A product set up halfway.** The project started a product (`product_intents` with no `activated_at`) and the code shows the need, but the data is missing: model SDK calls with no `$ai_generation`, API boundaries with no exception capture, a B2B product with no `group` calls.
   Intent alone is not an anchor, because a page visit creates it. Intent plus code evidence is.
 
-### 4. Tracking that broke
+### 4. Instrumentation that broke
 
 An event that saved insights, experiments, or flags depend on falls to near zero while its surface still has traffic.
 Find the change with `git log -S '<event name>'` and read its diff.
@@ -154,27 +154,35 @@ Mark them `requires_human_input` with the exact insights and the replacement, an
 
 ## Save memory as you go
 
-- `config:tracking_gaps:repos`: the repository list a person wrote. Never overwrite it.
-- `roster:tracking_gaps:repos`: the repositories you discovered, ranked, with the evidence for each.
-- `pattern:tracking_gaps:idioms:<owner/repo>`: the SDKs, capture helpers with a file:line example each, the server identity pattern, and the naming rule.
-- `pattern:tracking_gaps:last_sweep`: one line per anchor family with the date of its last in-depth sweep, or `never`. Keep all four lines in every write.
-- `cursor:tracking_gaps:<owner/repo>`: the last merge you read.
-- `anchor:tracking_gaps:<entity>`: an anchor you checked, the verdict, and why (for example "event already carries `source`, the insight can filter on it").
-- `watch:tracking_gaps:<area>`: a gap that has no anchor yet, or no repository, and what would make it reportable.
-- `report:tracking_gaps:<area>` and `reviewer:tracking_gaps:<area>`: the report id and the resolved owners.
-- `followup:signals-scout-tracking-gaps:<area>`: after a report, the event or property to check 7 days after its PR merges, and the anchor that should start using it.
-- `addressed:tracking_gaps:<area>`: the data now arrives. `noise:tracking_gaps:<area>`: the team declined it, or the shape is by design.
+- `config:instrumentation_gaps:repos`: the repository list a person wrote. Never overwrite it.
+- `roster:instrumentation_gaps:repos`: the repositories you discovered, ranked, with the evidence for each.
+- `pattern:instrumentation_gaps:idioms:<owner/repo>`: the SDKs, capture helpers with a file:line example each, the server identity pattern, and the naming rule.
+- `pattern:instrumentation_gaps:last_sweep`: one line per anchor family with the date of its last in-depth sweep, or `never`. Keep all four lines in every write.
+- `cursor:instrumentation_gaps:<owner/repo>`: the last merge you read.
+- `anchor:instrumentation_gaps:<entity>`: an anchor you checked, the verdict, and why (for example "event already carries `source`, the insight can filter on it").
+- `watch:instrumentation_gaps:<area>`: a gap that has no anchor yet, or no repository, and what would make it reportable.
+- `report:instrumentation_gaps:<area>` and `reviewer:instrumentation_gaps:<area>`: the report id and the resolved owners.
+- `followup:signals-scout-instrumentation-gaps:<area>`: after a report, the event or property to check 7 days after its PR merges, and the anchor that should start using it.
+- `addressed:instrumentation_gaps:<area>`: the data now arrives. `noise:instrumentation_gaps:<area>`: the team declined it, or the shape is by design.
 
 ## Decide
 
 Write one report per anchor, or one per area when several anchors share one fix.
+The person who merges the pull request did not see your investigation, and decides from the case for the change alone.
+Write that case first, from evidence you checked in this run. When you cannot fill it, the finding is not ready: keep it as a `watch:` entry.
 Each report follows `references/tracking-plan.md`:
 
 - **Title**: the consequence for the person who needs the data, then the gap. For example "Checkout success cannot be split by plan: 4 dashboard insights rebuild it from the thank-you URL".
-- **The anchor**, linked, with why it proves demand (how many insights, the dashboard, the running experiment, the issue's reach and assignee).
-- **The absence proof**: the property or event search that came back empty, and the code check.
+- **Why merge this**: the case for the change, as its own section with the heading and first line `references/tracking-plan.md` gives, so the pull request carries it to its reviewer:
+  - **Today**: what is wrong or impossible now, and for whom, with a link the reviewer can open and its readership. A wrong number goes next to the true one.
+  - **Unlocks**: who sees what, where, after the merge, what that place shows today, and the decision it changes, with who makes it.
+  - **Limits**: what it does not answer, what already answers part of it, that the data starts at deploy, when the first readout is useful, and the volume it adds.
+  - **If not merged**: what stays wrong.
+  - **Worth merging if**: the condition under which the change pays off, or "without condition".
+- **The absence proof**: the property or event search that came back empty, the code check, and the other sources you checked (error tracking, logs, warehouse tables) with why they are not enough.
+- **Earlier attempts**: open and closed pull requests for the same change. When earlier ones went stale, say what is different now.
 - **The fix**: one to three call sites, each with the file and function, the event or property in the repository's convention, and where the value comes from.
-- **After the merge**: which insights, actions, or experiment metrics to point at the new data, so the team sees the value the same day.
+- **After the merge**: which insights, actions, or experiment metrics to point at the new data, and the query that shows the data arrived.
 - **Guardrails** for the implementing agent, and the matching PostHog instrumentation skill name.
 
 Set the report fields this way:

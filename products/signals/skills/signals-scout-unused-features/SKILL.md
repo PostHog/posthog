@@ -121,7 +121,7 @@ Classify each candidate against the scratchpad and the inbox (net-new / material
 - Items your test account filters cannot separate from the team's own use: say the number is unreliable instead of reporting it.
 - Navigation and global controls measured against a single page. Measure them against the busiest page they appear on.
 - A page with too little reach to judge (under ~200 weekly viewers). Its items stay in memory.
-- An item another scout already reported. Feature flag debt belongs to `feature-flags`, flow conversion to `product-analytics`, missing tracking to `tracking-gaps`, and how a recently merged change is doing to `pr-follow-up`.
+- An item another scout already reported. Feature flag debt belongs to `feature-flags`, flow conversion to `product-analytics`, missing instrumentation to `instrumentation-gaps`, and how a recently merged change is doing to `pr-follow-up`.
 
 ## MCP tools
 
