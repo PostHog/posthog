@@ -986,6 +986,21 @@ def _scanner_config_for(
     return config
 
 
+def _scanner_facts(scanner: ReplayScanner) -> str:
+    """The scanner fields the model needs to act on a scanner, without the user-editable name or prompt."""
+    observations = scanner.estimated_monthly_observations
+    if observations is None:
+        estimate = "unknown (not estimated yet, call estimate_replay_vision_scanner)"
+    elif scanner.estimated_at is None or timezone.now() - scanner.estimated_at >= ESTIMATE_STALE_AFTER:
+        estimate = f"{observations} (stale, call estimate_replay_vision_scanner)"
+    else:
+        estimate = str(observations)
+    return (
+        f"scanner_id={scanner.id} | type={scanner.scanner_type} | enabled={str(scanner.enabled).lower()} | "
+        f"sampling_rate={scanner.sampling_rate} | estimated_monthly_observations={estimate}"
+    )
+
+
 CREATE_SCANNER_TOOL_DESCRIPTION = """
 Use this tool to create a Replay Vision scanner: a standing watch that scans every future recording
 matching a filter.
@@ -1005,6 +1020,14 @@ spend. Create it disabled (`enabled: false`) to set it up without spending anyth
 
 Call get_replay_vision_quota first when proposing anything broad, and prefer a `sampling_rate` below 1.0
 over an unfiltered scanner.
+
+This tool takes no recording filter. A scanner it creates, other than an experiment scanner, scans every
+new recording in the project at its `sampling_rate`. Don't size its cost from a sample of recordings
+you looked at. Create it disabled, then call estimate_replay_vision_scanner with the id this tool returns.
+
+# What it returns
+The new scanner's id, whether it's running, its sampling rate, and its estimated monthly volume when one
+is known. Use the id with update_replay_vision_scanner and estimate_replay_vision_scanner.
 
 # Experiments
 To watch an A/B test, create an `experiment` scanner with the experiment's `experiment_id`. It scans only
@@ -1190,11 +1213,15 @@ class CreateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
         )
         # The name stays out of `content`, which the model reads: it's user-editable from here on, and
         # the file's own rule keeps it outside the data fence. The artifact goes to the frontend.
-        return f"Created the {resolved_type} scanner. {state}", {
-            "scanner_name": scanner.name,
-            "scanner_id": str(scanner.id),
-            "enabled": enabled,
-        }
+        return (
+            f"Created the {resolved_type} scanner. {state}\n{_scanner_facts(scanner)}\n"
+            "Use this scanner_id with the other Replay Vision tools.",
+            {
+                "scanner_name": scanner.name,
+                "scanner_id": str(scanner.id),
+                "enabled": enabled,
+            },
+        )
 
 
 def _monthly_spend_sentence(team: Team, scanner: ReplayScanner, sampling_rate: float) -> str:
@@ -1400,6 +1427,7 @@ class ListReplayVisionScannersTool(ReplayVisionGatesMixin, MaxTool):
         if enabled_only:
             queryset = queryset.filter(enabled=True)
         readable = self.user_access_control.filter_queryset_by_access_level(queryset).order_by("name", "id")
+        listed = list(readable[:_MAX_LISTED])
         scanners = [
             {
                 "scanner_id": str(s.id),
@@ -1411,16 +1439,18 @@ class ListReplayVisionScannersTool(ReplayVisionGatesMixin, MaxTool):
                 "sampling_rate": s.sampling_rate,
                 "estimated_monthly_observations": s.estimated_monthly_observations,
             }
-            for s in readable[:_MAX_LISTED]
+            for s in listed
         ]
         if not scanners:
             return "This project has no Replay Vision scanners yet.", {"scanners": []}
         total = readable.count()
         running = sum(1 for s in scanners if s["enabled"])
         shown = f"{len(scanners)} of {total} scanner(s)" if total > len(scanners) else f"{len(scanners)} scanner(s)"
+        # The name goes last and on one line, so an edited name can't forge another field or row.
+        lines = [f"{_scanner_facts(s)} | name={' '.join(s.name.split())}" for s in listed]
         return (
-            f"{shown}, {running} of those running. Their ids are in the result, for use with the "
-            "other Replay Vision tools.",
+            f"{shown}, {running} of those running. Use a scanner_id with the other Replay Vision tools.\n"
+            + as_untrusted_data("scanners", lines, source="scanner settings that project members can edit"),
             {"scanners": scanners, "total": total},
         )
 
