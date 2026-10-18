@@ -1051,7 +1051,8 @@ async def _spawn_and_run(
             recorded_prompt_override,
         )
 
-        recorded_override = recorded_prompt_override(
+        recorded_override = await asyncio.to_thread(
+            recorded_prompt_override,
             path=settings.SCOUT_EVAL_ENVIRONMENT_FILE,
             debug=settings.DEBUG,
             team_id=team.id,
