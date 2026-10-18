@@ -1,5 +1,6 @@
 import { getColorVar } from 'lib/colors'
 
+import { seriesLabelText } from '../components/metricsSeries'
 import { flattenSeriesRows } from './metricsReduce'
 import { thresholdColor } from './metricsThresholds'
 import { metricValuesFormatter } from './metricsUnits'
@@ -69,12 +70,7 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
                 const formatValue = metricValuesFormatter(unit, [value ?? 0, min, max])
                 const fraction = value === null ? 0 : Math.min(Math.max((value - min) / (max - min), 0), 1)
                 const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
-                const name =
-                    Object.entries(row.labels)
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join(', ') ||
-                    row.metricName ||
-                    fallbackName
+                const name = seriesLabelText(row.labels, display.legendFormat) || row.metricName || fallbackName
 
                 const cx = 60
                 const cy = 60

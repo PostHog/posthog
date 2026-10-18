@@ -214,6 +214,7 @@ from posthog.schema_enums import (
     MetricsAggregation as MetricsAggregation,
     MetricsAttributeScope as MetricsAttributeScope,
     MetricsAxisScale as MetricsAxisScale,
+    MetricsCombineSeries as MetricsCombineSeries,
     MetricsDisplayType as MetricsDisplayType,
     MetricsFilterOp as MetricsFilterOp,
     MetricsNullMode as MetricsNullMode,
@@ -7017,10 +7018,26 @@ class MetricsDisplaySettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    combineSeries: MetricsCombineSeries | None = Field(
+        default=None,
+        description=(
+            "`stat` display only: collapse grouped series into one before reducing,"
+            " keeping the highest (or lowest) series in each bucket, so the tile"
+            " headlines the worst host instead of one card per host."
+        ),
+    )
     goalLines: list[GoalLine] | None = None
     legendCalcs: list[MetricsReducer] | None = Field(
         default=None,
         description=("Time-series panels only: which reducers the legend table shows. Empty means no legend calcs."),
+    )
+    legendFormat: str | None = Field(
+        default=None,
+        description=(
+            "Series name template, Grafana's `legendFormat`: each `{{label}}` becomes"
+            ' that label\'s value, e.g. "{{service.name}} · {{host.name}}". Unset names'
+            " a series by its `key=value` labels."
+        ),
     )
     nullMode: MetricsNullMode | None = Field(
         default=MetricsNullMode.GAP,

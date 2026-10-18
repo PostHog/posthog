@@ -5032,7 +5032,16 @@ export interface MetricsDisplaySettings {
     nullMode?: MetricsNullMode
     /** Time-series panels only: which reducers the legend table shows. Empty means no legend calcs. */
     legendCalcs?: MetricsReducer[]
+    /** Series name template, Grafana's `legendFormat`: each `{{label}}` becomes that label's value,
+     * e.g. "{{service.name}} · {{host.name}}". Unset names a series by its `key=value` labels. */
+    legendFormat?: string
+    /** `stat` display only: collapse grouped series into one before reducing, keeping the highest
+     * (or lowest) series in each bucket, so the tile headlines the worst host instead of one card per host. */
+    combineSeries?: MetricsCombineSeries
 }
+
+/** How the `stat` display collapses grouped series into one. */
+export type MetricsCombineSeries = 'max' | 'min'
 
 /** How a metrics query is written. All three run through the metrics query runner, with its caching and limits. */
 export type MetricsQueryLanguage = 'builder' | 'promql' | 'sql'

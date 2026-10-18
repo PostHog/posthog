@@ -23,6 +23,22 @@ export function thresholdColor(
     return color
 }
 
+const ALARM_COLORS = new Set(['danger', 'red'])
+
+/** Which way a value gets worse, read from where the alarm color sits: at the top step, a
+ * rising value is bad (CPU busy); at the base step, a falling one is (memory left). `null`
+ * when the thresholds do not say. */
+export function worseDirection(thresholds: MetricsThreshold[] | undefined): 'up' | 'down' | null {
+    if (!thresholds || thresholds.length < 2) {
+        return null
+    }
+    const sorted = [...thresholds].sort((a, b) => a.value - b.value)
+    if (ALARM_COLORS.has(sorted[sorted.length - 1].color)) {
+        return 'up'
+    }
+    return ALARM_COLORS.has(sorted[0].color) ? 'down' : null
+}
+
 /** A threshold color is persisted user input that ends up inside a class string;
  * anything beyond a plain token (whitespace, parentheses) could inject extra
  * utilities, so it falls back instead. */
