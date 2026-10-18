@@ -236,9 +236,12 @@ class TestVercelWebhooks(VercelTestBase):
         self.assertEqual(response.status_code, 202)
         self.forward.assert_not_called()
 
+    @patch("posthoganalytics.capture_exception")
     @patch("ee.api.vercel.webhook_events.BillingManager")
     @patch("ee.api.vercel.webhook_events.License")
-    def test_a_billing_service_error_is_not_receipted(self, license_model, billing_manager_class):
+    def test_a_billing_service_error_is_not_receipted_and_reported_once(
+        self, license_model, billing_manager_class, sdk_capture
+    ):
         license_model.objects.first.return_value = MagicMock()
         billing_manager = MagicMock()
         billing_manager_class.return_value = billing_manager
@@ -247,6 +250,17 @@ class TestVercelWebhooks(VercelTestBase):
         response = self._post(self._billing_payload(self.installation_id))
 
         self.assertEqual(response.status_code, 500)
+        sdk_capture.assert_called_once()
+
+    @patch("posthoganalytics.capture_exception")
+    @patch("ee.api.vercel.webhook_events.VercelIntegration")
+    def test_a_deauthorization_that_fails_is_not_receipted_and_reported_once(self, vercel_integration, sdk_capture):
+        vercel_integration.delete_installation.side_effect = Exception("Billing service error")
+
+        response = self._post(self._deauthorization_payload(self.installation_id))
+
+        self.assertEqual(response.status_code, 500)
+        sdk_capture.assert_called_once()
 
     @patch("ee.api.vercel.webhook_events.License")
     def test_a_missing_license_is_not_receipted(self, license_model):

@@ -10,7 +10,6 @@ from typing import Any
 
 import structlog
 
-from posthog.exceptions_capture import capture_exception
 from posthog.ingress.dispatch.database import bounded_statement_timeout
 from posthog.models.organization_integration import OrganizationIntegration
 
@@ -135,7 +134,6 @@ def _handle_deauthorization(config_id: str, in_receiving_region: bool) -> Vercel
         )
     except Exception as e:
         logger.exception("vercel_webhook_deauthorize_delete_failed", config_id=config_id)
-        capture_exception(e, {"config_id": config_id})
         raise VercelEventProcessingError(str(e)) from e
     return VercelEventOutcome.ACCEPTED
 
@@ -154,8 +152,7 @@ def _handle_billing(
     try:
         _forward_to_billing_service(event_type, payload, integration)
     except Exception as e:
-        logger.exception("vercel_webhook_billing_error", event_type=event_type)
-        capture_exception(e, {"config_id": config_id, "event_type": event_type})
+        logger.exception("vercel_webhook_billing_error", event_type=event_type, config_id=config_id)
         raise VercelEventProcessingError(str(e)) from e
 
     logger.info("vercel_webhook_processed", event_type=event_type, org_id=str(integration.organization_id))
