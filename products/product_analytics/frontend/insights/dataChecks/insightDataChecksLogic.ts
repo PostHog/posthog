@@ -66,6 +66,8 @@ export interface insightDataChecksLogicValues {
     dataChecksRunLoading: boolean
     filtersTestAccounts: boolean
     findings: InsightDataCheckApi[]
+    labelHeldOpen: boolean
+    labelOpen: boolean
     promptContext: DataCheckPromptContext | null
     requestedQuery: DataChecksQuery | null
     result: InsightDataChecksApi | null
@@ -138,6 +140,9 @@ export interface insightDataChecksLogicActions {
     checkData: (again?: boolean) => {
         again: boolean
     }
+    closeLabel: () => {
+        value: true
+    }
     filterOutInternalUsers: () => {
         value: true
     }
@@ -186,6 +191,7 @@ export interface insightDataChecksLogicMeta {
         result: (dataChecksRun: DataChecksRun | null, status: InsightDataChecksStatus) => InsightDataChecksApi | null
         checks: (result: InsightDataChecksApi | null) => InsightDataCheckApi[]
         findings: (checks: InsightDataCheckApi[]) => InsightDataCheckApi[]
+        labelOpen: (status: InsightDataChecksStatus, labelHeldOpen: boolean) => boolean
         promptContext: (
             checkedQuery: DataChecksQuery | null,
             insight: Partial<InsightModel<Node<Record<string, any>>>>,
@@ -206,6 +212,7 @@ export type insightDataChecksLogicType = MakeLogicType<
 const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blocking']
 // The checks run up to four queries of 20 seconds each, after a wait for server slots.
 const DATA_CHECKS_TIMEOUT_MS = 120_000
+const LABEL_OPEN_MS = 2500
 
 export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = kea<insightDataChecksLogicType>([
     props({} as InsightLogicProps),
@@ -231,6 +238,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
     })),
     actions({
         checkData: (again: boolean = false) => ({ again }),
+        closeLabel: true,
         filterOutInternalUsers: true,
         reportDataChecksViewed: true,
         reportFixPromptSent: (check: InsightDataCheckApi, destination: string) => ({ check, destination }),
@@ -287,6 +295,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             {
                 checkData: (requested, { again }) => requested || again,
                 loadDataChecks: () => false,
+            },
+        ],
+        labelHeldOpen: [
+            false,
+            {
+                loadDataChecksSuccess: () => true,
+                closeLabel: () => false,
             },
         ],
     }),
@@ -347,6 +362,11 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             (checks: InsightDataCheckApi[]): InsightDataCheckApi[] =>
                 checks.filter((check) => check.level === 'warning' || check.level === 'problem'),
         ],
+        labelOpen: [
+            (s) => [s.status, s.labelHeldOpen],
+            (status: InsightDataChecksStatus, labelHeldOpen: boolean): boolean =>
+                status === 'checking' || labelHeldOpen,
+        ],
         promptContext: [
             (s) => [s.checkedQuery, s.insight, s.queryChanged, s.hasOverrides, s.result],
             (
@@ -383,10 +403,12 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             }
         },
         // The query can change during a run. The chart for the new query can finish before that run does.
-        loadDataChecksSuccess: () => {
+        loadDataChecksSuccess: async (_, breakpoint) => {
             if (!values.insightDataLoading) {
                 actions.checkData()
             }
+            await breakpoint(LABEL_OPEN_MS)
+            actions.closeLabel()
         },
         // The flags can arrive after the chart has loaded.
         setFeatureFlags: () => {

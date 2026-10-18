@@ -14,7 +14,7 @@ export interface DataCheckText {
     fix: string | null
 }
 
-const DATA_CHECK_NAMES: Record<InsightDataCheckKeyEnumApi, string> = {
+export const DATA_CHECK_NAMES: Record<InsightDataCheckKeyEnumApi, string> = {
     internal_users: 'Internal and test users',
     local_development: 'Local development events',
     bot_traffic: 'Bot and crawler traffic',
