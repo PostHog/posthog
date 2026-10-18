@@ -7160,6 +7160,38 @@
             "readOnlyHint": true
         }
     },
+    "inbox-report-actions-list": {
+        "description": "List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons: `get_it_merged` (fix CI on the report's open, approved pull request and merge it) and one `suggested_prompt` entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List a report's agent run actions",
+        "title": "List a report's agent run actions",
+        "required_scopes": ["task:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "inbox-report-actions-mcp",
+        "feature_flag_behavior": "enable"
+    },
+    "inbox-report-actions-run": {
+        "description": "Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the report, shows in the report's runs, and counts toward the report's task limit. Read the list first and pick an action with `available: true`. Each successful call creates a new task, so do not retry after a 201. The response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400 `report_action_unavailable` means the action is not available now (the detail says why), and 403 `report_action_unavailable` means the organization has not approved AI data processing. 403 `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's session. 409 `report_action_run_active` means a merge run is already working on the report; the body has its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt at that index.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a report action as an agent task",
+        "title": "Run a report action as an agent task",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "inbox-report-actions-mcp",
+        "feature_flag_behavior": "enable"
+    },
     "inbox-report-artefacts-create": {
         "description": "Append an artefact to a signal report so it reads as a living document. Everything is append-only. Log types accumulate — `code_reference` (a contiguous span of source lines, at most 20: file_path, start_line, end_line, contents, relevance_note; a single line is just start_line == end_line), `commit` (one commit that has already been pushed to a remote branch: repository, branch, commit_sha, message — usually recorded automatically when you push via git_signed_commit. Only create one yourself for a commit pushed to a remote by other means; never record a commit that is not on a remote branch — an unpushed or local-only commit is always a mistake), `note` (free-form: note). Follow-up goals live in report checks, not artefacts. Status types are latest-wins — appending a new version supersedes the previous one as the report's canonical status: `priority_judgment` (explanation, priority P0–P4), `actionability_judgment` (explanation, actionability, already_addressed), `safety_judgment` (choice), `repo_selection` (repository, reason), `suggested_reviewers` (a list of {github_login}), `source_suggestion` (product, reason: a product the project does not use that would have given this report better evidence; the inbox hides it once the product is in use). Status judgments are consequential, not advisory: the canonical priority/actionability steer what humans and agents pick up next, and PostHog's automation uses them when deciding which reports to act on. `content` is a JSON object matching the chosen type and is validated against its schema. Writes are attributed to your task automatically. Pass claim_id to associate the work with your current claim; stale or foreign claims are rejected. Returns the created artefact including its id.",
         "category": "Signals",

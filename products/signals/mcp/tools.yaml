@@ -7,6 +7,62 @@ feature: signals
 url_prefix: /inbox
 ui_apps: {}
 tools:
+    inbox-report-actions-list:
+        operation: signals_reports_actions_list
+        enabled: true
+        scopes:
+            - task:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        enrich_url: '{params.id}'
+        title: List a report's agent run actions
+        description: >
+            List the actions on a signal report that start an agent run, the same ones the inbox shows as buttons:
+            `get_it_merged` (fix CI on the report's open, approved pull request and merge it) and one `suggested_prompt`
+            entry per prompt the report suggests. Every action comes back, available or not. `available` says whether a
+            run can start now, and `disabled_reason` says why not. `text` is the message the run gets as its first
+            request. Pass `action`, and `suggested_prompt_index` for a suggested prompt, to inbox-report-actions-run.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
+        feature_flag: inbox-report-actions-mcp
+        feature_flag_behavior: enable
+    inbox-report-actions-run:
+        operation: signals_reports_actions_run_create
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        enrich_url: '{params.id}'
+        title: Run a report action as an agent task
+        description: >
+            Start one report action from inbox-report-actions-list as a background agent run. The task is linked to the
+            report, shows in the report's runs, and counts toward the report's task limit. Read the list first and pick
+            an action with `available: true`. Each successful call creates a new task, so do not retry after a 201. The
+            response has `task_id`, `run_id`, and `task_url`. If `run_error` is set, the task exists but its run did not
+            start. Follow the run with tasks-runs-retrieve. Nobody can answer questions in a background run, so the
+            agent writes a note to the report's work log when it needs a decision. Errors carry a `code`: 400
+            `report_action_unavailable` means the action is not available now (the detail says why), and 403
+            `report_action_unavailable` means the organization has not approved AI data processing. 403
+            `report_action_sandbox_refused` means a task sandbox made the call; start the action from a person's
+            session. 409 `report_action_run_active` means a merge run is already working on the report; the body has
+            its `task_id` and `run_id`, so follow that run and do not retry. 429 `signal_report_task_cap` means the
+            report reached its task limit. 429 `throttled`, `usage_limit_exceeded`, or a deactivated organization means
+            a usage limit fired; do not retry until it clears. 402 `self_driving_free_trial` means the organization is
+            on a Self-driving free trial, which cannot open pull requests. 404 means the report has no suggested prompt
+            at that index.
+        param_overrides:
+            id:
+                aliases:
+                    - report_id
+        feature_flag: inbox-report-actions-mcp
+        feature_flag_behavior: enable
     inbox-report-artefacts-create:
         operation: signals_report_artefacts_create
         enabled: true
