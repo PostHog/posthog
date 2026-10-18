@@ -82,6 +82,10 @@ def _visible(trends: dict[str, Any], results: list[dict[str, Any]]) -> list[dict
     ]
 
 
+def _decimal_places(places: Any) -> int | None:
+    return None if places is None else min(max(int(places), 0), 9)
+
+
 def _as_date(value: Any) -> date | None:
     if isinstance(value, datetime):
         return value.date()
@@ -134,23 +138,22 @@ def _sql_series(
     if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
         return None
     response = _run(team, user, query["source"], filters, variables)
-    columns = response.get("columns") or []
+    position = {column: index for index, column in enumerate(response.get("columns") or [])}
     breakdown_column = settings.get("seriesBreakdownColumn")
     wanted = [x_column, *(axis["column"] for axis in y_axes), *([breakdown_column] if breakdown_column else [])]
-    if response.get("hasMore") or any(column not in columns for column in wanted):
+    if response.get("hasMore") or any(column not in position for column in wanted):
         return None
-    position = {column: index for index, column in enumerate(columns)}
     labels: dict[tuple[int, str | None], str] = {}
     series: dict[tuple[int, str | None], dict[date, float]] = {}
     for row in response.get("results") or []:
         day = _as_date(row[position[x_column]])
         if day is None:
             return None
+        breakdown = str(row[position[breakdown_column]]) if breakdown_column else None
         for index, axis in enumerate(y_axes):
             value = _as_number(row[position[axis["column"]]])
             if value is None:
                 return None
-            breakdown = str(row[position[breakdown_column]]) if breakdown_column else None
             key = (index, breakdown)
             if key not in labels:
                 label = str(((axis.get("settings") or {}).get("display") or {}).get("label") or axis["column"])
@@ -166,19 +169,19 @@ def _sql_series(
     period = _sql_period(sorted({day for points in series.values() for day in points}), team.week_start_day)
     if period is None:
         return None
+    named = {labels[key]: sorted(points.items()) for key, points in series.items()}
     formatting = ((y_axes[0].get("settings") or {}).get("formatting") or {}) if len(y_axes) == 1 else {}
-    places = formatting.get("decimalPlaces")
     return InsightSeries(
         short_id=short_id,
         name=name,
-        series={labels[key]: sorted(points.items()) for key, points in series.items()},
+        series=named,
         period=period,
-        averaged_series=[labels[key] for key in series],
+        averaged_series=list(named),
         event_name="",
         value_format="percentage_scaled" if formatting.get("style") == "percent" else None,
         value_prefix=formatting.get("prefix") or None,
         value_postfix=formatting.get("suffix") or None,
-        decimal_places=None if places is None else min(max(int(places), 0), 9),
+        decimal_places=_decimal_places(formatting.get("decimalPlaces")),
     )
 
 
@@ -247,7 +250,6 @@ def insight_series(
         return None
     nodes = source.get("series") or []
     node = nodes[0] if len(nodes) == 1 else {}
-    places = trends.get("decimalPlaces")
     return InsightSeries(
         short_id=short_id,
         name=name,
@@ -258,5 +260,5 @@ def insight_series(
         value_format=trends.get("aggregationAxisFormat"),
         value_prefix=trends.get("aggregationAxisPrefix"),
         value_postfix=trends.get("aggregationAxisPostfix"),
-        decimal_places=None if places is None else min(max(int(places), 0), 9),
+        decimal_places=_decimal_places(trends.get("decimalPlaces")),
     )

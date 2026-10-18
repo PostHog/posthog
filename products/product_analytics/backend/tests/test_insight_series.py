@@ -228,7 +228,7 @@ class TestSqlSeries(SimpleTestCase):
             ),
             (
                 "a missing month",
-                _sql_query(xAxis={"column": "week"}),
+                _sql_query(),
                 _weekly(["2026-07-01", 1], ["2026-09-01", 2]),
                 WeekStartDay.SUNDAY,
                 None,
