@@ -1,11 +1,12 @@
 use std::str::FromStr;
 use std::time::Duration;
 
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use tracing::warn;
 
 use crate::{
-    batch_ingestion::{EventPropertiesBatch, PropertyDefinitionsBatch},
+    batch_ingestion::{EventDefinitionsBatch, EventPropertiesBatch, PropertyDefinitionsBatch},
     metrics_consts::{READ_FILTER_ATTEMPT, READ_FILTER_ROWS_DROPPED, READ_FILTER_TIME},
     types::{PropertyValueType, Update},
     update_cache::Cache,
@@ -20,6 +21,79 @@ use crate::{
 // Reader lag is safe by the same argument in the other direction: a row committed
 // moments ago may look absent on the replica, so it stays in the batch and the
 // writer's ON CONFLICT no-ops it.
+
+/// Drops event-definition rows whose stored `last_seen_at` already falls in the
+/// row's current floor period. Each row carries the start of that period as its
+/// floored `last_seen_at`, so a stored value at or after it means another write
+/// already moved the row into this period. The upsert would only move it forward
+/// by less than one period, which is below the precision the dedup cache keeps.
+pub async fn filter_event_definitions(
+    pool: &PgPool,
+    batch: &mut EventDefinitionsBatch,
+    budget: Duration,
+) {
+    if batch.is_empty() {
+        return;
+    }
+    let period_starts: Vec<DateTime<Utc>> = batch
+        .cached
+        .iter()
+        .map(|u| match u {
+            Update::Event(ed) => ed.last_seen_at,
+            _ => Utc::now(),
+        })
+        .collect();
+    let timer = common_metrics::timing_guard(READ_FILTER_TIME, &[]);
+    let query = sqlx::query_as(
+        r#"SELECT u.ord
+           FROM unnest($1::bigint[], $2::text[], $3::timestamptz[]) WITH ORDINALITY
+                AS u(pk, name, period_start, ord)
+           JOIN posthog_eventdefinition ed
+             ON COALESCE(ed.project_id, ed.team_id::bigint) = u.pk
+            AND ed.name = u.name
+           WHERE ed.last_seen_at >= u.period_start"#,
+    )
+    .bind(&batch.project_ids)
+    .bind(&batch.names)
+    .bind(&period_starts)
+    .fetch_all(pool);
+    let found: Vec<(i64,)> = match tokio::time::timeout(budget, query).await {
+        Ok(Ok(found)) => found,
+        Ok(Err(e)) => {
+            timer.label("table", "eventdefs").fin();
+            metrics::counter!(
+                READ_FILTER_ATTEMPT,
+                &[("table", "eventdefs"), ("result", "failed")]
+            )
+            .increment(1);
+            warn!("read filter failed for eventdefs, writing unfiltered batch: {e}");
+            return;
+        }
+        Err(_) => {
+            timer.label("table", "eventdefs").fin();
+            metrics::counter!(
+                READ_FILTER_ATTEMPT,
+                &[("table", "eventdefs"), ("result", "timeout")]
+            )
+            .increment(1);
+            return;
+        }
+    };
+    timer.label("table", "eventdefs").fin();
+    metrics::counter!(
+        READ_FILTER_ATTEMPT,
+        &[("table", "eventdefs"), ("result", "success")]
+    )
+    .increment(1);
+
+    let mut keep = vec![true; batch.len()];
+    for (ord,) in found {
+        keep[ord as usize - 1] = false;
+    }
+    let dropped = batch.retain_rows(&keep);
+    metrics::counter!(READ_FILTER_ROWS_DROPPED, &[("table", "eventdefs")])
+        .increment(dropped as u64);
+}
 
 /// Drops event-property rows that already exist. The unique index covers the
 /// probe (COALESCE project key, event, property), one index descent per row.
