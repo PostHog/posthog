@@ -117,6 +117,38 @@ class WorkflowSchedule:
     updated_at: datetime
 
 
+@frozen
+class SendCalendarBatchJob:
+    """One batch run, with only the fields the send calendar shows."""
+
+    id: UUID
+    status: HogFlowBatchJobState
+    created_at: datetime
+
+
+@frozen
+class SendCalendarFlow:
+    """An active, scheduled email workflow, with only the fields a send calendar card shows.
+
+    The email fields come from the first email step. ``audience_properties`` and ``audience_type``
+    come from a batch trigger's filters, and ``email_to`` only from a schedule trigger, which has no
+    audience. ``batch_jobs`` holds only the runs inside the requested range.
+    """
+
+    id: UUID
+    name: str | None
+    origin_product: str | None
+    created_by: "User | None"
+    user_access_level: str | None
+    trigger_type: str
+    audience_properties: list[dict[str, Any]]
+    audience_type: str | None
+    email_to: str | None
+    message_category_id: str | None
+    schedules: tuple[WorkflowSchedule, ...]
+    batch_jobs: tuple[SendCalendarBatchJob, ...]
+
+
 class WorkflowScheduleNotFound(Exception):
     pass
 
