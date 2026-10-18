@@ -1,18 +1,24 @@
 import json
+import argparse
+from contextlib import redirect_stderr
 from datetime import UTC, datetime
 from decimal import Decimal
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from unittest import TestCase
+from unittest.mock import patch
+
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from parameterized import parameterized
 from pydantic import ValidationError
 
 from products.posthog_ai.eval_harness.environment.storage import file_sha256
 from products.posthog_ai.eval_harness.environment.transform import EnvironmentTransform
-from products.signals.backend.scout_harness.eval_environment.cli import ScoutEnvironmentCommand
+from products.signals.backend.scout_harness.eval_environment.cli import ScoutEnvironmentCommand, add_arguments, execute
 from products.signals.backend.scout_harness.eval_environment.prompt import RecordedScoutPrompt, read_recorded_prompt
 from products.signals.backend.scout_harness.eval_environment.trials import (
     EvaluationPlan,
@@ -38,6 +44,27 @@ class TestScoutEvaluationFreeze(TestCase):
         self.assertEqual(
             datetime.fromisoformat(transform.text(boundary)), datetime.fromisoformat(boundary) + transform.delta
         )
+
+    def test_django_validation_errors_do_not_print_private_values(self) -> None:
+        parser = argparse.ArgumentParser()
+        add_arguments(parser)
+        with TemporaryDirectory() as folder:
+            args = parser.parse_args(
+                ["--state-dir", folder, "prepare", "--case", f"{folder}/case.json", "--bundle", f"{folder}/bundle"]
+            )
+            stderr = StringIO()
+            with (
+                patch.object(
+                    ScoutEnvironmentCommand,
+                    "prepare",
+                    side_effect=DjangoValidationError("'private-example-value' has an invalid format."),
+                ),
+                redirect_stderr(stderr),
+            ):
+                result = execute(args)
+
+        self.assertEqual(result, 1)
+        self.assertNotIn("private-example-value", stderr.getvalue())
 
     @parameterized.expand([("prompt",), ("binding",), ("transformation",)])
     def test_dispatch_rejects_changed_runtime_prompt_or_missing_binding(self, changed: str) -> None:

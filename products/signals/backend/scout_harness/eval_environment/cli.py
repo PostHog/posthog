@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 
 from pydantic import TypeAdapter, ValidationError
@@ -288,7 +289,7 @@ def execute(args: argparse.Namespace) -> int:
                     plan = trials.plan(variants)
                     write_private_json(plan_path, plan)
                     print(json.dumps({"mode": plan.mode, "reserved_usd": str(plan.reserved_usd), "paid_calls": 0}))
-    except ValidationError:
+    except (ValidationError, DjangoValidationError):
         print("Scout environment input validation failed; private field values were not printed.", file=sys.stderr)
         return 1
     except (ValueError, OSError, RuntimeError) as error:
