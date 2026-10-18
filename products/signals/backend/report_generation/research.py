@@ -340,15 +340,58 @@ its executable part.
 Return a check only when it meets the bar stated for its kind below, and none otherwise. A replay to
 watch, a test to run, a diff to read, or a step to perform by hand stays prose only.
 
-`soak_hours` is how long after the report is resolved to wait before checking. Default
-{default_soak} hours, which covers a deploy plus a day of traffic. Say longer when the fix only
-reaches users slowly — a mobile release, a cached client bundle, a weekly batch.
+{scheduling_guidance}
 """
 
-_METRIC_CHECK_GUIDANCE = """- Use `kind: "metric_threshold"` when the `outcome` section comes down to one number a query can
-  measure: a rate that should drop, a count that should stay under a bound, a latency that should
-  come back down. All three of these must hold. The `outcome` section names one metric, one baseline
-  you actually measured this session, and one comparison that decides the question. The comparison
+_DEFAULT_CHECK_SCHEDULING_GUIDANCE = """`soak_hours` is how long after the report is resolved to wait before checking. Default
+{default_soak} hours, which covers a deploy plus a day of traffic. Say longer when the fix only
+reaches users slowly — a mobile release, a cached client bundle, a weekly batch."""
+
+_METRIC_FIRST_RESEARCH_GUIDANCE = """## Prepare metric-based follow-up checks
+
+While researching, identify a metric that existing instrumentation can measure to provide useful
+evidence that a future fix worked. Prefer scoped error counts, failure rates, conversion, or latency
+from supported event or action queries. A metric need not prove every aspect of the fix to be useful.
+
+Measure a baseline and inspect recent activity volume, recurrence frequency, and ingestion delay.
+Use that evidence to identify the shortest useful follow-up window. Run the suitable shorter query
+and measure its baseline now, because the final verification turn cannot do more research. Preserve
+its filters and aggregation. Do not invent instrumentation, baselines, or thresholds. Missing data
+or absent traffic must not count as success. These follow-up preferences do not lower the evidence
+standards for diagnosing the issue or assessing its safety."""
+
+_METRIC_FIRST_PRESENTATION_GUIDANCE = """## Metrics for follow-up checks
+
+For a metric intended for an executable follow-up check, use the shortest useful query window
+established during research instead of automatically using the default 14-day window. Preserve
+its verified filters, aggregation, and measured baseline. Choose an interval that fits the query
+window. Do not shorten a query without evidence or invent a baseline for the shorter period."""
+
+_METRIC_FIRST_SCHEDULING_GUIDANCE = """Design post-fix follow-up verification for roughly 70-80% confidence that the issue improved,
+accepting some remaining uncertainty. This is a practical evidence standard, not a calculated
+confidence score. Do not require statistical significance or near-certainty, and do not report an
+invented confidence percentage. Baselines and thresholds must still come from the research.
+
+Choose the shortest useful observation window based on observed activity, recurrence frequency,
+ingestion delay, and deployment timing. Allow for a deployment delay of several hours before the
+fix reaches users. Consider 4-8 hours for frequent failures or high-volume flows, around 24 hours
+when a day of activity is needed, and several days only when low volume,
+rollout timing, or a known batch cycle justifies the wait. Do not choose seven days merely because
+it is conventional.
+
+Explicitly set `soak_hours` and explain the chosen window in the check's rationale. Keep the query
+window and comparison consistent with that duration. Shortening only the wait does not shorten a
+longer measurement query. For existing whole-window execution, the query window must fit entirely
+after the fix; do not include pre-fix data. This guidance changes check authoring, not execution
+or final-outcome rules. Preserve still-valid existing checks unless new evidence warrants revision.
+
+Missing data, absent traffic, or a failed query must not count as evidence of recovery. Prefer a
+rate with a verified denominator when available. If a metric check cannot distinguish improvement
+from missing activity, explain that limitation and use an agent check when that lane is available,
+or return no executable check. Do not return an unsupported metric just to avoid an agent check."""
+
+_METRIC_CHECK_GUIDANCE = """- {metric_selection} All three of these must hold. The `outcome` section names one metric, one baseline
+  you actually measured this session, and one comparison that {comparison_role}. The comparison
   is a bound a number either satisfies or does not: at most X, at least X, or between X and Y. The
   measurement is a query. Do not invent a baseline or a threshold: if the session did not establish
   one, return no metric check. The `config` is
@@ -360,27 +403,27 @@ _METRIC_CHECK_GUIDANCE = """- Use `kind: "metric_threshold"` when the `outcome` 
   Do not use a per-interval goal: the executor compares the whole query window. A spec naming
   anything else is dropped."""
 
-_MONITORING_METRIC_CHECK_GUIDANCE = """- This organization can define Monitoring metric checks. When the evidence establishes the periods and
-  scaling policy, include `config.monitoring` with `reference_period_minutes`, `threshold_scaling`, and
-  `baseline_period_minutes`. The reference period is the period the comparison target describes; the
+_MONITORING_METRIC_CHECK_GUIDANCE = """- Make every effort to complete `config.monitoring` for each metric check using the research evidence.
+  Include `reference_period_minutes`, `threshold_scaling`, and `baseline_period_minutes` whenever
+  the evidence supports all required fields. The reference period is the period the comparison target describes; the
   baseline period is the actual period you measured. Both are positive whole minutes, at most 366 days.
   They are independent of soak_hours and the run schedule. Monitoring observations will cover Monitoring
   start through the observation time. Choose `linear` only for one additive event count or property sum
   without a formula: the target scales by elapsed minutes / reference_period_minutes. Choose `fixed`
   explicitly for rates, averages, distinct counts, or other targets that keep the same bound. Never infer
   scaling from the number's display format. Supply the baseline period whenever baseline_value is present.
-  If these facts are unknown, omit monitoring rather than invent them. Preserve the bounded relative query
+  If required facts remain unknown, explain what is missing in the rationale and omit monitoring rather
+  than invent them. Preserve the bounded relative query
   and whole-window comparison for existing Resolved behavior. This only defines the measurement; it does
   not enable interim execution or decide a final outcome."""
 
-_AGENT_CHECK_GUIDANCE = """- Use `kind: "agent"` when no single number settles the claim but a later run can establish it by
-  reading the project's data, such as re-reading an error issue's recent events. It needs no metric,
+_AGENT_CHECK_GUIDANCE = """- {agent_selection} It needs no metric,
   baseline, or comparison. The `config` is
   `{{"instructions": "<what a later run must establish>", "probe_hints": ["<issue id>", "<service>"]}}`.
   Say in `instructions` what result means the fix held and what result means it did not."""
 
 _METRIC_ONLY_CHECK_GUIDANCE = """- Only `metric_threshold` checks can run on this project, because it has no scout to run an
-  `agent` check. Do not return an `agent` check. When no metric settles the claim, return no check."""
+  `agent` check. Do not return an `agent` check. {no_metric_guidance}"""
 
 
 class FixVerificationOutput(BaseModel):
@@ -919,7 +962,10 @@ def _render_previous_metrics_context(previous_metrics: list[ReportMetric]) -> st
     return (
         "## Impact metrics this report already shows\n\n"
         "Re-send each metric whose bounded event/action query still matches the updated observation, "
-        "optionally refresh its observed snapshot, move a metric still on an older window to the standard 14-day daily window, and omit stale, snapshot-only, or queryless metrics. "
+        "optionally refresh its observed snapshot, and omit stale, snapshot-only, or queryless metrics. "
+        "Preserve evidence-backed shorter windows for follow-up metrics. Change such a window only when "
+        "new research establishes a better measurement period and its baseline. Use the standard 14-day "
+        "daily window only as a default when the evidence establishes no better window. "
         "Omitting a metric removes it.\n\n"
         f"```json\n{rendered}\n```"
     )
@@ -1055,6 +1101,7 @@ def build_initial_research_prompt(
     previous_report_id: str | None = None,
     previous_finding: SignalFinding | None = None,
     has_business_knowledge: bool = False,
+    metric_checks_enabled: bool = False,
     resolved_report_title: str | None = None,
     resolved_report_summary: str | None = None,
     linked_reports: list[LinkedReportContext] | None = None,
@@ -1087,6 +1134,7 @@ def build_initial_research_prompt(
         "described below."
     )
 
+    checks_block = f"\n{_METRIC_FIRST_RESEARCH_GUIDANCE}\n" if metric_checks_enabled else ""
     bk_block = f"\n{_BUSINESS_KNOWLEDGE_BLOCK}\n" if has_business_knowledge else ""
     # Rendered by `report_steering.load_research_steering`, which reads the notes the team left the
     # scout fleet. Empty for a team that left none, so a quiet project pays nothing for the section.
@@ -1102,7 +1150,7 @@ def build_initial_research_prompt(
 ---
 
 {_RESEARCH_PROTOCOL}
-{bk_block}{steering_block}
+{checks_block}{bk_block}{steering_block}
 ---
 
 ## Signal 1 of {total_signals}
@@ -1302,6 +1350,7 @@ Do not edit report reviewers or GitHub assignments through tools. Return your de
 """)
     if metrics_enabled:
         visual_sections.append(_REPORT_METRICS_GUIDANCE)
+        visual_sections.append(_METRIC_FIRST_PRESENTATION_GUIDANCE)
         previous_metrics_context = _render_previous_metrics_context(previous_metrics or [])
         if previous_metrics_context:
             visual_sections.append(previous_metrics_context)
@@ -1348,6 +1397,33 @@ def build_fix_verification_prompt(
     can run it, because nothing would ever run a check with no scout behind it. With neither, the turn writes prose only and the
     `checks` field never reaches the schema, so the model is not offered a channel it cannot use.
     """
+    prefer_metric_checks = metric_checks_enabled
+    metric_selection = (
+        'Prefer `kind: "metric_threshold"` whenever a supported query provides reasonably direct evidence of '
+        "meaningful improvement. Prefer a narrowly scoped metric over a broad metric requiring interpretation."
+        if prefer_metric_checks
+        else 'Use `kind: "metric_threshold"` when the `outcome` section comes down to one number a query can\n'
+        "  measure: a rate that should drop, a count that should stay under a bound, a latency that should\n"
+        "  come back down."
+    )
+    agent_selection = (
+        'Use `kind: "agent"` only when interpreting the evidence is essential or the required measurement cannot '
+        "be expressed as a supported metric query. Explain that limitation in the check's rationale."
+        if prefer_metric_checks
+        else 'Use `kind: "agent"` when no single number settles the claim but a later run can establish it by\n'
+        "  reading the project's data, such as re-reading an error issue's recent events."
+    )
+    scheduling_guidance = (
+        _METRIC_FIRST_SCHEDULING_GUIDANCE
+        if prefer_metric_checks
+        else _DEFAULT_CHECK_SCHEDULING_GUIDANCE.format(default_soak=DEFAULT_CHECK_SOAK_HOURS)
+    )
+    metric_method_guidance = (
+        "For executable outcome checks, prefer a useful metric over further agentic interpretation when it meets "
+        "the practical confidence target below."
+        if prefer_metric_checks
+        else "Do not force a product metric when another method gives better evidence."
+    )
     schema_dict = FixVerificationOutput.model_json_schema()
     kinds = [
         guidance
@@ -1365,9 +1441,23 @@ def build_fix_verification_prompt(
             schema_dict.get("$defs", {}).pop(definition, None)
     checks_section = (
         "\n\n"
-        + CHECKS_GUIDANCE.format(default_soak=DEFAULT_CHECK_SOAK_HOURS).strip()
+        + CHECKS_GUIDANCE.format(scheduling_guidance=scheduling_guidance).strip()
         + "\n\n"
-        + "\n".join(kind.format() for kind in kinds)
+        + "\n".join(
+            kind.format(
+                metric_selection=metric_selection,
+                comparison_role="provides useful evidence of improvement"
+                if prefer_metric_checks
+                else "decides the question",
+                agent_selection=agent_selection,
+                no_metric_guidance=(
+                    "When the evidence supports no useful metric check, return no check."
+                    if prefer_metric_checks
+                    else "When no metric settles the claim, return no check."
+                ),
+            )
+            for kind in kinds
+        )
         if kinds
         else ""
     )
@@ -1403,7 +1493,7 @@ Each section must state:
 - What result supports the conclusion.
 - What result is inconclusive.
 
-Choose the most direct method supported by the research. It can be a query, test, log search, replay, code review, or manual check. Include the details needed to perform the check, such as known commands, inputs, IDs, filters, or time bounds. Do not force a product metric when another method gives better evidence.
+Choose the most direct method supported by the research. It can be a query, test, log search, replay, code review, or manual check. Include the details needed to perform the check, such as known commands, inputs, IDs, filters, or time bounds. {metric_method_guidance}
 
 State the observed baseline and comparison criterion when the research established them. Missing data, insufficient traffic, and failed checks are inconclusive. They do not show that the issue is resolved.
 
@@ -1534,6 +1624,7 @@ async def run_multi_turn_research(
         previous_report_id=previous_report_id,
         previous_finding=first_previous,
         has_business_knowledge=has_business_knowledge,
+        metric_checks_enabled=metrics_enabled,
         resolved_report_title=resolved_report_title,
         resolved_report_summary=resolved_report_summary,
         linked_reports=linked_reports,

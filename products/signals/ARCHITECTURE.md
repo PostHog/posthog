@@ -688,10 +688,10 @@ Every save must include all shared defaults. Owners can edit or disable them, bu
 It accepts optional `context` (up to 2,000 characters), saved on that generation request. Concurrent requests keep the first request's context; later requests do not inherit it.
 The editor exposes this as a single optional paragraph. It adds priorities without replacing the scout's responsibilities, shared defaults or saved choices.
 The backend captures the complete governing description, instructions, report rules and all reference files from the exact skill version before the session starts. This context is immutable within a generation and is reused if that attempt resumes.
-Only the generation prompt is bounded: up to 60,000 instruction characters, 20 reference paths and four file contents totaling 60,000 characters. These prompt limits do not shorten the saved reference used for judging. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
-The session requests no project-read MCP scopes because that context is supplied up front. The shared sandbox's internal credentials and tool access remain an accepted limitation of the staff-only v0.
+The complete reference is attached as a session file before the sandbox starts. The initial prompt contains a short index and recent run summaries; the generator can read the full attachment in sections without truncating instructions or reference files. Historical summaries and saved criteria remain generation inputs rather than governing instructions.
+The session uses the existing read-only PostHog MCP posture to inspect ordinary scout runs, transcripts, reports, notes and relevant live project data. Research cannot change the scout's responsibilities or replace its captured instructions with a newer live skill. Missing history or unavailable optional tools do not prevent instruction-based suggestions; the summary identifies material evidence limits. External MCP connections and GitHub access stay disabled, and normal internal Tasks lifecycle permissions remain unchanged.
 The first request drafts complete criteria using effective defaults and disabled choices. A second request supplies the complete saved rubric and selects whole draft items by index, without rewriting them.
-One conditional format correction is shared across both steps. The generator does not inspect historical transcripts or full reports.
+One conditional format correction is shared across both steps. Selection and format correction do no additional research.
 Criteria explain the required result in plain language, with specific source references where needed to preserve complex conditions and exceptions. Later evaluations must include those reference instructions alongside the rubric.
 The generation prompt ends with writing guidance and a short example for the scout's owner. The selection step also writes an owner-facing summary; it cannot change the selected criteria.
 Its task identifiers, status, and validated result persist on the config so the user can leave the page and return later.
@@ -1738,7 +1738,6 @@ products/signals/
 │   │   └── commands/
 │   │       ├── analyze_report.py
 │   │       ├── cleanup_signals.py
-│   │       ├── clear_eval_data.py
 │   │       ├── delete_all_signal_reports_for_team.py
 │   │       ├── enable_signals_autonomy.py  # Sets team default priority + opts in users by email
 │   │       ├── export_session_video.py

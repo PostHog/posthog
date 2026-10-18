@@ -9,10 +9,8 @@ fails an asset.
 """
 
 import datetime
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any
-
-import dagster
 
 from posthog import settings
 from posthog.cloud_utils import is_cloud
@@ -20,9 +18,9 @@ from posthog.dataclasses import frozen
 from posthog.ph_client import get_client
 
 from products.signals.backend.ranking.serving_manifest import ServingManifest
-from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.dags.inbox_ranking.common import RunContext, snapshot_bounds
 from products.signals.dags.inbox_ranking.training.examples import ConsentExclusion
-from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision, PromotionOutcome
+from products.signals.dags.inbox_ranking.training.promotion import PromotionDecision
 from products.signals.dags.inbox_ranking.training.unseen import CANDIDATE_ROLE, HeadGrade
 
 # Not a person: one fixed id for the whole dag, and no person profile is created for it. Local dev
@@ -33,6 +31,7 @@ LOCAL_ENVIRONMENT = "local"
 CANDIDATE_TRAINED_EVENT = "inbox_ranking_candidate_trained"
 EXAMPLES_BUILT_EVENT = "inbox_ranking_examples_built"
 PROMOTION_DECIDED_EVENT = "inbox_ranking_promotion_decided"
+MODEL_PROMOTED_EVENT = "inbox_ranking_model_promoted"
 UNSEEN_HEAD_GRADED_EVENT = "inbox_ranking_unseen_head_graded"
 UNSEEN_HEAD_EVALUATED_EVENT = "inbox_ranking_unseen_head_evaluated"
 UNSEEN_REPORT_GRADED_EVENT = "inbox_ranking_unseen_report_graded"
@@ -49,6 +48,7 @@ _CANDIDATE_CONTEXT_KEYS = (
     "feature_schema_version",
     "lookback_days",
     "holdout_days",
+    "recipe_hash",
 )
 # Object names inside the models prefix; meaningless on a chart.
 _HEAD_FILE_KEYS = ("file", "holdout_file")
@@ -149,19 +149,18 @@ def promotion_event(
     run_id: str,
     model_name: str,
     decision: PromotionDecision,
-    outcome: PromotionOutcome,
-    promoted: bool,
-    champion_version: str,
     incumbent_champion_version: str,
     champion_aucs: Mapping[str, float],
     champion_eces: Mapping[str, float],
-    skipped_gates: Collection[str] = (),
+    recipe_hash: str | None = None,
+    incumbent_recipe_hash: str | None = None,
 ) -> TrainingEvent:
-    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout; after a promotion
-    `champion_version` is the candidate, so the incumbent is carried separately. Every version here
-    belongs to `model_name`: promotion compares a candidate to the champion of its own family.
+    """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout.
+    The incumbent is the served model when it has `model_name`, else `none`.
 
-    `reason` is always the rule's reason, so a forced promotion still records why the rule refused it."""
+    Training never moves the served pointer, so `promoted` is always false. A person promotes
+    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`.
+    The two recipe hashes are None for a version written before the hash existed."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
         properties={
@@ -170,16 +169,23 @@ def promotion_event(
             "run_id": run_id,
             "would_promote": decision.promote,
             "gates_passed": decision.gates_passed,
-            "promoted": promoted,
+            "promoted": False,
             "reason": decision.reason,
-            "override": outcome.override,
-            "override_skipped_gates": sorted(skipped_gates),
             "skipped_heads": list(decision.skipped_heads),
-            "champion_version": champion_version,
+            "champion_version": incumbent_champion_version,
             "incumbent_champion_version": incumbent_champion_version,
+            "recipe_hash": recipe_hash,
+            "incumbent_recipe_hash": incumbent_recipe_hash,
             **{f"champion_{head}_auc_on_this_holdout": auc for head, auc in champion_aucs.items()},
             **{f"champion_{head}_ece_on_this_holdout": ece for head, ece in champion_eces.items()},
         },
+    )
+
+
+def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
+    return TrainingEvent(
+        event=MODEL_PROMOTED_EVENT,
+        properties={"model_key": model_key, "previous_key": previous_key, "reason": reason, "run_id": run_id},
     )
 
 
@@ -194,10 +200,12 @@ def serving_manifest_event(
     present_keys: Sequence[str] = (),
     bytes_copied: int = 0,
     mirror_published: bool | None = None,
+    recipe_hashes: Mapping[str, str | None] | None = None,
 ) -> TrainingEvent:
     """What the day's manifest published. A run that wrote nothing still reports, with `reason`:
     the manifest is what makes the sweep serve anything, so a silent gap in this series would read
-    the same as a day of ordinary publishing."""
+    the same as a day of ordinary publishing. `recipe_hashes` maps a model key to the `recipe_hash`
+    of its `metadata.json`."""
     properties: dict[str, object] = {
         "model_version": partition_key,
         "run_id": run_id,
@@ -214,6 +222,7 @@ def serving_manifest_event(
             "served_key": manifest.served.key,
             "model_keys": [entry.key for entry in manifest.models],
             "model_roles": {entry.key: entry.roles for entry in manifest.models},
+            "model_recipe_hashes": {entry.key: (recipe_hashes or {}).get(entry.key) for entry in manifest.models},
         }
     if mirror_published is not None:
         properties["mirror_published"] = mirror_published
@@ -311,16 +320,21 @@ def capture_allowed() -> bool:
 
 
 def capture_training_events(
-    context: dagster.AssetExecutionContext, partition_key: str, events: list[TrainingEvent]
+    context: RunContext,
+    partition_key: str,
+    events: list[TrainingEvent],
+    *,
+    timestamp: datetime.datetime | None = None,
 ) -> None:
     """Best-effort: a failed capture is logged, never raised, so telemetry cannot fail a training
     run. Local runs are marked twice, by `environment` and by their own distinct id, so a chart
-    that forgets to filter still shows them as a separate series."""
+    that forgets to filter still shows them as a separate series. `timestamp` defaults to the
+    partition's midday; an event about a person's action passes the moment it happened."""
     if not capture_allowed():
         return
     environment = settings.CLOUD_DEPLOYMENT or LOCAL_ENVIRONMENT
     distinct_id = DISTINCT_ID if environment != LOCAL_ENVIRONMENT else LOCAL_DISTINCT_ID
-    timestamp = event_timestamp(partition_key)
+    timestamp = timestamp or event_timestamp(partition_key)
     base = {"$process_person_profile": False, "partition": partition_key, "environment": environment}
     # A fresh client per call, flushed on shutdown, for the same reason `ph_scoped_capture` builds
     # one: the step process exits right after the asset, before a shared client's background

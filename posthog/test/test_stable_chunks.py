@@ -12,6 +12,7 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from structlog.testing import capture_logs
 
 from posthog.models import User
 from posthog.stable_chunks import (
@@ -41,6 +42,7 @@ class TestStableChunks(SimpleTestCase):
             ("empty imports", {**VALID_MANIFEST, "imports": {}}, False),
             ("preload url is not a string", {**VALID_MANIFEST, "preload": {"js": [1], "authenticatedJs": []}}, False),
             ("eager css url is not a string", {**VALID_MANIFEST, "eagerCss": [1]}, False),
+            ("logged-out import is not a string", {**VALID_MANIFEST, "loggedOutImports": [1]}, False),
         ]
     )
     def test_manifest_problems_fall_back_to_the_default_build(self, _name, manifest, expect_stable):
@@ -102,7 +104,7 @@ class TestStableChunks(SimpleTestCase):
             request.COOKIES[STABLE_CHUNKS_COOKIE] = cookie
         bootstrapped_flags = feature_flags if authenticated else None
         locally_evaluated_flags = {} if authenticated else (feature_flags or {})
-        fallback_labels = {"authenticated": str(authenticated).lower()}
+        fallback_labels = {"authenticated": str(authenticated).lower(), "reason": "load_failed"}
         fallbacks_before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
 
         with patch(
@@ -116,6 +118,41 @@ class TestStableChunks(SimpleTestCase):
             assert call.kwargs["send_feature_flag_events"] is False
         fallbacks_after = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", fallback_labels) or 0
         assert fallbacks_after - fallbacks_before == (1 if query == "?stable_chunks=fallback" else 0)
+
+    @parameterized.expand(
+        [
+            ("a chunk that failed to load", "?stable_chunks=fallback", "load_failed"),
+            (
+                "a chunk missing from the import map",
+                "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123",
+                "unmapped_specifier",
+            ),
+            ("a value that is not a specifier", "?stable_chunks=fallback&stable_chunks_unmapped=<b>", "load_failed"),
+        ]
+    )
+    def test_a_fallback_counts_why_it_reloaded(self, _name: str, query: str, reason: str) -> None:
+        request = RequestFactory().get(f"/{query}")
+        request.user = AnonymousUser()
+        labels = {"authenticated": "false", "reason": reason}
+        before = REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) or 0
+
+        assert stable_chunks_choice(request, None) is False
+
+        assert REGISTRY.get_sample_value("posthog_stable_chunks_fallback_total", labels) == before + 1
+
+    def test_an_unmapped_specifier_is_logged_without_the_page_path(self) -> None:
+        request = RequestFactory().get(
+            "/reset/0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b/fake-reset-token"
+            "?stable_chunks=fallback&stable_chunks_unmapped=@c/Abc123"
+        )
+        request.user = AnonymousUser()
+
+        with capture_logs() as logs:
+            stable_chunks_choice(request, None)
+
+        assert [log for log in logs if log["event"] == "stable_chunks_unmapped_specifier"] == [
+            {"event": "stable_chunks_unmapped_specifier", "specifier": "@c/Abc123", "log_level": "warning"}
+        ]
 
     def test_a_failing_logged_out_flag_check_serves_the_hashed_build(self) -> None:
         request = RequestFactory().get("/")
@@ -170,6 +207,24 @@ class TestStableChunks(SimpleTestCase):
         assert context["preload_css_url"] == ""
         assert context["stable_preload_css_urls"] == stable.eager_css_urls
 
+    @parameterized.expand(
+        [
+            ("only its part of the map", frozenset({"@c/eAAAA"}), {"@c/eAAAA"}),
+            ("the whole map from a build with no logged-out part", None, {"@c/eAAAA", "@c/eBBBB"}),
+        ]
+    )
+    def test_a_logged_out_page_renders(self, _name, logged_out_specifiers, expected_specifiers):
+        stable = StableChunks(
+            imports={"@c/eAAAA": "static/index-S0000000000.js", "@c/eBBBB": "static/Insight-S1111111111.js"},
+            preload_js_urls=(),
+            authenticated_preload_js_urls=(),
+            logged_out_specifiers=logged_out_specifiers,
+        )
+
+        context = self._context_with_stable_chunks(stable)
+
+        assert set(json.loads(context["stable_chunks_importmap"])["imports"]) == expected_specifiers
+
     def test_no_eager_css_urls_keeps_the_single_preload_link(self):
         stable = StableChunks(
             imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
@@ -208,8 +263,12 @@ class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):
     )
     def test_the_flag_picks_the_build_it_bootstraps(self, _name, query, flags, expect_stable):
         request = self._user_request(query)
+        # The logged-out part of the map leaves the entry out, so only the whole map holds it.
         stable = StableChunks(
-            imports={"@c/eAAAA": "static/index-S0000000000.js"}, preload_js_urls=(), authenticated_preload_js_urls=()
+            imports={"@c/eAAAA": "static/index-S0000000000.js"},
+            preload_js_urls=(),
+            authenticated_preload_js_urls=(),
+            logged_out_specifiers=frozenset(),
         )
 
         with (
@@ -219,6 +278,10 @@ class TestStableChunksChoiceSurvivesTheRequest(APIBaseTest):
             context = get_context_for_template("index.html", request)
 
         assert context.get("stable_chunks", False) == expect_stable
+        if expect_stable:
+            assert json.loads(context["stable_chunks_importmap"])["imports"] == {
+                "@c/eAAAA": f"{context['js_url']}/static/index-S0000000000.js"
+            }
         assert context["posthog_bootstrap"].get("featureFlags") == flags
         get_all_flags.assert_called_once()
         assert get_all_flags.call_args.kwargs["only_evaluate_locally"] is True
