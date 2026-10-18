@@ -1540,7 +1540,7 @@ pub(super) struct LockedPerson {
 
 /// Lock the existing persons among `uuids` in id order, the order the ingestion
 /// writer and the tombstone paths take person locks in.
-pub(super) async fn lock_persons_by_uuids(
+async fn lock_persons_by_uuids(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     uuids: &[Uuid],
