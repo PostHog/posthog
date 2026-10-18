@@ -214,14 +214,12 @@ class ChildOutcome(StrEnum):
     SKIPPED = "skipped"
     FAILED = "failed"
     EXISTING = "existing"
-    RETRYABLE = "retryable"
     NOT_STARTED = "not_started"
 
 
 @frozen
 class BackfillChildOutcome:
     outcome: ChildOutcome
-    started: bool = False
     stop_reason: str | None = None
 
 
@@ -283,7 +281,7 @@ def _child_outcome(result: WorkflowResult) -> ChildOutcome:
         "output_limit_exceeded",
         "host_unresolved",
     ):
-        return ChildOutcome.RETRYABLE
+        return ChildOutcome.FAILED
     return ChildOutcome.SKIPPED
 
 
@@ -709,7 +707,6 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
 
         tasks = [asyncio.create_task(run_in_slot(candidate)) for candidate in found.candidates]
         try:
-            # boffin: advance only after every child in this batch has a known outcome.
             results = await asyncio.gather(*tasks)
         except asyncio.CancelledError:
             # The children already started keep running and bill, so the cancelled row still counts them.
@@ -746,21 +743,14 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             backfill_id=inputs.backfill_id,
             rerun_existing=tick.rerun_existing,
         )
-        started = False
         try:
             try:
                 handle = await self._start_child_handle(inputs, tick, candidate)
             except WorkflowAlreadyStartedError:
                 return BackfillChildOutcome(outcome=ChildOutcome.EXISTING)
-            started = True
             started_units.append(candidate.unit_id)
             result = await asyncio.shield(handle)
-            outcome = _child_outcome(result)
-            return BackfillChildOutcome(
-                started=True,
-                outcome=ChildOutcome.FAILED if outcome == ChildOutcome.RETRYABLE else outcome,
-                stop_reason=_stop_reason(result),
-            )
+            return BackfillChildOutcome(outcome=_child_outcome(result), stop_reason=_stop_reason(result))
         except Exception as error:
             # A cancelled backfill raises here; a run cancelled on its own is only a failed run.
             if is_cancelled_exception(error) and not isinstance(error, ChildWorkflowError):
@@ -768,7 +758,7 @@ class EvaluationBackfillWorkflow(PostHogWorkflow):
             temporalio.workflow.logger.warning(
                 "llma.evaluation_backfill_child_failed", extra={"workflow_id": child.workflow_id}, exc_info=True
             )
-            return BackfillChildOutcome(started=started, outcome=ChildOutcome.FAILED)
+            return BackfillChildOutcome(outcome=ChildOutcome.FAILED)
 
     async def _dispatch_batch(self, inputs: EvaluationBackfillInputs, tick: PrepareTickOutput) -> bool:
         """Walk one page, start a child per unit, and advance the cursor. True ends the loop."""

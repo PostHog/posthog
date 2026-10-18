@@ -331,15 +331,15 @@ class TestEvaluationBackfillWorkflow:
     @pytest.mark.parametrize(
         "reason,outcome",
         [
-            ("parse_error", ChildOutcome.RETRYABLE),
-            ("unparsable_response", ChildOutcome.RETRYABLE),
-            ("output_limit_exceeded", ChildOutcome.RETRYABLE),
-            ("host_unresolved", ChildOutcome.RETRYABLE),
+            ("parse_error", ChildOutcome.FAILED),
+            ("unparsable_response", ChildOutcome.FAILED),
+            ("output_limit_exceeded", ChildOutcome.FAILED),
+            ("host_unresolved", ChildOutcome.FAILED),
             ("content_filtered", ChildOutcome.SKIPPED),
             ("request_rejected", ChildOutcome.SKIPPED),
         ],
     )
-    def test_unusable_responses_are_retryable_but_terminal_skips_are_preserved(
+    def test_unusable_responses_count_as_failures_but_terminal_skips_do_not(
         self, reason: str, outcome: ChildOutcome
     ) -> None:
         assert (
