@@ -19,6 +19,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
@@ -45,6 +46,7 @@ import {
 import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
+import { WorkflowHeaderPlacement } from './WorkflowHeaderPlacement'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetrics } from './WorkflowMetrics'
@@ -116,6 +118,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const overviewTabEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_OVERVIEW_TAB]
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
+    const tileCanvasEnabled = !!featureFlags[FEATURE_FLAGS.WORKFLOWS_TILE_CANVAS]
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
     const { aiComposerAvailable } = useValues(newWorkflowLogic)
@@ -242,29 +245,40 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
 
     // A deep link to a tab the flag hides would leave LemonTabs with no active tab and a blank page.
     const activeTab = tabs.some((tab) => tab?.key === currentTab) ? currentTab : 'workflow'
+    const renderScene = (editorShowsHeaderInBar: boolean): JSX.Element => {
+        const headerInWorkflowBar = editorShowsHeaderInBar && (activeTab === 'workflow' || !isSavedWorkflow)
+        return (
+            <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
+                <BindLogic logic={workflowLogic} props={workflowProps}>
+                    <WorkflowSceneHeader {...props} headerInWorkflowBar={headerInWorkflowBar} />
+                    <WorkflowEmailPauseBanner />
+                    {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
+                    {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
+                    {/* Only show Logs and Metrics tabs if the workflow has already been created */}
+                    {!props.id || props.id === 'new' ? (
+                        <Workflow {...workflowProps} />
+                    ) : (
+                        <LemonTabs
+                            activeKey={activeTab}
+                            onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
+                            tabs={tabs}
+                            sceneInset
+                            rightSlot={headerInWorkflowBar ? <SceneTitlePanelButton /> : undefined}
+                            className={clsx({
+                                'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow':
+                                    currentTab === 'workflow',
+                            })}
+                        />
+                    )}
+                </BindLogic>
+            </SceneContent>
+        )
+    }
 
-    return (
-        <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
-            <BindLogic logic={workflowLogic} props={workflowProps}>
-                <WorkflowSceneHeader {...props} />
-                <WorkflowEmailPauseBanner />
-                {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
-                {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
-                {/* Only show Logs and Metrics tabs if the workflow has already been created */}
-                {!props.id || props.id === 'new' ? (
-                    <Workflow {...workflowProps} />
-                ) : (
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(tab) => router.actions.push(urls.workflow(props.id ?? 'new', tab))}
-                        tabs={tabs}
-                        sceneInset
-                        className={clsx({
-                            'flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow': currentTab === 'workflow',
-                        })}
-                    />
-                )}
-            </BindLogic>
-        </SceneContent>
+    // Only the tile canvas can carry the header, so other scenes never mount the editor logic for it.
+    return tileCanvasEnabled ? (
+        <WorkflowHeaderPlacement logicProps={workflowProps}>{renderScene}</WorkflowHeaderPlacement>
+    ) : (
+        renderScene(false)
     )
 }
