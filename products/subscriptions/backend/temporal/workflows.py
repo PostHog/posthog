@@ -891,13 +891,16 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
         )
         # Route AI-prompt subs (test delivery / target change) to the AI workflow, same
         # as the scheduler fan-out.
+        # The child ID derives from the parent ID, so the caller's choice of parent ID decides
+        # deduplication: unique parents each deliver, deterministic parents stay deduplicated.
+        parent_id = temporalio.workflow.info().workflow_id
         child_workflow: Callable[..., Coroutine[Any, Any, None]]
         if inputs.resource_type == AI_PROMPT_RESOURCE_TYPE:
             child_workflow = ProcessAISubscriptionWorkflow.run
-            child_id = f"process-ai-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
+            child_id = f"process-ai-subscription-{parent_id}"
         else:
             child_workflow = ProcessSubscriptionWorkflow.run
-            child_id = f"process-subscription-{inputs.trigger_type}-{inputs.subscription_id}"
+            child_id = f"process-subscription-{parent_id}"
         await temporalio.workflow.execute_child_workflow(
             child_workflow,
             tracked,
