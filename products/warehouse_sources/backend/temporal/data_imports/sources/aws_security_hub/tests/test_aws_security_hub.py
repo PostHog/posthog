@@ -392,7 +392,9 @@ def test_remediation_exposures_fan_out_over_remediation_targets() -> None:
     result = driver().run("remediation_exposures", script)
     assert result.raised is None
     assert result.response is not None
-    assert [tuple(row[key] for key in result.response.primary_keys) for row in result.rows] == [
+    primary_keys = result.response.primary_keys
+    assert primary_keys
+    assert [tuple(row[key] for key in primary_keys) for row in result.rows] == [
         ("target-a", "shared-exposure"),
         ("target-b", "shared-exposure"),
     ]
