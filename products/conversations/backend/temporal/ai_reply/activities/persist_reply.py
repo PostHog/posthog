@@ -114,6 +114,17 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             item_context["findings_reason"] = input.findings_reason
 
         # ATOMIC_REQUESTS is off, so wrap the comment insert with the email-outbox write.
+        triage = locked.ai_triage if isinstance(locked.ai_triage, dict) else {}
+        locked.ai_triage = {**triage, "citations": input.citations}
+        update_fields = ["ai_triage", "updated_at"]
+        if input.require_awaiting_clarification:
+            # Post and reopen together. record_triage is best-effort and would leave the
+            # ticket pending forever if it were the only reopen after a completed child id.
+            if locked.status == Status.PENDING:
+                locked.status = Status.OPEN
+                update_fields.append("status")
+            locked.ai_triage["status"] = "done"
+        locked.save(update_fields=update_fields)
         Comment.objects.create(
             team_id=input.team_id,
             scope="conversations_ticket",
@@ -121,15 +132,5 @@ def _persist_reply_sync(input: PersistReplyInput) -> PersistReplyOutput:
             content=content,
             item_context=item_context,
         )
-        if input.require_awaiting_clarification and ticket is not None:
-            # Post and reopen together. record_triage is best-effort and would leave the
-            # ticket pending forever if it were the only reopen after a completed child id.
-            triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
-            update_fields = ["ai_triage", "updated_at"]
-            if ticket.status == Status.PENDING:
-                ticket.status = Status.OPEN
-                update_fields.append("status")
-            ticket.ai_triage = {**triage, "status": "done"}
-            ticket.save(update_fields=update_fields)
 
     return PersistReplyOutput(posted=True)

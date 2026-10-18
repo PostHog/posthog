@@ -8,6 +8,8 @@ from products.business_knowledge.backend import logic
 from products.business_knowledge.backend.models import KnowledgeChunk
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Channel, Status
+from products.conversations.backend.temporal.ai_reply.activities.persist_reply import _persist_reply_sync
+from products.conversations.backend.temporal.ai_reply.schemas import PersistReplyInput
 
 
 class TestAiHumanOutcomeAPI(APIBaseTest):
@@ -122,6 +124,27 @@ class TestAiTriageSourcesAPI(APIBaseTest):
         assert len(sources) == 1
         assert sources[0]["source_id"] == str(self.text_source.id)
         assert sources[0]["is_generated"] is False
+
+    def test_retrieve_hydrates_new_comment_sources_before_final_triage(self) -> None:
+        Ticket.objects.filter(id=self.ticket.id).update(
+            ai_triage={"status": "in_progress", "citations": [], "human_outcome": "used"}
+        )
+
+        _persist_reply_sync(
+            PersistReplyInput(
+                team_id=self.team.id,
+                ticket_id=str(self.ticket.id),
+                reply="Install the SDK from Project settings.",
+                citations=[self.chunk_id],
+                confidence=0.9,
+            )
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["ai_triage"]["sources"][0]["source_id"] == str(self.text_source.id)
+        assert response.json()["ai_triage"]["human_outcome"] == "used"
 
     def test_list_does_not_hydrate_sources(self) -> None:
         Ticket.objects.filter(id=self.ticket.id).update(

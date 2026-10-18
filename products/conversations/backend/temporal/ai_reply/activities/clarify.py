@@ -91,6 +91,18 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
             item_context["investigation_summary"] = input.investigation_summary
             item_context["unknowns"] = input.unknowns
 
+        triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
+        ticket.ai_triage = {**triage, "citations": input.citations}
+        update_fields = ["ai_triage", "updated_at"]
+        if publish:
+            # Coordinator only scans pending + awaiting_clarification. Both have to land in
+            # this transaction, or a crash after the question leaves the ticket stuck pending.
+            ticket.status = Status.PENDING
+            ticket.ai_triage["status"] = "awaiting_clarification"
+            ticket.ai_triage["clarification_rounds"] = 1
+            update_fields.append("status")
+        ticket.save(update_fields=update_fields)
+
         Comment.objects.create(
             team_id=input.team_id,
             scope="conversations_ticket",
@@ -98,12 +110,4 @@ def _clarify_sync(input: ClarifyInput) -> ClarifyOutput:
             content=content,
             item_context=item_context,
         )
-        if publish:
-            # Coordinator only scans pending + awaiting_clarification. Both have to land in
-            # this transaction, or a crash after the question leaves the ticket stuck pending.
-            triage = ticket.ai_triage if isinstance(ticket.ai_triage, dict) else {}
-            ticket.status = Status.PENDING
-            ticket.ai_triage = {**triage, "status": "awaiting_clarification", "clarification_rounds": 1}
-            ticket.save(update_fields=["status", "ai_triage", "updated_at"])
-
     return ClarifyOutput(published=publish, question=question)
