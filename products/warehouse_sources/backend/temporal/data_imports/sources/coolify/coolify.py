@@ -180,19 +180,18 @@ class AuditEventsPaginationTruncatedError(Exception):
 
 class _AuditEventsPaginator(PageNumberPaginator):
     def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
-        super().update_state(response, data)
-        if self._has_next_page or self.maximum_page is None or self.page <= self.maximum_page:
-            return
+        # Every page reports the total, so fail on the first one rather than walk to the cap.
         try:
             values = find_values("last_page", response.json())
         except Exception:
             values = []
         last_page = values[0] if values else None
-        if isinstance(last_page, int) and last_page > self.maximum_page:
+        if self.maximum_page is not None and isinstance(last_page, int) and last_page > self.maximum_page:
             raise AuditEventsPaginationTruncatedError(
                 f"Coolify reports {last_page} pages of audit events, past the {self.maximum_page}-page "
                 "safety cap. Refusing to replace the table with a truncated sync."
             )
+        super().update_state(response, data)
 
 
 def _paginator(endpoint_config: CoolifyEndpointConfig) -> BasePaginator:

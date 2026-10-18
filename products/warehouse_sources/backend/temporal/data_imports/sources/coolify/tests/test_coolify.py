@@ -328,14 +328,19 @@ class TestCoolifyAuditEvents:
     def test_a_page_count_past_the_safety_cap_fails_the_table_instead_of_truncating_it(self) -> None:
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.coolify.coolify.MAX_AUDIT_EVENTS_PAGES",
-            1,
+            2,
         ):
             result = _driver().run(
                 "audit_events",
-                [ScriptedResponse(json={"last_page": 2, "data": [{"id": 1, "created_at": "2026-10-01T00:00:00Z"}]})],
+                [
+                    ScriptedResponse(json={"last_page": 3, "data": [{"id": 2, "created_at": "2026-10-02T00:00:00Z"}]}),
+                    ScriptedResponse(json={"last_page": 3, "data": [{"id": 1, "created_at": "2026-10-01T00:00:00Z"}]}),
+                ],
             )
 
+        # The first page already proves the walk can't complete, so no further page is fetched.
         assert isinstance(result.raised, AuditEventsPaginationTruncatedError)
+        assert result.paths == ["/api/v1/audit-events"]
 
     @pytest.mark.parametrize(
         "status_code,expected",
