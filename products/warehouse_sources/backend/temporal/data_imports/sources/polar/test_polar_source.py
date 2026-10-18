@@ -1,16 +1,29 @@
+from typing import Optional
+
 from unittest.mock import MagicMock, patch
 
 import requests
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.polar import PolarSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar import polar as polar_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.polar.source import PolarSource
 
+_VERSION_CASES = [
+    ("legacy_v1_sends_no_header", "v1", None),
+    ("2026_10_sends_header", "2026-10", "2026-10"),
+    ("unpinned_resolves_to_default", None, "2026-10"),
+]
+
 
 class _FakeResponse:
-    def __init__(self, status_code: int) -> None:
+    def __init__(self, status_code: int, body: Optional[dict] = None) -> None:
         self.status_code = status_code
+        self._body = body or {}
+
+    def json(self) -> dict:
+        return self._body
 
     @property
     def ok(self) -> bool:
@@ -43,3 +56,43 @@ class TestPolarValidateCredentials:
         assert error is not None
         assert "api.polar.sh" not in error
         assert "invalid or expired" in error
+
+
+class TestPolarApiVersion:
+    @parameterized.expand(_VERSION_CASES)
+    def test_sync_requests_send_the_pinned_version(
+        self, _name: str, pin: Optional[str], expected_header: Optional[str]
+    ) -> None:
+        session = MagicMock()
+        session.request.return_value = _FakeResponse(
+            200, {"items": [{"id": "cus_1"}], "pagination": {"total_count": 1, "max_page": 1}}
+        )
+        inputs = MagicMock(schema_name="customers", api_version=pin)
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        with patch.object(polar_module, "_get_polar_session", return_value=session):
+            response = PolarSource().source_for_pipeline(
+                PolarSourceConfig(polar_api_key="polar_oat_test"), manager, inputs
+            )
+            rows = list(response.items())
+
+        assert rows == [[{"id": "cus_1"}]]
+        url = session.request.call_args.args[1]
+        assert url.startswith("https://api.polar.sh/v1/customers/?")
+        headers = session.request.call_args.kwargs["headers"]
+        assert headers.get("Polar-Version") == expected_header
+
+    @parameterized.expand(_VERSION_CASES)
+    def test_credential_probe_sends_the_pinned_version(
+        self, _name: str, pin: Optional[str], expected_header: Optional[str]
+    ) -> None:
+        session = MagicMock()
+        session.request.return_value = _FakeResponse(200)
+        with patch.object(polar_module, "_get_polar_session", return_value=session):
+            ok, _ = PolarSource().validate_credentials(
+                PolarSourceConfig(polar_api_key="polar_oat_test"), team_id=1, api_version=pin
+            )
+
+        assert ok is True
+        headers = session.request.call_args.kwargs["headers"]
+        assert headers.get("Polar-Version") == expected_header
