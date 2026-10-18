@@ -1,3 +1,4 @@
+import random
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -9,6 +10,7 @@ import structlog
 import temporalio.activity
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
+from temporalio.exceptions import ApplicationError
 
 from posthog.schema import (
     ExperimentFunnelMetric,
@@ -19,7 +21,9 @@ from posthog.schema import (
 )
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions import ClickHouseAtCapacity
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
@@ -51,6 +55,10 @@ from products.experiments.backend.hogql_queries.error_handling import (
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import sanitize_non_finite
 from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.temporal.models import (
+    CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS,
+    CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS,
+)
 from products.experiments.stats.shared.statistics import StatisticError
 
 logger = structlog.get_logger(__name__)
@@ -67,6 +75,19 @@ def _build_metric_validated(
         return build_metric(metric_dict)
     except PydanticValidationError as e:
         raise ValidationError(str(e)) from e
+
+
+def _capacity_retry_error(error: ClickHouseAtCapacity | ConcurrencyLimitExceeded) -> ApplicationError:
+    """The RetryPolicy backoff (10s, then 20s) retries while the cluster is still saturated, so every attempt
+    fails again and adds load. A jittered delay of minutes lets the cluster drain and spreads out the retries
+    of metrics that were rejected together."""
+    return ApplicationError(
+        str(error),
+        type=type(error).__name__,
+        next_retry_delay=timedelta(
+            seconds=random.uniform(CONCURRENCY_LIMIT_RETRY_DELAY_MIN_SECONDS, CONCURRENCY_LIMIT_RETRY_DELAY_MAX_SECONDS)
+        ),
+    )
 
 
 @database_sync_to_async
@@ -318,6 +339,8 @@ def _calculate_experiment_regular_metric_sync(
                 error_message=str(e),
             )
 
+        if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
+            raise _capacity_retry_error(e) from e
         raise
 
 
@@ -588,6 +611,8 @@ def _calculate_experiment_saved_metric_sync(
                 error_message=str(e),
             )
 
+        if isinstance(e, (ClickHouseAtCapacity, ConcurrencyLimitExceeded)):
+            raise _capacity_retry_error(e) from e
         raise
 
 
