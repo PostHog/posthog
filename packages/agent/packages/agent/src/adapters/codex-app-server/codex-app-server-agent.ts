@@ -1967,12 +1967,6 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     const toolCallId = update.toolCallId
       ? subagentToolCallId(threadId, update.toolCallId)
       : undefined;
-    if (update.sessionUpdate === "tool_call_update") {
-      return {
-        ...notification,
-        update: { ...update, ...(toolCallId ? { toolCallId } : {}) },
-      } as SessionNotification;
-    }
     const existingPosthog = (update._meta?.posthog ?? {}) as Record<
       string,
       unknown

@@ -1637,6 +1637,24 @@ def _agent_message_event(text: str) -> dict:
 
 
 class TestFinalMessageTracker:
+    @parameterized.expand(
+        [
+            ("agent_message_chunk", _agent_chunk_event, "posthog"),
+            ("agent_message", _agent_message_event, "posthog"),
+            ("agent_message_chunk", _agent_chunk_event, "claudeCode"),
+            ("agent_message", _agent_message_event, "claudeCode"),
+        ]
+    )
+    def test_subagent_prose_does_not_enter_final_message(self, _name, event_factory, channel) -> None:
+        tracker = FinalMessageTracker()
+        tracker.collect(_agent_chunk_event("Parent "))
+        child_event = event_factory("child")
+        child_event["notification"]["params"]["update"]["_meta"] = {channel: {"parentToolCallId": "tool-1"}}
+        tracker.collect(child_event)
+        tracker.collect(_agent_chunk_event("answer"))
+
+        assert tracker.end_turn() == "Parent answer"
+
     def test_snapshots_joined_prose_at_end_of_turn(self) -> None:
         tracker = FinalMessageTracker()
         tracker.collect(_agent_chunk_event("Weekly "))

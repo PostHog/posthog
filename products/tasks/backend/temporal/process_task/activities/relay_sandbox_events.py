@@ -617,7 +617,7 @@ async def _relay_loop(
                             if is_agent_design_enabled and workflow_handle is not None:
                                 if not slack_turn_active[0] and _is_session_prompt(event_data):
                                     slack_turn_message_id[0] = _prompt_message_id(event_data)
-                                if not slack_turn_active[0] and _is_session_update(event_data):
+                                if not slack_turn_active[0] and _is_parent_session_update(event_data):
                                     slack_turn_active[0] = True
                                     # Await so turn_started is recorded before any delta of this turn,
                                     # and reset the flush clock so the first delta buffers rather than
@@ -875,6 +875,13 @@ def _is_subagent_update(update: dict[str, Any]) -> bool:
     return False
 
 
+def _is_parent_session_update(event_data: dict) -> bool:
+    if not _is_session_update(event_data):
+        return False
+    update = (event_data.get("notification", {}).get("params") or {}).get("update") or {}
+    return not _is_subagent_update(update)
+
+
 def _extract_progress_update(event_data: dict, seen: set[str]) -> dict[str, Any] | None:
     """The Slack plan payload for an ACP tool call (``{"phase", "activity", "nested"}``) or todo list (``{"plan"}``).
 
@@ -929,6 +936,8 @@ def _extract_agent_message_text(event_data: dict) -> str | None:
     params = notification.get("params") or {}
     update = params.get("update") or {}
     if update.get("sessionUpdate") not in {"agent_message", "agent_message_chunk"}:
+        return None
+    if _is_subagent_update(update):
         return None
     content = update.get("content")
     if not isinstance(content, dict):

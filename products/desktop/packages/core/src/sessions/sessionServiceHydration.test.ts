@@ -185,6 +185,47 @@ describe("resume hydration reconciliation", () => {
     ).toEqual([nextResponse, completion]);
   });
 
+  it.each(["agent_message_chunk", "agent_message"])(
+    "keeps parent text reconciled around child %s",
+    (sessionUpdate) => {
+      const child: AcpMessage = {
+        ...agentMessageChunk("child", 22),
+        message: {
+          jsonrpc: "2.0",
+          method: "session/update",
+          params: {
+            update: {
+              sessionUpdate,
+              content: { type: "text", text: "child" },
+              _meta: { posthog: { parentToolCallId: "tool-1" } },
+            },
+          },
+        },
+      };
+      const request = prompt(1, "ask", 10);
+      const completion = turnComplete(40);
+      const hydratedEvents = [
+        request,
+        { ...child, ts: 22 },
+        agentMessage("parent answer", 30),
+        completion,
+      ];
+
+      expect(
+        reconcileLiveEventsWithHydratedEvents(
+          [
+            request,
+            agentMessageChunk("parent ", 21),
+            child,
+            agentMessageChunk("answer", 23),
+            completion,
+          ],
+          hydratedEvents,
+        ),
+      ).toEqual([]);
+    },
+  );
+
   it("preserves an identical response belonging to the unmatched current prompt", () => {
     const currentResponse = agentMessage("Done", 50);
     const currentCompletion = turnComplete(60);

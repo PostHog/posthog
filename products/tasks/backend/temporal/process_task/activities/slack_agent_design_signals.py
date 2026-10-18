@@ -37,6 +37,7 @@ from .relay_sandbox_events import (
     _event_method,
     _extract_agent_message_text,
     _extract_progress_update,
+    _is_parent_session_update,
     _is_session_prompt,
     _is_session_update,
     _prompt_message_id,
@@ -113,7 +114,7 @@ class SlackAgentDesignSignalEmitter:
             return []
 
         signals: list[tuple[str, Any]] = []
-        if not self._turn_active and self._awaiting_turn and _is_session_update(event_data):
+        if not self._turn_active and self._awaiting_turn and _is_parent_session_update(event_data):
             self._turn_active = True
             self._awaiting_turn = False
             signals.append(

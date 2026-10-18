@@ -54,12 +54,6 @@ function isSubagentUpdate(params: unknown): boolean {
   const update = (
     params as { update?: { sessionUpdate?: unknown; _meta?: unknown } }
   )?.update;
-  if (
-    update?.sessionUpdate === "agent_message_chunk" ||
-    update?.sessionUpdate === "agent_message"
-  ) {
-    return false;
-  }
   return readParentToolCallId(update?._meta) !== undefined;
 }
 

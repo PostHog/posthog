@@ -477,6 +477,23 @@ describe("SessionLogWriter", () => {
           },
         ],
       },
+      ...["posthog", "claudeCode"].flatMap((channel) =>
+        ["agent_message_chunk", "agent_message"].map((sessionUpdate) => ({
+          label: `sub-agent ${sessionUpdate} on ${channel}`,
+          wireMessages: [
+            {
+              method: "session/update",
+              params: {
+                update: {
+                  sessionUpdate,
+                  content: { type: "text", text: "child answer" },
+                  _meta: { [channel]: { parentToolCallId: "tc-agent" } },
+                },
+              },
+            },
+          ],
+        })),
+      ),
     ])(
       "keeps a streamed message whole across an interleaved $label",
       async ({ wireMessages }) => {
