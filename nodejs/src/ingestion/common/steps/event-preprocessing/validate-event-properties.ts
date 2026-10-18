@@ -13,7 +13,8 @@ export function createValidateEventPropertiesStep<T extends { event: PipelineEve
 
         if (event.event === '$groupidentify') {
             const groupKey = event.properties?.$group_key
-            if (groupKey && groupKey.toString().length > MAX_GROUP_KEY_LENGTH) {
+            const groupKeyText = groupKey ? asPostgresParameterText(groupKey) : ''
+            if (groupKeyText.length > MAX_GROUP_KEY_LENGTH) {
                 return drop(
                     'group_key_too_long',
                     [],
@@ -25,7 +26,7 @@ export function createValidateEventPropertiesStep<T extends { event: PipelineEve
                                 event: event.event,
                                 distinctId: event.distinct_id,
                                 groupKey,
-                                groupKeyLength: groupKey.toString().length,
+                                groupKeyLength: groupKeyText.length,
                                 maxLength: MAX_GROUP_KEY_LENGTH,
                             },
                         },

@@ -56,6 +56,40 @@ describe('createValidateEventPropertiesStep', () => {
             )
         })
 
+        it('drops $groupidentify with a group_key object whose toString is not callable', async () => {
+            const groupKey = { toString: null, padding: 'a'.repeat(401) }
+            const input = {
+                event: createTestPipelineEvent({
+                    event: '$groupidentify',
+                    distinct_id: 'user123',
+                    team_id: 1,
+                    properties: { $group_key: groupKey },
+                }),
+            }
+
+            const result = await step(input)
+
+            expect(result).toEqual(
+                drop(
+                    'group_key_too_long',
+                    [],
+                    [
+                        {
+                            type: 'group_key_too_long',
+                            details: {
+                                eventUuid: '123e4567-e89b-12d3-a456-426614174000',
+                                event: '$groupidentify',
+                                distinctId: 'user123',
+                                groupKey,
+                                groupKeyLength: 431,
+                                maxLength: 400,
+                            },
+                        },
+                    ]
+                )
+            )
+        })
+
         it('should allow $groupidentify events with group_key shorter than 400 characters', async () => {
             const shortGroupKey = 'a'.repeat(399)
             const input = {

@@ -14,6 +14,11 @@ export const MAX_GROUP_TYPES_PER_TEAM = 5
 /** posthog_grouptypemapping.group_type is varchar(400); a longer value makes the insert fail. */
 export const MAX_GROUP_TYPE_LENGTH = 400
 
+// Postgres text cannot hold a NUL byte, so every lookup and insert uses the sanitized text.
+export function groupTypeAsStoredText(groupType: unknown): string {
+    return sanitizeString(asPostgresParameterText(groupType))
+}
+
 const groupTypeTooLongCounter = new Counter({
     name: 'group_type_too_long_total',
     help: 'Group type resolutions skipped because the type exceeds the column length.',
@@ -79,7 +84,8 @@ export class GroupTypeManager {
      */
     public async lookupGroupTypeIndex(projectId: ProjectId, groupType: string): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(projectId)
-        const groupTypeIndex = Object.hasOwn(groupTypes, groupType) ? groupTypes[groupType] : undefined
+        const groupTypeText = groupTypeAsStoredText(groupType)
+        const groupTypeIndex = Object.hasOwn(groupTypes, groupTypeText) ? groupTypes[groupTypeText] : undefined
         return typeof groupTypeIndex === 'number' ? groupTypeIndex : null
     }
 
@@ -89,8 +95,7 @@ export class GroupTypeManager {
         groupType: string,
         eventTimestamp: DateTime
     ): Promise<GroupTypeIndex | null> {
-        // Postgres text cannot hold a NUL byte, so the stored and looked-up type is the sanitized one.
-        const groupTypeText = sanitizeString(asPostgresParameterText(groupType))
+        const groupTypeText = groupTypeAsStoredText(groupType)
         if (groupTypeText.length > MAX_GROUP_TYPE_LENGTH) {
             groupTypeTooLongCounter.inc()
             return null

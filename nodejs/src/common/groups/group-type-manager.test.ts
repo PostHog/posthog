@@ -139,6 +139,13 @@ describe('GroupTypeManager()', () => {
     })
 
     describe('lookupGroupTypeIndex()', () => {
+        it('returns null for a type object whose toString is not callable', async () => {
+            await hub.groupRepository.insertGroupType(teamId, projectId, 'g0', 0, TEST_TIMESTAMP)
+
+            const groupType = { toString: null } as unknown as string
+            expect(await groupTypeManager.lookupGroupTypeIndex(projectId, groupType)).toBeNull()
+        })
+
         it.each([
             ['an existing group type', 'g0', 0],
             ['an unknown group type', 'brand-new', null],
