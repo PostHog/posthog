@@ -62,6 +62,13 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         path="/product-types",
         scope="view_product_types",
     ),
+    # Only available on projects using the Modular catalog model; Classic projects
+    # keep variants embedded in product_projections.
+    "variants": CommercetoolsEndpointConfig(
+        name="variants",
+        path="/variants",
+        scope="view_products",
+    ),
     "categories": CommercetoolsEndpointConfig(
         name="categories",
         path="/categories",
