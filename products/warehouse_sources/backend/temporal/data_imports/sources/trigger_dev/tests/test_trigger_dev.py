@@ -216,7 +216,8 @@ class TestRunEventsFanOut:
             ],
             "pagination": {},
         }
-        fresh = _run("run_events", [_json(runs_page), _json({"events": [{"spanId": "s1"}]})] * 2)
+        events = _json({"events": [{"spanId": "s1"}]})
+        fresh = _run("run_events", [_json(runs_page), events, events])
         assert [(s.after, s.last_run_id) for s in fresh.saved_states] == [(None, "run_b"), (None, "run_a")]
 
         resumed = _run(
