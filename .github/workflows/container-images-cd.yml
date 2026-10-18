@@ -1120,19 +1120,36 @@ jobs:
               env:
                   BEFORE: ${{ github.event.before }}
               run: |
-                  BASE="$BEFORE"
-                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
-                      BASE="HEAD^"
+                  WORKFLOW=.github/workflows/container-images-cd.yml
+                  NO_COMMIT=0000000000000000000000000000000000000000
+
+                  BASE="HEAD^"
+                  if [ -n "$BEFORE" ] && [ "$BEFORE" != "$NO_COMMIT" ]; then
+                      if git fetch --depth=1 --no-tags origin "$BEFORE"; then
+                          BASE="$BEFORE"
+                      fi
                   fi
-                  general_purpose_paths() {
-                      git show "$1:.github/workflows/container-images-cd.yml" \
-                          | awk '/^ *generalPurpose:$/ { inside = 1; next } inside && /^ *[A-Za-z]+:$/ { inside = 0 } inside && /^ *- / { print }' \
-                          | sort
+
+                  general_purpose_paths_at() {
+                      git show "$1:$WORKFLOW" | awk '
+                          /^ *generalPurpose:$/ { in_list = 1; next }
+                          in_list && /^ *- /    { print $2; next }
+                          in_list && /^ *(#|$)/ { next }
+                                                { in_list = 0 }
+                      ' | sort -u
                   }
-                  if [ -n "$(comm -13 <(general_purpose_paths "$BASE") <(general_purpose_paths HEAD))" ]; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
+
+                  paths_before=$(general_purpose_paths_at "$BASE")
+                  paths_after=$(general_purpose_paths_at HEAD)
+                  added_paths=$(comm -13 <(echo "$paths_before") <(echo "$paths_after"))
+
+                  if [ -n "$added_paths" ]; then
+                      echo "Paths added to the general purpose list:"
+                      echo "$added_paths"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
-                      echo "changed=false" >> $GITHUB_OUTPUT
+                      echo "No paths added to the general purpose list."
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
