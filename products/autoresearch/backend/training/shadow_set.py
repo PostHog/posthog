@@ -12,7 +12,7 @@ from uuid import UUID
 from django.db.models import F
 from django.utils import timezone as django_timezone
 
-from products.autoresearch.backend.inference.failures import fails_repeatably_in_shadow
+from products.autoresearch.backend.inference.failures import models_failing_repeatably_in_shadow
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 
 SHADOW_CHALLENGER_LIMIT = 3
@@ -47,20 +47,13 @@ def shadow_set(
     champion = models.filter(role=AutoresearchModel.Role.CHAMPION).first()
     if champion is not None:
         members.append(champion)
-    previous = next(
-        (
-            model
-            for model in models.filter(role=AutoresearchModel.Role.ARCHIVED, promoted_at__isnull=False)
-            .exclude(artifact_prefix="")
-            .order_by(F("archived_at").desc(nulls_last=True), "-promoted_at")
-            if (model.metrics or {}).get(ARCHIVED_REASON_METRIC_KEY) != ARCHIVED_UNSCORABLE
-            and not fails_repeatably_in_shadow(model)
-        ),
-        None,
-    )
-    if previous is not None and previous.recipe_hash not in {m.recipe_hash for m in members}:
-        members.append(previous)
-
+    former_champions = [
+        model
+        for model in models.filter(role=AutoresearchModel.Role.ARCHIVED, promoted_at__isnull=False)
+        .exclude(artifact_prefix="")
+        .order_by(F("archived_at").desc(nulls_last=True), "-promoted_at")
+        if (model.metrics or {}).get(ARCHIVED_REASON_METRIC_KEY) != ARCHIVED_UNSCORABLE
+    ]
     challengers = [
         model
         for model in models.filter(role=AutoresearchModel.Role.CHALLENGER)
@@ -68,6 +61,13 @@ def shadow_set(
         .order_by("-created_at")
         if model.pk == pending_fit or (model.metrics or {}).get(FITTED_METRIC_KEY)
     ]
+    unscorable = models_failing_repeatably_in_shadow(pipeline, (m.pk for m in [*former_champions, *challengers]))
+
+    previous = next((model for model in former_champions if model.pk not in unscorable), None)
+    if previous is not None and previous.recipe_hash not in {m.recipe_hash for m in members}:
+        members.append(previous)
+
+    challengers = [model for model in challengers if model.pk not in unscorable]
     members.extend(_select_challengers(challengers, pipeline=pipeline, now=now, taken={m.recipe_hash for m in members}))
     return members
 
@@ -89,7 +89,7 @@ def _select_challengers(
     for model in [*protected, *matured]:
         if len(chosen) == SHADOW_CHALLENGER_LIMIT:
             break
-        if model.recipe_hash in seen or fails_repeatably_in_shadow(model):
+        if model.recipe_hash in seen:
             continue
         seen.add(model.recipe_hash)
         chosen.append(model)

@@ -1,10 +1,13 @@
 """Classify a failed scoring run, and tell when a model's runs show it cannot score."""
 
-from collections.abc import Iterator
+from collections import defaultdict
+from collections.abc import Iterable, Iterator
 from datetime import date, timedelta
 from enum import StrEnum
+from uuid import UUID
 
-from django.db.models import Q
+from django.db.models import F, Q, QuerySet, Window
+from django.db.models.functions import RowNumber
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -13,7 +16,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error
 
 from products.autoresearch.backend.inference.sandbox import ModelLoadError
-from products.autoresearch.backend.models import AutoresearchModel, AutoresearchRun
+from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline, AutoresearchRun
 
 logger = structlog.get_logger(__name__)
 
@@ -90,37 +93,54 @@ def find_unscorable_champion(champion: AutoresearchModel | None) -> UnscorableCh
     """
     if champion is None:
         return None
-    failed_days = _repeatable_failure_days(champion, Q(scheduled=True))
+    runs = _scoring_runs(champion.team_id, champion.pipeline_id, Q(scheduled=True)).filter(model=champion)
+    failed_days = _repeatable_failure_days(runs.order_by("-created_at")[:_RUNS_TO_SCAN])
     if len(failed_days) < UNSCORABLE_AFTER_FAILED_DAYS:
         return None
     newest_day = max(failed_days)
     return UnscorableChampion(failure_kind=failed_days[newest_day], onset=min(failed_days))
 
 
-def fails_repeatably_in_shadow(model: AutoresearchModel) -> bool:
+def models_failing_repeatably_in_shadow(pipeline: AutoresearchPipeline, model_ids: Iterable[UUID]) -> set[UUID]:
     """
-    Tell if a shadow candidate cannot score. The rule is the one ``find_unscorable_champion``
-    applies, read over the model's shadow runs and the scheduled runs it had as a champion.
+    Return the shadow candidates that cannot score. The rule is the one ``find_unscorable_champion``
+    applies, read over each model's shadow runs and the scheduled runs it had as a champion.
+    One query reads the newest ``_RUNS_TO_SCAN`` runs of every model.
     """
-    failed_days = _repeatable_failure_days(model, Q(scheduled=True) | Q(metrics__shadow=True))
-    return len(failed_days) >= UNSCORABLE_AFTER_FAILED_DAYS
-
-
-def _repeatable_failure_days(model: AutoresearchModel, runs_filter: Q) -> dict[date, str]:
-    """The newest repeatable failure kind of each scoring day after the last completed run that matches the filter."""
+    model_ids = set(model_ids)
+    if not model_ids:
+        return set()
     runs = (
-        AutoresearchRun.objects.for_team(model.team_id)
-        .filter(
-            runs_filter,
-            pipeline_id=model.pipeline_id,
-            model=model,
-            run_type=AutoresearchRun.RunType.INFERENCE,
-            status__in=(AutoresearchRun.Status.COMPLETED, AutoresearchRun.Status.FAILED),
-        )
-        .order_by("-created_at")[:_RUNS_TO_SCAN]
+        _scoring_runs(pipeline.team_id, pipeline.pk, Q(scheduled=True) | Q(metrics__shadow=True))
+        .filter(model_id__in=model_ids)
+        .annotate(recency=Window(RowNumber(), partition_by=F("model_id"), order_by=F("created_at").desc()))
+        .filter(recency__lte=_RUNS_TO_SCAN)
+        .order_by("model_id", "-created_at")
     )
-    failed_days: dict[date, str] = {}
+    runs_by_model: dict[UUID, list[AutoresearchRun]] = defaultdict(list)
     for run in runs:
+        if run.model_id is not None:
+            runs_by_model[run.model_id].append(run)
+    return {
+        model_id
+        for model_id, model_runs in runs_by_model.items()
+        if len(_repeatable_failure_days(model_runs)) >= UNSCORABLE_AFTER_FAILED_DAYS
+    }
+
+
+def _scoring_runs(team_id: int, pipeline_id: UUID, runs_filter: Q) -> QuerySet[AutoresearchRun]:
+    return AutoresearchRun.objects.for_team(team_id).filter(
+        runs_filter,
+        pipeline_id=pipeline_id,
+        run_type=AutoresearchRun.RunType.INFERENCE,
+        status__in=(AutoresearchRun.Status.COMPLETED, AutoresearchRun.Status.FAILED),
+    )
+
+
+def _repeatable_failure_days(newest_first: Iterable[AutoresearchRun]) -> dict[date, str]:
+    """The newest repeatable failure kind of each scoring day after the last completed run."""
+    failed_days: dict[date, str] = {}
+    for run in newest_first:
         if run.status == AutoresearchRun.Status.COMPLETED:
             break
         kind = (run.metrics or {}).get("failure_kind")

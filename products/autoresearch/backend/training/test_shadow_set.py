@@ -199,5 +199,8 @@ class TestShadowSet(TeamScopedTestMixin, BaseTest):
         self._shadow_runs(previous, previous_failures)
         self._shadow_runs(challenger, challenger_failures)
 
-        assert [m.agent_description for m in shadow_set(self.pipeline, now=self.now)] == expected
+        # One run-history query covers every candidate, however many failed.
+        with self.assertNumQueries(6):
+            members = shadow_set(self.pipeline, now=self.now)
+        assert [m.agent_description for m in members] == expected
         assert AutoresearchModel.objects.filter(pipeline=self.pipeline).count() == 4
