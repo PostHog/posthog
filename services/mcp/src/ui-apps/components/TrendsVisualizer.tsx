@@ -77,7 +77,15 @@ function calculateTotal(results: TrendsResultItem[]): number {
     }, 0)
 }
 
-export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): ReactElement {
+export function TrendsVisualizer({
+    query,
+    results,
+    title = TITLE,
+    overlay,
+    showControls = true,
+    chartClassName = 'h-[400px]',
+    showTitle = true,
+}: TrendsVisualizerProps): ReactElement {
     const displayType = getDisplayType(query)
     const [chartType, setChartType] = useState<ChartType>(defaultChartType(displayType))
     const [chartConfig, setChartConfig] = useState(() => chartConfigFromTrendsFilter(query?.trendsFilter))
@@ -86,7 +94,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (!results || results.length === 0) {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={title} />
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -102,7 +110,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={title} />
                 <BigNumber value={total} label={label} />
             </div>
         )
@@ -111,7 +119,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
     if (displayType === 'ActionsProportionBar') {
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={title} />
                 <div className="flex flex-col w-full justify-center p-4">
                     <ProportionBar
                         series={buildProportionBarSeries(results, colorAt)}
@@ -133,7 +141,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const barConfig = buildTrendsBarValueConfig()
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={title} />
                 <div className="flex flex-col w-full h-[400px]">
                     <BarValueChart
                         series={barSeries}
@@ -156,7 +164,7 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
         const pieView = pieViewFromTrendsFilter(query?.trendsFilter, displayType === 'ActionsDonut')
         return (
             <div>
-                <ChartHeader title={TITLE} />
+                <ChartHeader title={title} />
                 <div className="flex flex-col w-full h-[400px]">
                     <PieChart
                         series={slices}
@@ -230,7 +238,9 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                     theme={theme}
                     config={config}
                     tooltip={renderDateTooltip}
-                />
+                >
+                    {overlay}
+                </TimeSeriesBarChart>
             )
         }
         const series = buildTrendsSeries(trendResults, {
@@ -257,26 +267,34 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
                 theme={theme}
                 config={config}
                 tooltip={renderDateTooltip}
-            />
+            >
+                {overlay}
+            </TimeSeriesLineChart>
         )
     }
 
     return (
         <div>
-            <ChartHeader title={TITLE}>
-                {/* eslint-disable-next-line react/forbid-elements */}
-                <Select value={effectiveType} onChange={handleChartTypeChange} options={chartTypeOptions} />
-                {effectiveType !== 'slope' && (
-                    <ChartSettings
-                        family={isBarFamily(effectiveType) ? 'bar' : 'line'}
-                        config={chartConfig}
-                        onChange={setChartConfig}
-                        derivedSeriesDisabled={derivedSeriesDisabled}
-                        percentStackDisabled={!supportsPercentStack(effectiveType)}
-                    />
-                )}
-            </ChartHeader>
-            <div className="flex flex-col w-full h-[400px]">{renderChart()}</div>
+            {(showTitle || showControls) && (
+                <ChartHeader title={showTitle ? title : ''}>
+                    {showControls && (
+                        <>
+                            {/* eslint-disable-next-line react/forbid-elements */}
+                            <Select value={effectiveType} onChange={handleChartTypeChange} options={chartTypeOptions} />
+                            {effectiveType !== 'slope' && (
+                                <ChartSettings
+                                    family={isBarFamily(effectiveType) ? 'bar' : 'line'}
+                                    config={chartConfig}
+                                    onChange={setChartConfig}
+                                    derivedSeriesDisabled={derivedSeriesDisabled}
+                                    percentStackDisabled={!supportsPercentStack(effectiveType)}
+                                />
+                            )}
+                        </>
+                    )}
+                </ChartHeader>
+            )}
+            <div className={`flex flex-col w-full ${chartClassName}`}>{renderChart()}</div>
         </div>
     )
 }
