@@ -9554,10 +9554,10 @@ Today (8): `CodingMetrics`, `CollaborationMetrics`, `Commits`, `PullRequests`, `
 
 Diffed against: <https://appfire.atlassian.net/wiki/spaces/FD/pages/1802600473>
 
-- [ ] `User Aliases (GET /v3/customer/core/user_alias/)` — resolve user_alias_id values on commits and connect vendor identities to Flow users (high)
-- [ ] `Pull Request Projects (GET /v3/customer/core/pull_request_projects/)` — resolve project IDs on pull requests and link their projects to repositories (high)
-- [ ] `Ticket Projects (GET /v3/customer/core/ticket_projects/)` — identify the issue tracker projects that contain synced tickets (high)
-- [ ] `Team Membership (GET /v3/customer/core/team_membership)` — connect users to teams for engineering activity analysis by team (high)
+- [x] `User Aliases (GET /v3/customer/core/user_alias/)` — resolve user_alias_id values on commits and connect vendor identities to Flow users (high)
+- [x] `Pull Request Projects (GET /v3/customer/core/pull_request_projects/)` — resolve project IDs on pull requests and link their projects to repositories (high)
+- [x] `Ticket Projects (GET /v3/customer/core/ticket_projects/)` — identify the issue tracker projects that contain synced tickets (high)
+- [x] `Team Membership (GET /v3/customer/core/team_membership)` — connect users to teams for engineering activity analysis by team (high)
 - [ ] `DORA Metrics (GET /dora/build-release/change/lead_time/; GET /dora/build-release/deployment/frequency/; GET /dora/build-release/incident/change_failure_rate/; GET /dora/build-release/incident/time_to_restore/)` — measure deployment frequency, change failure rate, recovery time, and change lead time (high)
 - [ ] `Ticket Metrics (GET /ticket-delivery/metrics/)` — track Flow velocity, cycle time, queue time, backflow rate, and jitter (high)
 - [ ] `Pull Request Events (GET /v3/customer/core/pull_request_events/)` — analyze review approvals and pull request state changes over time (medium)
