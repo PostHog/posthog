@@ -303,6 +303,7 @@ def _merge_into_candidate(
             "source_fingerprint": fingerprint,
             "target_fingerprint": candidate.fingerprint,
             "distance": candidate.distance,
+            "target_reopened": bool(merge_outcome.reopened),
             **decision_properties,
         },
     )

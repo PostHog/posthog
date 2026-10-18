@@ -499,11 +499,12 @@ class TestAutoMergeReopensTarget(BaseTest):
         return issue
 
     def _merge(self, event_reference: str = "event-1") -> AutoMergeOutcome:
+        self.capture = MagicMock()
         with (
             override_settings(ERROR_TRACKING_AUTO_MERGE_ENABLED=True),
             patch(
                 "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.ph_background_capture",
-                return_value=MagicMock(),
+                return_value=self.capture,
             ),
         ):
             return _merge_fingerprint_into_closest_issue(
@@ -522,6 +523,7 @@ class TestAutoMergeReopensTarget(BaseTest):
 
         target.refresh_from_db()
         assert target.status == "active"
+        assert self.capture.call_args.kwargs["properties"]["target_reopened"] is True
         assert outcome.reopened_target is not None
         assert outcome.reopened_target.issue_id == str(target.id)
         # The notification carries the target's state after the reopen, so subscribers
@@ -541,6 +543,7 @@ class TestAutoMergeReopensTarget(BaseTest):
 
         assert outcome.merged_count == 1
         assert outcome.reopened_target is None
+        assert self.capture.call_args.kwargs["properties"]["target_reopened"] is False
 
     def test_auto_merge_reports_the_reopen_when_the_clickhouse_sync_fails(self) -> None:
         self._create_issue("fp-source", "active")
