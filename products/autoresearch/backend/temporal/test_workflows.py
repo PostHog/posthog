@@ -56,6 +56,7 @@ from products.autoresearch.backend.temporal.workflows import (
     activity_load_active_pipelines,
     activity_remove_person_property,
     activity_run_inference,
+    activity_run_shadow_scoring,
     activity_run_validation,
     evaluate_pipeline_outcome,
 )
@@ -357,6 +358,30 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         )
 
         assert mock_inference.call_args.kwargs["run"] == (earlier if reused else None)
+
+    @parameterized.expand(
+        [("paused", AutoresearchPipeline.Status.PAUSED), ("archived", AutoresearchPipeline.Status.ARCHIVED)]
+    )
+    def test_shadow_activity_that_skips_a_run_deletes_its_stored_people(self, _name: str, status: str) -> None:
+        pipeline = self._create_pipeline()
+        run = AutoresearchRun.objects.create(
+            pipeline=pipeline,
+            run_type=AutoresearchRun.RunType.INFERENCE,
+            scheduled=True,
+            status=AutoresearchRun.Status.COMPLETED,
+            started_at=django_timezone.now() - timedelta(minutes=10),
+            metrics={"prediction_date": "2026-09-11", "horizon_days": 30, "scored_persons_key": "people.txt.gz"},
+        )
+        AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(status=status)
+
+        with patch("products.autoresearch.backend.inference.scoring.delete_scored_persons") as delete:
+            result = ActivityEnvironment().run(
+                activity_run_shadow_scoring,
+                RunShadowScoringInput(pipeline_id=str(pipeline.id), team_id=self.team.id, run_id=str(run.pk)),
+            )
+
+        assert result.status == "skipped"
+        delete.assert_called_once_with("people.txt.gz")
 
     def test_load_active_pipelines_fails_inference_runs_left_running(self) -> None:
         pipeline = self._create_pipeline()

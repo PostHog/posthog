@@ -429,11 +429,16 @@ def _store_scored_persons(*, run: AutoresearchRun, person_ids: list[str]) -> Non
     key = scored_persons_key(team_id=run.team_id, pipeline_id=str(run.pipeline_id), inference_run_id=str(run.pk))
     try:
         write_scored_persons(key, person_ids)
+        run.metrics["scored_persons_key"] = key
+        run.save(update_fields=["metrics"])
     except Exception:
-        logger.exception("autoresearch_scored_persons_write_failed", run_id=str(run.pk))
-        return
-    run.metrics["scored_persons_key"] = key
-    run.save(update_fields=["metrics"])
+        # The run already completed and emitted, so an error here must not reach the activity and start a retry.
+        logger.exception("autoresearch_scored_persons_store_failed", run_id=str(run.pk))
+        run.metrics.pop("scored_persons_key", None)
+        try:
+            delete_scored_persons(key)
+        except Exception:
+            logger.exception("autoresearch_scored_persons_delete_failed", run_id=str(run.pk))
 
 
 def _load_scored_persons(run: AutoresearchRun) -> list[str] | None:
@@ -447,7 +452,8 @@ def _load_scored_persons(run: AutoresearchRun) -> list[str] | None:
         return None
 
 
-def _discard_scored_persons(run: AutoresearchRun) -> None:
+def discard_scored_persons(run: AutoresearchRun) -> None:
+    """Delete the people a run stored for deferred shadow scoring. Every path that ends the deferred phase calls it."""
     key = (run.metrics or {}).get("scored_persons_key")
     if not key:
         return
@@ -966,7 +972,7 @@ def score_shadow_set_for_run(
             run.save(update_fields=["metrics"])
         return outcome
     finally:
-        _discard_scored_persons(run)
+        discard_scored_persons(run)
 
 
 def _read_shadow_bundle(model: AutoresearchModel) -> ArtifactBundle | Exception:

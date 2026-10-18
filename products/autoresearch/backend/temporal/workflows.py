@@ -43,7 +43,11 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.autoresearch.backend.inference.person_property import remove_output_person_property
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
-    from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline, score_shadow_set_for_run
+    from products.autoresearch.backend.inference.scoring import (
+        discard_scored_persons,
+        run_inference_for_pipeline,
+        score_shadow_set_for_run,
+    )
     from products.autoresearch.backend.models import (
         AutoresearchModel,
         AutoresearchPipeline,
@@ -335,7 +339,10 @@ def activity_run_shadow_scoring(inp: RunShadowScoringInput) -> RunShadowScoringR
             .filter(pk=inp.run_id, pipeline__pk=inp.pipeline_id, run_type=AutoresearchRun.RunType.INFERENCE)
             .first()
         )
-        if run is None or run.pipeline.status not in _LIVE_STATUSES or _sweep_access_block(run.pipeline):
+        if run is None:
+            return RunShadowScoringResult(completed=0, failed=0, skipped=0, status="skipped")
+        if run.pipeline.status not in _LIVE_STATUSES or _sweep_access_block(run.pipeline):
+            discard_scored_persons(run)
             return RunShadowScoringResult(completed=0, failed=0, skipped=0, status="skipped")
         outcome = score_shadow_set_for_run(run, query_context=SCORING_QUERY)
     if outcome is None:
