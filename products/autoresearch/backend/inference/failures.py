@@ -1,9 +1,10 @@
-"""Classify a failed scoring run, and tell when the champion's scheduled runs show it cannot score."""
+"""Classify a failed scoring run, and tell when a model's runs show it cannot score."""
 
 from collections.abc import Iterator
 from datetime import date, timedelta
 from enum import StrEnum
 
+from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 import structlog
@@ -89,13 +90,31 @@ def find_unscorable_champion(champion: AutoresearchModel | None) -> UnscorableCh
     """
     if champion is None:
         return None
+    failed_days = _repeatable_failure_days(champion, Q(scheduled=True))
+    if len(failed_days) < UNSCORABLE_AFTER_FAILED_DAYS:
+        return None
+    newest_day = max(failed_days)
+    return UnscorableChampion(failure_kind=failed_days[newest_day], onset=min(failed_days))
+
+
+def fails_repeatably_in_shadow(model: AutoresearchModel) -> bool:
+    """
+    Tell if a shadow candidate cannot score. The rule is the one ``find_unscorable_champion``
+    applies, read over the model's shadow runs and the scheduled runs it had as a champion.
+    """
+    failed_days = _repeatable_failure_days(model, Q(scheduled=True) | Q(metrics__shadow=True))
+    return len(failed_days) >= UNSCORABLE_AFTER_FAILED_DAYS
+
+
+def _repeatable_failure_days(model: AutoresearchModel, runs_filter: Q) -> dict[date, str]:
+    """The newest repeatable failure kind of each scoring day after the last completed run that matches the filter."""
     runs = (
-        AutoresearchRun.objects.for_team(champion.team_id)
+        AutoresearchRun.objects.for_team(model.team_id)
         .filter(
-            pipeline_id=champion.pipeline_id,
-            model=champion,
+            runs_filter,
+            pipeline_id=model.pipeline_id,
+            model=model,
             run_type=AutoresearchRun.RunType.INFERENCE,
-            scheduled=True,
             status__in=(AutoresearchRun.Status.COMPLETED, AutoresearchRun.Status.FAILED),
         )
         .order_by("-created_at")[:_RUNS_TO_SCAN]
@@ -108,10 +127,7 @@ def find_unscorable_champion(champion: AutoresearchModel | None) -> UnscorableCh
         if kind in REPEATABLE_FAILURE_KINDS:
             # The newest failure of a day wins, so the kind reported is the latest one.
             failed_days.setdefault(_run_date(run), kind)
-    if len(failed_days) < UNSCORABLE_AFTER_FAILED_DAYS:
-        return None
-    newest_day = max(failed_days)
-    return UnscorableChampion(failure_kind=failed_days[newest_day], onset=min(failed_days))
+    return failed_days
 
 
 def fail_stale_inference_runs() -> int:

@@ -12,6 +12,7 @@ from uuid import UUID
 from django.db.models import F
 from django.utils import timezone as django_timezone
 
+from products.autoresearch.backend.inference.failures import fails_repeatably_in_shadow
 from products.autoresearch.backend.models import AutoresearchModel, AutoresearchPipeline
 
 SHADOW_CHALLENGER_LIMIT = 3
@@ -21,6 +22,9 @@ SHADOW_MIN_MATURED_DATES = 7
 # Set in a model's metrics when its model.pkl is fitted. A challenger without it has no
 # artifact that scoring could load.
 FITTED_METRIC_KEY = "model_fitted"
+# Set in an archived champion's metrics when promotion replaced it because it could not score.
+ARCHIVED_REASON_METRIC_KEY = "archived_reason"
+ARCHIVED_UNSCORABLE = "unscorable"
 
 
 def shadow_set(
@@ -30,7 +34,9 @@ def shadow_set(
     Return the champion, the previous champion, and up to ``SHADOW_CHALLENGER_LIMIT``
     challengers, newest first. No two members share a ``recipe_hash``.
 
-    Only a bundle-backed model with a fitted ``model.pkl`` qualifies as a challenger.
+    Only a bundle-backed model with a fitted ``model.pkl`` qualifies as a challenger. A model
+    that cannot score (archived as unscorable, or a streak of repeatable failures) is skipped,
+    and the next eligible model takes its place.
     ``pending_fit`` names a challenger whose fit is not scheduled yet, so completion can ask
     whether the fit would put it in the set.
     """
@@ -41,11 +47,16 @@ def shadow_set(
     champion = models.filter(role=AutoresearchModel.Role.CHAMPION).first()
     if champion is not None:
         members.append(champion)
-    previous = (
-        models.filter(role=AutoresearchModel.Role.ARCHIVED, promoted_at__isnull=False)
-        .exclude(artifact_prefix="")
-        .order_by(F("archived_at").desc(nulls_last=True), "-promoted_at")
-        .first()
+    previous = next(
+        (
+            model
+            for model in models.filter(role=AutoresearchModel.Role.ARCHIVED, promoted_at__isnull=False)
+            .exclude(artifact_prefix="")
+            .order_by(F("archived_at").desc(nulls_last=True), "-promoted_at")
+            if (model.metrics or {}).get(ARCHIVED_REASON_METRIC_KEY) != ARCHIVED_UNSCORABLE
+            and not fails_repeatably_in_shadow(model)
+        ),
+        None,
     )
     if previous is not None and previous.recipe_hash not in {m.recipe_hash for m in members}:
         members.append(previous)
@@ -78,7 +89,7 @@ def _select_challengers(
     for model in [*protected, *matured]:
         if len(chosen) == SHADOW_CHALLENGER_LIMIT:
             break
-        if model.recipe_hash in seen:
+        if model.recipe_hash in seen or fails_repeatably_in_shadow(model):
             continue
         seen.add(model.recipe_hash)
         chosen.append(model)
