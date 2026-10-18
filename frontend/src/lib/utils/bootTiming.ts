@@ -15,7 +15,6 @@ export type BootPhase =
 export interface BootContext {
     scene?: string
     logged_in?: boolean
-    render_app_as_update?: boolean
 }
 
 const phaseTimes: Partial<Record<BootPhase, number>> = {}
