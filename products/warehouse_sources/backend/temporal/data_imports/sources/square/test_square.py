@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.square.squ
     SQUARE_API_VERSION_2026_09_16,
     SQUARE_API_VERSION_V2,
     SQUARE_HOSTS,
+    SquareCredentialProbe,
     SquareInvalidCursorError,
     SquareResumeConfig,
     _build_initial_params,
@@ -145,19 +146,21 @@ class TestIsInvalidCursorError:
 class TestValidateCredentials:
     @parameterized.expand(
         [
-            ("ok", 200, (True, False)),
-            ("unauthorized", 401, (False, False)),
-            ("forbidden", 403, (False, True)),
-            ("server_error", 500, (False, False)),
+            ("ok", 200, SquareCredentialProbe(is_valid=True, is_forbidden=False)),
+            ("unauthorized", 401, SquareCredentialProbe(is_valid=False, is_forbidden=False)),
+            ("forbidden", 403, SquareCredentialProbe(is_valid=False, is_forbidden=True)),
+            ("server_error", 500, SquareCredentialProbe(is_valid=False, is_forbidden=False)),
         ]
     )
-    def test_status_code_mapping(self, _name: str, status_code: int, expected: tuple[bool, bool]) -> None:
+    def test_status_code_mapping(self, _name: str, status_code: int, expected: SquareCredentialProbe) -> None:
         with scripted_network(always(_page({}, status_code=status_code))):
             assert validate_credentials("token", "production", SQUARE_API_VERSION_2026_09_16) == expected
 
     def test_network_error_returns_invalid(self) -> None:
         with scripted_network(always(ConnectionError("boom"))):
-            assert validate_credentials("token", "production", SQUARE_API_VERSION_2026_09_16) == (False, False)
+            assert validate_credentials("token", "production", SQUARE_API_VERSION_2026_09_16) == SquareCredentialProbe(
+                is_valid=False, is_forbidden=False
+            )
 
     @parameterized.expand(
         [

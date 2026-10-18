@@ -3,6 +3,7 @@ from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.square import SquareSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.square.source import SquareSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.square.square import SquareCredentialProbe
 
 
 class TestSquareSource:
@@ -39,7 +40,7 @@ class TestSquareSource:
         expected_has_message: bool,
         expected_version: str,
     ) -> None:
-        mock_validate.return_value = mock_return
+        mock_validate.return_value = SquareCredentialProbe(is_valid=mock_return[0], is_forbidden=mock_return[1])
         is_valid, message = self.source.validate_credentials(
             self.config, self.team_id, schema_name=schema_name, api_version=api_version
         )

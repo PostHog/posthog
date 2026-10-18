@@ -8,6 +8,8 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
@@ -66,6 +68,13 @@ def _is_invalid_cursor_error(response: requests.Response) -> bool:
     except ValueError:
         return False
     return any(error.get("field") == "cursor" or error.get("code") == "INVALID_CURSOR" for error in errors)
+
+
+@frozen
+class SquareCredentialProbe:
+    is_valid: bool
+    # A 403 (valid token, missing scope) as opposed to a 401 (bad token).
+    is_forbidden: bool
 
 
 @dataclasses.dataclass
@@ -128,10 +137,10 @@ def _time_filter_field(config: SquareEndpointConfig) -> Optional[str]:
 
 def validate_credentials(
     access_token: str, environment: str, api_version: str, schema_name: Optional[str] = None
-) -> tuple[bool, bool]:
+) -> SquareCredentialProbe:
     """Probe Square to confirm the token works.
 
-    Returns ``(is_valid, is_forbidden)``. ``is_forbidden`` distinguishes a 403
+    ``is_forbidden`` on the result distinguishes a 403
     (valid token, missing scope) from a 401 (bad token) so the caller can accept
     scope gaps at source-create time but reject them for a specific schema.
     """
@@ -152,12 +161,12 @@ def validate_credentials(
     try:
         response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
-        return False, False
+        return SquareCredentialProbe(is_valid=False, is_forbidden=False)
 
     if response.status_code == 403:
-        return False, True
+        return SquareCredentialProbe(is_valid=False, is_forbidden=True)
 
-    return response.status_code == 200, False
+    return SquareCredentialProbe(is_valid=response.status_code == 200, is_forbidden=False)
 
 
 def get_rows(

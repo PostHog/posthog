@@ -158,20 +158,20 @@ Grant these read permissions to the token for the data you want to sync:
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        is_valid, is_forbidden = validate_square_credentials(
+        probe = validate_square_credentials(
             config.access_token, config.environment, self.resolve_api_version(api_version), schema_name
         )
-        if is_valid:
+        if probe.is_valid:
             return True, None
 
         # A 403 means the token is genuine but lacks the scope for this endpoint.
         # Accept that at source-create (schema_name=None) — users may only grant
         # scopes for the endpoints they intend to sync — and reject only when
         # validating a specific schema.
-        if is_forbidden and schema_name is None:
+        if probe.is_forbidden and schema_name is None:
             return True, None
 
-        if is_forbidden:
+        if probe.is_forbidden:
             return False, f"The Square access token is missing the permission required to sync '{schema_name}'"
 
         return False, "Invalid Square access token"
