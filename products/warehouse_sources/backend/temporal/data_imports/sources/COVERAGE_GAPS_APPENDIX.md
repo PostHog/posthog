@@ -7813,10 +7813,10 @@ Today (3): `Daily`, `Hourly`, `Monthly`
 
 Diffed against: <https://dev.meteostat.net/api/stations>
 
-- [ ] `Meta Data (GET /stations/meta)` — resolve station_id values into station names, coordinates, elevation, and country (high)
-- [ ] `Climate Normals (GET /stations/normals)` — compare observed weather with long-term monthly averages to measure climate anomalies (medium)
-- [ ] `Point Data (GET /point/hourly; GET /point/daily; GET /point/monthly)` — join weather to business locations through coordinates, without selecting individual weather stations (medium)
-- [ ] `Point Climate Normals (GET /point/normals)` — compare weather at business locations with normal monthly conditions (medium)
+- [x] `Meta Data (GET /stations/meta)` — resolve station_id values into station names, coordinates, elevation, and country (high)
+- [x] `Climate Normals (GET /stations/normals)` — compare observed weather with long-term monthly averages to measure climate anomalies (medium)
+- [x] `Point Data (GET /point/hourly; GET /point/daily; GET /point/monthly)` — join weather to business locations through coordinates, without selecting individual weather stations (medium)
+- [x] `Point Climate Normals (GET /point/normals)` — compare weather at business locations with normal monthly conditions (medium)
 
 Note: The official station and point reference pages, including their GitHub Markdown sources, provided the GET operation list. Existing tables call only station observation endpoints for configured station IDs. Station details need one request per station; point tables need coordinate inputs. Nearby station discovery and the MCP interface are excluded.
 
