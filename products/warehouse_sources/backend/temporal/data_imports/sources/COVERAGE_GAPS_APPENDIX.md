@@ -3160,7 +3160,7 @@ Note: Source exposes 12 static endpoints (settings.py CONFIGCAT_ENDPOINTS) with 
 
 ## Confluence — gaps
 
-Today (8): `attachments`, `blogposts`, `footer_comments`, `inline_comments`, `labels`, `pages`, `spaces`, `tasks`
+Today (10): `attachments`, `blogpost_permissions`, `blogposts`, `footer_comments`, `inline_comments`, `labels`, `page_permissions`, `pages`, `spaces`, `tasks`
 
 Diffed against: <https://dac-static.atlassian.com/cloud/confluence/openapi-v2.v3.json>
 
@@ -3174,6 +3174,7 @@ Diffed against: <https://dac-static.atlassian.com/cloud/confluence/openapi-v2.v3
 - [ ] `GET /pages/{id}/likes/count and /footer-comments/{id}/likes/count` — engagement counts per page and comment (low)
 - [ ] `GET /whiteboards/{id}, /databases/{id}, /embeds/{id}, /folders/{id} (+ /descendants)` — the remaining v2 content types; reachable only via space/page descendant walks (low)
 - [ ] `GET /classification-levels and /pages/{id}/classification-level` — data classification lookup for governance reporting (low)
+- [x] `GET /pages/{id}/permissions and /blogposts/{id}/permissions` — direct read/update restrictions per page and blog post; the database, whiteboard and folder variants are not synced because those content types have no list endpoint to fan out from (medium)
 
 Note: Diffed against the v2 spec above; the users, groups, analytics and audit gaps come from the v1 spec at https://dac-static.atlassian.com/cloud/confluence/swagger.v3.json, since v2 has no user/analytics endpoints. Content types whiteboards/databases/embeds/folders exist in v2 only as fetch-by-id plus ancestors/descendants - there is no top-level list - so they are harder than the rest.
 

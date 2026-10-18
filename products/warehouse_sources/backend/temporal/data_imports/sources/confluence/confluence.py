@@ -1,7 +1,7 @@
 import re
 import base64
 import dataclasses
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from requests import Response
 
@@ -10,13 +10,21 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ClientConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.settings import CONFLUENCE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.confluence.settings import (
+    CONFLUENCE_ENDPOINTS,
+    ConfluenceEndpointConfig,
+)
 
 # Confluence Cloud sites always live under <subdomain>.atlassian.net. Building
 # the host ourselves from a validated subdomain (rather than accepting an
@@ -27,7 +35,12 @@ _ATLASSIAN_HOST_SUFFIX = ".atlassian.net"
 
 @dataclasses.dataclass
 class ConfluenceResumeConfig:
-    next_url: str
+    next_url: Optional[str] = None
+    # Fan-out endpoints resume by parent: the child paths already fully synced, the one in progress,
+    # and its paginator state — see `common.rest_source.__init__._make_paginate_dependent_resource`.
+    completed: Optional[list[str]] = None
+    current: Optional[str] = None
+    child_state: Optional[dict[str, Any]] = None
 
 
 def _site_origin(subdomain: str) -> str:
@@ -76,6 +89,93 @@ class ConfluenceLinkPaginator(JSONResponsePaginator):
             self._next_url = f"{self._site_origin}{self._next_url}"
 
 
+def _client_config(subdomain: str, email: str, api_token: str) -> ClientConfig:
+    return {
+        "base_url": _base_url(subdomain),
+        # Auth (HTTP Basic) is supplied via the framework auth config so the token is
+        # redacted from logs; only the non-secret Accept header is set here.
+        "headers": {"Accept": "application/json"},
+        "auth": {"type": "http_basic", "username": email, "password": api_token},
+        "paginator": ConfluenceLinkPaginator(_site_origin(subdomain)),
+    }
+
+
+def _lift_principal(row: dict[str, Any]) -> dict[str, Any]:
+    # The primary key needs the principal at the top level.
+    principal = row.pop("principal", None) or {}
+    row["principalType"] = principal.get("principalType")
+    row["principalId"] = principal.get("principalId")
+    return row
+
+
+def _source_response(config: ConfluenceEndpointConfig, resource: Resource) -> SourceResponse:
+    return SourceResponse(
+        name=config.name,
+        items=lambda: resource,
+        primary_keys=config.primary_keys,
+        partition_count=1,
+        partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
+        column_hints=resource.column_hints,
+    )
+
+
+def _fanout_source(
+    config: ConfluenceEndpointConfig,
+    subdomain: str,
+    email: str,
+    api_token: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ConfluenceResumeConfig],
+) -> SourceResponse:
+    assert config.fanout is not None
+
+    initial_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and (resume.completed or resume.current):
+            initial_state = {
+                "completed": resume.completed or [],
+                "current": resume.current,
+                "child_state": resume.child_state,
+            }
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(
+                ConfluenceResumeConfig(
+                    completed=state.get("completed"),
+                    current=state.get("current"),
+                    child_state=state.get("child_state"),
+                )
+            )
+
+    # The helper types its return loosely, but it is the framework Resource it built.
+    resource = cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=CONFLUENCE_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=_client_config(subdomain, email, api_token),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            # Permission endpoints have no server-side time filter, so the fan-out is always full refresh.
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "results"},
+            child_endpoint_extra={"data_selector": "results"},
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_state,
+        ),
+    )
+
+    return _source_response(config, resource.add_map(_lift_principal))
+
+
 def confluence_source(
     subdomain: str,
     email: str,
@@ -89,15 +189,11 @@ def confluence_source(
     config = CONFLUENCE_ENDPOINTS[endpoint]
     subdomain = normalize_subdomain(subdomain)
 
+    if config.fanout is not None:
+        return _fanout_source(config, subdomain, email, api_token, team_id, job_id, resumable_source_manager)
+
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": _base_url(subdomain),
-            # Auth (HTTP Basic) is supplied via the framework auth config so the token is
-            # redacted from logs; only the non-secret Accept header is set here.
-            "headers": {"Accept": "application/json"},
-            "auth": {"type": "http_basic", "username": email, "password": api_token},
-            "paginator": ConfluenceLinkPaginator(_site_origin(subdomain)),
-        },
+        "client": _client_config(subdomain, email, api_token),
         "resources": [
             {
                 "name": endpoint,
@@ -114,7 +210,7 @@ def confluence_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -132,17 +228,7 @@ def confluence_source(
         initial_paginator_state=initial_paginator_state,
     )
 
-    return SourceResponse(
-        name=endpoint,
-        items=lambda: resource,
-        primary_keys=[config.primary_key],
-        partition_count=1,
-        partition_size=1,
-        partition_mode="datetime" if config.partition_key else None,
-        partition_format="week" if config.partition_key else None,
-        partition_keys=[config.partition_key] if config.partition_key else None,
-        column_hints=resource.column_hints,
-    )
+    return _source_response(config, resource)
 
 
 def validate_credentials(
