@@ -1,5 +1,6 @@
 import { drop, ok } from '~/ingestion/framework/results'
 import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
+import { PipelineEvent } from '~/types'
 
 import { createValidateEventPropertiesStep } from './validate-event-properties'
 
@@ -100,6 +101,59 @@ describe('createValidateEventPropertiesStep', () => {
                     properties: {},
                 }),
             }
+
+            const result = await step(input)
+
+            expect(result).toEqual(ok(input))
+        })
+    })
+
+    describe('group type validation', () => {
+        const groupIdentify = (groupType: unknown): { event: PipelineEvent } => ({
+            event: createTestPipelineEvent({
+                event: '$groupidentify',
+                distinct_id: 'user123',
+                team_id: 1,
+                properties: { $group_type: groupType, $group_key: 'org_1' },
+            }),
+        })
+
+        it.each([
+            ['a string longer than 400 characters', 'a'.repeat(401), 401],
+            ['an object whose JSON is longer than 400 characters', { blob: 'a'.repeat(400) }, 411],
+        ])('drops $groupidentify with %s', async (_name, groupType, groupTypeLength) => {
+            const input = groupIdentify(groupType)
+
+            const result = await step(input)
+
+            expect(result).toEqual(
+                drop(
+                    'group_type_too_long',
+                    [],
+                    [
+                        {
+                            type: 'group_type_too_long',
+                            details: {
+                                eventUuid: '123e4567-e89b-12d3-a456-426614174000',
+                                event: '$groupidentify',
+                                distinctId: 'user123',
+                                groupKey: 'org_1',
+                                groupType: String(groupType).substring(0, 100),
+                                groupTypeLength,
+                                maxLength: 400,
+                            },
+                        },
+                    ]
+                )
+            )
+        })
+
+        it.each([
+            ['exactly 400 characters', 'a'.repeat(400)],
+            ['a number', 7],
+            ['missing', undefined],
+        ])('allows $groupidentify with group_type %s', async (_name, groupType) => {
+            const input = groupIdentify(groupType)
 
             const result = await step(input)
 
