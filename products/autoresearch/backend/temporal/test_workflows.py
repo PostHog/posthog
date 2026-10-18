@@ -428,19 +428,21 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            ("lost_run_is_retried", [("failed", "other")], None, True, False),
-            ("not_reached_by_the_daily_sweep_is_skipped", [], None, False, False),
+            ("lost_run_is_retried", [("failed", "other")], None, True, None),
+            ("not_reached_by_the_daily_sweep_is_skipped", [], None, False, None),
             (
                 "scored_today_is_skipped",
                 [("failed", "other"), ("completed", None)],
                 datetime(2026, 9, 11, 3),
                 False,
-                False,
+                None,
             ),
-            ("still_running_is_skipped", [("failed", "other"), ("running", None)], None, False, False),
-            ("repeatable_failure_is_skipped", [("failed", "query_failed")], None, False, False),
-            ("not_due_is_skipped", [("failed", "other")], datetime(2026, 9, 11, 1), False, False),
-            ("deferred_while_another_sweep_scores", [("failed", "other")], None, False, True),
+            ("still_running_is_skipped", [("failed", "other"), ("running", None)], None, False, None),
+            ("repeatable_failure_is_skipped", [("failed", "query_failed")], None, False, None),
+            ("not_due_is_skipped", [("failed", "other")], datetime(2026, 9, 11, 1), False, None),
+            ("deferred_while_another_sweep_scores", [("failed", "other")], None, False, timedelta(minutes=10)),
+            ("deferred_while_a_retry_attempt_scores", [("failed", "other")], None, False, timedelta(hours=3)),
+            ("a_stale_running_row_does_not_defer", [("failed", "other")], None, True, timedelta(hours=6)),
         ]
     )
     def test_catch_up_discovery_lists_only_pipelines_whose_run_was_lost(
@@ -449,15 +451,15 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         runs: list[tuple[str, Optional[str]]],
         scored_at: Optional[datetime],
         listed: bool,
-        sweep_in_flight: bool,
+        in_flight_age: Optional[timedelta],
     ) -> None:
         pipeline = self._create_pipeline(last_scored_at=scored_at.replace(tzinfo=UTC) if scored_at else None)
-        if sweep_in_flight:
+        if in_flight_age is not None:
             AutoresearchRun.objects.create(
                 pipeline=self._create_pipeline(),
                 run_type=AutoresearchRun.RunType.INFERENCE,
                 status=AutoresearchRun.Status.RUNNING,
-                started_at=django_timezone.now() - timedelta(minutes=10),
+                started_at=django_timezone.now() - in_flight_age,
                 metrics={"prediction_date": "2026-09-11", "horizon_days": 30, "shadow": True},
             )
         for index, (status, failure_kind) in enumerate(runs):

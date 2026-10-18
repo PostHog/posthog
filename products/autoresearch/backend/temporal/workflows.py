@@ -807,14 +807,16 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
 def _sweep_in_flight() -> bool:
     """True when any inference run, champion or shadow, is RUNNING inside one attempt's timeout.
 
-    A RUNNING row older than ``_SCORE_ATTEMPT_TIMEOUT`` has no live attempt behind it, so it does not count.
+    The window is ``INFERENCE_WORKFLOW_TIMEOUT``, not one attempt's timeout, because a retry reuses the
+    row of the attempt before it and keeps its ``started_at``. A RUNNING row older than the window has
+    no live attempt behind it, and ``fail_stale_inference_runs()`` fails it before this check runs.
     """
     return (
         AutoresearchRun.objects.unscoped()
         .filter(
             run_type=AutoresearchRun.RunType.INFERENCE,
             status=AutoresearchRun.Status.RUNNING,
-            started_at__gte=django_timezone.now() - _SCORE_ATTEMPT_TIMEOUT,
+            started_at__gte=django_timezone.now() - INFERENCE_WORKFLOW_TIMEOUT,
         )
         .exists()
     )
