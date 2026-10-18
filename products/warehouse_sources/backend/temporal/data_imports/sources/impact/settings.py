@@ -48,7 +48,7 @@ class NestedTableConfig:
     line_number_field: str = "LineNumber"
 
 
-@dataclass
+@dataclass(frozen=True)
 class ImpactEndpointConfig:
     name: str
     # Path relative to https://api.impact.com/Advertisers/{account_sid}. When campaign_id_in_path is

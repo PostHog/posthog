@@ -225,6 +225,7 @@ class TestGetRowsSurveyResponses:
                 ["/Advertisers/sid/Programs/10/Surveys/2/Responses"],
                 [{"Id": 6, "CampaignId": 10, "SurveyId": 2}],
             ),
+            ("resume_after_completed_program", ImpactResumeConfig(campaign_id=20), [], []),
         ]
     )
     def test_walks_programs_and_surveys(
@@ -251,7 +252,7 @@ class TestGetRowsSurveyResponses:
         assert [path for path in result.paths if path.endswith("/Responses")] == expected_response_paths
         assert "/Advertisers/sid/Programs/20/Surveys" in result.paths
         assert result.rows == expected_rows
-        assert result.saved_states[-1] == ImpactResumeConfig(campaign_id=10, survey_id=2)
+        assert result.saved_states[-1] == ImpactResumeConfig(campaign_id=21)
 
 
 class TestImpactSourceResponse:

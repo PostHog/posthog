@@ -26,7 +26,7 @@ REQUEST_TIMEOUT_SECONDS = 60
 SURVEYS_PATH = "/Programs/{campaign_id}/Surveys"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ImpactResumeConfig:
     # Simple (non-fan-out) endpoints: the last page fetched. Re-fetched on resume (merge dedupes).
     page: Optional[int] = None
@@ -315,12 +315,21 @@ def _get_rows_survey_responses(
                 if isinstance(row, dict) and (survey_id := _safe_int(row.get("Id"))) is not None
             }
         )
-        for survey_id in survey_ids:
-            if campaign_id == resume_campaign_id and resume_survey_id is not None and survey_id <= resume_survey_id:
-                continue
+        if campaign_id == resume_campaign_id and resume_survey_id is not None:
+            survey_ids = [survey_id for survey_id in survey_ids if survey_id > resume_survey_id]
+        # Campaign ids are walked in ascending order, so the next id marks this whole program as done.
+        program_done = ImpactResumeConfig(campaign_id=campaign_id + 1)
+        if not survey_ids:
+            resumable_source_manager.save_state(program_done)
+            resumable_source_manager.safe_point()
+            continue
+        for index, survey_id in enumerate(survey_ids):
             path = config.path.format(campaign_id=campaign_id, survey_id=survey_id)
             rows = _rows_from_response(config, _fetch_or_none(session, account_sid, path, {}, logger))
-            resumable_source_manager.save_state(ImpactResumeConfig(campaign_id=campaign_id, survey_id=survey_id))
+            is_last_survey = index == len(survey_ids) - 1
+            resumable_source_manager.save_state(
+                program_done if is_last_survey else ImpactResumeConfig(campaign_id=campaign_id, survey_id=survey_id)
+            )
             if rows:
                 for row in rows:
                     row["CampaignId"] = campaign_id
@@ -328,7 +337,6 @@ def _get_rows_survey_responses(
                 yield rows
             else:
                 resumable_source_manager.safe_point()
-        resumable_source_manager.safe_point()
 
 
 def _get_rows_nested(
