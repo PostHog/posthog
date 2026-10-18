@@ -138,9 +138,15 @@ export function Max({ tabId }: MaxProps): JSX.Element {
 export interface MaxInstanceProps {
     sidePanel?: boolean
     tabId?: string
+    /** Replaces the side panel header. Pass `null` when the host draws its own header. */
+    header?: JSX.Element | null
 }
 
-export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
+export const MaxInstance = React.memo(function MaxInstance({
+    sidePanel,
+    tabId,
+    header: headerOverride,
+}: MaxInstanceProps): JSX.Element {
     // `sidePanel` here is presentational (side panel chrome/layout) and is independent of the logic
     // identity we bind: a tabId identifies a scene tab (or a Storybook instance rendered with side
     // panel chrome), while the real side panel — which has no tabId — binds the side panel panelId.
@@ -326,8 +332,12 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
             content must stay clamped to the panel height — without `min-h-0` its `min-height: auto`
             grows it to fit the whole thread and no scroller ever engages. The legacy view is the
             opposite: it relies on this container growing so the outer viewport scrolls it. */}
-            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isTaskView && 'min-h-0')}>
-                {header}
+            <SidePanelContentContainer
+                // A host that draws its own header also draws the frame, so the focus ring would double its edges.
+                className={cn(headerOverride !== undefined && 'focus-within:ring-0')}
+                contentClassName={cn('flex flex-col flex-1', isTaskView && 'min-h-0')}
+            >
+                {headerOverride !== undefined ? headerOverride : header}
                 {content}
             </SidePanelContentContainer>
         </>

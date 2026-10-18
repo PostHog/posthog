@@ -13,6 +13,7 @@ import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { GoalSpendMode, goalSpendChoice, replayScannerLogic } from '../replayScannerLogic'
 import { ScannerTemplate, defaultScannerTemplates } from '../scannerTemplates'
+import { ScannerGoalExperimentStarter } from './ScannerGoalExperimentStarter'
 import { ScannerResumeDraftBanner } from './ScannerResumeDraftBanner'
 import { SCANNER_TEMPLATE_ICONS } from './scannerTemplateIcons'
 import { startScannerFromTemplate } from './startScannerFromTemplate'
@@ -27,6 +28,7 @@ interface PendingDraft {
     templateKey?: string
     budget: number | undefined
     freeOnly: boolean
+    experimentId?: number
 }
 
 /** The goal-based creation flow: a typed goal and a monthly budget on the left, one-click starting
@@ -34,7 +36,8 @@ interface PendingDraft {
  * step to review it, so a one-click start still gets a scanner fitted to the project. */
 export function ScannerGoalFlow(): JSX.Element {
     const logic = replayScannerLogic({ id: 'new' })
-    const { goalDraftInput, goalBudgetInput, goalSpendMode, goalDraftLoading, experimentContext } = useValues(logic)
+    const { goalDraftInput, goalBudgetInput, goalSpendMode, goalDraftLoading, linkedExperimentContext } =
+        useValues(logic)
     const { draftScannerFromGoal, setGoalDraftInput, setGoalBudgetInput, setGoalSpendMode } = useActions(logic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
     const { freeCreditsLeft } = useValues(visionQuotaLogic)
@@ -55,8 +58,8 @@ export function ScannerGoalFlow(): JSX.Element {
     const typedGoalDisabledReason =
         startDisabledReason ?? (!goalDraftInput.trim() ? 'Describe what you want to find out' : null)
 
-    const start = (goal: string, templateKey?: string): void => {
-        const request = { goal, templateKey, budget: spend.budget, freeOnly: spendMode === 'free' }
+    const start = (goal: string, templateKey?: string, experimentId?: number): void => {
+        const request = { goal, templateKey, budget: spend.budget, freeOnly: spendMode === 'free', experimentId }
         // Drafting calls an AI endpoint the backend rejects without org consent; interpose the
         // popover instead of letting the request 400.
         if (!dataProcessingAccepted) {
@@ -65,8 +68,8 @@ export function ScannerGoalFlow(): JSX.Element {
         }
         draft(request)
     }
-    const draft = ({ goal, templateKey, budget, freeOnly }: PendingDraft): void => {
-        draftScannerFromGoal(goal, budget, templateKey, freeOnly)
+    const draft = ({ goal, templateKey, budget, freeOnly, experimentId }: PendingDraft): void => {
+        draftScannerFromGoal(goal, budget, templateKey, freeOnly, experimentId)
     }
     const startFromTypedGoal = (): void => {
         if (!typedGoalDisabledReason) {
@@ -117,10 +120,10 @@ export function ScannerGoalFlow(): JSX.Element {
                             </div>
                             {/* A draft restored from an earlier experiment-scoped session keeps its targeting
                                 through this flow, so say whose sessions the scanner ends up watching. */}
-                            {experimentContext ? (
+                            {linkedExperimentContext ? (
                                 <div className="text-xs text-muted">
-                                    This scanner keeps watching people exposed to {experimentContext.experiment.name}.
-                                    You don't have to mention the experiment.
+                                    This scanner keeps watching people exposed to{' '}
+                                    {linkedExperimentContext.experiment.name}. You don't have to mention the experiment.
                                 </div>
                             ) : null}
                         </div>
@@ -222,6 +225,13 @@ export function ScannerGoalFlow(): JSX.Element {
                                     {template.goal_question}
                                 </LemonButton>
                             ))}
+                            {/* Inside the consent popover's reference, which would give its buttons dropdown arrows. */}
+                            <PopoverReferenceContext.Provider value={null}>
+                                <ScannerGoalExperimentStarter
+                                    disabledReason={startDisabledReason}
+                                    onDraft={(goal, experimentId) => start(goal, 'track_experiment', experimentId)}
+                                />
+                            </PopoverReferenceContext.Provider>
                         </div>
                     </div>
                 </div>

@@ -53,6 +53,14 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertNotIn(field_name, serializer.fields)
         self.assertFalse(any(field.read_only for field in serializer.fields.values()))
 
+    def test_conversations_settings_ai_reply_modes_requires_an_object(self):
+        # Checks that the real PATCH request runs the shared validator. test_team.py covers its other cases.
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/",
+            {"conversations_settings": {"ai_reply_modes": ["not", "a", "dict"]}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_projects_outside_personal_api_key_scoped_organizations_not_listed(self):
         other_org, _, team_in_other_org = Organization.objects.bootstrap(self.user)
         personal_api_key = generate_random_token_personal()
@@ -1458,6 +1466,40 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         config.refresh_from_db()
         self.assertEqual(config.precomputation_enabled_set_by, TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL)
+
+    def test_experiments_config_changes_are_logged_as_team_activity(self):
+        # The first read creates the config row with defaults, which is not a change anyone made.
+        self.client.get(f"/api/projects/{self.project.id}/experiments_config/")
+        team_activity = ActivityLog.objects.filter(team_id=self.project.id, scope="Team", item_id=str(self.project.id))
+        self.assertEqual(team_activity.count(), 0)
+
+        response = self.client.patch(
+            f"/api/projects/{self.project.id}/experiments_config/",
+            {"default_cuped_enabled": True, "experiment_precomputation_enabled": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        log = team_activity.get()
+        self.assertEqual(log.activity, "updated")
+        self.assertEqual(log.user, self.user)
+        assert log.detail is not None
+        # Precomputation is managed by PostHog, so only the customer's own setting is recorded.
+        self.assertEqual(
+            log.detail["changes"],
+            [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
+        )
+
+    def test_experiments_config_created_with_non_default_values_is_logged(self):
+        # The Django admin creates the row and sets values in one save, so there is no update to diff.
+        TeamExperimentsConfig.objects.create(team=self.team, default_cuped_enabled=True)
+
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="Team", item_id=str(self.team.id))
+        assert log.detail is not None
+        self.assertEqual(
+            log.detail["changes"],
+            [{"type": "Team", "action": "changed", "field": "default_cuped_enabled", "before": False, "after": True}],
+        )
 
     def test_experiments_config_recalculation_times_write_and_clear(self):
         response = self.client.patch(

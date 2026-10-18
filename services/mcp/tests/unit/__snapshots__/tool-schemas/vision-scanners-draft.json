@@ -2,6 +2,12 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "Body of POST /vision/scanners/draft/ — the user's goal, stated in their own words.",
     "properties": {
+        "experiment_id": {
+            "description": "Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.",
+            "maximum": 2147483647,
+            "minimum": 1,
+            "type": "number"
+        },
         "goal": {
             "description": "What the user wants to accomplish, e.g. 'find out where users get stuck during onboarding'.",
             "maxLength": 2000,

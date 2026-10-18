@@ -48,6 +48,18 @@ CIRCLECI_ENDPOINTS: dict[str, CircleCIEndpointConfig] = {
         # target. last_deployed_at moves on every redeploy, so there is no partition key.
         primary_keys=["component_id", "environment_id", "namespace", "name"],
     ),
+    "environments": CircleCIEndpointConfig(
+        name="environments",
+        partition_key="created_at",
+    ),
+    "groups": CircleCIEndpointConfig(
+        name="groups",
+    ),
+    "collaborations": CircleCIEndpointConfig(
+        name="collaborations",
+        # The spec marks the organization id nullable, while the slug is required and unique.
+        primary_keys=["slug"],
+    ),
     "users": CircleCIEndpointConfig(
         name="users",
     ),

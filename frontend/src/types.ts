@@ -82,7 +82,6 @@ import type {
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
     TileFilters,
-    UserProductListItem,
     UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
@@ -945,6 +944,8 @@ export interface WorkflowsConfig {
     // Null uses the product default.
     workflow_task_rate_limit_per_day?: number | null
     workflow_task_team_rate_limit_per_day?: number | null
+    replay_vision_scan_rate_limit_per_day?: number | null
+    replay_vision_scan_team_rate_limit_per_day?: number | null
     default_email_integration_id?: number | null
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
@@ -1121,6 +1122,7 @@ export enum PropertyOperator {
     In = 'in',
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
+    IsCleanedPathNotExact = 'is_cleaned_path_not_exact',
     FlagEvaluatesTo = 'flag_evaluates_to',
     SemverEq = 'semver_eq',
     SemverNeq = 'semver_neq',
@@ -5268,19 +5270,6 @@ export interface ExperimentVelocityStats {
     completed_last_30d: number
 }
 
-export interface FunnelExperimentVariant {
-    key: string
-    success_count: number
-    failure_count: number
-}
-
-export interface TrendExperimentVariant {
-    key: string
-    count: number
-    exposure: number
-    absolute_exposure: number
-}
-
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
@@ -5376,7 +5365,6 @@ export interface AppContext {
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
-    custom_products: UserProductListItem[]
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5402,14 +5390,6 @@ export interface PathEdgeParameters {
     edgeLimit?: number | undefined
     minEdgeWeight?: number | undefined
     maxEdgeWeight?: number | undefined
-}
-
-export enum SignificanceCode {
-    Significant = 'significant',
-    NotEnoughExposure = 'not_enough_exposure',
-    LowWinProbability = 'low_win_probability',
-    HighLoss = 'high_loss',
-    HighPValue = 'high_p_value',
 }
 
 export enum HelpType {
@@ -7405,6 +7385,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'replay_vision_scan'
         | 'task_skills'
     key: string
     label: string

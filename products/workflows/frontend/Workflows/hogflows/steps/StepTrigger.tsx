@@ -870,7 +870,7 @@ function StepTriggerConfigurationTrackingPixel({
     )
 }
 
-const TTL_OPTIONS = [
+export const TTL_OPTIONS = [
     { value: null, label: 'indefinitely' },
     { value: 5 * 60, label: '5 minutes' },
     { value: 15 * 60, label: '15 minutes' },

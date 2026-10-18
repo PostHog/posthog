@@ -33,6 +33,7 @@ import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
+import { transactionalEmailRequestsTotal } from './services/hogflows/transactional-email'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2033,6 +2034,130 @@ describe('CDP API', () => {
             } finally {
                 api['stepResumeJwt'] = savedJwt
             }
+        })
+    })
+
+    describe('transactional email', () => {
+        let mockQueueInvocations: jest.Mock
+        let hogFlow: HogFlow
+        const body = {
+            to: 'user@example.com',
+            distinct_id: 'distinct_A_1',
+            variables: { reset_link: 'https://example.com/reset' },
+        }
+
+        // Raw audience literal and Python claim names: the wire contract with Django's
+        // WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_PURPOSE, so drift on either side breaks here.
+        const mintToken = (
+            teamId: number,
+            hogFlowId: string,
+            {
+                secret = 'local-dev-workflows-transactional-email-jwt',
+                audience = 'posthog:workflows:send_transactional_email',
+            } = {}
+        ) => jwt.sign({ team_id: teamId, hog_flow_id: hogFlowId }, secret, { audience, expiresIn: '2m' })
+
+        const transactionalFlow = (trigger: 'api' | 'schedule', status: HogFlow['status']): HogFlow =>
+            new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withStatus(status)
+                .withExitCondition('exit_only_at_end')
+                .withWorkflow({
+                    actions: {
+                        trigger: { type: 'trigger', config: { type: trigger } },
+                        email: { type: 'function_email', config: { template_id: 'template-email', inputs: {} } },
+                    },
+                    edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
+                })
+                .build()
+
+        // The alerts on this endpoint key on these outcome labels.
+        const outcomeCount = async (outcome: string): Promise<number> =>
+            (await transactionalEmailRequestsTotal.get()).values.find((v) => v.labels.outcome === outcome)?.value ?? 0
+
+        const send = (flowId: string, headers: Record<string, string>) =>
+            supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/transactional_email`)
+                .set(headers)
+                .send(body)
+
+        beforeEach(async () => {
+            mockQueueInvocations = jest.fn().mockResolvedValue(undefined)
+            api['hogflowQueue'] = { queueInvocations: mockQueueInvocations } as any
+            hogFlow = await insertHogFlow(transactionalFlow('api', 'active'))
+        })
+
+        it('queues one run on the email fast lane with the recipient and the data', async () => {
+            const queueAppMetric = jest.spyOn(api['hogFunctionMonitoringService'], 'queueAppMetric')
+            const queuedBefore = await outcomeCount('queued')
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
+            expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            const [invocation] = mockQueueInvocations.mock.calls[0][0]
+            expect(invocation).toMatchObject({
+                id: res.body.invocation_id,
+                teamId: team.id,
+                functionId: hogFlow.id,
+                queue: 'email',
+                queuePriority: 0,
+                state: {
+                    event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
+                    variables: { reset_link: 'https://example.com/reset' },
+                },
+            })
+            // The run counts as started in the workflow's metrics, like an event-triggered run.
+            expect(queueAppMetric).toHaveBeenCalledWith(
+                expect.objectContaining({ app_source_id: hogFlow.id, metric_name: 'triggered', count: 1 }),
+                'hog_flow'
+            )
+        })
+
+        it('refuses a send when the team is over its email quota', async () => {
+            jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+            const limitedBefore = await outcomeCount('quota_limited')
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(429)
+            expect(await outcomeCount('quota_limited')).toEqual(limitedBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['a workflow with another trigger', 'schedule', 'active'],
+            ['a transactional email that is not active', 'api', 'draft'],
+        ] as const)('refuses to run %s', async (_desc, trigger, status) => {
+            const other = await insertHogFlow(transactionalFlow(trigger, status))
+
+            const res = await send(other.id, { Authorization: `Bearer ${mintToken(team.id, other.id)}` })
+
+            expect(res.status).toEqual(400)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['no token', () => ({})],
+            [
+                "another workflow's token",
+                () => ({ Authorization: `Bearer ${mintToken(team.id, new UUIDT().toString())}` }),
+            ],
+            ["another team's token", () => ({ Authorization: `Bearer ${mintToken(team.id + 1, hogFlow.id)}` })],
+            [
+                'a step-resume-audience token',
+                () => ({
+                    Authorization: `Bearer ${mintToken(team.id, hogFlow.id, {
+                        audience: 'posthog:workflows:step_resume',
+                    })}`,
+                }),
+            ],
+        ])('rejects a request with %s', async (_desc, headers) => {
+            const res = await send(hogFlow.id, headers())
+
+            expect(res.status).toEqual(401)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
     })
 
