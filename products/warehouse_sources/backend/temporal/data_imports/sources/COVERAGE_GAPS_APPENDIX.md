@@ -2815,14 +2815,14 @@ Today (8): `audit_log`, `entitlements`, `members`, `packages`, `repositories`, `
 
 Diffed against: <https://api.cloudsmith.io/openapi/?format=openapi>
 
-- [ ] `Package usage metrics (GET /metrics/packages/{owner}/{repo}/)` — analyze package downloads over time and identify heavily used versions (high)
-- [ ] `Quota history (GET /quota/history/{owner}/)` — track bandwidth and storage consumption over time to forecast package hosting costs (high)
-- [ ] `Package dependencies (GET /packages/{owner}/{repo}/{identifier}/dependencies/)` — connect packages to direct and transitive dependencies for vulnerability impact analysis (medium)
+- [ ] `Package usage metrics (GET /metrics/packages/{owner}/{repo}/)` — analyze package downloads over time and identify heavily used versions (high); skipped, the endpoint returns one repository-wide summary object (active and inactive package counts plus download and bandwidth aggregates), not per-package or per-period rows
+- [x] `Quota history (GET /quota/history/{owner}/)` — track bandwidth and storage consumption over time to forecast package hosting costs (high). Added as `quota_history`.
+- [x] `Package dependencies (GET /packages/{owner}/{repo}/{identifier}/dependencies/)` — connect packages to direct and transitive dependencies for vulnerability impact analysis (medium). Added as `package_dependencies` (fan-out over repositories, then packages).
 - [ ] `Entitlement usage metrics (GET /metrics/entitlements/{owner}/)` — attribute package consumption to customers or distribution entitlements (medium)
 - [ ] `Team members (GET /orgs/{org}/teams/{team}/members)` — connect synced teams to organization members for access and ownership analysis (medium)
 - [ ] `License policy violations (GET /orgs/{org}/license-policy-violation/)` — identify packages that breach license policies and measure compliance exposure (medium)
 - [ ] `Vulnerability policy violations (GET /orgs/{org}/vulnerability-policy-violation/)` — distinguish policy failures from scan findings and prioritize affected packages (medium)
-- [ ] `Repository audit log (GET /audit-log/{owner}/{repo}/)` — analyze repository activity through its dedicated log beyond the namespace log currently synced (medium)
+- [x] `Repository audit log (GET /audit-log/{owner}/{repo}/)` — analyze repository activity through its dedicated log beyond the namespace log currently synced (medium). Added as `repository_audit_log` (fan-out over repositories).
 
 Note: The official OpenAPI specification was parsed for all GET operations and response schemas. Existing repository requests already cover packages, entitlements, and webhooks; the audit table calls the namespace log. Dependencies need requests per package, while team membership needs requests per team. Credentials, policy configuration, and upload operations were excluded.
 
