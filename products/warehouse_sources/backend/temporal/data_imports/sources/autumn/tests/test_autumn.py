@@ -140,6 +140,57 @@ class TestAutumnSourceBehavior:
         assert all(request.json()["custom_range"] == {"start": WATERMARK_MS} for request in result.requests)
         assert result.raised is None
 
+    @pytest.mark.parametrize("api_version", ["2.3.0", "2.4.0"])
+    def test_licenses_fan_out_walks_every_customer_page(self, api_version: str) -> None:
+        responses = [
+            ScriptedResponse(json={"list": [{"id": "cus_1"}, {"id": None}], "next_cursor": "cursor-1"}),
+            ScriptedResponse(json={"list": [{"license_plan_id": "seat", "parent_plan_id": "pro", "usage": 3}]}),
+            ScriptedResponse(json={"list": [{"id": "cus_2"}, {"id": "cus_3"}], "next_cursor": None}),
+            ScriptedResponse(json={"list": []}),
+            ScriptedResponse(json={"list": [{"license_plan_id": "seat", "parent_plan_id": "team", "usage": 1}]}),
+        ]
+        result = self._driver().run("Licenses", responses, api_version=api_version)
+
+        assert [(request.path, request.json()) for request in result.requests] == [
+            ("/v1/customers.list", {"limit": 100}),
+            ("/v1/licenses.list", {"customer_id": "cus_1"}),
+            ("/v1/customers.list", {"limit": 100, "start_cursor": "cursor-1"}),
+            ("/v1/licenses.list", {"customer_id": "cus_2"}),
+            ("/v1/licenses.list", {"customer_id": "cus_3"}),
+        ]
+        assert all(request.headers["x-api-version"] == api_version for request in result.requests)
+        assert result.rows == [
+            {"license_plan_id": "seat", "parent_plan_id": "pro", "usage": 3, "customer_id": "cus_1"},
+            {"license_plan_id": "seat", "parent_plan_id": "team", "usage": 1, "customer_id": "cus_3"},
+        ]
+        assert result.saved_states == [
+            AutumnResumeConfig(next_cursor=None, customer_index=1),
+            AutumnResumeConfig(next_cursor=None, customer_index=2),
+            AutumnResumeConfig(next_cursor="cursor-1", customer_index=0),
+            AutumnResumeConfig(next_cursor="cursor-1", customer_index=1),
+            AutumnResumeConfig(next_cursor="cursor-1", customer_index=2),
+        ]
+        assert result.raised is None
+
+    def test_licenses_resume_refetches_the_customer_page_and_skips_done_customers(self) -> None:
+        responses = [
+            ScriptedResponse(json={"list": [{"id": "cus_2"}, {"id": "cus_3"}], "next_cursor": None}),
+            ScriptedResponse(json={"list": [{"license_plan_id": "seat", "parent_plan_id": "team"}]}),
+        ]
+        result = self._driver().run(
+            "Licenses",
+            responses,
+            resume_state=AutumnResumeConfig(next_cursor="cursor-1", customer_index=1),
+            api_version="2.4.0",
+        )
+
+        assert [request.json() for request in result.requests] == [
+            {"limit": 100, "start_cursor": "cursor-1"},
+            {"customer_id": "cus_3"},
+        ]
+        assert [row["customer_id"] for row in result.rows] == ["cus_3"]
+        assert result.raised is None
+
     @pytest.mark.parametrize(
         ("endpoint", "selector", "row_id"),
         [

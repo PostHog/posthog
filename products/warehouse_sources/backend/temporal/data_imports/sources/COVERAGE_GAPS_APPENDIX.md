@@ -1010,11 +1010,11 @@ Note: Automox publishes six separate Scalar specs at /api/docs/specs/\*.json (co
 
 ## Autumn — adequate
 
-Today (8): `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Plans`
+Today (9): `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Licenses`, `Plans`
 
 Diffed against: <https://docs.useautumn.com/llms.txt>
 
-No material gaps found.
+- [x] `Licenses (POST /v1/licenses.list)` — per-customer license pools with granted, assigned, and remaining seats (medium)
 
 Note: Every list endpoint in the API reference is already synced: listCustomers, listEntities, listEvents, listFeatures, listInvoices, listPlans, and listRewards (which is the source of both the Coupons and FeatureGrants tables). Remaining endpoints are single-object gets, mutations (attach/track/check/balance ops), preview calculators, key minting, webhook payload docs, and the multi-tenant platform endpoints (list-orgs/list-users) that only apply to platform master orgs. aggregateEvents is a computed rollup over the Events table we already have.
 
