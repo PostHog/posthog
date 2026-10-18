@@ -750,6 +750,8 @@ const organizationGet = (): ToolBase<ReturnType<typeof OrganizationGetSchema>, S
             'teams.*.project_id',
             'projects.*.id',
             'projects.*.name',
+            'available_product_features.*.key',
+            'available_product_features.*.limit',
         ]) as typeof result
         return filtered
     },

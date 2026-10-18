@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { getToolsFromContext } from '@/tools'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
 import { GENERATED_TOOLS } from '@/tools/generated/core'
 import type { Context } from '@/tools/types'
 
@@ -64,6 +65,25 @@ describe('project-create', () => {
             organization: 'org-abc',
             api_token: 'phc_public',
             created_at: '2026-09-19T00:00:00Z',
+        })
+    })
+
+    it('can read the project limit from organization-get, as its description tells the agent to', async () => {
+        const request = vi.fn().mockResolvedValue({
+            id: 'org-abc',
+            name: 'Acme',
+            projects: [{ id: 1, name: 'Default' }],
+            available_product_features: [
+                { key: 'organizations_projects', name: 'Projects', limit: 6, unit: 'projects' },
+                { key: 'group_analytics', name: 'Group analytics' },
+            ],
+        })
+
+        const result = await GENERATED_TOOL_MAP['organization-get']!().handler(createMockContext(request), {})
+
+        expect(result).toMatchObject({
+            projects: [{ id: 1, name: 'Default' }],
+            available_product_features: [{ key: 'organizations_projects', limit: 6 }, { key: 'group_analytics' }],
         })
     })
 
