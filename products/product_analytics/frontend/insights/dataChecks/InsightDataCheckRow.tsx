@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconWarning } from '@posthog/icons'
 import { Button, Dot, Text, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
-import { AgentPromptButton } from 'lib/components/AgentPromptButton/AgentPromptButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -15,7 +14,6 @@ import type {
     InsightDataCheckLevelEnumApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
-import { dataCheckFixPrompt } from './dataCheckFixPrompt'
 import { dataCheckText } from './dataCheckText'
 import { insightDataChecksLogic } from './insightDataChecksLogic'
 
@@ -62,8 +60,8 @@ export function InsightDataCheckRow({
     insightProps: InsightLogicProps
     check: InsightDataCheckApi
 }): JSX.Element {
-    const { promptContext, filtersTestAccounts } = useValues(insightDataChecksLogic(insightProps))
-    const { filterOutInternalUsers, reportFixPromptSent } = useActions(insightDataChecksLogic(insightProps))
+    const { filtersTestAccounts } = useValues(insightDataChecksLogic(insightProps))
+    const { filterOutInternalUsers } = useActions(insightDataChecksLogic(insightProps))
     const text = dataCheckText(check, filtersTestAccounts)
     const isFinding = check.level === 'warning' || check.level === 'problem'
 
@@ -97,22 +95,6 @@ export function InsightDataCheckRow({
             </Tooltip>
             {text.fix && (
                 <div className="flex flex-col items-start gap-1.5 ps-8 pe-2 pt-0.5 pb-2">
-                    {promptContext && (
-                        <AgentPromptButton
-                            size="sm"
-                            variant="outline"
-                            labelMode="destination"
-                            data-attr="insight-data-check-fix-with-ai"
-                            onRun={({ agentKey }) => reportFixPromptSent(check, agentKey)}
-                            actions={[
-                                {
-                                    key: 'fix',
-                                    label: 'fix prompt',
-                                    buildPrompt: () => dataCheckFixPrompt(check, promptContext),
-                                },
-                            ]}
-                        />
-                    )}
                     <Text size="xs" variant="muted">
                         {text.fix}
                     </Text>
