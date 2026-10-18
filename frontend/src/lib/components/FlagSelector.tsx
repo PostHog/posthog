@@ -10,9 +10,10 @@ import {
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { productHasEffectiveNoneAccess } from 'lib/utils/accessControlUtils'
-import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 
 import { AccessControlResourceType, FeatureFlagBasicType } from '~/types'
+
+import { flagSelectorLogic } from './flagSelectorLogic'
 
 interface FlagSelectorProps {
     value: number | undefined
@@ -85,7 +86,7 @@ export function FlagSelector({
     // us to cover that gap.
     const [selectedFlag, setSelectedFlag] = useState<PickedFlag | undefined>(undefined)
 
-    const { featureFlag } = useValues(featureFlagLogic({ id: value || 'link' }))
+    const { flagKey } = useValues(flagSelectorLogic({ id: value }))
 
     const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         groupType: TaxonomicFilterGroupType.FeatureFlags,
@@ -115,7 +116,7 @@ export function FlagSelector({
         : undefined
 
     const buttonLabel = flagSelectorButtonLabel({
-        flagKey: featureFlag.key,
+        flagKey,
         value,
         pickedFlag: selectedFlag,
         initialButtonLabel,

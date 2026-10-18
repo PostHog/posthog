@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { timeoutGuard } from '~/common/utils/db/utils'
+import { asPostgresParameterText, timeoutGuard } from '~/common/utils/db/utils'
 import { LazyLoader, LoaderRetryOptions } from '~/common/utils/lazy-loader'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -9,6 +10,14 @@ import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectI
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
+
+/** posthog_grouptypemapping.group_type is varchar(400); a longer value makes the insert fail. */
+export const MAX_GROUP_TYPE_LENGTH = 400
+
+const groupTypeTooLongCounter = new Counter({
+    name: 'group_type_too_long_total',
+    help: 'Group type resolutions skipped because the type exceeds the column length.',
+})
 
 export interface GroupTypeManagerOptions {
     /** Retry transient group-type-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
@@ -80,6 +89,11 @@ export class GroupTypeManager {
         groupType: string,
         eventTimestamp: DateTime
     ): Promise<GroupTypeIndex | null> {
+        if (asPostgresParameterText(groupType).length > MAX_GROUP_TYPE_LENGTH) {
+            groupTypeTooLongCounter.inc()
+            return null
+        }
+
         const existingIndex = await this.lookupGroupTypeIndex(projectId, groupType)
         if (existingIndex !== null) {
             return existingIndex

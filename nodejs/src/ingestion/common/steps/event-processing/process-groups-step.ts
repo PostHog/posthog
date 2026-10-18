@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { sanitizeString } from '~/common/utils/db/utils'
+import { asPostgresParameterText, sanitizeString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -123,7 +123,7 @@ function validateGroupSet(preparedEvent: PreIngestionEvent): PipelineWarning | n
         details: {
             eventUuid: preparedEvent.eventUuid,
             distinctId: preparedEvent.distinctId,
-            groupType: String(groupType),
+            groupType: asPostgresParameterText(groupType),
             groupKey: sanitizeString(String(groupKey)),
             receivedType: Array.isArray(groupPropertiesToSet) ? 'array' : typeof groupPropertiesToSet,
         },

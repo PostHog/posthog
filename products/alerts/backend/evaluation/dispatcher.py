@@ -7,6 +7,8 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.schema import AlertCondition, InsightThreshold, IntervalType, NodeKind
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.services.query import ExecutionMode
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
@@ -66,6 +68,23 @@ def _resolve_execution_mode(alert: AlertConfiguration, kind: NodeKind, query: ob
     return execution_mode_for_alert(interval, high_frequency=alert.is_high_frequency_interval)
 
 
+@contextmanager
+def owner_sql_errors(query: object) -> Iterator[None]:
+    """Raise a user-safe failure of a SQL insight's own query as an ``AlertExtractionError``.
+
+    The owner wrote the query, such as a HogQL call with the wrong arguments or a column type
+    mismatch, and it fails the same way until they fix it. Other kinds keep the ordinary path,
+    because PostHog builds their SQL and the error can be a bug. A transient ClickHouse error also
+    keeps the ordinary path, because the query itself can be sound.
+    """
+    try:
+        yield
+    except (ExposedHogQLError, ExposedCHQueryError) as err:
+        if isinstance(err, CH_TRANSIENT_ERRORS) or get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
+            raise
+        raise AlertExtractionError(str(err)) from err
+
+
 def run_extractor(
     extractor: Extractor,
     alert: AlertConfiguration,
@@ -86,20 +105,16 @@ def run_extractor(
     ``posthog/hogql_queries/query_failure_handling.py``), and disabling on it would silence a
     working alert over a load problem, so it keeps the ordinary failure path.
 
-    A SQL insight that ClickHouse rejects with a user-safe error, such as a column type mismatch,
-    gets the same verdict: the owner wrote the query, and it fails the same way until they fix it.
-    Other kinds keep the ordinary path, because PostHog builds their SQL and the error can be a bug.
+    A SQL insight that HogQL or ClickHouse rejects with a user-safe error gets the same verdict
+    (see ``owner_sql_errors``).
     """
     try:
-        return extractor.extract(alert, insight, query, execution_mode)
+        with owner_sql_errors(query):
+            return extractor.extract(alert, insight, query, execution_mode)
     except DRFValidationError as err:
         if getattr(err, "served_from_query_failure_cache", False):
             raise
         raise AlertExtractionError(rule_violation_message(err)) from err
-    except ExposedCHQueryError as err:
-        if isinstance(err, CH_TRANSIENT_ERRORS) or get_from_dict_or_attr(query, "kind") != NodeKind.HOG_QL_QUERY:
-            raise
-        raise AlertExtractionError(str(err)) from err
 
 
 def check_detector_alert(
