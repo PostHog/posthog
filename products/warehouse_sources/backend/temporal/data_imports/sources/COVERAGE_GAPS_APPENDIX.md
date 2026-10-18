@@ -10183,10 +10183,10 @@ Today (3): `Listings`, `Orders`, `Payouts`
 
 Diffed against: <https://www.reverb-api.com/docs>
 
-- [ ] `Payout line items (GET /api/my/payouts/{payout_id}/line_items)` — reconcile payout totals with orders, fees, refunds, and individual financial entries (high)
-- [ ] `Refund requests (GET /api/my/refund_requests/selling)` — measure returned orders, refund amounts, reasons, and seller response status (high)
-- [ ] `Selling payments (GET /api/my/payments/selling)` — reconcile order payments and payment methods with sales and payouts (high)
-- [ ] `Bump statistics (GET /api/listings/{listing_id}/bump)` — compare promotion costs, impressions, and attributed sales across listings (medium)
+- [x] `Payout line items (GET /api/my/payouts/{payout_id}/line_items)` — reconcile payout totals with orders, fees, refunds, and individual financial entries (high)
+- [x] `Refund requests (GET /api/my/refund_requests/selling)` — measure returned orders, refund amounts, reasons, and seller response status (high)
+- [x] `Selling payments (GET /api/my/payments/selling)` — reconcile order payments and payment methods with sales and payouts (high)
+- [x] `Bump statistics (GET /api/listings/{listing_id}/bump)` — compare promotion costs, impressions, and attributed sales across listings (medium)
 - [ ] `Active offers (GET /api/my/listings/negotiations)` — analyze negotiation activity and offers before orders are placed (medium)
 - [ ] `Conversations and messages (GET /api/my/conversations; GET /api/my/conversations/{conversation_id})` — analyze buyer questions and communication associated with sales (medium)
 - [ ] `Received feedback (GET /api/my/feedback/received)` — compare customer ratings and feedback with order outcomes (medium)
