@@ -47,7 +47,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
-from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES, FEATURE_FLAG_PROPERTY_PREFIX
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
@@ -1217,6 +1217,14 @@ def _behavioral_property_to_expr(property: Property, team: Team, scope: str, str
     )
 
 
+def _feature_property_as_event_property(property: dict) -> dict:
+    # `Property` does not accept the "feature" type, so without this the filter is dropped from the query.
+    key = property.get("key")
+    if isinstance(key, str) and not key.startswith(FEATURE_FLAG_PROPERTY_PREFIX):
+        key = f"{FEATURE_FLAG_PROPERTY_PREFIX}{key}"
+    return {**property, "type": "event", "key": key}
+
+
 def property_to_expr(
     property: (
         list
@@ -1258,6 +1266,11 @@ def property_to_expr(
     strict: bool = False,
     cohort_via_distinct_id: bool = False,
 ) -> ast.Expr:
+    if isinstance(property, FeaturePropertyFilter):
+        property = property.model_dump()
+    if isinstance(property, dict) and property.get("type") == "feature":
+        property = _feature_property_as_event_property(property)
+
     if isinstance(property, dict):
         is_behavioral = property.get("type") == "behavioral"
         try:
@@ -1390,7 +1403,6 @@ def property_to_expr(
     elif (
         property.type == "event"
         or property.type == "event_metadata"
-        or property.type == "feature"
         or property.type == "person"
         or property.type == "person_metadata"
         or property.type == "group"
