@@ -495,6 +495,10 @@ class FakePersonHogClient:
 
     def create_group(self, request: group_pb2.CreateGroupRequest) -> group_pb2.CreateGroupResponse:
         self.calls.append(_Call("create_group", request))
+        key = (request.team_id, request.group_type_index, request.group_key)
+        existing = self._groups.get(key)
+        if existing is not None:
+            return group_pb2.CreateGroupResponse(group=existing)
         next_id = max((g.id for g in self._groups.values()), default=0) + 1
         group = group_pb2.Group(
             id=next_id,
@@ -505,7 +509,7 @@ class FakePersonHogClient:
             created_at=request.created_at,
             version=0,
         )
-        self._groups[(request.team_id, request.group_type_index, request.group_key)] = group
+        self._groups[key] = group
         response = group_pb2.CreateGroupResponse(group=group)
         return response
 

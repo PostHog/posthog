@@ -216,7 +216,9 @@ export function NewMarketingAnalyticsDashboard(): JSX.Element {
                     </>
                 )}
             </div>
-            <MarketingAnalyticsSourceStatusBanner />
+            {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && (
+                <MarketingAnalyticsSourceStatusBanner />
+            )}
             <DetectedSources />
             <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,24rem),1fr))] items-start gap-2 empty:hidden">
                 {!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING] && sourceSuggestions.length > 0 && (

@@ -64,6 +64,10 @@ export const INBOX_EVENTS = {
     SCOUT_CONFIG_CHANGED: 'Scout config changed',
     SCOUT_ACTION: 'Scout action',
     SCOUT_CHAT_STARTED: 'Scout chat started',
+    // The per-scout tool picker. Cloud-only for now, like the suggestions strip below.
+    SCOUT_TOOLS_PICKER_OPENED: 'Scout tools picker opened',
+    SCOUT_TOOLS_SAVED: 'Scout tools saved',
+    SCOUT_TOOLS_SAVE_FAILED: 'Scout tools save failed',
     // The pre-computed "Suggested for this project" strip. Cloud-only for now — desktop has no
     // suggestions surface — so these carry `inbox_client: 'cloud'` on every row.
     SCOUT_SUGGESTIONS_SHOWN: 'Scout suggestions shown',
@@ -1049,6 +1053,38 @@ export function captureScoutConfigChanged(params: {
         ...settingValueProperties('old_value', params.oldValue),
         ...settingValueProperties('new_value', params.newValue),
         success: params.success,
+    })
+}
+
+/** The tool picker opened. `has_tool_list` says whether the scout already had a list. */
+export function captureScoutToolsPickerOpened(params: {
+    skillName: string
+    surface: ScoutSurface
+    hasToolList: boolean
+}): void {
+    captureInboxEvent(INBOX_EVENTS.SCOUT_TOOLS_PICKER_OPENED, {
+        skill_name: params.skillName,
+        surface: params.surface,
+        has_tool_list: params.hasToolList,
+    })
+}
+
+/**
+ * A tool selection save ended. The event carries counts, not tool names. `tool_count` is null for a
+ * preset, which the API expands, and for a return to all tools.
+ */
+export function captureScoutToolsSaveResult(params: {
+    skillName: string
+    allTools: boolean
+    toolPreset: string | null
+    toolCount: number | null
+    success: boolean
+}): void {
+    captureInboxEvent(params.success ? INBOX_EVENTS.SCOUT_TOOLS_SAVED : INBOX_EVENTS.SCOUT_TOOLS_SAVE_FAILED, {
+        skill_name: params.skillName,
+        all_tools: params.allTools,
+        tool_preset: params.toolPreset,
+        tool_count: params.toolCount,
     })
 }
 

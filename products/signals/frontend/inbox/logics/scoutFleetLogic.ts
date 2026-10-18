@@ -53,6 +53,7 @@ import {
     captureScoutAction,
     captureScoutChatStarted,
     captureScoutConfigChanged,
+    captureScoutToolsSaveResult,
     ScoutChatType,
     ScoutFleetSyncOutcome,
     ScoutSurface,
@@ -139,6 +140,40 @@ function captureScoutConfigUpdates(
             success,
         })
     }
+    if ('allowed_mcp_tools' in updates || 'tool_preset' in updates) {
+        captureScoutToolsSaveResult({
+            skillName: config?.skill_name ?? '',
+            allTools: !updates.tool_preset && updates.allowed_mcp_tools === null,
+            toolPreset: updates.tool_preset ?? null,
+            toolCount: updates.allowed_mcp_tools?.length ?? null,
+            success,
+        })
+    }
+}
+
+/**
+ * Folds a later update into a queued one. A tool selection and `write_scopes` must never travel in
+ * one request, because the API rejects that pair, so the later of the two replaces the earlier.
+ */
+export function mergeQueuedScoutConfigUpdates(
+    queued: SignalScoutConfigUpdate | undefined,
+    next: SignalScoutConfigUpdate
+): SignalScoutConfigUpdate {
+    const merged = { ...queued, ...next }
+    if ('write_scopes' in next) {
+        delete merged.allowed_mcp_tools
+        delete merged.tool_preset
+    }
+    if ('allowed_mcp_tools' in next || 'tool_preset' in next) {
+        delete merged.write_scopes
+        if (!('tool_preset' in next)) {
+            delete merged.tool_preset
+        }
+        if (!('allowed_mcp_tools' in next)) {
+            delete merged.allowed_mcp_tools
+        }
+    }
+    return merged
 }
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
@@ -384,6 +419,8 @@ export interface scoutFleetLogicValues {
     rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
     rosterScoutsBeforeSearch: ScoutRosterRow[]
+    runNoteDrafts: Record<string, string>
+    runNotePopoverConfigId: string | null
     runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
@@ -595,14 +632,35 @@ export interface scoutFleetLogicActions {
     removeScoutConfigLocally: (configId: string) => {
         configId: string
     }
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        note?: string
+    ) => {
         configId: string
+        note: string | undefined
     }
     runScoutNowFinished: (configId: string) => {
         configId: string
     }
+    runScoutNowSucceeded: (
+        configId: string,
+        hasNote: boolean
+    ) => {
+        configId: string
+        hasNote: boolean
+    }
     setRosterEvaluatedAt: (evaluatedAt: number) => {
         evaluatedAt: number
+    }
+    setRunNoteDraft: (
+        configId: string,
+        note: string
+    ) => {
+        configId: string
+        note: string
+    }
+    setRunNotePopoverConfigId: (configId: string | null) => {
+        configId: string | null
     }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
@@ -797,8 +855,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             tags,
             owner,
         }),
-        runScoutNow: (configId: string) => ({ configId }),
+        runScoutNow: (configId: string, note?: string) => ({ configId, note }),
         runScoutNowFinished: (configId: string) => ({ configId }),
+        runScoutNowSucceeded: (configId: string, hasNote: boolean) => ({ configId, hasNote }),
+        setRunNoteDraft: (configId: string, note: string) => ({ configId, note }),
+        setRunNotePopoverConfigId: (configId: string | null) => ({ configId }),
         publishScoutToCommunity: (configId: string, options: PublishScoutOptions) => ({ configId, options }),
         publishScoutToCommunityFinished: (configId: string) => ({ configId }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
@@ -1332,6 +1393,27 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 runScoutNowFinished: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
+        // A failed run keeps its note, so the person can retry without typing it again.
+        runNoteDrafts: [
+            {} as Record<string, string>,
+            {
+                setRunNoteDraft: (state, { configId, note }) => ({ ...state, [configId]: note }),
+                runScoutNowSucceeded: (state, { configId, hasNote }) => {
+                    if (!hasNote) {
+                        return state
+                    }
+                    const { [configId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+        runNotePopoverConfigId: [
+            null as string | null,
+            {
+                setRunNotePopoverConfigId: (_, { configId }) => configId,
+                runScoutNowSucceeded: (state, { hasNote }) => (hasNote ? null : state),
+            },
+        ],
         publishingScoutIds: [
             [] as string[],
             {
@@ -1717,20 +1799,23 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
         },
-        runScoutNow: async ({ configId }) => {
+        runScoutNow: async ({ configId, note }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.runScoutNowFinished(configId)
                 return
             }
             const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
+            const trimmedNote = note?.trim()
             try {
-                await signalsScoutConfigRun(String(teamId), configId)
+                await signalsScoutConfigRun(String(teamId), configId, trimmedNote ? { note: trimmedNote } : undefined)
                 captureScoutAction({
                     actionType: 'run_now',
                     surface: 'scout_detail',
                     skillName: config?.skill_name ?? null,
+                    extra: { has_note: !!trimmedNote },
                 })
+                actions.runScoutNowSucceeded(configId, !!trimmedNote)
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')
                 // The run row appears on the next poll; pull once now so the page reacts immediately.
                 if (config) {
@@ -1781,7 +1866,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
             if (inFlight.has(configId)) {
                 actions.patchScoutConfigLocally(configId, updates)
-                pendingUpdates.set(configId, { ...pendingUpdates.get(configId), ...updates })
+                pendingUpdates.set(configId, mergeQueuedScoutConfigUpdates(pendingUpdates.get(configId), updates))
                 return
             }
 

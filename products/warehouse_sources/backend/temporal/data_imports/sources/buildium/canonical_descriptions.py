@@ -77,4 +77,50 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "LastUpdatedDateTime": "Time of the most recent applicant update.",
         },
     },
+    "bank_accounts": {
+        "description": "Bank accounts that hold property, company, and association funds.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiBankAccounts_GetAllBankAccounts",
+        "columns": {
+            "Id": "Identifier for this bank account.",
+            "GLAccount": "General ledger account linked to the bank account.",
+            "BankAccountType": "Type of bank account, such as Checking or Savings.",
+            "Balance": "Current bank account balance.",
+            "IsActive": "Whether the bank account is active.",
+        },
+    },
+    "general_ledger_transactions": {
+        "description": "Financial transactions recorded in the general ledger, with their journal lines.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiGeneralLedgerTransactions_GetAllTransactions",
+        "columns": {
+            "Id": "Identifier for this transaction.",
+            "Date": "Date of the transaction.",
+            "TransactionType": "Type of transaction that occurred.",
+            "TotalAmount": "Sum of all journal line amounts in the transaction.",
+            "Journal": "Journal lines that record the transaction against general ledger accounts.",
+            "LastUpdatedDateTime": "Time of the most recent transaction update.",
+        },
+    },
+    "lease_transactions": {
+        "description": "Charges, payments, credits, and other transactions on each lease ledger.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiLeaseLedgerTransactions_GetLeaseLedgers",
+        "columns": {
+            "_leases_Id": "Lease whose ledger was read to return the transaction.",
+            "Id": "Identifier for this transaction.",
+            "Date": "Date of the transaction.",
+            "TransactionType": "Type of transaction that occurred.",
+            "TotalAmount": "Sum of all journal line amounts in the transaction.",
+            "PayeeTenantId": "Tenant associated with the transaction, where applicable.",
+        },
+    },
+    "lease_outstanding_balances": {
+        "description": "Leases that have an outstanding balance, split by how long the amount has been due.",
+        "docs_url": "https://developer.buildium.com/#operation/ExternalApiLeaseOutstandingBalances_GetLeaseOutstandingBalances",
+        "columns": {
+            "LeaseId": "Lease that has the outstanding balance.",
+            "PropertyId": "Property covered by the lease.",
+            "UnitId": "Unit covered by the lease.",
+            "TotalBalance": "Total outstanding balance due.",
+            "BalanceOver90Days": "Outstanding balance due from over 90 days ago.",
+        },
+    },
 }

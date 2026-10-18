@@ -98,7 +98,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
+from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
 from products.feature_flags.backend.api.feature_flag import parse_created_by_ids
 from products.feature_flags.backend.facade.api import (
     archive_flag,
@@ -1174,7 +1174,7 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
-        enforce_warehouse_metric_access(
+        validate_warehouse_metrics(
             [
                 *(metrics or []),
                 *(metrics_secondary or []),
@@ -3445,7 +3445,7 @@ class ExperimentService:
                 require_existing=False,
             )
 
-        enforce_warehouse_metric_access(
+        validate_warehouse_metrics(
             [
                 *(update_data.get("metrics") or []),
                 *(update_data.get("metrics_secondary") or []),
@@ -4582,7 +4582,7 @@ class ExperimentService:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
 
         # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
-        enforce_warehouse_metric_access([metric], team=self.team, user=self.user)
+        validate_warehouse_metrics([metric], team=self.team, user=self.user)
 
         existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
             experiment=experiment,

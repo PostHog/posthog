@@ -1,7 +1,7 @@
 # Web app specific settings/middleware/apps setup
 import os
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -12,7 +12,13 @@ from whitenoise.compress import Compressor
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
+from posthog.settings.utils import (
+    generate_rsa_private_key_pem,
+    get_from_env,
+    get_list,
+    str_to_bool,
+    str_to_utc_datetime,
+)
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -1269,6 +1275,14 @@ OAUTH2_PROVIDER_ACCESS_TOKEN_MODEL = "posthog.OAuthAccessToken"
 OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
+
+# A provisioning partner whose app predates the signing requirement may call unsigned until the grace period ends.
+PROVISIONING_SIGNING_REQUIRED_SINCE: datetime = get_from_env(
+    "PROVISIONING_SIGNING_REQUIRED_SINCE", datetime(2026, 10, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
+PROVISIONING_UNSIGNED_GRACE_UNTIL: datetime = get_from_env(
+    "PROVISIONING_UNSIGNED_GRACE_UNTIL", datetime(2026, 10, 23, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
 
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
