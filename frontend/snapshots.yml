@@ -3636,6 +3636,10 @@ snapshots:
         hash: v1.k794b7964.56b8792ce05a2bd6639b561f1330df09e67cf01fa9307301aa91560ff69442dd.mnfSSv24JeDgvtTRf6YX_-olqjQUQIzvd7GVi6CFMNU
     filters-taxonomic-filter--empty-events-with-value-hint--light:
         hash: v1.k794b7964.97ddd61650806011675ac41c4ca31e0409b894993096eaa1e645e5748502be1a.NtvmxNSJzpPc-osNFNOzk85H2kVtbmQKDUClTvwYPfA
+    filters-taxonomic-filter--empty-tab-searching-a-category-name--dark:
+        hash: v1.k794b7964.fd4d6a0fa9ff79e0b7835a577e9fca1b5ebaea73cbce2e8fbe22b7f81d74a430.ygr-MRffkSBDiRqiPa3uZLZ3mKodH39bbm5jzD0dOSE
+    filters-taxonomic-filter--empty-tab-searching-a-category-name--light:
+        hash: v1.k794b7964.d34e0cd92326d56e6226e99b008b31b05131c3114c9d5f5040e20e2bae15824c.h5p3ybwNBUXc4AGbV0AOfpPs1oEMypI_rV1QBg7egbc
     filters-taxonomic-filter--empty-tab-with-jumps-to-other-categories--dark:
         hash: v1.k794b7964.cb129e04c8d6a9e6c4603e87a645e9bb1136bb222f0fdfcf53e25b1e32983873.43FF8fvDP9re3M194WgDHHJxMQvZsCWKfVt122ELNHg
     filters-taxonomic-filter--empty-tab-with-jumps-to-other-categories--light:

@@ -19,11 +19,13 @@ from posthog.dataclasses import frozen
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION
+from products.signals.dags.inbox_ranking.dataset.project_vectors import VECTOR_KINDS
 from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.prototype import FEATURE_SET, ExampleTable
-from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES
+from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
 from products.signals.dags.inbox_ranking.training.calibration import CalibrationBucket
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
+from products.signals.dags.inbox_ranking.training.recipe import model_recipe, with_recipe
 from products.signals.dags.inbox_ranking.training.train import HeadMetrics, HoldoutGrade, holdout_grade
 from products.signals.dags.inbox_ranking.training.unseen import NN_MODEL_NAME
 
@@ -52,6 +54,21 @@ class TrainedNetwork:
     vector_kinds: tuple[str, ...]
 
 
+def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
+    """The project-vector kinds a network fit on `inputs` takes, empty for a report-only network."""
+    return VECTOR_KINDS if inputs.context is not None else ()
+
+
+def network_recipe(config: NetworkConfig, vector_kinds: Sequence[str]) -> dict[str, Any]:
+    return model_recipe(
+        model_kind=ONNX_MODEL_KIND,
+        feature_set=FEATURE_SET,
+        heads=NN_HEADS,
+        learner_params=dataclasses.asdict(config),
+        project_vector_kinds=vector_kinds,
+    )
+
+
 def candidate_metadata(
     partition_key: str,
     trained: TrainedNetwork,
@@ -66,7 +83,7 @@ def candidate_metadata(
     The heads carry the same metric fields as a booster's (`train_head` and this trainer both fill
     `HeadMetrics`), so the promotion rule, the events and the manifest read every family alike.
     """
-    return {
+    metadata = {
         "model_name": NN_MODEL_NAME,
         "model_version": partition_key,
         "dataset_version": DATASET_VERSION,
@@ -99,6 +116,7 @@ def candidate_metadata(
         ],
         "skipped_heads": list(trained.skipped),
     }
+    return with_recipe(metadata, network_recipe(config, trained.vector_kinds))
 
 
 def onnx_probabilities(model: bytes, inputs: NetworkInputs, output_heads: Sequence[str]) -> dict[str, np.ndarray]:
