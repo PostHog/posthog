@@ -121,12 +121,8 @@ DEMODESK_ENDPOINTS: dict[str, DemodeskEndpointConfig] = {
         api_version="v2",
         primary_keys=["recordingId"],
         partition_key="createdAt",
-        # The detail endpoint takes no filter, so the watermark bounds the parent `recordings`
-        # listing instead: only recordings updated since the last sync are re-fetched.
-        incremental_fields=[incremental_field("updatedAt")],
-        incremental_param_by_field={"updatedAt": "filter[updated_at_gteq]"},
-        default_incremental_field="updatedAt",
-        sort_mode="desc",
+        # Full refresh only: CRM link changes on the recording or its participants do not advance
+        # `updatedAt`, so bounding the parent listing by that watermark would leave them stale.
         fanout=DependentEndpointConfig(
             parent_name="recordings",
             resolve_param="recording_token",
