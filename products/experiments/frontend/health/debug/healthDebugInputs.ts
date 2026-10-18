@@ -5,7 +5,6 @@ import { getExperimentStatus } from '../../experimentStatus'
 import type {
     ExperimentHealthInputsApi,
     ExperimentHealthInputsExposuresApi,
-    ExperimentHealthInputsFlagHistoryApi,
     ExperimentHealthInputsTrafficStatusEnumApi,
     ExperimentHealthInputsVariantApi,
     HealthExposureInputsStatusEnumApi,
@@ -152,17 +151,13 @@ export function buildReleaseConditions(inputs: ExperimentHealthInputsApi | null)
     }))
 }
 
-function allFlagChanges(history: ExperimentHealthInputsFlagHistoryApi): { counted: boolean }[] {
-    return [...history.split_changes, ...history.bucketing_changes]
-}
-
 function describeFlagHistoryStatus(inputs: ExperimentHealthInputsApi): string {
     const history = inputs.flag_history
     if (history) {
         if (!history.checked) {
             return `Not compared: ${history.not_checked_reason}`
         }
-        const changes = allFlagChanges(history)
+        const changes = history.changes
         const total = changes.length
         const counted = changes.filter((change) => change.counted).length
         if (total === 0) {
@@ -189,18 +184,9 @@ function describeFlagHistoryStatus(inputs: ExperimentHealthInputsApi): string {
     return 'Not read: the read failed'
 }
 
-const SET_BACK_FACTS = [
-    { kind: 'split_changes', field: 'split_exposed_between', label: 'Exposed between the first and last split change' },
-    {
-        kind: 'bucketing_changes',
-        field: 'bucketing_exposed_between',
-        label: 'Exposed between the first and last bucketing change',
-    },
-] as const
-
 export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
     const history = state.inputs?.flag_history ?? null
-    const hasCountedChange = !!history && allFlagChanges(history).some((change) => change.counted)
+    const hasCountedChange = !!history && history.changes.some((change) => change.counted)
     return [
         {
             label: 'Status',
@@ -216,49 +202,24 @@ export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
                       label: 'Exposed before the first counted change',
                       value: yesNoUnknown(history.exposed_before_first),
                   },
-                  ...SET_BACK_FACTS.filter(({ kind }) => history[kind].some((change) => change.counted)).map(
-                      ({ field, label }) => ({
-                          label,
-                          value: yesNoUnknown(history[field]),
-                          help: 'Asked only when the last counted change of this kind sets back what the first changed.',
-                      })
-                  ),
+                  ...history.exposed_between.map(({ question, exposed }) => ({
+                      label: question,
+                      value: yesNoUnknown(exposed),
+                      help: 'Asked only when the last counted change of this kind sets back what the first changed.',
+                  })),
               ]
             : []),
     ]
 }
 
-const BUCKETING_SETTING_LABELS: Record<string, string> = {
-    key: 'Key',
-    aggregation: 'Match by group type',
-    bucketing_identifier: 'Bucketing identifier',
-    experience_continuity: 'Persist across authentication',
-}
-
 export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): HealthDebugFlagChange[] {
-    const history = inputs?.flag_history
-    if (!history) {
-        return []
-    }
-    const changes = [
-        ...history.split_changes.map((change) => ({
-            at: change.changed_at,
-            changed: 'Split',
-            before: describeSplit(change.before),
-            after: describeSplit(change.after),
-            counted: change.counted,
-        })),
-        ...history.bucketing_changes.map((change) => ({
-            at: change.changed_at,
-            changed: BUCKETING_SETTING_LABELS[change.setting] ?? change.setting,
-            before: change.before ?? 'none',
-            after: change.after ?? 'none',
-            counted: change.counted,
-        })),
-    ]
-    return changes
-        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
-        .map(({ at, ...change }) => ({ changedAt: formatTimestamp(at), ...change }))
+    return (inputs?.flag_history?.changes ?? []).map((change) => ({
+        changedAt: formatTimestamp(change.changed_at),
+        changed: change.changed,
+        before: change.before,
+        after: change.after,
+        counted: change.counted,
+    }))
 }
 
 const TRAFFIC_STATUS_LABELS: Record<ExperimentHealthInputsTrafficStatusEnumApi, string> = {

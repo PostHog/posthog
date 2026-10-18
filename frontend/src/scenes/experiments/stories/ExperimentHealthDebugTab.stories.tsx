@@ -14,11 +14,6 @@ import type { ExperimentHealthInputsApi } from 'products/experiments/frontend/ge
 
 import { recalculationMocks, resultsByMetricType } from './recalculationMocks'
 
-const SPLIT_BEFORE = [
-    { key: 'control', rollout_percentage: 50 },
-    { key: 'test-1', rollout_percentage: 25 },
-    { key: 'test-2', rollout_percentage: 25 },
-]
 const SPLIT_AFTER = [
     { key: 'control', rollout_percentage: 34 },
     { key: 'test-1', rollout_percentage: 33 },
@@ -70,13 +65,20 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
         not_checked_reason: null,
         launched_at: '2025-01-06T10:00:00Z',
         team_timezone: 'UTC',
-        split_changes: [
-            { changed_at: '2025-01-20T14:30:00Z', before: SPLIT_BEFORE, after: SPLIT_AFTER, counted: true },
+        changes: [
+            {
+                kind: 'split',
+                changed_at: '2025-01-20T14:30:00Z',
+                changed: 'Split',
+                before: 'control 50%, test-1 25%, test-2 25%',
+                after: 'control 34%, test-1 33%, test-2 33%',
+                counted: true,
+            },
         ],
-        bucketing_changes: [],
         exposed_before_first: true,
-        split_exposed_between: null,
-        bucketing_exposed_between: null,
+        exposed_between: [
+            { kind: 'split', question: 'Exposed between the first and last split change', exposed: null },
+        ],
     },
     condition_set_traffic_status: 'read',
     condition_set_traffic: {

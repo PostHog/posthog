@@ -48,6 +48,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
     HealthExposureInputsStatus,
 )
@@ -3156,30 +3157,30 @@ _COUNTED_HELP = (
 )
 
 
-class ExperimentHealthInputsSplitChangeSerializer(serializers.Serializer):
-    changed_at = serializers.DateTimeField(help_text="When the flag's split changed.")
-    before = ExperimentHealthInputsVariantSerializer(many=True, help_text="The split before the change.")
-    after = ExperimentHealthInputsVariantSerializer(many=True, help_text="The split after the change.")
+_FLAG_CHANGE_KIND_HELP = "The kind of change: 'split', or 'bucketing' for a setting that decides the variant draw."
+
+
+class ExperimentHealthInputsFlagChangeSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=ExperimentHealthFlagChangeKind.choices, help_text=_FLAG_CHANGE_KIND_HELP)
+    changed_at = serializers.DateTimeField(help_text="When the flag changed.")
+    changed = serializers.CharField(help_text="What changed: 'Split', or the name of the setting, such as 'Key'.")
+    before = serializers.CharField(
+        help_text="The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset."
+    )
+    after = serializers.CharField(help_text="The value after the change, in the same form.")
     counted = serializers.BooleanField(help_text=_COUNTED_HELP)
 
 
-class ExperimentHealthInputsBucketingChangeSerializer(serializers.Serializer):
-    changed_at = serializers.DateTimeField(help_text="When the setting changed.")
-    setting = serializers.CharField(
-        help_text=(
-            "The flag setting that decides the variant draw: 'key', 'aggregation' (the group type the flag matches "
-            "by), 'bucketing_identifier' or 'experience_continuity' (persist the flag across authentication steps)."
-        )
-    )
-    before = serializers.CharField(
+class ExperimentHealthInputsExposedBetweenSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(choices=ExperimentHealthFlagChangeKind.choices, help_text=_FLAG_CHANGE_KIND_HELP)
+    question = serializers.CharField(help_text="What was asked, as the staff view names it.")
+    exposed = serializers.BooleanField(
         allow_null=True,
         help_text=(
-            "The value before the change: the key, the group type index, 'distinct_id' or 'device_id', or 'true' or "
-            "'false'. Null for an aggregation by persons, or an unreadable key."
+            "Whether anyone was exposed between the first and the last counted change of this kind. Asked only when "
+            "the last sets back what the first changed. Null when not asked or unknown."
         ),
     )
-    after = serializers.CharField(allow_null=True, help_text="The value after the change, in the same form.")
-    counted = serializers.BooleanField(help_text=_COUNTED_HELP)
 
 
 class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
@@ -3195,34 +3196,19 @@ class ExperimentHealthInputsFlagHistorySerializer(serializers.Serializer):
     )
     launched_at = serializers.DateTimeField(help_text="When the experiment launched.")
     team_timezone = serializers.CharField(help_text="The project's time zone, which the findings use for times.")
-    split_changes = ExperimentHealthInputsSplitChangeSerializer(
-        many=True,
-        help_text="Every split change since launch. Empty for 'no_history_access', which does not read them.",
-    )
-    bucketing_changes = ExperimentHealthInputsBucketingChangeSerializer(
+    changes = ExperimentHealthInputsFlagChangeSerializer(
         many=True,
         help_text=(
-            "Every change since launch of a setting that decides the variant draw, one per setting and save. Empty "
-            "for 'no_history_access'."
+            "Every change since launch that can move exposed people, of every kind, in time order. A bucketing change "
+            "is one per setting and save. Empty for 'no_history_access', which does not read them."
         ),
     )
     exposed_before_first = serializers.BooleanField(
         allow_null=True,
         help_text="Whether anyone was exposed before the first counted change. Null when unknown or not checked.",
     )
-    split_exposed_between = serializers.BooleanField(
-        allow_null=True,
-        help_text=(
-            "Whether anyone was exposed between the first and the last counted split change. Asked only when the "
-            "last restores the split from before the first. Null when not asked or unknown."
-        ),
-    )
-    bucketing_exposed_between = serializers.BooleanField(
-        allow_null=True,
-        help_text=(
-            "Whether anyone was exposed between the first and the last counted bucketing change. Asked only when "
-            "every setting was set back. Null when not asked or unknown."
-        ),
+    exposed_between = ExperimentHealthInputsExposedBetweenSerializer(
+        many=True, help_text="One entry for each kind of change with a counted change, in the order of the kinds."
     )
 
 
