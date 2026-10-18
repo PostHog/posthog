@@ -3114,6 +3114,16 @@
                   "table": null,
                   "type": "json"
               },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -5501,6 +5511,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "deleted_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_name",
+                  "id": null,
+                  "name": "deleted_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,
@@ -17335,6 +17365,16 @@
                   "table": null,
                   "type": "json"
               },
+              "user_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "user_id",
+                  "id": null,
+                  "name": "user_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
               "created_at": {
                   "chain": null,
                   "fields": null,
@@ -19722,6 +19762,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "deleted_name": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted_name",
+                  "id": null,
+                  "name": "deleted_name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
               },
               "created_at": {
                   "chain": null,

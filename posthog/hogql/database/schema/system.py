@@ -802,6 +802,14 @@ data_modeling_views: PostgresTable = PostgresTable(
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", description="When the view was deleted; NULL if not deleted."
         ),
+        "deleted_name": StringDatabaseField(
+            name="deleted_name",
+            nullable=True,
+            description="Original name of a deleted view; `name` holds a placeholder after deletion. NULL if not deleted.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id", nullable=True, description="User who created the view."
+        ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the view was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the view was last updated."),
     },
@@ -1695,6 +1703,11 @@ activity_logs: _ActivityLogsTable = _ActivityLogsTable(
         ),
         "detail": StringJSONDatabaseField(
             name="detail", description="JSON detail of what changed (field-level diffs, context)."
+        ),
+        "user_id": IntegerDatabaseField(
+            name="user_id",
+            nullable=True,
+            description="User who performed the activity. NULL for system activity or when the user was deleted.",
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the activity occurred."),
     },

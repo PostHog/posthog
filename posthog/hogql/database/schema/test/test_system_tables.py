@@ -1439,6 +1439,39 @@ class TestSystemTablesActivityLogsCanvasIdCoercion(NonAtomicBaseTest):
         assert [row[0] for row in response.results] == ["11510926"]
 
 
+class TestSystemTablesDeletedViewAudit(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_deleted_view_name_and_actor_are_queryable(self):
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="revenue_view",
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+        )
+        view.soft_delete()
+        ActivityLog.objects.create(
+            team_id=self.team.pk,
+            organization_id=self.organization.id,
+            user=self.user,
+            activity="deleted",
+            scope="DataWarehouseSavedQuery",
+            item_id=str(view.id),
+            detail={},
+        )
+
+        response = execute_hogql_query(
+            "SELECT v.deleted_name, v.created_by_id, a.user_id "
+            "FROM system.data_modeling_views AS v "
+            "JOIN system.activity_logs AS a ON a.item_id = toString(v.id) "
+            "WHERE v.deleted = 1 AND a.activity = 'deleted'",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert response.results == [("revenue_view", self.user.pk, self.user.pk)]
+
+
 class TestSystemTablesTaskInternalExclusion(BaseTest):
     """Verify the tasks system table excludes internal tasks (signals pipeline, etc.)
     mirroring the REST API's default filter."""
