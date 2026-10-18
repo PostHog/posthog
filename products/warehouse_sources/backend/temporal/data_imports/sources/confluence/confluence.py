@@ -33,14 +33,9 @@ _SUBDOMAIN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,62}$")
 _ATLASSIAN_HOST_SUFFIX = ".atlassian.net"
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ConfluenceResumeConfig:
-    next_url: Optional[str] = None
-    # Fan-out endpoints resume by parent: the child paths already fully synced, the one in progress,
-    # and its paginator state — see `common.rest_source.__init__._make_paginate_dependent_resource`.
-    completed: Optional[list[str]] = None
-    current: Optional[str] = None
-    child_state: Optional[dict[str, Any]] = None
+    next_url: str
 
 
 def _site_origin(subdomain: str) -> str:
@@ -129,29 +124,8 @@ def _fanout_source(
     api_token: str,
     team_id: int,
     job_id: str,
-    resumable_source_manager: ResumableSourceManager[ConfluenceResumeConfig],
 ) -> SourceResponse:
     assert config.fanout is not None
-
-    initial_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and (resume.completed or resume.current):
-            initial_state = {
-                "completed": resume.completed or [],
-                "current": resume.current,
-                "child_state": resume.child_state,
-            }
-
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state is not None:
-            resumable_source_manager.save_state(
-                ConfluenceResumeConfig(
-                    completed=state.get("completed"),
-                    current=state.get("current"),
-                    child_state=state.get("child_state"),
-                )
-            )
 
     # The helper types its return loosely, but it is the framework Resource it built.
     resource = cast(
@@ -168,8 +142,8 @@ def _fanout_source(
             db_incremental_field_last_value=None,
             parent_endpoint_extra={"data_selector": "results"},
             child_endpoint_extra={"data_selector": "results"},
-            resume_hook=save_checkpoint,
-            initial_paginator_state=initial_state,
+            # No resume: the framework checkpoints the full list of completed parents after each
+            # parent, which grows with every page or blog post on the site.
         ),
     )
 
@@ -190,7 +164,7 @@ def confluence_source(
     subdomain = normalize_subdomain(subdomain)
 
     if config.fanout is not None:
-        return _fanout_source(config, subdomain, email, api_token, team_id, job_id, resumable_source_manager)
+        return _fanout_source(config, subdomain, email, api_token, team_id, job_id)
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(subdomain, email, api_token),
@@ -210,7 +184,7 @@ def confluence_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None and resume.next_url:
+        if resume is not None:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:

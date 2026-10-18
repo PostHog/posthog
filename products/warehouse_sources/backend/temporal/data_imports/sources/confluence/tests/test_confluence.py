@@ -267,19 +267,3 @@ class TestPermissionsFanout:
         ] == [("1", "read", "user", "u1"), ("1", "update", "group", "g1"), ("3", "read", "user", "u3")]
         assert all("principal" not in row for row in result.rows)
         assert result.requests[2].param("cursor") == "c2"
-
-    def test_resume_skips_completed_parents(self) -> None:
-        result = _driver().run(
-            "page_permissions",
-            route(
-                {
-                    "/wiki/api/v2/pages/2/permissions": [_response([_permission("read", "user", "u2")])],
-                    "/wiki/api/v2/pages": [_response([{"id": "1"}, {"id": "2"}])],
-                }
-            ),
-            resume_state=ConfluenceResumeConfig(completed=["/pages/1/permissions"]),
-        )
-
-        assert result.raised is None
-        assert [row["pageId"] for row in result.rows] == ["2"]
-        assert all(not request.path.endswith("/pages/1/permissions") for request in result.requests)

@@ -7,7 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConfluenceEndpointConfig:
     name: str
     path: str  # Path relative to the v2 API base, e.g. "/pages"
