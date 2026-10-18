@@ -96,23 +96,25 @@ class _SlackChunkPacker:
         if remaining:
             self._append_atom(remaining, "\n")
 
-    def _pack(self, body: str, separator: str, overflow: Callable[[str], None]) -> None:
+    def _pack(
+        self, body: str, separator: str, overflow: Callable[[str], None], *, initial_separator: bool = True
+    ) -> None:
         """Pack the parts of ``body``, sending a part that alone overflows to ``overflow``."""
         # The joiner rule here differs from _append_atom's: on a part after the first it
         # keeps the separator even when the open chunk is empty, where _append_atom drops
         # it. The two are not interchangeable, because merging them changes which
         # characters start a chunk.
         for index, atom in enumerate(body.split(separator)):
-            joiner = separator if index > 0 or self._current else ""
+            joiner = separator if index > 0 or (initial_separator and self._current) else ""
             if self._try_append(atom, joiner):
                 continue
             if len(atom) <= self._limit:
                 self._append_atom(atom, separator)
             else:
-                overflow(atom)
+                overflow(f"{joiner}{atom}")
 
     def _pack_lines(self, paragraph: str) -> None:
-        self._pack(paragraph, "\n", self._split_long_line)
+        self._pack(paragraph, "\n", self._split_long_line, initial_separator=False)
 
     def _add_text(self, body: str) -> None:
         self._pack(body, "\n\n", self._pack_lines)

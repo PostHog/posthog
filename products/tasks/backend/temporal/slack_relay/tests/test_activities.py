@@ -819,12 +819,24 @@ class TestSplitTextForSlack(SimpleTestCase):
             for chunk_line in chunk.split("\n"):
                 assert chunk_line == line
 
-    def test_hard_breaks_single_long_line(self):
+    @parameterized.expand(
+        [
+            ("unprefixed", "", ["x" * _LIMIT, "x" * 500]),
+            ("line_separator", "prefix\n", ["prefix", "\n" + "x" * (_LIMIT - 1), "x" * 501]),
+            (
+                "paragraph_separator",
+                "prefix\n\nlead\n",
+                ["prefix\n\nlead", "\n" + "x" * (_LIMIT - 1), "x" * 501],
+            ),
+        ]
+    )
+    def test_hard_breaks_single_long_line(self, _name: str, prefix: str, expected_chunks: list[str]) -> None:
         line = "x" * (self._LIMIT + 500)
-        chunks = _split_markdown_for_slack(line, self._LIMIT)
-        assert len(chunks) == 2
+        text = prefix + line
+        chunks = _split_markdown_for_slack(text, self._LIMIT)
+        assert chunks == expected_chunks
         assert all(len(chunk) <= self._LIMIT for chunk in chunks)
-        assert "".join(chunks) == line
+        assert "".join(chunks) == text
 
     @parameterized.expand(
         [
