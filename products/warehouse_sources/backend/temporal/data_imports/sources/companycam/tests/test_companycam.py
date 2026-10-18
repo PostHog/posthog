@@ -210,24 +210,7 @@ class TestCompanycamFanout:
             request.param("page") for request in result.requests if request.path.endswith(child_template.format("a"))
         ]
         assert child_pages == ["1", "2", "3"]
-
-    def test_resume_skips_parents_already_synced(self) -> None:
-        result = self._driver().run(
-            "ProjectAssignedUsers",
-            route(
-                {
-                    "/projects": [ScriptedResponse(json=[{"id": "a"}, {"id": "b"}]), ScriptedResponse(json=[])],
-                    "/projects/b/assigned_users": [ScriptedResponse(json=[{"id": "u1"}]), ScriptedResponse(json=[])],
-                }
-            ),
-            resume_state=CompanycamResumeConfig(completed=["/projects/a/assigned_users"]),
-        )
-
-        assert result.raised is None
-        assert result.rows == [{"id": "u1", "project_id": "b"}]
-        assert result.saved_states[-1] == CompanycamResumeConfig(
-            completed=["/projects/a/assigned_users", "/projects/b/assigned_users"]
-        )
+        assert result.saved_states == []
 
 
 class TestValidateCredentials:

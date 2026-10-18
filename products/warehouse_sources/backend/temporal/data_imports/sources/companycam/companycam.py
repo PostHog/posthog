@@ -42,11 +42,6 @@ class CompanycamResumeConfig:
     page: Optional[int] = None
     # Next forward cursor (from `X-Next-Cursor`), for Photos.
     cursor: Optional[str] = None
-    # Fan-out endpoints resume by parent: the child paths already fully synced, the one in
-    # progress, and its paginator state — see `_make_paginate_dependent_resource`.
-    completed: Optional[list[str]] = None
-    current: Optional[str] = None
-    child_state: Optional[dict[str, Any]] = None
 
 
 def _to_iso8601(value: Any) -> Optional[str]:
@@ -187,40 +182,15 @@ def _client_config(api_key: str, api_version: str, endpoint: str) -> ClientConfi
     }
 
 
-def _fanout_source(
-    api_key: str,
-    endpoint: str,
-    team_id: int,
-    job_id: str,
-    resumable_source_manager: ResumableSourceManager[CompanycamResumeConfig],
-    api_version: str,
-) -> SourceResponse:
+def _fanout_source(api_key: str, endpoint: str, team_id: int, job_id: str, api_version: str) -> SourceResponse:
     endpoint_config = COMPANYCAM_ENDPOINTS[endpoint]
     assert endpoint_config.fanout is not None
-
-    initial_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume = resumable_source_manager.load_state()
-        if resume is not None and (resume.completed or resume.current):
-            initial_state = {
-                "completed": resume.completed or [],
-                "current": resume.current,
-                "child_state": resume.child_state,
-            }
-
-    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        if state is not None:
-            resumable_source_manager.save_state(
-                CompanycamResumeConfig(
-                    completed=state.get("completed"),
-                    current=state.get("current"),
-                    child_state=state.get("child_state"),
-                )
-            )
 
     # The client paginator is the child's; the parent may paginate differently (Photos uses a cursor).
     parent_endpoint_extra: Endpoint = {"paginator": _paginator_for(endpoint_config.fanout.parent_name)}
 
+    # No resume hook: per-parent resume state lists every completed parent path and is rewritten
+    # after each child page, which grows quadratically over large photo or project libraries.
     resource = cast(
         Iterable[Any],
         build_dependent_resource(
@@ -234,8 +204,6 @@ def _fanout_source(
             db_incremental_field_last_value=None,
             parent_endpoint_extra=parent_endpoint_extra,
             page_size_param="per_page",
-            resume_hook=save_checkpoint,
-            initial_paginator_state=initial_state,
         ),
     )
 
@@ -263,7 +231,7 @@ def companycam_source(
     endpoint_config = COMPANYCAM_ENDPOINTS[endpoint]
 
     if endpoint_config.fanout is not None:
-        return _fanout_source(api_key, endpoint, team_id, job_id, resumable_source_manager, api_version)
+        return _fanout_source(api_key, endpoint, team_id, job_id, api_version)
 
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_key, api_version, endpoint),
