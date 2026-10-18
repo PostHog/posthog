@@ -154,6 +154,31 @@ class TestSavedQueryConflictToken(NonAtomicAPIBaseTest):
         )
         self.assertEqual(response.status_code, 200, response.content)
 
+    @parameterized.expand(
+        [
+            ("patch_without_token", "patch", False, 400),
+            ("upsert_by_name_without_token", "post", False, 400),
+            ("upsert_by_name_with_token", "post", True, 200),
+        ]
+    )
+    def test_query_change_on_existing_view_needs_the_token(
+        self, _name: str, method: str, send_token: bool, expected_status: int
+    ) -> None:
+        created = self._create()
+        body: dict[str, Any] = {"query": {"kind": "HogQLQuery", "query": "select event from events limit 10"}}
+        if send_token:
+            body["edited_history_id"] = created["latest_history_id"]
+
+        if method == "patch":
+            response = self.client.patch(self._url(created["id"]), body)
+        else:
+            response = self.client.post(self._url(), {"name": "event_view", **body})
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 400:
+            self.assertEqual(response.json()["attr"], "edited_history_id")
+            self.assertEqual(self._revision(created["id"]), created["latest_history_id"])
+
     def test_row_without_a_revision_accepts_any_token_once(self) -> None:
         created = self._create()
         DataWarehouseSavedQuery.objects.filter(id=created["id"]).update(query_revision=None)
