@@ -879,6 +879,36 @@ class TestTable(APIBaseTest):
         table.refresh_from_db()
         assert table.url_pattern == "https://acme-exports.s3.amazonaws.com/new/*.pqt"
 
+    @parameterized.expand(
+        [
+            ("aws_key", "AKIAIOSFODNN7EXAMPLE", "MPLE"),
+            ("short_key", "shortkey", None),
+        ]
+    )
+    def test_retrieve_shows_only_the_access_key_suffix(self, _name, access_key, expected_suffix):
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
+
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key=access_key, access_secret="access_secret"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="test_table",
+            format="Parquet",
+            team=self.team,
+            columns={},
+            url_pattern="https://acme-exports.s3.amazonaws.com/data/*.pqt",
+            credential=credential,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_tables/{table.id}")
+
+        assert response.status_code == 200
+        returned_credential = response.json()["credential"]
+        assert returned_credential["access_key_suffix"] == expected_suffix
+        assert "access_key" not in returned_credential
+        assert "access_secret" not in returned_credential
+        assert access_key not in response.content.decode()
+
     def test_update_table_credential_blank_access_key(self):
         from products.warehouse_sources.backend.facade.models import DataWarehouseCredential
 

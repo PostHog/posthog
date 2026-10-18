@@ -866,6 +866,12 @@ export const WarehouseTablesCreateBody = () => zod
                 .describe(
                     'Access key ID for the bucket the files live in (an AWS access key ID, a Google Cloud HMAC key, or the equivalent for another S3-compatible store).'
                 ),
+            access_key_suffix: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Last 4 characters of the access key, so you can tell which key the table uses (for example, when you rotate it). Null when the key is too short to show part of it safely.'
+                ),
             access_secret: zod
                 .string()
                 .max(warehouseTablesCreateBodyCredentialAccessSecretMax)

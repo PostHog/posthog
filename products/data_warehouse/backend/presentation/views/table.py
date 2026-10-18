@@ -151,12 +151,21 @@ def _discard_failed_upload(table: DataWarehouseTable) -> None:
     table.delete()
 
 
+ACCESS_KEY_SUFFIX_LENGTH = 4
+# A short key would be mostly revealed by its suffix.
+ACCESS_KEY_SUFFIX_MIN_KEY_LENGTH = 12
+
+
 class CredentialSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
+    access_key_suffix = serializers.SerializerMethodField(
+        help_text="Last 4 characters of the access key, so you can tell which key the table uses (for example, "
+        "when you rotate it). Null when the key is too short to show part of it safely.",
+    )
 
     class Meta:
         model = DataWarehouseCredential
-        fields = ["id", "created_by", "created_at", "access_key", "access_secret"]
+        fields = ["id", "created_by", "created_at", "access_key", "access_key_suffix", "access_secret"]
         read_only_fields = [
             "id",
             "created_by",
@@ -173,6 +182,13 @@ class CredentialSerializer(serializers.ModelSerializer):
                 "help_text": "Secret for the access key. Stored encrypted and never returned by the API.",
             },
         }
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_access_key_suffix(self, credential: DataWarehouseCredential) -> str | None:
+        access_key = credential.access_key or ""
+        if len(access_key) < ACCESS_KEY_SUFFIX_MIN_KEY_LENGTH:
+            return None
+        return access_key[-ACCESS_KEY_SUFFIX_LENGTH:]
 
 
 class TableSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):

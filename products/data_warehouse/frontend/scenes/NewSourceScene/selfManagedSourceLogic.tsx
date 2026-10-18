@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -305,7 +306,10 @@ export const selfManagedSourceLogic = kea<selfManagedSourceLogicType>([
             actions.loadDatabase()
             router.actions.replace(urls.sources())
         },
-        updateTableSuccess: async ({ table }) => {
+        updateTableSuccess: async ({ table, payload }) => {
+            if (payload?.credential) {
+                posthog.capture('self_managed_table_credential_updated')
+            }
             lemonToast.success(<>Table {table.name} updated</>)
             actions.editingTable(false)
             actions.loadDatabase()

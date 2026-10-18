@@ -2346,6 +2346,11 @@ export interface CredentialApi {
      */
     access_key: string
     /**
+     * Last 4 characters of the access key, so you can tell which key the table uses (for example, when you rotate it). Null when the key is too short to show part of it safely.
+     * @nullable
+     */
+    readonly access_key_suffix: string | null
+    /**
      * Secret for the access key. Stored encrypted and never returned by the API.
      * @maxLength 500
      */

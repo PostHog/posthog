@@ -62,6 +62,7 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
     const provider = (onUpdate ? storageProviderFromUrl(table?.url_pattern) : manualLinkingProvider) ?? 'aws'
     const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
     const providerMismatch = describeStorageProviderMismatch(table?.url_pattern, provider)
+    const savedAccessKeySuffix = onUpdate ? table?.credential?.access_key_suffix : null
 
     return (
         <Form
@@ -151,7 +152,18 @@ export function SelfManagedSourceForm({ onUpdate }: Props): JSX.Element {
                         </div>
                     </>
                 )}
-                <LemonField name={['credential', 'access_key']} label={ProviderMappings[provider].accessKeyLabel}>
+                <LemonField
+                    name={['credential', 'access_key']}
+                    label={ProviderMappings[provider].accessKeyLabel}
+                    help={
+                        savedAccessKeySuffix ? (
+                            <span data-attr="access-key-suffix">
+                                This table uses the key that ends in <code>{savedAccessKeySuffix}</code>. Leave the
+                                fields empty to keep it.
+                            </span>
+                        ) : undefined
+                    }
+                >
                     {({ value = '', onChange }) => (
                         <LemonInput
                             data-attr="access-key"

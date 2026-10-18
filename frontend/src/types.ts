@@ -6274,6 +6274,8 @@ export type CommentCreationParams = { mentions?: number[]; slug?: string }
 export interface DataWarehouseCredential {
     access_key: string
     access_secret: string
+    /** Read-only. The API never returns the full key. */
+    access_key_suffix?: string | null
 }
 export interface DataWarehouseTable {
     /** UUID */
