@@ -95,7 +95,9 @@ def _classify(call: _ToolCall, read_tools: Collection[str]) -> _Read | Literal["
     command = call.raw_input.get("command")
     title = call.title
     if isinstance(command, str):
-        match = re.fullmatch(r"call\s+([\w:-]+)\s*(.*)", command, re.DOTALL)
+        command = command.strip()
+        # Mirrors the exec parser, which consumes `--json` and `--confirm` before the tool name.
+        match = re.fullmatch(r"call(?:\s+--(?:json|confirm))*\s+([\w:-]+)\s*(.*)", command, re.DOTALL)
         if match is None:
             if command.split(maxsplit=1)[0:1] in (["search"], ["info"], ["schema"], ["tools"], ["learn"]):
                 return "discovery"

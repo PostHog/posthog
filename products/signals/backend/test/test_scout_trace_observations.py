@@ -10,8 +10,16 @@ from products.signals.backend.scout_harness.eval_environment.traces import load_
 
 
 class TestTraceInputs(TestCase):
-    @parameterized.expand([("complete", False), ("streamed", True)])
-    def test_reads_stop_at_first_unrecognized_call(self, _name: str, streamed: bool) -> None:
+    @parameterized.expand(
+        [
+            ("complete", False, "call"),
+            ("streamed", True, "call"),
+            ("json_flag", False, "call --json"),
+            ("confirm_flag", False, "call --confirm"),
+            ("both_flags", False, " call --json --confirm"),
+        ]
+    )
+    def test_reads_stop_at_first_unrecognized_call(self, _name: str, streamed: bool, read_prefix: str) -> None:
         def call(index: int, command: str) -> list[dict]:
             opening = {
                 "timestamp": "2030-01-01T00:00:00Z",
@@ -61,7 +69,7 @@ class TestTraceInputs(TestCase):
             path = Path(temporary)
             (path / "logs").mkdir()
             events = [
-                *call(1, 'call notes-list {"limit": 2}'),
+                *call(1, f'{read_prefix} notes-list {{"limit": 2}}'),
                 *call(2, "call report-write {}"),
                 *call(3, "call notes-list {}"),
             ]
