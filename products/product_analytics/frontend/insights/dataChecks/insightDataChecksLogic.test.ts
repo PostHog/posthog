@@ -237,4 +237,26 @@ describe('insightDataChecksLogic', () => {
         expect(signal?.aborted).toBe(true)
         logic.mount()
     })
+
+    it('gives the chart queue back when the chart starts to load during a check, then checks again', async () => {
+        let signal: AbortSignal | undefined
+        let markSent: () => void = () => {}
+        const sent = new Promise<void>((resolve) => {
+            markSent = resolve
+        })
+        dataChecks.mockImplementationOnce(async ({ request }: { request: Request }) => {
+            signal = request.signal
+            markSent()
+            return await new Promise(() => {})
+        })
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        turnTheFlagOn()
+        await sent
+
+        await expectLogic(logic, () => vizData.actions.loadData()).toFinishAllListeners()
+
+        expect(signal?.aborted).toBe(true)
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+        expect(logic.values.status).toBe('passed')
+    })
 })

@@ -83,6 +83,16 @@ export interface insightDataChecksLogicActions {
         flags: string[]
         variants: Record<string, boolean | string>
     } // featureFlagLogic
+    loadData: (
+        refresh?: RefreshType | undefined,
+        alreadyRunningQueryId?: string | undefined,
+        overrideQuery?: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+    ) => {
+        overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
+        pollOnly: boolean
+        queryId: string
+        refresh: RefreshType | undefined
+    } // insightVizDataLogic
     loadDataSuccess: (
         response:
             | Record<string, any>
@@ -213,6 +223,7 @@ const FORCED_REFRESHES: (RefreshType | undefined)[] = ['force_async', 'force_blo
 // The checks run up to four queries of 20 seconds each, after a wait for server slots.
 const DATA_CHECKS_TIMEOUT_MS = 120_000
 const LABEL_OPEN_MS = 2500
+const YIELDED_TO_CHART = 'yielded to chart'
 
 export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = kea<insightDataChecksLogicType>([
     props({} as InsightLogicProps),
@@ -231,7 +242,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         ],
         actions: [
             insightVizDataLogic(props),
-            ['loadDataSuccess', 'updateQuerySource'],
+            ['loadData', 'loadDataSuccess', 'updateQuerySource'],
             featureFlagLogic,
             ['setFeatureFlags'],
         ],
@@ -251,6 +262,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                     // Leaving the insight cancels the run, queued or running, so it does not hold the chart queue.
                     // A hidden tab keeps it, because a person comes back to the result.
                     const abortController = new AbortController()
+                    cache.dataChecksAbortController = abortController
                     cache.disposables.add(() => () => abortController.abort(), 'dataChecksRun', {
                         pauseOnPageHidden: false,
                     })
@@ -276,6 +288,9 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
                         })
                         return { ok: true, result }
                     } catch (error) {
+                        if (abortController.signal.reason === YIELDED_TO_CHART) {
+                            return null
+                        }
                         return { ok: false, denied: error instanceof ApiError && error.status === 403 }
                     }
                 },
@@ -392,7 +407,7 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         // The chart can load more than once for one query, and the answer for that query is already on its way.
         // One run at a time: a run for an older query keeps its queries on the server until it ends.
         checkData: () => {
@@ -414,6 +429,13 @@ export const insightDataChecksLogic: LogicWrapper<insightDataChecksLogicType> = 
         setFeatureFlags: () => {
             if (!values.insightDataLoading) {
                 actions.checkData()
+            }
+        },
+        // The queue has one slot, so a check in flight would hold back the chart. The check runs again after the chart.
+        loadData: ({ pollOnly }) => {
+            if (!pollOnly && values.dataChecksRunLoading) {
+                actions.checkData(true)
+                cache.dataChecksAbortController?.abort(YIELDED_TO_CHART)
             }
         },
         // A person refreshes the chart after a fix in the project's filter, which leaves the query as it was.
