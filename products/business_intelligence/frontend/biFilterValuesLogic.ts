@@ -33,6 +33,7 @@ export function searchBIFilterValues(query: HogQLQuery, search: string, offset: 
 }
 
 interface BIFilterValuePage {
+    search: string
     values: string[]
     hasMore: boolean
 }
@@ -121,12 +122,15 @@ export const biFilterValuesLogic = kea<biFilterValuesLogicType>([
                     const { append = false, debounce = false } = payload
                     cache.disposables.dispose('valueQuery')
                     const search = values.search
-                    const existing = append ? (values.page?.values ?? []) : []
+                    const existing = append && values.page?.search === search ? values.page.values : []
+                    if (debounce && !append && values.page?.search === search) {
+                        return values.page
+                    }
                     if (debounce) {
                         await breakpoint(300)
                     }
                     if (!props.query) {
-                        return { values: [], hasMore: false }
+                        return { search, values: [], hasMore: false }
                     }
                     const controller = new AbortController()
                     const queryId = uuid()
@@ -167,6 +171,7 @@ export const biFilterValuesLogic = kea<biFilterValuesLogicType>([
                         )
                     }
                     return {
+                        search,
                         values: [...existing, ...response.results.slice(0, PAGE_SIZE).map((row) => String(row[0]))],
                         hasMore: response.results.length > PAGE_SIZE,
                     }
@@ -176,7 +181,6 @@ export const biFilterValuesLogic = kea<biFilterValuesLogicType>([
     })),
     reducers({
         search: ['', { setSearch: (_, { search }) => search }],
-        page: { setSearch: () => null },
         optionsError: [
             null as string | null,
             {

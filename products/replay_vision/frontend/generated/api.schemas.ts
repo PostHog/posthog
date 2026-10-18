@@ -2646,6 +2646,12 @@ export interface DraftScannerRequestApi {
      * @maximum 100000000
      */
     monthly_credit_budget?: number
+    /**
+     * Goal-based flow only: a launched experiment the person picked for the scanner to watch. The draft is then an `experiment` scanner on it. Ignored without `monthly_credit_budget`.
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    experiment_id?: number
 }
 
 /**
@@ -2692,8 +2698,6 @@ export interface DraftScannerResponseApi {
      * @nullable
      */
     credit_limit: number | null
-    /** Goal-based flow only: the experiment whose participants the draft watches, when the goal named one of the project's launched experiments. Null when it named none. Carried separately from `query`, which never holds an exposure filter. */
-    experiment_targeting: ScannerExperimentTargetingApi | null
     /**
      * Goal-based flow only: recordings a month the drafted scanner is projected to watch under the solved dials. Its credit cost lands at or under `monthly_credit_budget`, except when the budget is below what the minimum sampling rate can reach, where this is the floor and exceeds the budget. Null whenever `sampling_mode` is.
      * @nullable
