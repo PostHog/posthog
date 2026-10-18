@@ -55,7 +55,13 @@ from products.signals.dags.inbox_ranking.nn.examples import (
     network_inputs,
     subset,
 )
-from products.signals.dags.inbox_ranking.nn.model import HOLDOUT_MODEL_FILE, candidate_metadata, champion_grades
+from products.signals.dags.inbox_ranking.nn.model import (
+    HOLDOUT_MODEL_FILE,
+    candidate_metadata,
+    champion_grades,
+    network_recipe,
+    network_vector_kinds,
+)
 from products.signals.dags.inbox_ranking.training.calibration import bucket_rows
 from products.signals.dags.inbox_ranking.training.dag import (
     _LOOKBACK_MAPPING,
@@ -64,6 +70,7 @@ from products.signals.dags.inbox_ranking.training.dag import (
     _delete_other_objects,
     _put_json,
     _read_bytes_if_exists,
+    check_recipe,
     decide_family_champion,
     load_snapshots,
     model_object_key,
@@ -192,6 +199,14 @@ def train_candidate(
     examples = examples_from_arrow(arrow)
     inputs = network_inputs(examples.table, day.extras, day.labels, day.embeddings)
     del day
+    check_recipe(
+        client,
+        bucket,
+        prefix,
+        NN_FAMILY.name,
+        partition_key,
+        network_recipe(NETWORK_CONFIG, network_vector_kinds(inputs)),
+    )
 
     from products.signals.dags.inbox_ranking.nn.train import (  # noqa: PLC0415 — keeps torch off the location's import path
         train_network,
