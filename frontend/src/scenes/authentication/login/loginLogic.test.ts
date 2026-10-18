@@ -255,6 +255,50 @@ describe('loginLogic', () => {
         })
     })
 
+    describe('sso enforced login failure', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip passkey auto-trigger
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/login/precheck': () => [200, { sso_enforcement: 'google-oauth2', saml_available: false }],
+                    '/api/login': () => [
+                        400,
+                        {
+                            code: 'sso_enforced',
+                            detail: 'You can only login with SSO for this account (google-oauth2).',
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            jest.clearAllMocks()
+        })
+
+        it('runs the precheck when a password is sent before the precheck resolves', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginFailure', 'precheckSuccess'])
+
+            expect(logic.values.generalError?.code).toBe('sso_enforced')
+            expect(logic.values.precheckResponse).toMatchObject({
+                email: 'user@example.com',
+                sso_enforcement: 'google-oauth2',
+            })
+        })
+    })
+
     describe('precheck dedupe', () => {
         let logic: ReturnType<typeof loginLogic.build>
         let precheckHandler: jest.Mock

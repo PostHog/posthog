@@ -20,7 +20,7 @@ import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTi
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { RegionField } from 'scenes/authentication/shared/authScene/RegionField'
 import { useLastLoginMethod } from 'scenes/authentication/shared/lastLoginMethod'
-import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
+import { ERROR_MESSAGES, ssoEnforcedMessage } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { pendingOAuthConnectionLogic, reviewAccessCopy } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
@@ -210,9 +210,11 @@ export function LoginForm(): JSX.Element {
                 {generalError && (
                     <div className="mb-4 py-2.5 px-3 text-sm leading-normal text-primary text-left bg-danger-highlight border border-danger rounded">
                         <span>
-                            {generalError.detail ||
-                                ERROR_MESSAGES[generalError.code] ||
-                                'Could not complete your login. Please try again.'}
+                            {generalError.code === 'sso_enforced'
+                                ? ssoEnforcedMessage(precheckResponse.sso_enforcement)
+                                : generalError.detail ||
+                                  ERROR_MESSAGES[generalError.code] ||
+                                  'Could not complete your login. Please try again.'}
                         </span>
                         {preflight?.cloud && (
                             <>

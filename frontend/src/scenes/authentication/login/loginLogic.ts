@@ -635,6 +635,11 @@ export const loginLogic = kea<loginLogicType>([
                         router.actions.push(urls.verifyEmail(detail), next ? { next } : {})
                         throw e
                     }
+                    if (code === 'sso_enforced') {
+                        // The password was sent before the precheck found the enforcement, so run it
+                        // now to swap the password field for the required SSO button
+                        actions.precheck({ email })
+                    }
                     if (code === 'code_based_verification_required') {
                         const emailAddress = detail?.email || email
                         actions.setCodeVerificationRequired(emailAddress)
