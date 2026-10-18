@@ -1079,8 +1079,9 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
                     model_key(metadata["model_name"], metadata["model_version"]): metadata.get(RECIPE_HASH_KEY)
                     for metadata in (
                         *([served] if served is not None else []),
+                        *recent,
                         *pinned,
-                        *(record for family in families for record in (family.candidate, family.champion) if record),
+                        *(family.champion for family in families if family.champion),
                     )
                 },
             )
