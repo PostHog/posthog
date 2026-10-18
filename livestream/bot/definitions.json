@@ -1494,6 +1494,12 @@
     "traffic_type": "AI Agent"
   },
   {
+    "pattern": "unstale-collector",
+    "name": "unstale",
+    "category": "ai_crawler",
+    "traffic_type": "AI Agent"
+  },
+  {
     "pattern": "llms-txt-sync",
     "name": "llms-txt-sync",
     "category": "ai_crawler",
