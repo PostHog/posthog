@@ -103,8 +103,7 @@ export interface insightDataChecksLogicActions {
             | import('~/queries/schema').TraceSpansAggregationQueryResponse
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
-            | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined,
+            | import('~/queries/schema').TraceSpansTreeQueryResponse,
         payload?:
             | {
                   overrideQuery: import('~/queries/schema').DataNode<Record<string, any>> | undefined
@@ -136,7 +135,6 @@ export interface insightDataChecksLogicActions {
             | import('~/queries/schema').TraceSpansAttributeBreakdownQueryResponse
             | import('~/queries/schema').TraceSpansQueryResponse
             | import('~/queries/schema').TraceSpansTreeQueryResponse
-            | undefined
     } // insightVizDataLogic
     updateQuerySource: (querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate) => {
         querySource: import('scenes/insights/insightVizDataLogic').QuerySourceUpdate
@@ -186,6 +184,7 @@ export interface insightDataChecksLogicMeta {
             dataChecksRun: DataChecksRun | null
         ) => InsightDataChecksStatus
         result: (dataChecksRun: DataChecksRun | null, status: InsightDataChecksStatus) => InsightDataChecksApi | null
+        filtersTestAccounts: (result: InsightDataChecksApi | null) => boolean
         checks: (result: InsightDataChecksApi | null) => InsightDataCheckApi[]
         findings: (checks: InsightDataCheckApi[]) => InsightDataCheckApi[]
         labelOpen: (status: InsightDataChecksStatus, labelHeldOpen: boolean) => boolean
