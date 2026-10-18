@@ -1,4 +1,5 @@
-from typing import Optional
+from collections.abc import Iterable
+from typing import Any, Optional, cast
 
 from unittest.mock import MagicMock, patch
 
@@ -74,7 +75,7 @@ class TestPolarApiVersion:
             response = PolarSource().source_for_pipeline(
                 PolarSourceConfig(polar_api_key="polar_oat_test"), manager, inputs
             )
-            rows = list(response.items())
+            rows = list(cast(Iterable[Any], response.items()))
 
         assert rows == [[{"id": "cus_1"}]]
         url = session.request.call_args.args[1]
