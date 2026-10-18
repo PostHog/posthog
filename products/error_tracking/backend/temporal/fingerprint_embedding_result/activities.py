@@ -304,6 +304,7 @@ def _merge_into_candidate(
             "target_fingerprint": candidate.fingerprint,
             "distance": candidate.distance,
             "target_reopened": bool(merge_outcome.reopened),
+            "target_previous_status": merge_outcome.previous_status,
             **decision_properties,
         },
     )

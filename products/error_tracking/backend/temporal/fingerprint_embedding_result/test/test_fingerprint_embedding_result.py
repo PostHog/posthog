@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from django.db import OperationalError
 from django.test import override_settings
 
+from parameterized import parameterized
 from temporalio.exceptions import CancelledError
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -524,6 +525,7 @@ class TestAutoMergeReopensTarget(BaseTest):
         target.refresh_from_db()
         assert target.status == "active"
         assert self.capture.call_args.kwargs["properties"]["target_reopened"] is True
+        assert self.capture.call_args.kwargs["properties"]["target_previous_status"] == "resolved"
         assert outcome.reopened_target is not None
         assert outcome.reopened_target.issue_id == str(target.id)
         # The notification carries the target's state after the reopen, so subscribers
@@ -535,15 +537,19 @@ class TestAutoMergeReopensTarget(BaseTest):
             uuid.uuid5(uuid.NAMESPACE_OID, f"issue_reopened:{self.team.id}:{target.id}:event-1")
         )
 
-    def test_auto_merge_into_active_target_reports_no_reopen(self) -> None:
+    @parameterized.expand([("active",), ("suppressed",)])
+    def test_auto_merge_into_target_that_stays_put_reports_no_reopen(self, target_status: str) -> None:
         self._create_issue("fp-source", "active")
-        self._create_issue("fp-target", "active")
+        target = self._create_issue("fp-target", target_status)
 
         outcome = self._merge()
 
+        target.refresh_from_db()
+        assert target.status == target_status
         assert outcome.merged_count == 1
         assert outcome.reopened_target is None
         assert self.capture.call_args.kwargs["properties"]["target_reopened"] is False
+        assert self.capture.call_args.kwargs["properties"]["target_previous_status"] == target_status
 
     def test_auto_merge_reports_the_reopen_when_the_clickhouse_sync_fails(self) -> None:
         self._create_issue("fp-source", "active")
