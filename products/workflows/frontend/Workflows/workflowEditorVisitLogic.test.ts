@@ -6,7 +6,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { HogFlowAction } from './hogflows/types'
 import { workflowEditorVisitLogic } from './workflowEditorVisitLogic'
-import { NEW_WORKFLOW, WorkflowLogicProps, workflowLogic } from './workflowLogic'
+import { NEW_WORKFLOW, TriggerAction, WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 const delayStep = (id: string, config: Record<string, unknown>): HogFlowAction =>
     ({
@@ -21,10 +21,10 @@ const delayStep = (id: string, config: Record<string, unknown>): HogFlowAction =
 
 const SAVED_ID = 'wf-visit-1'
 
-const PAGEVIEW_TRIGGER = {
+const PAGEVIEW_TRIGGER: TriggerAction['config'] = {
     type: 'event',
     filters: { events: [{ id: '$pageview', name: '$pageview', type: 'events', order: 0 }] },
-} as const
+}
 
 describe('workflowEditorVisitLogic', () => {
     let captureSpy: jest.SpyInstance
