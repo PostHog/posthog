@@ -39,6 +39,15 @@ from products.signals.backend.tasks import (
 from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 
 
+def _delivery_events(scoped_capture: MagicMock) -> list[dict]:
+    capture = scoped_capture.return_value.__enter__.return_value
+    return [
+        call.kwargs["properties"]
+        for call in capture.call_args_list
+        if call.kwargs.get("event") == "signals_scout_slack_delivery_completed"
+    ]
+
+
 class FakeSlackResponse(dict):
     def __init__(self, data: dict, headers: dict | None = None) -> None:
         super().__init__(data)
@@ -164,14 +173,14 @@ class TestScoutSlackDelivery(BaseTest):
 
     @parameterized.expand(
         [
-            ("channel", "CSCOUTS|#scout-findings", "CSCOUTS", "CSCOUTS"),
+            ("channel", "CSCOUTS|#scout-findings", "CSCOUTS", "CSCOUTS", "channel"),
             # Posting to a member id opens a direct message, so Slack answers with the `D…`
             # conversation. An inbound mention names that conversation, not the member id.
-            ("direct_message", "U123ABC45|@andy", "U123ABC45", "D123ABC45"),
+            ("direct_message", "U123ABC45|@andy", "U123ABC45", "D123ABC45", "dm"),
         ]
     )
     def test_posts_report_with_safe_markdown_and_delivery_id(
-        self, _name, channel_config, sent_channel, posted_channel
+        self, _name, channel_config, sent_channel, posted_channel, expected_target_kind
     ) -> None:
         emission = self._make_emission()
         report = SignalReport.objects.create(
@@ -192,7 +201,10 @@ class TestScoutSlackDelivery(BaseTest):
         fake_client.chat_postMessage.return_value = {"ts": "1785418710.000200", "channel": posted_channel}
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
 
-        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
+        ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
                 self.team.id,
@@ -204,6 +216,17 @@ class TestScoutSlackDelivery(BaseTest):
                 channel_config,
             )
 
+        assert _delivery_events(scoped_capture) == [
+            {
+                "output_type": "report",
+                "target_kind": expected_target_kind,
+                "thread_reports": False,
+                "has_edit_note": False,
+                "skill_name": "signals-scout-error-tracking",
+                "result": "delivered",
+                "attempts": 1,
+            }
+        ]
         call = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert call["channel"] == sent_channel
         assert call["client_msg_id"] == delivery_id
@@ -903,7 +926,10 @@ class TestScoutSlackDelivery(BaseTest):
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
 
-        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
+        ):
             slack_integration.return_value.client = fake_client
             deliver_scout_slack_output.run(
                 self.team.id,
@@ -916,6 +942,9 @@ class TestScoutSlackDelivery(BaseTest):
             )
 
         fake_client.chat_postMessage.assert_not_called()
+        [event] = _delivery_events(scoped_capture)
+        assert event["result"] == "skipped"
+        assert event["skip_reason"] == "report_not_surfaced"
 
     def test_task_skips_report_suppressed_during_render(self) -> None:
         # The task's pre-render status check passes, but chart rendering can hold the worker for the
@@ -1336,6 +1365,7 @@ class TestScoutSlackDelivery(BaseTest):
         with (
             patch("products.signals.backend.tasks.post_scout_emission_to_slack", side_effect=error),
             patch("products.signals.backend.tasks.capture_exception") as capture,
+            patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
         ):
             deliver_scout_slack_output.run(
                 self.team.id,
@@ -1358,6 +1388,10 @@ class TestScoutSlackDelivery(BaseTest):
                 "error_code": "channel_not_found",
             },
         )
+        [event] = _delivery_events(scoped_capture)
+        assert event["result"] == "failed"
+        assert event["failure_reason"] == "permanent"
+        assert event["error_code"] == "channel_not_found"
 
     def test_task_captures_transient_failure_after_retries_are_exhausted(self) -> None:
         emission = self._make_emission()
@@ -1366,6 +1400,7 @@ class TestScoutSlackDelivery(BaseTest):
         with (
             patch("products.signals.backend.tasks.post_scout_emission_to_slack", side_effect=error),
             patch("products.signals.backend.tasks.capture_exception") as capture,
+            patch("products.signals.backend.tasks.ph_scoped_capture") as scoped_capture,
         ):
             result = deliver_scout_slack_output.apply(
                 args=(
@@ -1394,6 +1429,10 @@ class TestScoutSlackDelivery(BaseTest):
                 "attempts": 6,
             },
         )
+        [event] = _delivery_events(scoped_capture)
+        assert event["result"] == "failed"
+        assert event["failure_reason"] == "retries_exhausted"
+        assert event["attempts"] == 6
 
     def test_enqueue_captures_broker_failure(self) -> None:
         error = ConnectionError("broker unavailable")

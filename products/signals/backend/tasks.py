@@ -437,6 +437,22 @@ def deliver_scout_slack_thread_replies(
     )
 
 
+def _capture_scout_slack_delivery(team_id: int, properties: dict[str, object]) -> None:
+    try:
+        team = Team.objects.only("id", "uuid", "organization_id").filter(id=team_id).first()
+        if team is None:
+            return
+        with ph_scoped_capture() as capture:
+            capture(
+                distinct_id=str(team.uuid),
+                event="signals_scout_slack_delivery_completed",
+                properties={key: value for key, value in properties.items() if value is not None},
+                groups=groups(team=team),
+            )
+    except Exception:
+        logger.exception("signals_scout.slack_delivery_capture_failed", team_id=team_id)
+
+
 @shared_task(
     name="products.signals.backend.tasks.deliver_scout_slack_output",
     ignore_result=True,
@@ -465,6 +481,12 @@ def deliver_scout_slack_output(
         "run_id": run_id,
         "integration_id": integration_id,
     }
+    delivery: dict[str, object] = {
+        "output_type": output_type,
+        "target_kind": "dm" if channel.split("|", 1)[0].strip().startswith(("U", "W")) else "channel",
+        "thread_reports": thread_reports,
+        "has_edit_note": edit_note is not None,
+    }
     try:
         if output_type == "finding":
             emission = (
@@ -474,7 +496,11 @@ def deliver_scout_slack_output(
             )
             if emission is None:
                 logger.warning("signals_scout.slack_delivery_output_missing", **context)
+                _capture_scout_slack_delivery(
+                    team_id, {**delivery, "result": "skipped", "skip_reason": "output_missing"}
+                )
                 return
+            delivery["skill_name"] = emission.scout_run.skill_name
             post_scout_emission_to_slack(
                 emission,
                 delivery_id=delivery_id,
@@ -486,12 +512,19 @@ def deliver_scout_slack_output(
             run = SignalScoutRun.objects.select_related("team").filter(id=run_id, team_id=team_id).first()
             if report is None or run is None:
                 logger.warning("signals_scout.slack_delivery_output_missing", **context)
+                _capture_scout_slack_delivery(
+                    team_id, {**delivery, "result": "skipped", "skip_reason": "output_missing"}
+                )
                 return
+            delivery["skill_name"] = run.skill_name
             if report.status not in DELIVERABLE_REPORT_STATUSES:
                 logger.info(
                     "signals_scout.slack_delivery_report_not_surfaced",
                     **context,
                     report_status=report.status,
+                )
+                _capture_scout_slack_delivery(
+                    team_id, {**delivery, "result": "skipped", "skip_reason": "report_not_surfaced"}
                 )
                 return
 
@@ -538,6 +571,10 @@ def deliver_scout_slack_output(
             **context,
             error_code=exc.error_code,
         )
+        _capture_scout_slack_delivery(
+            team_id,
+            {**delivery, "result": "failed", "failure_reason": "permanent", "error_code": exc.error_code},
+        )
         return
     except Exception as exc:
         if self.request.retries < _SCOUT_SLACK_MAX_RETRIES:
@@ -564,9 +601,20 @@ def deliver_scout_slack_output(
             **context,
             attempts=self.request.retries + 1,
         )
+        _capture_scout_slack_delivery(
+            team_id,
+            {
+                **delivery,
+                "result": "failed",
+                "failure_reason": "retries_exhausted",
+                "error_code": slack_api_error_code(exc) if isinstance(exc, SlackApiError) else None,
+                "attempts": self.request.retries + 1,
+            },
+        )
         return
 
     logger.info("signals_scout.slack_delivery_sent", **context)
+    _capture_scout_slack_delivery(team_id, {**delivery, "result": "delivered", "attempts": self.request.retries + 1})
 
 
 def enqueue_scout_slack_delivery(
