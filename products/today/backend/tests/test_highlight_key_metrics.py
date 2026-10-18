@@ -1,6 +1,8 @@
+import json
 from datetime import date, timedelta
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
+from urllib.parse import unquote
 
 from unittest.mock import patch
 
@@ -24,7 +26,26 @@ def metric(key: str, values: list[float], *, people: bool = False) -> KeyMetric:
         daily=daily,
         this_week=sum(values[-7:]),
         last_week=sum(values[-14:-7]),
+        node={"kind": "EventsNode", "event": key},
     )
+
+
+def _query(url: str | None) -> Any:
+    assert url is not None and url.startswith("/insights/new#q=")
+    return json.loads(unquote(url.removeprefix("/insights/new#q=")))
+
+
+def _trend(series: dict[str, str]) -> dict[str, Any]:
+    return {
+        "kind": "InsightVizNode",
+        "source": {
+            "kind": "TrendsQuery",
+            "series": [series],
+            "interval": "day",
+            "dateRange": {"date_from": "2026-09-15", "date_to": "2026-10-12"},
+            "filterTestAccounts": True,
+        },
+    }
 
 
 class TestKeyMetrics(SimpleTestCase):
@@ -50,12 +71,20 @@ class TestKeyMetrics(SimpleTestCase):
 
         self.assertEqual(
             (
-                [(m.key, m.value, m.unit, m.change_pct, len(m.series)) for m in found.pulse],
+                [(m.key, m.value, m.unit, m.change_pct, m.previous_value, len(m.series)) for m in found.pulse],
                 [(c.title, c.detail, c.label) for c in found.items],
+                [_query(m.url) for m in found.pulse],
             ),
             (
-                [("signup_event", 6500.0, "events", -7.1, 28), ("activity_event", 140.0, "people", 0.0, 28)],
+                [
+                    ("signup_event", 6500.0, "events", -7.1, 7000.0, 28),
+                    ("activity_event", 140.0, "people", 0.0, 140.0, 28),
+                ],
                 [("‘Signup event’ decreased by 50% yesterday", "500 yesterday · 1,000 on an average Monday", "risk")],
+                [
+                    _trend({"kind": "EventsNode", "event": "signup_event", "math": "total"}),
+                    _trend({"kind": "EventsNode", "event": "activity_event", "math": "dau"}),
+                ],
             ),
         )
 

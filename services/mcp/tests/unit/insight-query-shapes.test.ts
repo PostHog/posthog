@@ -21,6 +21,28 @@ const acceptedQueries = [
         shape: 'wrapped DataVisualizationNode',
         query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: 'select 1' } },
     },
+    {
+        shape: 'BI worksheet',
+        query: {
+            kind: 'BIVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'SELECT 1 AS total' },
+            display: 'ActionsTable',
+            tableSettings: { columns: [{ column: 'total', settings: { display: { label: 'Total' } } }] },
+            config: {
+                chartType: 'ActionsTable',
+                source: null,
+                rows: [],
+                columns: [],
+                values: [],
+                filters: [],
+                limit: 1000,
+                sort: null,
+                querySnapshot: { kind: 'HogQLQuery', query: 'SELECT 1 AS total' },
+                catalogMetric: 'example_total',
+                rowFilterGroup: { operator: 'AND', filters: [], groups: [{ operator: 'OR', filters: [], groups: [] }] },
+            },
+        },
+    },
     { shape: 'bare TrendsQuery', query: BARE_TRENDS_QUERY },
     { shape: 'bare HogQLQuery', query: { kind: 'HogQLQuery', query: 'select 1' } },
     {
@@ -40,7 +62,9 @@ describe('insight query shapes', () => {
     it.each(cases)('$tool accepts a $shape', ({ tool, base, query }) => {
         const { schema } = GENERATED_TOOLS[tool]!()
 
-        expect(schema.safeParse({ ...base, query }).success).toBe(true)
+        const result = schema.safeParse({ ...base, query })
+        expect(result.success).toBe(true)
+        expect(result.data?.query).toMatchObject(query)
     })
 
     it.each(tools)('$tool sends a bare query on to the endpoint whole', ({ tool, base }) => {

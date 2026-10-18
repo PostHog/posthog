@@ -1,15 +1,21 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { SourceTab, TileId } from 'scenes/web-analytics/common'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import { WebStatsBreakdown } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
+
+import { MarketingAnalyticsFilterHint } from './MarketingAnalyticsFilterHint'
 
 function SourcesExample({ tab = SourceTab.CHANNEL }: { tab?: SourceTab }): JSX.Element | null {
     const { tiles } = useValues(webAnalyticsLogic)
@@ -38,6 +44,45 @@ function SourcesExample({ tab = SourceTab.CHANNEL }: { tab?: SourceTab }): JSX.E
     ) : null
 }
 
+function sourcesQueryResponse(
+    includeCrossSell: boolean
+): ({ request }: { request: Request }) => Promise<[number, Record<string, unknown>]> {
+    return async ({ request }) => {
+        const { query } = (await request.json()) as { query: { breakdownBy: WebStatsBreakdown } }
+        const names =
+            query.breakdownBy === WebStatsBreakdown.InitialUTMSource
+                ? ['google', 'facebook', 'newsletter']
+                : query.breakdownBy === WebStatsBreakdown.InitialUTMCampaign
+                  ? ['brand_search', 'product_launch', 'weekly_newsletter']
+                  : ['Organic Search', 'Paid Search', 'Direct']
+        return [
+            200,
+            {
+                columns: [
+                    'context.columns.breakdown_value',
+                    'context.columns.visitors',
+                    'context.columns.views',
+                    ...(includeCrossSell ? ['context.columns.cross_sell'] : []),
+                ],
+                results: names.map((name, index) => [
+                    name,
+                    [4800 - index * 1200, null],
+                    [7200 - index * 1600, null],
+                    ...(includeCrossSell ? [''] : []),
+                ]),
+                hasMore: false,
+            },
+        ]
+    }
+}
+
+function FilterHintExample(): JSX.Element | null {
+    const { currentTeamId } = useValues(teamLogic)
+    const { togglePropertyFilter } = useActions(webAnalyticsLogic)
+    useOnMountEffect(() => togglePropertyFilter(PropertyFilterType.Session, '$entry_utm_source', 'google'))
+    return currentTeamId ? <MarketingAnalyticsFilterHint teamId={currentTeamId} /> : null
+}
+
 const meta: Meta<typeof SourcesExample> = {
     title: 'Web Analytics/Marketing cross sell',
     component: SourcesExample,
@@ -53,31 +98,7 @@ const meta: Meta<typeof SourcesExample> = {
         ),
         mswDecorator({
             post: {
-                '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const { query } = (await request.json()) as { query: { breakdownBy: WebStatsBreakdown } }
-                    const names =
-                        query.breakdownBy === WebStatsBreakdown.InitialUTMSource
-                            ? ['google', 'facebook', 'newsletter']
-                            : query.breakdownBy === WebStatsBreakdown.InitialUTMCampaign
-                              ? ['brand_search', 'product_launch', 'weekly_newsletter']
-                              : ['Organic Search', 'Paid Search', 'Direct']
-                    return [
-                        200,
-                        {
-                            columns: [
-                                'context.columns.breakdown_value',
-                                'context.columns.visitors',
-                                'context.columns.views',
-                            ],
-                            results: names.map((name, index) => [
-                                name,
-                                [4800 - index * 1200, null],
-                                [7200 - index * 1600, null],
-                            ]),
-                            hasMore: false,
-                        },
-                    ]
-                },
+                '/api/environments/:team_id/query/:kind/': sourcesQueryResponse(false),
             },
             get: {
                 '/api/projects/:team_id/external_data_sources/': { results: [], next: null, count: 0 },
@@ -115,4 +136,30 @@ export const Narrow: Story = {
 }
 export const FlagOff: Story = {
     parameters: { featureFlags: { [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: false } },
+}
+const paidTrafficCardFlags = {
+    pageUrl: urls.webAnalytics(),
+    featureFlags: {
+        [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL]: true,
+        [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING_CROSS_SELL_V2]: 'test',
+    },
+}
+const withRowActions = mswDecorator({
+    post: { '/api/environments/:team_id/query/:kind/': sourcesQueryResponse(true) },
+})
+export const PaidTrafficCard: Story = { parameters: paidTrafficCardFlags, decorators: [withRowActions] }
+export const PaidTrafficCardNarrow: Story = {
+    parameters: paidTrafficCardFlags,
+    decorators: [
+        withRowActions,
+        (Story) => (
+            <div className="w-96">
+                <Story />
+            </div>
+        ),
+    ],
+}
+export const FilterHint: Story = {
+    parameters: paidTrafficCardFlags,
+    render: () => <FilterHintExample />,
 }
