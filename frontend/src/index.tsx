@@ -11,20 +11,37 @@ import { retryBootImport } from 'lib/utils/retryImport'
 import { RootErrorBoundary } from './RootErrorBoundary'
 import { ChunkLoadErrorBoundary } from './scenes/ChunkLoadErrorBoundary'
 
-markBootPhase('entry')
+// pinned: feature flag key, also listed in FEATURE_FLAGS. The entry reads the server-evaluated bootstrap flags directly,
+// because posthog-js has not started yet and lib/constants would make the entry chunk much larger.
+const RENDER_APP_AS_UPDATE_FLAG = 'boot-render-app-as-update'
+const renderAppAsUpdate = !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS?.featureFlags?.[RENDER_APP_AS_UPDATE_FLAG]
+
+markBootPhase('entry', { render_app_as_update: renderAppAsUpdate })
 
 type AppModules = [typeof import('scenes/App'), typeof import('scenes/bootApp')]
 
 let appModulesPromise: Promise<AppModules> | undefined
 
+// A logged-in first render shows the authenticated shell. Loading the shell with the app modules lets that render
+// show it without suspending. If this load fails, the shell loads lazily instead and reports its own error.
+function preloadAuthenticatedShell(): Promise<unknown> {
+    if (!renderAppAsUpdate || !window.POSTHOG_APP_CONTEXT?.current_user) {
+        return Promise.resolve()
+    }
+    return import('scenes/authenticatedShellLoader')
+        .then(({ loadAuthenticatedShell }) => loadAuthenticatedShell())
+        .catch(() => {})
+}
+
 function loadAppModules(): Promise<AppModules> {
     return (appModulesPromise ??= Promise.all([
         retryBootImport(() => import('scenes/App')),
         retryBootImport(() => import('scenes/bootApp')),
-    ]).then((modules) => {
+        preloadAuthenticatedShell(),
+    ]).then(([appModule, bootModule]) => {
         // Marked here, not in the lazy() factory: React calls the factory only after the CSS gate in boot().
         markBootPhase('app_modules_loaded')
-        return modules
+        return [appModule, bootModule]
     }))
 }
 
@@ -61,27 +78,66 @@ function getAppRoot(): Root | null {
     return (window.__posthogAppRoot ??= createRoot(rootElement))
 }
 
-function renderApp(): void {
+function renderInBootBoundaries(content: JSX.Element): void {
     getAppRoot()?.render(
         <RootErrorBoundary>
             {/* Auto-reloads once on a chunk-load failure (stale deploy). Repeated or non-chunk
                 errors bubble to RootErrorBoundary, which reports them and shows the failure UI. */}
-            <ChunkLoadErrorBoundary>
-                <Suspense
-                    fallback={
-                        <div className="Preloader" role="status" aria-label="Loading PostHog">
-                            <div className="Preloader__inner" />
-                        </div>
-                    }
-                >
-                    <App />
-                </Suspense>
-            </ChunkLoadErrorBoundary>
+            <ChunkLoadErrorBoundary>{content}</ChunkLoadErrorBoundary>
         </RootErrorBoundary>
     )
 }
 
+function ThrowBootError({ error }: { error: unknown }): never {
+    throw error
+}
+
+let showingStylesheetFailure = false
+
+const preloader = (
+    <div className="Preloader" role="status" aria-label="Loading PostHog">
+        <div className="Preloader__inner" />
+    </div>
+)
+
+function renderApp(): void {
+    if (!renderAppAsUpdate) {
+        renderInBootBoundaries(
+            <Suspense fallback={preloader}>
+                <App />
+            </Suspense>
+        )
+        return
+    }
+    renderInBootBoundaries(preloader)
+    // App renders as a plain update, not as a lazy component that resolves a Suspense fallback. A render that
+    // resolves a fallback is a retry, and when such a render shows a new fallback (the authenticated shell's lazy
+    // children do), React holds its commit until 500ms after the previous fallback appeared.
+    loadAppModules()
+        .then(([appModule, bootModule]) => {
+            if (showingStylesheetFailure) {
+                return null
+            }
+            bootModule.bootApp()
+            markBootPhase('app_booted')
+            return appModule.App
+        })
+        .then(
+            (LoadedApp) => {
+                if (LoadedApp && !showingStylesheetFailure) {
+                    renderInBootBoundaries(<LoadedApp />)
+                }
+            },
+            (error) => {
+                if (!showingStylesheetFailure) {
+                    renderInBootBoundaries(<ThrowBootError error={error} />)
+                }
+            }
+        )
+}
+
 function renderStylesheetFailure(): void {
+    showingStylesheetFailure = true
     getAppRoot()?.render(
         <div className="Preloader" role="alert">
             <div>
