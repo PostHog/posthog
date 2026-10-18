@@ -7,7 +7,7 @@ Imported from `ready()`, so it stays light: no models, no query layer.
 """
 
 from dataclasses import replace
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import NAMESPACE_URL, uuid5
 
@@ -82,7 +82,7 @@ def _logs_url(project_id: int, transition: AnnouncedTransition) -> str:
     return absolute_uri(f"/project/{project_id}/logs" + (f"?{params}" if params else ""))
 
 
-def _in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
+def in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
     # History rows come back from ClickHouse without a zone. A link or a body with zoneless times
     # reads them in whatever zone the reader is in.
     if transition.occurred_at.tzinfo is not None:
@@ -90,11 +90,17 @@ def _in_utc(transition: AnnouncedTransition) -> AnnouncedTransition:
     return replace(transition, occurred_at=transition.occurred_at.replace(tzinfo=UTC))
 
 
-def _window_params(transition: AnnouncedTransition) -> str:
-    # The window the check counted, so the link opens on the logs that decided it. The window end
-    # can sit before the record time, because the check clamps it to the ingestion checkpoint.
+def check_window_end(transition: AnnouncedTransition) -> datetime:
+    """The end of the window the check counted, so a link opens on the logs that decided it.
+
+    The window end can sit before the record time, because the check clamps it to the ingestion checkpoint.
+    """
     window_end = window_end_of(transition.evaluation_key)
-    date_to = _in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
+    return in_utc(replace(transition, occurred_at=window_end) if window_end else transition).occurred_at
+
+
+def _window_params(transition: AnnouncedTransition) -> str:
+    date_to = check_window_end(transition)
     date_from = date_to - timedelta(minutes=transition.condition["window_minutes"])
     return build_logs_url_params(_group_filters(transition), date_from=date_from, date_to=date_to)
 
@@ -150,7 +156,7 @@ def legacy_logs_webhook_body(
     Its template rendered a lone placeholder as the value's own type, so counts stay numbers and
     filter lists stay lists here too.
     """
-    transition = _in_utc(transition)
+    transition = in_utc(transition)
     occurred_at = transition.occurred_at
     filters = transition.source_config
     alert_url = absolute_uri(f"/project/{project_id}/logs/alerts/{alert_id}")

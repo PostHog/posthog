@@ -570,6 +570,7 @@ export interface taxonomicFilterLogicValues {
     }
     metadataSource: AnyDataNode
     mouseInteractionsEnabled: boolean
+    ownsSearchInput: boolean
     propertyAllowList: TaxonomicFilterGroupValueMap | undefined
     propertyFilters: {
         excludedProperties: TaxonomicFilterGroupValueMap
@@ -676,6 +677,7 @@ export interface taxonomicFilterLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
         selectedItemMeta: (arg: any) => any
+        ownsSearchInput: (arg: any) => boolean
         showNumericalPropsOnly: (arg: any) => any
         taxonomicFilterLogicKey: (taxonomicFilterLogicKey: string) => string
         eventNames: (arg: any) => any
@@ -1003,6 +1005,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        // A host that renders its own search input owns the query, so the picker cannot clear it.
+        ownsSearchInput: [
+            () => [(_, props) => props.hideSearchInput],
+            (hideSearchInput: boolean | undefined): boolean => !hideSearchInput,
+        ],
         showNumericalPropsOnly: [
             () => [(_, props) => props.showNumericalPropsOnly],
             (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,

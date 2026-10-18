@@ -14,7 +14,7 @@ from products.product_analytics.backend.facade.contracts import InsightDashboard
 
 from ...facade import contracts
 from ...facade.enums import HighlightInterval, HighlightMetricReason, HighlightUnit
-from ...feature_flags import FRECENCY_RANKING, pulse_ranking
+from ...feature_flags import FRECENCY_RANKING, RECENCY_RANKING, pulse_ranking
 from ..highlight_rules import short
 from ..highlight_series import pretty, usable_series
 from ..highlight_trends import complete, detect
@@ -45,8 +45,9 @@ class ViewedItem:
 
 
 def find(context: Context) -> Found:
-    if pulse_ranking(context.user, context.team) == FRECENCY_RANKING:
-        return Found(pulse=tuple(_frecent_metrics(context)))
+    ranking = pulse_ranking(context.user, context.team)
+    if ranking in (FRECENCY_RANKING, RECENCY_RANKING):
+        return Found(pulse=tuple(_frecent_metrics(context, ranking)))
     metrics: list[contracts.HighlightMetric] = []
     for item in _routine_insights(context):
         metric = context.guard(f"routine {item.ref}", partial(_metric, context, item.ref, viewed=item), None)
@@ -96,9 +97,9 @@ def frecency(view_days: Collection[date], today: date) -> float:
     return sum(0.5 ** (age / FRECENCY_HALF_LIFE_DAYS) for age in ages if 0 <= age <= FRECENCY_LOOKBACK_DAYS)
 
 
-def _frecent_metrics(context: Context) -> list[contracts.HighlightMetric]:
+def _frecent_metrics(context: Context, ranking: str) -> list[contracts.HighlightMetric]:
     metrics: list[contracts.HighlightMetric] = []
-    for item in _frecent_views(context)[:FRECENCY_CANDIDATES]:
+    for item in _frecent_views(context, ranking)[:FRECENCY_CANDIDATES]:
         shown = frozenset(metric.key for metric in metrics)
         metric = context.guard(f"frecent {item.kind} {item.ref}", partial(_frecent_metric, context, item, shown), None)
         if metric is not None:
@@ -108,7 +109,7 @@ def _frecent_metrics(context: Context) -> list[contracts.HighlightMetric]:
     return metrics
 
 
-def _frecent_views(context: Context) -> list[ViewedItem]:
+def _frecent_views(context: Context, ranking: str) -> list[ViewedItem]:
     views = FileSystemViewLog.objects.filter(
         team=context.team,
         user=context.user,
@@ -120,11 +121,11 @@ def _frecent_views(context: Context) -> list[ViewedItem]:
         ViewedItem(kind=kind, ref=ref, days=frozenset({*(days or []), viewed_at.astimezone(timezone_info).date()}))
         for kind, ref, days, viewed_at in views
     ]
-    scored = sorted(
-        ((frecency(item.days, context.today), max(item.days), item) for item in items),
-        key=lambda row: row[:2],
-        reverse=True,
-    )
+    scored = [(frecency(item.days, context.today), max(item.days), item) for item in items]
+    if ranking == RECENCY_RANKING:
+        scored.sort(key=lambda row: (row[1], row[0]), reverse=True)
+    else:
+        scored.sort(key=lambda row: row[:2], reverse=True)
     return [item for score, _last, item in scored if score > 0]
 
 
