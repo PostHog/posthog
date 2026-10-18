@@ -24,6 +24,7 @@ class CommercetoolsEndpointConfig:
     incremental_fields: list[IncrementalField] = field(default_factory=lambda: list(_LAST_MODIFIED_INCREMENTAL_FIELDS))
     # Every commercetools resource carries an immutable createdAt.
     partition_key: str = "createdAt"
+    should_sync_default: bool = True
 
 
 COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
@@ -63,11 +64,12 @@ COMMERCETOOLS_ENDPOINTS: dict[str, CommercetoolsEndpointConfig] = {
         scope="view_product_types",
     ),
     # Only available on projects using the Modular catalog model; Classic projects
-    # keep variants embedded in product_projections.
+    # keep variants embedded in product_projections, so it stays off by default.
     "variants": CommercetoolsEndpointConfig(
         name="variants",
         path="/variants",
         scope="view_products",
+        should_sync_default=False,
     ),
     "categories": CommercetoolsEndpointConfig(
         name="categories",
@@ -124,4 +126,8 @@ ENDPOINTS = tuple(COMMERCETOOLS_ENDPOINTS.keys())
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     name: config.incremental_fields for name, config in COMMERCETOOLS_ENDPOINTS.items() if config.incremental_fields
+}
+
+SHOULD_SYNC_DEFAULT: dict[str, bool] = {
+    name: config.should_sync_default for name, config in COMMERCETOOLS_ENDPOINTS.items()
 }
