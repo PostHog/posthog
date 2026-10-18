@@ -482,6 +482,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "conversation_id": "Identifier of the conversation the event belongs to.",
             "hitl_cycle_id": "Identifier of the consultation. All events of one consultation share it.",
             "event_type": "What happened, such as fin_consultation_started, fin_draft_proposed, or fin_consultation_finished.",
+            "round_index": "The feedback round the event belongs to, starting at 1. 0 for events outside a round, such as the start and end of the consultation.",
             "conversation_part_id": "The conversation part the event relates to, where one exists.",
             "rule_id": "The escalation rule that triggered the consultation, as recorded when it began. Null if no rule triggered it.",
             "rule_name": "The rule's name as recorded when the consultation began.",

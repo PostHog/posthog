@@ -8,6 +8,7 @@ from unittest import mock
 from requests import Response
 from requests.exceptions import HTTPError
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponseCursorPaginator,
     JSONResponsePaginator,
@@ -29,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom import intercom as intercom_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.intercom import (
     INTERCOM_API_BASE,
+    IntercomConversationCursor,
     IntercomPagesPaginator,
     IntercomResumeConfig,
     IntercomSearchPaginator,
@@ -73,6 +75,8 @@ def _drive(
 ) -> DriveResult:
     source = IntercomSource()
     config = IntercomSourceConfig(intercom_integration_id=456)
+    # The pipeline gives every schema of a cursor source a manager, with no cursor on a first run.
+    inputs.setdefault("source_cursor", SourceCursorManager(IntercomConversationCursor, None, source))
     with mock.patch.object(source, "get_oauth_integration", return_value=mock.MagicMock(access_token="token")):
         return SourceDriver(source, config).run(endpoint, script, resume_state=resume_state, **inputs)
 
@@ -779,21 +783,54 @@ class TestResumableConversationParts:
         assert body["query"]["value"] == 1600000000
         assert result.paths == ["/conversations/search", "/conversations/c4"]
 
-    def test_hitl_events_filter_parents_on_updated_at_with_the_created_at_watermark(self):
+    def test_hitl_events_walk_parents_from_the_source_cursor_and_advance_it(self):
+        cursor_manager = SourceCursorManager(
+            IntercomConversationCursor, IntercomConversationCursor(updated_at=1700000000), IntercomSource()
+        )
+        rounds = [
+            {"hitl_cycle_id": "h1", "event_type": "fin_consultation_started", "created_at": 1700000050, "data": {}},
+            *(
+                {
+                    "hitl_cycle_id": "h1",
+                    "event_type": "fin_teammate_input_received",
+                    "created_at": 1700000060,
+                    "data": {"round_index": i},
+                }
+                for i in (1, 2)
+            ),
+        ]
         result = _drive(
             "conversation_hitl_events",
             [
-                _conversation_page(["c1"], None),
                 ScriptedResponse(
-                    json={"type": "list", "data": [{"hitl_cycle_id": "h1", "event_type": "fin_consultation_started"}]}
+                    json={
+                        "conversations": [
+                            {"id": "c1", "updated_at": 1700000100},
+                            {"id": "c2", "updated_at": 1700000200},
+                        ],
+                        "pages": {"next": None},
+                    }
                 ),
+                ScriptedResponse(json={"type": "list", "data": rounds}),
+                ScriptedResponse(json={"type": "list", "data": []}),
             ],
             should_use_incremental_field=True,
             incremental_field="created_at",
-            db_incremental_field_last_value=1700000000,
+            db_incremental_field_last_value=1700000060,
+            source_cursor=cursor_manager,
         )
 
         assert result.raised is None
-        assert [(e["conversation_id"], e["hitl_cycle_id"]) for e in result.rows] == [("c1", "h1")]
+        assert [(e["conversation_id"], e["event_type"], e["round_index"]) for e in result.rows] == [
+            ("c1", "fin_consultation_started", 0),
+            ("c1", "fin_teammate_input_received", 1),
+            ("c1", "fin_teammate_input_received", 2),
+        ]
         assert result.requests[0].json()["query"] == {"field": "updated_at", "operator": ">", "value": 1700000000}
-        assert result.paths == ["/conversations/search", "/conversations/c1/hitl_events"]
+        assert result.paths == [
+            "/conversations/search",
+            "/conversations/c1/hitl_events",
+            "/conversations/c2/hitl_events",
+        ]
+        # A conversation with no events still moves the cursor, so the next run skips it.
+        assert cursor_manager.staged == IntercomConversationCursor(updated_at=1700000200)

@@ -139,6 +139,7 @@ class TestIntercomSource:
             should_use_incremental_field=True,
             incremental_field="updated_at",
             db_incremental_field_last_value="1700000000",
+            cursor_manager=None,
         )
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.intercom_source")

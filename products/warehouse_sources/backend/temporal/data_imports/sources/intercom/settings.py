@@ -371,15 +371,16 @@ INTERCOM_ENDPOINTS: dict[str, IntercomEndpointConfig] = {
     ),
     "conversation_hitl_events": IntercomEndpointConfig(
         # Substream of `conversations`: `GET /conversations/{id}/hitl_events` for each parent
-        # the conversations search returns. Events have no id of their own, and every event
-        # of one consultation shares `hitl_cycle_id`, hence the composite key. Each yielded
-        # event carries `conversation_id`.
+        # the conversations search returns. Events have no id of their own. Every event of one
+        # consultation shares `hitl_cycle_id`, and each type occurs once per consultation or
+        # once per feedback round, hence the composite key. Each yielded event carries
+        # `conversation_id` and `round_index` (0 for event types outside a round).
         name="conversation_hitl_events",
         path="",
         data_selector="",
         paginator_kind="substream",
         parent_endpoint="conversations",
-        primary_keys=["conversation_id", "hitl_cycle_id", "event_type", "created_at"],
+        primary_keys=["conversation_id", "hitl_cycle_id", "event_type", "round_index"],
         api_versions=("2.17",),
     ),
 }
@@ -397,9 +398,10 @@ ENDPOINTS = tuple(INTERCOM_ENDPOINTS.keys())
 #   filter is server-honored, so parents whose timestamp didn't advance
 #   aren't refetched.
 # - conversation_hitl_events: child of conversations, filtered on the parent's
-#   `updated_at` like conversation_parts. Intercom lists the events only once a
-#   consultation ends, and the end (a reply, an escalation, a takeover) updates
-#   the conversation, so a parent with new events is refetched.
+#   `updated_at` like conversation_parts, but from a source cursor rather than the
+#   rows' `created_at`. Intercom lists the events only once a consultation ends,
+#   and the end (a reply, an escalation, a takeover) updates the conversation, so
+#   a parent with new events is refetched.
 #
 # Companies, segments, and company_segments are intentionally excluded: their
 # list endpoints don't accept a timestamp filter, and a "client-side cursor"
