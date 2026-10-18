@@ -255,6 +255,66 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
 
+    @parameterized.expand(
+        [
+            ("s3_bucket", ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "bucket", True),
+            (
+                "s3_bucket_alias",
+                ExternalDataDestination.Type.S3,
+                Integration.IntegrationKind.AWS_S3,
+                "bucket_name",
+                True,
+            ),
+            ("s3_region", ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "region", True),
+            ("s3_prefix", ExternalDataDestination.Type.S3, Integration.IntegrationKind.AWS_S3, "prefix", False),
+            (
+                "azure_container",
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                "container_name",
+                True,
+            ),
+            (
+                "azure_container_alias",
+                ExternalDataDestination.Type.AZURE_BLOB,
+                Integration.IntegrationKind.AZURE_BLOB,
+                "container",
+                True,
+            ),
+            (
+                "postgres_schema",
+                ExternalDataDestination.Type.POSTGRES,
+                Integration.IntegrationKind.POSTGRESQL,
+                "schema",
+                False,
+            ),
+        ]
+    )
+    def test_a_name_saved_with_a_stray_space_is_trimmed(
+        self, _name: str, destination_type: str, kind: str, field: str, trimmed: bool
+    ) -> None:
+        destination = self._create_destination(
+            type=destination_type, integration=self._integration(kind).pk, config={field: " example-name "}
+        )
+
+        assert destination.config[field] == ("example-name" if trimmed else " example-name ")
+
+    @parameterized.expand([("resent_as_stored", " example-bucket"), ("resent_trimmed", "example-bucket")])
+    def test_a_bucket_saved_before_trimming_can_still_be_edited(self, _name: str, resent: str) -> None:
+        destination = ExternalDataDestination.objects.create(
+            team=self.team,
+            type=ExternalDataDestination.Type.S3,
+            name="exports",
+            integration=self._integration(Integration.IntegrationKind.AWS_S3),
+            config={"bucket": " example-bucket", "region": "us-east-1"},
+        )
+
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": {"bucket": resent}})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        destination.refresh_from_db()
+        assert destination.config == {"bucket": "example-bucket", "region": "us-east-1"}
+
     def test_a_partial_config_update_keeps_the_fields_it_did_not_mention(self) -> None:
         # `config` is one JSON blob. A PATCH naming only the key it means to change must not
         # replace the whole blob and silently drop the target fields alongside it.
