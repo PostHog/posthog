@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
@@ -26,20 +27,28 @@ from products.autoresearch.backend.models import (
     AutoresearchRun,
     AutoresearchTrainingRun,
 )
-from products.autoresearch.backend.query import BATCH_QUERY
+from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY
 from products.autoresearch.backend.temporal.workflows import (
     _VALIDATION_ATTEMPT_TIMEOUT,
     RESCUE_ITERATION_BUDGET,
+    ActivePipeline,
+    AutoresearchCoordinatorWorkflow,
+    AutoresearchInferenceWorkflow,
     AutoresearchPropertyCleanupWorkflow,
+    AutoresearchValidationWorkflow,
+    CoordinatorWorkflowInput,
     FailCleanupRunInput,
     InferenceWorkflowResult,
     KickoffTrainingInput,
     KickoffTrainingResult,
     LoadActivePipelinesInput,
+    LoadActivePipelinesResult,
     PropertyCleanupWorkflowInput,
     PropertyCleanupWorkflowResult,
     RunInferenceInput,
     RunInferenceResult,
+    RunShadowScoringInput,
+    RunShadowScoringResult,
     RunValidationInput,
     RunValidationResult,
     ValidationWorkflowResult,
@@ -170,6 +179,18 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         score_due = {p.pipeline_id: p.score_due for p in result.pipelines}.get(str(pipeline.id))
         assert score_due == expected_score_due
 
+    def test_load_active_pipelines_lists_pipelines_that_missed_yesterday_first(self) -> None:
+        scored_yesterday = self._create_pipeline(last_scored_at=datetime(2026, 9, 10, 3, tzinfo=UTC))
+        validates_only = self._create_pipeline(last_scored_at=datetime(2026, 9, 11, 3, tzinfo=UTC))
+        missed_yesterday = self._create_pipeline(last_scored_at=datetime(2026, 9, 9, 3, tzinfo=UTC))
+        never_scored = self._create_pipeline()
+
+        result = activity_load_active_pipelines(LoadActivePipelinesInput())
+
+        order = [p.pipeline_id for p in result.pipelines]
+        assert set(order[:2]) == {str(missed_yesterday.id), str(never_scored.id)}
+        assert set(order[2:]) == {str(scored_yesterday.id), str(validates_only.id)}
+
     @parameterized.expand(
         [
             ("creator_lost_access", True, True, {}),
@@ -252,7 +273,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
                 activity_run_inference,
                 RunInferenceInput(pipeline_id=str(pipeline.id), team_id=self.team.id, prediction_date="2026-09-11"),
             )
-            assert mock_inference.call_args.kwargs["query_context"] == BATCH_QUERY
+            assert mock_inference.call_args.kwargs["query_context"] == SCORING_QUERY
             assert mock_inference.call_args.kwargs["scheduled"] is True
         else:
             env.run(activity_run_validation, RunValidationInput(pipeline_id=str(pipeline.id), team_id=self.team.id))
@@ -614,3 +635,71 @@ async def test_property_cleanup_workflow_reconciles_and_fails_the_run(
 
     assert passes == expected_passes
     assert failed_runs == ([expected_failed_run] if expected_failed_run else [])
+
+
+async def test_coordinator_bounds_the_sweep_and_scores_shadows_after_every_champion() -> None:
+    pipeline_ids = [f"p{i}" for i in range(5)]
+    in_flight = 0
+    max_in_flight = 0
+    events: list[tuple[str, str]] = []
+    inference_inputs: list[RunInferenceInput] = []
+
+    async def heavy_step(name: str, pipeline_id: str) -> None:
+        nonlocal in_flight, max_in_flight
+        in_flight += 1
+        max_in_flight = max(max_in_flight, in_flight)
+        await asyncio.sleep(0.05)
+        in_flight -= 1
+        events.append((name, pipeline_id))
+
+    @activity.defn(name="autoresearch-coordinator.load_active_pipelines")
+    async def load(inp: LoadActivePipelinesInput) -> LoadActivePipelinesResult:
+        return LoadActivePipelinesResult(
+            pipelines=[ActivePipeline(pipeline_id=pid, team_id=1, score_due=True) for pid in pipeline_ids]
+        )
+
+    @activity.defn(name="autoresearch-inference.run_inference")
+    async def infer(inp: RunInferenceInput) -> RunInferenceResult:
+        inference_inputs.append(inp)
+        await heavy_step("champion", inp.pipeline_id)
+        return RunInferenceResult(run_id=f"run-{inp.pipeline_id}", rows_scored=1, status="completed")
+
+    @activity.defn(name="autoresearch-validation.run_validation")
+    async def validate(inp: RunValidationInput) -> RunValidationResult:
+        await heavy_step("validation", inp.pipeline_id)
+        return RunValidationResult(dates_validated=1, total_rows=1, status="completed")
+
+    @activity.defn(name="autoresearch-coordinator.kickoff_training")
+    async def kickoff(inp: KickoffTrainingInput) -> KickoffTrainingResult:
+        return KickoffTrainingResult(kicked_off=False, reason="not_due")
+
+    @activity.defn(name="autoresearch-coordinator.run_shadow_scoring")
+    async def shadows(inp: RunShadowScoringInput) -> RunShadowScoringResult:
+        assert inp.run_id == f"run-{inp.pipeline_id}"
+        events.append(("shadow", inp.pipeline_id))
+        if inp.pipeline_id == "p0":
+            raise ApplicationError("predict sandbox died", non_retryable=True)
+        return RunShadowScoringResult(completed=1, failed=0, skipped=0, status="completed")
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue="coordinator-test",
+            workflows=[AutoresearchCoordinatorWorkflow, AutoresearchInferenceWorkflow, AutoresearchValidationWorkflow],
+            activities=[load, infer, validate, kickoff, shadows],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            result = await env.client.execute_workflow(
+                AutoresearchCoordinatorWorkflow.run,
+                CoordinatorWorkflowInput(run_date="2026-10-18", max_concurrency=2),
+                id=str(uuid.uuid4()),
+                task_queue="coordinator-test",
+            )
+
+    assert max_in_flight == 2
+    first_shadow = next(index for index, (name, _) in enumerate(events) if name == "shadow")
+    assert {pid for name, pid in events[:first_shadow] if name == "champion"} == set(pipeline_ids)
+    assert sorted(pid for name, pid in events if name == "shadow") == pipeline_ids
+    assert all(inp.defer_shadows and inp.coordinator_concurrency == 2 for inp in inference_inputs)
+    # A shadow failure leaves the champion's pipeline counted as processed.
+    assert (result.pipelines_processed, result.pipelines_errored, result.status) == (5, 0, "completed")
