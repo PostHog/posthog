@@ -411,3 +411,162 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
         }
     }
 }
+
+[data-quill-portal='popover']:has(> .TodayContextPanelMorph) {
+    filter: drop-shadow(0 8px 12px rgb(0 0 0 / 8%)) drop-shadow(0 2px 4px rgb(0 0 0 / 6%));
+}
+
+.TodayContextPanelMorph {
+    --today-ai-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+    --today-ai-spring: linear(
+        0,
+        0.03,
+        0.106,
+        0.206,
+        0.316,
+        0.428,
+        0.533,
+        0.629,
+        0.712,
+        0.784,
+        0.842,
+        0.89,
+        0.927,
+        0.956,
+        0.977,
+        0.992,
+        1.003,
+        1.009,
+        1.013,
+        1.015,
+        1.015,
+        1.014,
+        1.013,
+        1.012,
+        1.01,
+        1.008,
+        1.007,
+        1.005,
+        1.004,
+        1.003,
+        1.002,
+        1.002,
+        1
+    );
+    --today-ai-on-button: translate(
+        calc(-1 * var(--today-ai-drag-x, 0px)),
+        calc(8px + var(--anchor-height) - var(--today-ai-drag-y, 0px))
+    );
+    --today-ai-button-shape: inset(
+        calc(100% - var(--anchor-height)) calc(50% - var(--anchor-width) / 2) 0 round calc(var(--anchor-height) / 2)
+    );
+
+    clip-path: inset(0 round var(--today-frame-radius));
+    transition:
+        clip-path 675ms var(--today-ai-spring),
+        transform 675ms var(--today-ai-spring);
+
+    &[data-starting-style],
+    &[data-ending-style] {
+        opacity: 1;
+        clip-path: var(--today-ai-button-shape);
+        transform: var(--today-ai-on-button);
+    }
+
+    &[data-ending-style] {
+        transition:
+            clip-path 240ms var(--today-ai-ease-out),
+            transform 240ms var(--today-ai-ease-out);
+    }
+
+    &[data-docked][data-ending-style] {
+        opacity: 0;
+        clip-path: inset(0 round var(--today-frame-radius));
+        transform: none;
+        transition: opacity 150ms var(--today-ai-ease-out);
+    }
+
+    [data-attr='today-context-panel-card'] > * {
+        transition:
+            opacity 200ms var(--today-ai-ease-out) 80ms,
+            transform 320ms var(--today-ai-ease-out) 40ms,
+            filter 320ms var(--today-ai-ease-out) 40ms;
+    }
+
+    &:is([data-starting-style], [data-ending-style]) [data-attr='today-context-panel-card'] > * {
+        opacity: 0;
+        filter: blur(4px);
+        transform: translateY(8px);
+        transition:
+            opacity 100ms var(--today-ai-ease-out),
+            transform 100ms var(--today-ai-ease-out),
+            filter 100ms var(--today-ai-ease-out);
+    }
+
+    &[data-docked][data-ending-style] [data-attr='today-context-panel-card'] > * {
+        opacity: 1;
+        filter: none;
+        transform: none;
+    }
+
+    .TodayContextPanelMorph__face {
+        position: absolute;
+        bottom: 0;
+        left: calc(50% - var(--anchor-width) / 2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: var(--anchor-width);
+        height: var(--anchor-height);
+        color: var(--foreground);
+        pointer-events: none;
+        background-color: color-mix(in oklab, var(--input) 50%, var(--background));
+        border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
+        border-radius: 9999px;
+        opacity: 0;
+        transition: opacity 120ms var(--today-ai-ease-out);
+
+        svg {
+            width: 1rem;
+            height: 1rem;
+        }
+    }
+
+    &:is([data-starting-style], [data-ending-style]) .TodayContextPanelMorph__face {
+        opacity: 1;
+    }
+
+    &[data-ending-style] .TodayContextPanelMorph__face {
+        transition-delay: 100ms;
+    }
+
+    &[data-docked][data-ending-style] .TodayContextPanelMorph__face {
+        opacity: 0;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        &,
+        &[data-ending-style] {
+            transition: opacity 150ms var(--today-ai-ease-out);
+        }
+
+        &[data-starting-style],
+        &[data-ending-style] {
+            opacity: 0;
+            clip-path: inset(0 round var(--today-frame-radius));
+            transform: none;
+        }
+
+        .TodayContextPanelMorph__face {
+            display: none;
+        }
+
+        [data-attr='today-context-panel-card'] > *,
+        &:is([data-starting-style], [data-ending-style]) [data-attr='today-context-panel-card'] > * {
+            opacity: 1;
+            filter: none;
+            transform: none;
+            transition: none;
+        }
+    }
+}

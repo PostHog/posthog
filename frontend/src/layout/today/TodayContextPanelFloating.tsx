@@ -99,7 +99,7 @@ export function TodayContextPanelFloating(): JSX.Element {
                 >
                     {/* The outline button is see-through, so an opaque pill sits behind it over the page. */}
                     <span className="pointer-events-auto rounded-full bg-background shadow-md">
-                        <Tooltip>
+                        <Tooltip disabled={floatingOpen}>
                             <TooltipTrigger
                                 delay={0}
                                 render={
@@ -128,10 +128,17 @@ export function TodayContextPanelFloating(): JSX.Element {
                     initialFocus={() =>
                         cardRef.current?.querySelector<HTMLElement>('textarea, [contenteditable="true"]') ?? true
                     }
-                    className="w-auto gap-0 border-0 bg-transparent p-0 shadow-none"
+                    className="TodayContextPanelMorph w-auto gap-0 border-0 bg-transparent p-0 shadow-none"
+                    data-docked={docked || undefined}
                     // The drag offset changes on every pointer move, which a class can't express.
                     // eslint-disable-next-line react/forbid-dom-props
-                    style={{ translate: `${floatingOffset.x}px ${floatingOffset.y}px` }}
+                    style={
+                        {
+                            translate: `${floatingOffset.x}px ${floatingOffset.y}px`,
+                            '--today-ai-drag-x': `${floatingOffset.x}px`,
+                            '--today-ai-drag-y': `${floatingOffset.y}px`,
+                        } as React.CSSProperties
+                    }
                 >
                     {/* Fixed size: the panels scroll inside, and a size that followed a streaming thread would jump. */}
                     <TodayContextPanelCard
@@ -139,8 +146,11 @@ export function TodayContextPanelFloating(): JSX.Element {
                         docked={false}
                         tab={floatingActiveTab}
                         onDragStart={startDrag}
-                        className="h-[min(40rem,calc(100vh-10rem))] w-85 shadow-lg"
+                        className="h-[min(40rem,calc(100vh-10rem))] w-85"
                     />
+                    <span aria-hidden className="TodayContextPanelMorph__face">
+                        <IconSparkles />
+                    </span>
                 </PopoverContent>
             </Popover>
             {dockHint && (
