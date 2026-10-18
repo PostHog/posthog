@@ -63,7 +63,10 @@ All carry `surface` on both surfaces, except `include stale toggled`, which carr
 
 ## Legacy only, with `surface`
 
-- `taxonomic filter search latency`: `groupType`, `searchQuery`, `resultCount`, `time_to_see_data_ms`.
+- `taxonomic filter search latency`: `groupType`, `searchQuery`, `resultCount`, `time_to_see_data_ms`, `revealedBy`, `pendingGroupTypes`.
+  A category tab sends it when its own fetch lands, and `time_to_see_data_ms` is the fetch time.
+  The All tab sends it when its rows reveal, with `groupType: suggested_filters`, `revealedBy` and `pendingGroupTypes`.
+  There `time_to_see_data_ms` runs from the last keystroke, so it includes the input debounce. Compare the two only by `groupType`.
   The rebuild does not send it yet (see `hooks/useGroupList.ts`).
 - `taxonomic filter search intent predicted`: `query`, `activeTab`, `predictedGroupType`, `confidence`, `isConfident`, `suggestsSwitch`, `wouldPromote`, `promptVersion`, `source`, `variant`, `inTime`, `shown`.
   The banner funnel in [refreshing-product-reality](refreshing-product-reality.md) reads `variant` and `shown`.
