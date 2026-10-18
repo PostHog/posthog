@@ -109,6 +109,92 @@ class TestSeriesNames(SimpleTestCase):
         self.assertEqual({name: name in found.averaged_series for name in found.series}, expected)
 
 
+def _sql_query(display: str = "ActionsLineGraph", **chart_settings: Any) -> dict[str, Any]:
+    return {
+        "kind": "DataVisualizationNode",
+        "source": {"kind": "HogQLQuery", "query": "SELECT 1"},
+        "display": display,
+        "chartSettings": {"xAxis": {"column": "week"}, "yAxis": [{"column": "p50"}], **chart_settings},
+    }
+
+
+class TestSqlSeries(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a weekly breakdown names each series by its column and value",
+                _sql_query(yAxis=[{"column": "p50"}, {"column": "p90"}], seriesBreakdownColumn="kind"),
+                {
+                    "columns": ["week", "kind", "p50", "p90"],
+                    "results": [["2026-10-04", "html", 1, 2], ["2026-10-11", "html", 3, None]],
+                },
+                ("week", {"p50 · html": [1.0, 3.0], "p90 · html": [2.0, 0.0]}, None),
+            ),
+            (
+                "a monthly series keeps its label and currency prefix",
+                _sql_query(
+                    xAxis={"column": "month"},
+                    yAxis=[
+                        {
+                            "column": "revenue",
+                            "settings": {"display": {"label": "Revenue"}, "formatting": {"prefix": "$"}},
+                        }
+                    ],
+                ),
+                {"columns": ["month", "revenue"], "results": [["2026-08-01", 10], ["2026-09-01", 12]]},
+                ("month", {"Revenue": [10.0, 12.0]}, "$"),
+            ),
+            ("a table", _sql_query(display="ActionsTable"), {"columns": ["week", "p50"], "results": []}, None),
+            (
+                "a truncated result",
+                _sql_query(),
+                {"columns": ["week", "p50"], "results": [["2026-10-04", 1], ["2026-10-11", 2]], "hasMore": True},
+                None,
+            ),
+            (
+                "rows that repeat a date",
+                _sql_query(),
+                {"columns": ["week", "p50"], "results": [["2026-10-04", 1], ["2026-10-04", 2]]},
+                None,
+            ),
+            (
+                "an x axis that is not a date",
+                _sql_query(),
+                {"columns": ["week", "p50"], "results": [["html", 1], ["react", 2]]},
+                None,
+            ),
+            (
+                "dates without a regular interval",
+                _sql_query(),
+                {"columns": ["week", "p50"], "results": [["2026-10-04", 1], ["2026-10-07", 2]]},
+                None,
+            ),
+        ]
+    )
+    def test_sql_insight_series(
+        self,
+        _name: str,
+        query: dict[str, Any],
+        response: dict[str, Any],
+        expected: tuple[str, dict[str, list[float]], str | None] | None,
+    ) -> None:
+        with patch.object(insight_series, "_run", return_value=response):
+            found = insight_series.insight_series(
+                cast(Team, None), cast(User, None), short_id="abc", name="Build time", query=query, dashboard=None
+            )
+
+        summary = (
+            None
+            if found is None
+            else (
+                found.period,
+                {name: [v for _, v in points] for name, points in found.series.items()},
+                found.value_prefix,
+            )
+        )
+        self.assertEqual(summary, expected)
+
+
 class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -164,6 +250,32 @@ class TestGetInsightSeries(ClickhouseTestMixin, BaseTest):
                 {name: (len(points), sum(v for _, v in points)) for name, points in found.series.items()},
             ),
             ("day", ["Daily people"], "percentage", 9, {"Sign-ups": (56, 3.0), "Daily people": (56, 2.0)}),
+        )
+
+    def test_a_charted_sql_insight_returns_its_daily_series(self) -> None:
+        self._signups((2, "Chrome"), (2, "Chrome"), (3, "Chrome"))
+        insight = Insight.objects.create(
+            team=self.team,
+            name="Sign-ups",
+            saved=True,
+            query={
+                "kind": "DataVisualizationNode",
+                "source": {
+                    "kind": "HogQLQuery",
+                    "query": "SELECT toStartOfDay(timestamp) AS day, count() AS signups FROM events "
+                    "WHERE event = 'signed up' GROUP BY day ORDER BY day",
+                },
+                "display": "ActionsLineGraph",
+                "chartSettings": {"xAxis": {"column": "day"}, "yAxis": [{"column": "signups"}]},
+            },
+        )
+
+        found = get_insight_series(team=self.team, user=self.user, short_id=insight.short_id)
+
+        assert found is not None
+        self.assertEqual(
+            (found.period, found.averaged_series, found.series),
+            ("day", ["signups"], {"signups": [(self._ago(3).date(), 1.0), (self._ago(2).date(), 2.0)]}),
         )
 
     def test_a_smoothed_trend_returns_its_raw_daily_counts(self) -> None:

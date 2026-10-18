@@ -1,5 +1,6 @@
 import json
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import BaseModel
@@ -27,6 +28,7 @@ UNCHARTED_DISPLAYS = {
     "ActionsLineGraphCumulative",
     "SlopeGraph",
 }
+CHARTED_SQL_DISPLAYS = {"ActionsLineGraph", "ActionsBar", "ActionsStackedBar", "ActionsAreaGraph"}
 LOOKBACK = {"day": "-56d", "week": "-16w", "month": "-24m"}
 DATE_FILTERS = ("date_from", "date_to", "explicitDate", "interval", "compareFilter")
 EXECUTION_MODE = ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE
@@ -79,6 +81,98 @@ def _visible(trends: dict[str, Any], results: list[dict[str, Any]]) -> list[dict
     ]
 
 
+def _as_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value[:10])
+        except ValueError:
+            return None
+    return None
+
+
+def _as_number(value: Any) -> float | None:
+    if value is None:
+        return 0.0
+    if isinstance(value, bool) or not isinstance(value, int | float | Decimal):
+        return None
+    return float(value)
+
+
+def _sql_period(days: list[date]) -> str | None:
+    gaps = {(later - earlier).days for earlier, later in zip(days, days[1:])}
+    if not gaps:
+        return None
+    step = min(gaps)
+    if step == 1:
+        return "day"
+    if step == 7 and all(gap % 7 == 0 for gap in gaps):
+        return "week"
+    if 28 <= step <= 31 and all(day.day == 1 for day in days):
+        return "month"
+    return None
+
+
+def _sql_series(
+    team: Team,
+    user: User,
+    *,
+    short_id: str,
+    name: str | None,
+    query: dict[str, Any],
+    filters: dict[str, Any],
+    variables: dict[str, Any] | None,
+) -> InsightSeries | None:
+    settings = query.get("chartSettings") or {}
+    x_column = (settings.get("xAxis") or {}).get("column")
+    y_axes = [axis for axis in settings.get("yAxis") or [] if axis.get("column")]
+    if query.get("display") not in CHARTED_SQL_DISPLAYS or not x_column or not y_axes:
+        return None
+    response = _run(team, user, query["source"], filters, variables)
+    columns = response.get("columns") or []
+    breakdown_column = settings.get("seriesBreakdownColumn")
+    wanted = [x_column, *(axis["column"] for axis in y_axes), *([breakdown_column] if breakdown_column else [])]
+    if response.get("hasMore") or any(column not in columns for column in wanted):
+        return None
+    position = {column: index for index, column in enumerate(columns)}
+    series: dict[str, dict[date, float]] = {}
+    for row in response.get("results") or []:
+        day = _as_date(row[position[x_column]])
+        if day is None:
+            return None
+        for axis in y_axes:
+            value = _as_number(row[position[axis["column"]]])
+            if value is None:
+                return None
+            label = str(((axis.get("settings") or {}).get("display") or {}).get("label") or axis["column"])
+            if breakdown_column:
+                breakdown = str(row[position[breakdown_column]])
+                label = f"{label} · {breakdown}" if len(y_axes) > 1 else breakdown
+            points = series.setdefault(label, {})
+            if day in points:
+                return None
+            points[day] = value
+    period = _sql_period(sorted({day for points in series.values() for day in points}))
+    if period is None:
+        return None
+    formatting = ((y_axes[0].get("settings") or {}).get("formatting") or {}) if len(y_axes) == 1 else {}
+    places = formatting.get("decimalPlaces")
+    return InsightSeries(
+        short_id=short_id,
+        name=name,
+        series={label: sorted(points.items()) for label, points in series.items()},
+        period=period,
+        averaged_series=list(series),
+        event_name="",
+        value_prefix=formatting.get("prefix") or None,
+        value_postfix=formatting.get("suffix") or None,
+        decimal_places=None if places is None else min(max(int(places), 0), 9),
+    )
+
+
 def insight_series(
     team: Team,
     user: User,
@@ -97,6 +191,8 @@ def insight_series(
         variables = dashboard.variables
     filters = {key: value for key, value in dashboard_filters.items() if key not in DATE_FILTERS}
     source = query.get("source", query)
+    if query.get("kind") == "DataVisualizationNode" and source.get("kind") == "HogQLQuery":
+        return _sql_series(team, user, short_id=short_id, name=name, query=query, filters=filters, variables=variables)
     trends = source.get("trendsFilter") or {}
     if source.get("kind") != "TrendsQuery" or trends.get("display") in UNCHARTED_DISPLAYS:
         return None
