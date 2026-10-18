@@ -119,9 +119,20 @@ describe('createValidateEventPropertiesStep', () => {
         })
 
         it.each([
-            ['a string longer than 400 characters', 'a'.repeat(401), 401],
-            ['an object whose JSON is longer than 400 characters', { blob: 'a'.repeat(400) }, 411],
-        ])('drops $groupidentify with %s', async (_name, groupType, groupTypeLength) => {
+            ['a string longer than 400 characters', 'a'.repeat(401), 'a'.repeat(100), 401],
+            [
+                'an object whose JSON is longer than 400 characters',
+                { blob: 'a'.repeat(400) },
+                `{"blob":"${'a'.repeat(91)}`,
+                411,
+            ],
+            [
+                'an object whose toString is not callable',
+                { toString: null, padding: 'a'.repeat(401) },
+                `{"toString":null,"padding":"${'a'.repeat(72)}`,
+                431,
+            ],
+        ])('drops $groupidentify with %s', async (_name, groupType, groupTypePreview, groupTypeLength) => {
             const input = groupIdentify(groupType)
 
             const result = await step(input)
@@ -138,7 +149,7 @@ describe('createValidateEventPropertiesStep', () => {
                                 event: '$groupidentify',
                                 distinctId: 'user123',
                                 groupKey: 'org_1',
-                                groupType: String(groupType).substring(0, 100),
+                                groupType: groupTypePreview,
                                 groupTypeLength,
                                 maxLength: 400,
                             },

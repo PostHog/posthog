@@ -156,6 +156,15 @@ describe('GroupTypeManager()', () => {
     })
 
     describe('fetchGroupTypeIndex()', () => {
+        it('returns null without inserting when the type exceeds the column length', async () => {
+            jest.mocked(hub.groupRepository.insertGroupType).mockClear()
+
+            const groupType = 'a'.repeat(401)
+            expect(await groupTypeManager.fetchGroupTypeIndex(teamId, projectId, groupType, TEST_TIMESTAMP)).toBeNull()
+
+            expect(hub.groupRepository.insertGroupType).not.toHaveBeenCalled()
+        })
+
         it('fetches an already existing value', async () => {
             await hub.groupRepository.insertGroupType(teamId, projectId, 'foo', 0, TEST_TIMESTAMP)
             await hub.groupRepository.insertGroupType(teamId, projectId, 'bar', 1, TEST_TIMESTAMP)
