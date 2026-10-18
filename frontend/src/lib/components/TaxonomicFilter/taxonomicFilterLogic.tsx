@@ -2644,6 +2644,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         // 5s reveal-barrier timer as a normal keystroke would — the `setSearchQuery`
         // listener doesn't run on mount because no action was dispatched.
         if ((props.initialSearchQuery ?? '').trim()) {
+            cache.searchStartedAt = performance.now()
             cache.disposables.add(() => {
                 const timerId = window.setTimeout(() => actions.openRevealBarrier(), REVEAL_BARRIER_TIMEOUT_MS)
                 return () => window.clearTimeout(timerId)
@@ -2832,11 +2833,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             // key auto-disposes the previous timer; we only need to explicitly dispose when
             // the query clears (no fresh timer to schedule).
             if ((searchQuery ?? '').trim()) {
+                cache.searchStartedAt = performance.now()
                 cache.disposables.add(() => {
                     const timerId = window.setTimeout(() => actions.openRevealBarrier(), REVEAL_BARRIER_TIMEOUT_MS)
                     return () => window.clearTimeout(timerId)
                 }, 'revealBarrierTimer')
             } else {
+                cache.searchStartedAt = null
                 cache.disposables.dispose('revealBarrierTimer')
             }
 
@@ -2856,6 +2859,30 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     excludeStale: !values.includeStaleEvents,
                 })
             }
+        },
+
+        openRevealBarrier: () => {
+            // The All tab runs no fetch of its own, so `infiniteListResultsReceived` never reports its
+            // latency. Its rows appear when this barrier opens, so the wait the user sees ends here.
+            // A group that still loads at this point means the timeout opened the barrier.
+            const startedAt = cache.searchStartedAt
+            cache.searchStartedAt = null
+            if (
+                typeof startedAt !== 'number' ||
+                values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters ||
+                !values.searchQuery
+            ) {
+                return
+            }
+            posthog.capture('taxonomic filter search latency', {
+                surface: legacyTaxonomicSurface(),
+                groupType: TaxonomicFilterGroupType.SuggestedFilters,
+                searchQuery: values.searchQuery,
+                time_to_see_data_ms: Math.floor(performance.now() - startedAt),
+                resultCount: values.infiniteListCounts[TaxonomicFilterGroupType.SuggestedFilters],
+                revealedBy: values.anyGroupLoading ? 'timeout' : 'all_groups_settled',
+                pendingGroupTypes: values.loadingGroupTypes,
+            })
         },
 
         setIncludeStaleEvents: ({ includeStaleEvents }) => {
