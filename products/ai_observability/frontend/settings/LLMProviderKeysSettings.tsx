@@ -105,8 +105,6 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'Enter your Azure OpenAI API key'
         case 'minimax':
             return 'Enter your MiniMax API key'
-        case 'zeabur':
-            return 'sk-...'
         case 'system_one':
             return "Enter your endpoint's bearer token"
         case 'openai_compatible':
@@ -363,9 +361,8 @@ function AddKeyModal({ restrictionReason }: { restrictionReason: string | null }
                         onChange={handleProviderChange}
                         options={LLM_PROVIDER_SELECT_OPTIONS.filter(
                             ({ value }) =>
-                                value !== 'zeabur' &&
-                                (value !== 'system_one' ||
-                                    featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] === true)
+                                value !== 'system_one' ||
+                                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SYSTEM_ONE_EVALUATIONS] === true
                         )}
                         className="mt-1"
                         fullWidth

@@ -206,9 +206,6 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         # different provider, and would skip the check that keeps a base URL change tied to its key.
         if self.instance and value != self.instance.provider:
             raise serializers.ValidationError("A key's provider cannot be changed. Create a new key instead.")
-        # Zeabur shut down AI Hub on Sep 22, 2026.
-        if self.instance is None and value == LLMProvider.ZEABUR:
-            raise serializers.ValidationError("Zeabur AI Hub has shut down and no longer accepts new keys.")
         return value
 
     def validate_api_key(self, value: str) -> str:
@@ -222,9 +219,6 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        elif provider == LLMProvider.ZEABUR:
-            if not value.startswith("sk-"):
-                raise serializers.ValidationError("Invalid Zeabur AI Hub API key format. Key should start with 'sk-'.")
         # Azure, Gemini, Together AI, OpenRouter, Fireworks, MiniMax, and OpenAI-compatible keys
         # have no standard prefix, so no format validation is enforced here.
 

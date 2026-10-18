@@ -42597,7 +42597,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
@@ -42613,7 +42612,6 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
-      Zeabur: 'zeabur',
       SystemOne: 'system_one',
       OpenaiCompatible: 'openai_compatible',
     } as const;
@@ -61939,7 +61937,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
@@ -61954,7 +61951,6 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
-      Zeabur: 'zeabur',
       OpenaiCompatible: 'openai_compatible',
     } as const;
 
@@ -75904,7 +75900,6 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
       provider: LLMCompletionProviderEnum;
       /**
@@ -86950,7 +86945,6 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
       provider: LLMCompletionProviderEnum;
       /**
@@ -127834,7 +127828,6 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       SystemOne: 'system_one',
       TogetherAi: 'together_ai',
-      Zeabur: 'zeabur',
     } as const;
 
     export type LlmAnalyticsParserRecipesListParams = {
