@@ -56,6 +56,7 @@ AUTOMATIC_UPDATES_ARGS = ("--automatic-updates", "always")
 BREW_PACKAGE = "coder/coder/coder"
 RUNTIME_SETUP_HINT = "Run `hogli devbox:setup`."
 _MANAGED_CODER_DIR = Path.home() / ".hogli" / "bin"
+_SSH_CONTROL_DIR = Path.home() / ".hogli" / "ssh"
 GIT_NAME_PARAMETER = "git_name"
 GIT_EMAIL_PARAMETER = "git_email"
 DOTFILES_URI_PARAMETER = "dotfiles_uri"
@@ -1661,6 +1662,34 @@ def ssh_replace(name: str) -> None:
     _execvp("ssh", ["ssh", _ssh_host_alias(name)])
 
 
+def _ssh_connection_reuse_options() -> list[str]:
+    """Return ssh options that keep one connection per devbox open between commands.
+
+    Each new connection first opens a Coder tunnel, which takes seconds when the
+    tunnel goes through a relay. A control master keeps the tunnel open for a few
+    minutes after the last command, so the next command only opens a session on it.
+    ``%C`` hashes the connection into a short socket name, because a Unix socket
+    path must stay under about 100 bytes. The keepalives end a master whose tunnel
+    died, so later commands open a new one instead of hanging on it.
+    """
+    try:
+        _SSH_CONTROL_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    except OSError:
+        return []
+    return [
+        "-o",
+        "ControlMaster=auto",
+        "-o",
+        f"ControlPath={_SSH_CONTROL_DIR}/%C",
+        "-o",
+        "ControlPersist=10m",
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=3",
+    ]
+
+
 def exec_replace(name: str, command: list[str]) -> None:
     """Run a single command in the workspace over the ssh host alias, replacing the process.
 
@@ -1678,7 +1707,7 @@ def exec_replace(name: str, command: list[str]) -> None:
     shell preserves argument boundaries -- ssh otherwise space-joins argv,
     which would split a token like ``"uname -sm"`` back into two.
     """
-    _execvp("ssh", ["ssh", _ssh_host_alias(name), shlex.join(command)])
+    _execvp("ssh", ["ssh", *_ssh_connection_reuse_options(), _ssh_host_alias(name), shlex.join(command)])
 
 
 def coder_ssh_alias_configured(name: str) -> bool:

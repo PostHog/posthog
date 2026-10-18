@@ -3258,6 +3258,61 @@ class TestSshReplace:
 
         assert captured == [("ssh", ["ssh", coder._ssh_host_alias("devbox-foo")])]
 
+    def test_exec_shares_one_connection_per_devbox(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        captured: list[tuple[str, list[str]]] = []
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: captured.append((file, args)))
+        monkeypatch.setattr(coder, "_SSH_CONTROL_DIR", tmp_path / "ssh")
+
+        coder.exec_replace("devbox-foo", ["bash", "-lc", "uname -sm"])
+
+        [(file, args)] = captured
+        assert file == "ssh"
+        assert args[-2:] == [coder._ssh_host_alias("devbox-foo"), "bash -lc 'uname -sm'"]
+        options = {args[i + 1] for i, arg in enumerate(args[:-2]) if arg == "-o"}
+        assert {"ControlMaster=auto", f"ControlPath={tmp_path / 'ssh'}/%C", "ControlPersist=10m"} <= options
+        assert (tmp_path / "ssh").is_dir()
+
+
+class TestDevboxExec:
+    @pytest.mark.parametrize(
+        ("second_target", "seconds_later", "resolutions"),
+        [
+            ("api", 60, 1),
+            ("api", 11 * 60, 2),
+            ("web", 60, 2),
+        ],
+    )
+    def test_reuses_a_recent_resolution_of_the_same_target(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        devbox_config_path: Path,
+        second_target: str,
+        seconds_later: int,
+        resolutions: int,
+    ) -> None:
+        ready_checks: list[None] = []
+        resolved: list[str | None] = []
+        executed: list[str] = []
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: ready_checks.append(None))
+        monkeypatch.setattr(
+            devbox_cli,
+            "resolve_workspace_name",
+            lambda target: (resolved.append(target), (f"devbox-ada-{target}", None))[1],
+        )
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(devbox_cli, "exec_replace", lambda name, command: executed.append(name))
+        monkeypatch.setattr(devbox_cli, "get_coder_url", lambda: "https://coder.example.com")
+        now = [1_800_000_000.0]
+        monkeypatch.setattr(devbox_cli.time, "time", lambda: now[0])
+
+        assert runner.invoke(cli, ["devbox:exec", "-n", "api", "--", "true"]).exit_code == 0
+        now[0] += seconds_later
+        assert runner.invoke(cli, ["devbox:exec", "-n", second_target, "--", "true"]).exit_code == 0
+
+        assert len(resolved) == resolutions
+        assert len(ready_checks) == resolutions
+        assert executed == ["devbox-ada-api", f"devbox-ada-{second_target}"]
+
 
 class TestSetupGitSigning:
     """Test the Git commit signing step in devbox:setup.

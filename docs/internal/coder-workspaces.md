@@ -63,6 +63,10 @@ hogli devbox:sync --terminate                        # tear down when done
 
 `devbox:open --vscode` / `--cursor` warns when sync is active, since editing over Remote-SSH while the mirror is live would conflict with the local source of truth.
 
+`devbox:exec` keeps one SSH connection per devbox open for 10 minutes after its last command, with the sockets in `~/.hogli/ssh/`.
+For the same 10 minutes it also reuses its runtime checks and workspace lookup, so a run of commands opens the Coder tunnel only once.
+If a command hangs on a stale connection, end it with `ssh -o ControlPath=~/.hogli/ssh/%C -O exit coder.<workspace>`.
+
 ## Prerequisites
 
 - Access to the PostHog Tailscale tailnet (on macOS, the Tailscale app bundle CLI is detected automatically if `tailscale` isn't on PATH)

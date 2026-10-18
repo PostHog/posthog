@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import os
 import sys
+import json
+import time
 import errno
 import shlex
 import shutil
 import socket
 import tempfile
 import functools
+import contextlib
 import subprocess
 import urllib.parse
 from collections.abc import Callable
@@ -95,6 +98,7 @@ from .config import (
     clear_dotfiles_uri,
     clear_git_identity,
     clear_region,
+    get_exec_targets_path,
     load_config,
     save_dotfiles_uri,
     save_git_identity,
@@ -1653,6 +1657,47 @@ def devbox_ssh(workspace: str | None) -> None:
     ssh_replace(name)
 
 
+# A run of `devbox:exec` calls, such as an agent's checks, repeats the same runtime checks
+# and workspace lookup, which cost several network round trips per call. A recent result is
+# reused instead, and the time limit bounds how long a changed workspace goes unnoticed.
+_EXEC_TARGET_TTL_SECONDS = 10 * 60
+
+
+def _exec_target_key(workspace_name: str | None) -> str:
+    return f"{get_coder_url()} {_preferred_region()} {workspace_name or ''}"
+
+
+def _read_exec_targets() -> dict[str, Any]:
+    try:
+        entries = json.loads(get_exec_targets_path().read_text())
+    except (OSError, ValueError):
+        return {}
+    return entries if isinstance(entries, dict) else {}
+
+
+def _recent_exec_target(workspace_name: str | None) -> str | None:
+    """Return the workspace a recent `devbox:exec` resolved for this target, or None."""
+    entry = _read_exec_targets().get(_exec_target_key(workspace_name))
+    if not isinstance(entry, dict):
+        return None
+    name, resolved_at = entry.get("name"), entry.get("at")
+    if not isinstance(name, str) or not isinstance(resolved_at, int | float):
+        return None
+    return name if 0 <= time.time() - resolved_at < _EXEC_TARGET_TTL_SECONDS else None
+
+
+def _remember_exec_target(workspace_name: str | None, name: str) -> None:
+    entries = _read_exec_targets()
+    entries[_exec_target_key(workspace_name)] = {"name": name, "at": time.time()}
+    path = get_exec_targets_path()
+    with contextlib.suppress(OSError):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Write, then rename, so that a parallel command never reads a partly written file.
+        temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        temporary.write_text(json.dumps(entries))
+        os.replace(temporary, path)
+
+
 @click.command(
     name="devbox:exec",
     help="Run a command inside your devbox (non-interactive).",
@@ -1671,12 +1716,15 @@ def devbox_remote_exec(workspace_name: str | None, command: tuple[str, ...]) -> 
 
     Use `--` to separate hogli's flags from the command's own flags.
     """
-    ensure_runtime_ready()
-    name, _ = resolve_workspace_name(workspace_name)
-    if not coder_ssh_alias_configured(name):
-        _fail(
-            "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
-        )
+    name = _recent_exec_target(workspace_name)
+    if name is None:
+        ensure_runtime_ready()
+        name, _ = resolve_workspace_name(workspace_name)
+        if not coder_ssh_alias_configured(name):
+            _fail(
+                "SSH access for devboxes isn't configured. Run `hogli devbox:setup` (it runs `coder config-ssh`), then retry."
+            )
+        _remember_exec_target(workspace_name, name)
     exec_replace(name, list(command))
 
 

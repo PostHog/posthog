@@ -297,6 +297,11 @@ _activation_start=$(date +%s)
 # workspaces the stamps are missing and the checks fall back to running
 # normally -- no regression.
 #
+# A devbox pulls master at boot, so its lockfiles soon stop matching the bake.
+# On a baked image, each successful install therefore also writes a local stamp
+# beside its output, and a later activation skips when the lockfile matches
+# either stamp. Without it, every activation reran a no-op install.
+#
 # The phrocs build gets no stamp. Its Makefile already compares source and
 # binary timestamps, so `make` is a no-op when nothing changed. A stamp on
 # the built binary would never expire: a devbox pulls master at boot while
@@ -311,15 +316,29 @@ _UV_BAKED=$(_read_ami_stamp /etc/posthog-coder-ami-uv-stamp)
 _PNPM_CURRENT=$(_sha256_file "$_PNPM_LOCK")
 _UV_CURRENT=$(_sha256_file "$_UV_LOCK")
 
+_PNPM_LOCAL_STAMP="$FLOX_ENV_PROJECT/node_modules/.posthog-pnpm-lock-sha256"
+_UV_LOCAL_STAMP="$UV_PROJECT_ENVIRONMENT/.posthog-uv-lock-sha256"
+_PNPM_INSTALLED=$(_read_ami_stamp "$_PNPM_LOCAL_STAMP")
+_UV_INSTALLED=$(_read_ami_stamp "$_UV_LOCAL_STAMP")
+
+# Usage: _write_install_stamp <stamp> <lockfile> <hash before the install> <baked hash>
+_write_install_stamp() {
+  local stamp="$1" lockfile="$2" hash="$3" baked="$4"
+  [[ -n "$baked" && -n "$hash" && -d "$(dirname "$stamp")" ]] || return 0
+  # A lockfile that changed during the install may not match what got installed.
+  [[ "$(_sha256_file "$lockfile")" == "$hash" ]] || return 0
+  printf '%s\n' "$hash" > "$stamp" 2>/dev/null || true
+}
+
 # A stamp says the lockfile matches the bake, not that this checkout has the
 # outputs. A fresh worktree matches every stamp and has neither, so require the
 # local tree too or activation skips the install and leaves the worktree empty.
 # These probe for what a real install leaves behind rather than a bare directory,
 # since both tools create the parent early and populate it afterwards.
 _PNPM_SKIP=0
-[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && "$_PNPM_BAKED" == "$_PNPM_CURRENT" && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
+[[ -n "$_PNPM_BAKED" && -n "$_PNPM_CURRENT" && ( "$_PNPM_BAKED" == "$_PNPM_CURRENT" || "$_PNPM_INSTALLED" == "$_PNPM_CURRENT" ) && -d "$FLOX_ENV_PROJECT/node_modules/.pnpm" ]] && _PNPM_SKIP=1
 _UV_SKIP=0
-[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && "$_UV_BAKED" == "$_UV_CURRENT" && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
+[[ -n "$_UV_BAKED" && -n "$_UV_CURRENT" && ( "$_UV_BAKED" == "$_UV_CURRENT" || "$_UV_INSTALLED" == "$_UV_CURRENT" ) && -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] && _UV_SKIP=1
 
 # Seed repo-local git settings here, because package.json's postinstall runs inside
 # the sandbox below, which write-denies .git/config. The postinstall still tries
@@ -434,8 +453,10 @@ if [[ "$_UV_SKIP" -eq 1 ]]; then
   done_step "Python packages (cached)"
 elif [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
   run_step "Python packages" "$FLOX_ENV_PROJECT/bin/dev-sandbox" "uv sync"
+  _write_install_stamp "$_UV_LOCAL_STAMP" "$_UV_LOCK" "$_UV_CURRENT" "$_UV_BAKED"
 else
   run_step "Python packages" uv sync
+  _write_install_stamp "$_UV_LOCAL_STAMP" "$_UV_LOCK" "$_UV_CURRENT" "$_UV_BAKED"
 fi
 
 # Expose hogli on PATH via the uv-managed venv
@@ -475,6 +496,7 @@ if [[ "$_PNPM_SKIP" -eq 1 ]]; then
   done_step "Node packages (cached)"
 else
   wait_bg_step "Node packages" "$_BG_PNPM_PID" "$_BG_PNPM_START" "$_BG_PNPM_LOG"
+  _write_install_stamp "$_PNPM_LOCAL_STAMP" "$_PNPM_LOCK" "$_PNPM_CURRENT" "$_PNPM_BAKED"
 fi
 
 # ── Step 2b: CodeRabbit CLI (reap; launched above with the other jobs) ──

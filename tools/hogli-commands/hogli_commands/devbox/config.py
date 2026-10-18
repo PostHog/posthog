@@ -22,6 +22,11 @@ def get_config_path() -> Path:
     return Path.home() / ".config" / "posthog" / "hogli_devbox.json"
 
 
+def get_exec_targets_path() -> Path:
+    """Return the path where `devbox:exec` keeps the workspaces it resolved recently."""
+    return get_config_path().with_name("hogli_devbox_exec_targets.json")
+
+
 def load_config() -> DevboxConfig:
     """Load persisted hogli devbox preferences from disk."""
     try:
