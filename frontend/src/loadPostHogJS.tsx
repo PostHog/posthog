@@ -1,5 +1,6 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
+import { isScopeNotFoundMessage } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -48,6 +49,16 @@ export function withLastSeenFeatureFlags(
 // pinned: analytics property name. Insights filter the framed pages by it.
 const stampEmbeddedPageFrame: BeforeSendFn = (event) =>
     event && { ...event, properties: { ...event.properties, embedded_page_frame: true } }
+
+/**
+ * Drops an uncaught rejection from a request on a deleted or inaccessible project or organization.
+ * The kea loaders and `shouldReportApiFailure` already excuse this failure, but a promise that no
+ * caller handles reaches error tracking through autocapture and skips those checks.
+ */
+export const dropScopeNotFoundExceptions: BeforeSendFn = (event) =>
+    event?.event === '$exception' && isScopeNotFoundMessage(event.properties?.$exception_list?.[0]?.value)
+        ? null
+        : event
 
 function readLastSeenFeatureFlags(): LastSeenFeatureFlags | null {
     try {
@@ -118,7 +129,9 @@ export function loadPostHogJS(): void {
             metrics: { network: true, serviceName: 'posthog-app' },
             // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
             // `register` would persist the property in storage the main window shares, so it is stamped per event.
-            before_send: isEmbeddedPageFrame() ? stampEmbeddedPageFrame : undefined,
+            before_send: isEmbeddedPageFrame()
+                ? [dropScopeNotFoundExceptions, stampEmbeddedPageFrame]
+                : dropScopeNotFoundExceptions,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
