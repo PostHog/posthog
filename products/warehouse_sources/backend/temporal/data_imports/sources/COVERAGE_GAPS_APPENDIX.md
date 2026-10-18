@@ -3381,7 +3381,7 @@ Today (5): `Funders`, `Licenses`, `Members`, `Types`, `Works`
 
 Diffed against: <https://api.crossref.org/swagger-docs>
 
-- [ ] `Journals (GET /journals)` — resolve work ISSNs to journal metadata, subject categories, and coverage statistics (high)
+- [x] `Journals (GET /journals)` — resolve work ISSNs to journal metadata, subject categories, and coverage statistics (high)
 
 Note: Parsed the current vendor Swagger document and compared every GET operation with the five static tables. Journal listings are absent, while scoped work collections return objects already covered by Works. Prefix metadata has only a single-record endpoint, so it was excluded from collection gaps.
 
