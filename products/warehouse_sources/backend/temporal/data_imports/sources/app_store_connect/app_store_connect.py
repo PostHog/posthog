@@ -4,6 +4,7 @@ import csv
 import gzip
 import math
 import time
+import bisect
 import hashlib
 import tempfile
 import dataclasses
@@ -857,13 +858,11 @@ def _get_app_overview(
     manager: ResumableSourceManager[AppStoreConnectResumeConfig],
     selected_app_ids: frozenset[str],
 ) -> Iterator[list[dict[str, Any]]]:
-    app_ids = _list_app_ids(session, token_provider, logger, selected_app_ids)
+    # Sorted, so a bookmarked app that disappears between attempts still marks a position: a resumed
+    # full refresh appends, and restarting from the first app would duplicate committed rows.
+    app_ids = sorted(_list_app_ids(session, token_provider, logger, selected_app_ids))
     resume = _load_resume(manager)
-
-    start = 0
-    if resume is not None and resume.app_id:
-        # A bookmarked app that no longer exists restarts the walk; merge dedupes the re-pulled rows.
-        start = next((i for i, app_id in enumerate(app_ids) if app_id == resume.app_id), 0)
+    start = bisect.bisect_left(app_ids, resume.app_id) if resume is not None and resume.app_id else 0
 
     for position in range(start, len(app_ids)):
         app_id = app_ids[position]

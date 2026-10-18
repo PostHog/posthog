@@ -626,13 +626,21 @@ class TestPerformanceOverviews:
         }
         assert set(api.accepts) == {"application/vnd.apple.xcode-overview+json"}
 
-    def test_bookmarks_the_next_app_and_resumes_without_refetching_earlier_apps(self) -> None:
+    @parameterized.expand(
+        [
+            ("bookmarked_app_still_listed", "A3"),
+            ("bookmarked_app_no_longer_listed", "A25"),
+        ]
+    )
+    def test_bookmarks_the_next_app_and_resumes_without_refetching_earlier_apps(
+        self, _name: str, bookmark: str
+    ) -> None:
         manager = _FakeManager()
         _collect("performance_overviews", self._api(), manager)
         assert [state.app_id for state in manager.saved] == ["A2", "A3"]
 
         api = self._api()
-        rows = _collect("performance_overviews", api, _FakeManager(AppStoreConnectResumeConfig(app_id="A3")))
+        rows = _collect("performance_overviews", api, _FakeManager(AppStoreConnectResumeConfig(app_id=bookmark)))
 
         assert [row["app_id"] for row in rows] == ["A3"]
         assert [url for url, _ in api.calls if url.endswith("/performanceOverviews")] == [
