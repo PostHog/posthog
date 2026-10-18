@@ -1,4 +1,6 @@
 import re
+from collections.abc import Callable
+from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
@@ -7,11 +9,13 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.buzzsprout import (
     BUZZSPROUT_BASE_URL,
     USER_AGENT,
+    BuzzsproutResumeConfig,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.source import BuzzsproutSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
     ScriptedResponse,
     SourceDriver,
     always,
@@ -72,10 +76,63 @@ class TestBuzzsproutRows:
         assert re.search(rf"{status} Client Error: .* for url: https://www\.buzzsprout\.com", str(result.raised))
 
 
+def _yesterday() -> date:
+    return datetime.now(UTC).date() - timedelta(days=1)
+
+
+def _downloads_script(first_published_at: str) -> Callable[[RecordedRequest], ScriptedResponse]:
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/episodes.json"):
+            return ScriptedResponse(
+                json=[{"id": 1, "published_at": first_published_at}, {"id": 2, "published_at": None}]
+            )
+        return ScriptedResponse(json=[{"episode_id": 1, "total": int((request.param("date") or "")[-2:])}])
+
+    return respond
+
+
+class TestBuzzsproutDownloads:
+    def test_full_refresh_walks_each_day_from_first_episode_to_yesterday(self) -> None:
+        yesterday = _yesterday()
+        first_day = yesterday - timedelta(days=2)
+        # The offset keeps the podcast-local publish day, rather than shifting it to UTC.
+        result = _driver().run("downloads", _downloads_script(f"{first_day.isoformat()}T23:30:00.000-04:00"))
+
+        days = [(first_day + timedelta(days=offset)).isoformat() for offset in range(3)]
+        assert result.raised is None
+        assert result.paths == ["/api/123456/episodes.json"] + ["/api/123456/downloads.json"] * 3
+        assert result.params("date") == [None, *days]
+        assert result.rows == [{"episode_id": 1, "total": int(day[-2:]), "date": day} for day in days]
+
+    def test_incremental_starts_at_watermark_without_episode_lookup(self) -> None:
+        yesterday = _yesterday()
+        watermark = yesterday - timedelta(days=1)
+        result = _driver().run(
+            "downloads",
+            _downloads_script("2019-01-01T00:00:00Z"),
+            incremental_field="date",
+            db_incremental_field_last_value=watermark.isoformat(),
+        )
+
+        assert result.raised is None
+        assert result.params("date") == [watermark.isoformat(), yesterday.isoformat()]
+
+    def test_resumes_from_saved_day(self) -> None:
+        yesterday = _yesterday()
+        result = _driver().run(
+            "downloads",
+            _downloads_script("2019-01-01T00:00:00Z"),
+            resume_state=BuzzsproutResumeConfig(day_state={"date": yesterday.isoformat()}),
+        )
+
+        assert result.raised is None
+        assert result.params("date") == [yesterday.isoformat()]
+
+
 class TestBuzzsproutSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_response_names_match_endpoints(self, endpoint: str) -> None:
-        result = _driver().run(endpoint, [ScriptedResponse(json=[{"id": 1}])])
+        result = _driver().run(endpoint, always(ScriptedResponse(json=[{"id": 1}])))
 
         assert result.raised is None
         assert result.response is not None
