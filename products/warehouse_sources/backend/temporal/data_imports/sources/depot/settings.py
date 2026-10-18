@@ -18,6 +18,8 @@ PRIMARY_KEYS: dict[str, list[str]] = {
 # Creation time is stable for partitioning. The source replays runs to pick up late retries.
 RUN_CREATED_AT = "run_created_at"
 
+# Failure diagnoses sync as a full refresh: a retry that passes removes a run's failure groups, and a
+# merge never deletes the rows it no longer receives.
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     endpoint: [
         {
@@ -27,5 +29,5 @@ INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
             "field_type": IncrementalFieldType.DateTime,
         },
     ]
-    for endpoint in ENDPOINTS
+    for endpoint in (JOB_ATTEMPTS, JOB_METRICS, ARTIFACTS)
 }

@@ -289,7 +289,7 @@ def depot_source(
     repository: str,
     created_after: dt.datetime | str | None,
     logger: FilteringBoundLogger,
-    on_complete: Callable[[], None] | None = None,
+    on_complete: Callable[[str | None], None] | None = None,
     endpoint: str = JOB_ATTEMPTS,
 ) -> SourceResponse:
     run_batches = _RUN_BATCHES[endpoint]
@@ -308,7 +308,7 @@ def depot_source(
         for run in runs:
             yield from run_batches(session, run)
         if on_complete is not None:
-            on_complete()
+            on_complete(runs[0]["createdAt"] if runs else None)
 
     return SourceResponse(
         name=endpoint,

@@ -238,14 +238,15 @@ class TestDepotSource:
 
 class TestDepotReconciliation:
     @pytest.mark.parametrize(
-        "reconciled_days_ago, history_days, has_watermark, expected_runs, expected_reconciled",
+        "reconciled_days_ago, history_days, has_watermark, scanned_without_rows, expected_runs, expected_reconciled",
         [
-            (None, 30, True, ["recent", "old"], True),
-            (1, 30, True, ["recent"], False),
-            (7, 30, True, ["recent", "old"], True),
-            (1, 30, False, ["recent", "old"], True),
-            (None, None, True, ["recent", "old", "outside"], True),
-            (1, 1, True, [], False),
+            (None, 30, True, False, ["recent", "old"], True),
+            (1, 30, True, False, ["recent"], False),
+            (7, 30, True, False, ["recent", "old"], True),
+            (1, 30, False, False, ["recent", "old"], True),
+            (1, 30, False, True, ["recent"], False),
+            (None, None, True, False, ["recent", "old", "outside"], True),
+            (1, 1, True, False, [], False),
         ],
     )
     def test_replays_retries_and_reconciles_retained_history(
@@ -253,12 +254,16 @@ class TestDepotReconciliation:
         reconciled_days_ago: int | None,
         history_days: int | None,
         has_watermark: bool,
+        scanned_without_rows: bool,
         expected_runs: list[str],
         expected_reconciled: bool,
     ) -> None:
         source = DepotSource()
         cursor = (
-            DepotReconciliationCursor(reconciled_at=_iso(NOW - dt.timedelta(days=reconciled_days_ago)))
+            DepotReconciliationCursor(
+                reconciled_at=_iso(NOW - dt.timedelta(days=reconciled_days_ago)),
+                scanned_through=_iso(NOW - dt.timedelta(minutes=10)) if scanned_without_rows else None,
+            )
             if reconciled_days_ago is not None
             else None
         )
@@ -287,7 +292,12 @@ class TestDepotReconciliation:
             rows = [row for batch in _batches(response) for row in batch]
 
         assert [row["run_id"] for row in rows if row["attempt"] == 2] == expected_runs
-        assert (manager.staged is not None) == expected_reconciled
+        # mypy keeps the narrowing from the assertion before the sync ran.
+        staged = cast(DepotReconciliationCursor | None, manager.staged)
+        assert staged is not None
+        assert (staged.reconciled_at == NOW.isoformat()) == expected_reconciled
+        if expected_runs:
+            assert staged.scanned_through == runs[0]["createdAt"]
 
     def test_incomplete_reconciliation_does_not_advance_the_cursor(self) -> None:
         source = DepotSource()
