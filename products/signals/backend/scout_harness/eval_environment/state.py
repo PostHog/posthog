@@ -266,6 +266,9 @@ class ScoutEnvironmentState:
                     uid=f"eval:{self.receipt.identity_namespace}:{source.id}",
                     extra_data={"login": source.github_login},
                 )
+                # An existing GitHub user integration or social login takes precedence over this binding.
+                if user.get_github_login() != source.github_login:
+                    raise ValueError("The reconstructed member already resolves to another GitHub identity.")
 
     def _seed_skill(self, team: Team) -> LLMSkill:
         source = self.case.skill
