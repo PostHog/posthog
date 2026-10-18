@@ -2424,8 +2424,8 @@ class TestExperimentService(APIBaseTest):
         ctx = service._build_serializer_context()
 
         # fresh payload per call — update_experiment mutates update_data in place
-        def attach(metric_type: str) -> dict:
-            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+        def attach(role: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": role}}]}
 
         if initial_type is not None:
             service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
@@ -3933,7 +3933,7 @@ class TestExperimentService(APIBaseTest):
                         0,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
-                        ["forced_variant_release_condition:some_conditions_pinned:info:"],
+                        ["forced_variant_release_condition:some_conditions_pinned:info:not_measured"],
                     )
                 ],
             ),
@@ -6384,7 +6384,7 @@ class TestExperimentService(APIBaseTest):
         _name: str,
         field: str,
         other_field: str,
-        metric_type: str,
+        role: str,
         collides: bool,
     ) -> None:
         self._create_flag(key="attach-dedup-with-saved")
@@ -6428,7 +6428,7 @@ class TestExperimentService(APIBaseTest):
         )
 
         updated = service.update_experiment(
-            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": metric_type}}]}
+            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": role}}]}
         )
 
         sm.refresh_from_db()
@@ -6449,7 +6449,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_update_regenerates_stored_inline_copy_that_collides_with_saved_metric_uuid(
-        self, _name: str, field: str, ordering_attr: str, metric_type: str, attach_another: bool
+        self, _name: str, field: str, ordering_attr: str, role: str, attach_another: bool
     ) -> None:
         self._create_flag(key="stored-collision")
         shared_uuid = "77bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6468,7 +6468,7 @@ class TestExperimentService(APIBaseTest):
             name="Stored collision",
             feature_flag_key="stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(
             **{
@@ -6485,9 +6485,9 @@ class TestExperimentService(APIBaseTest):
         )
         experiment.refresh_from_db()
 
-        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": metric_type}}]
+        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": role}}]
         if attach_another:
-            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": metric_type}})
+            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": role}})
             payload: dict = {"saved_metrics_ids": saved_metrics_ids}
         else:
             payload = {field: deepcopy(getattr(experiment, field))}
@@ -6540,7 +6540,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_detaching_saved_metric_keeps_uuid_its_stored_inline_copy_uses(
-        self, metric_type: str, field: str, ordering_attr: str
+        self, role: str, field: str, ordering_attr: str
     ) -> None:
         self._create_flag(key="detach-stored-collision")
         shared_uuid = "99bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6556,7 +6556,7 @@ class TestExperimentService(APIBaseTest):
             name="Detach stored collision",
             feature_flag_key="detach-stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(**{field: [metric], ordering_attr: [shared_uuid]})
         experiment.refresh_from_db()
@@ -7583,6 +7583,59 @@ class TestValidateExcludedVariants:
     def test_invalid_raises(self, value):
         with pytest.raises(ValidationError, match="must be a list of strings"):
             ExperimentService.validate_excluded_variants(value)
+
+
+class TestExperimentServiceWarehouseTimestampColumn(APIBaseTest):
+    def _table_with_timestamp_type(self, column_type: str) -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        return DataWarehouseTable.objects.create(
+            name="orders",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/orders/*",
+            columns={"id": "String", "ordered_at": column_type},
+        )
+
+    def _dw_metric(self, table: DataWarehouseTable) -> dict:
+        return {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "ExperimentDataWarehouseNode",
+                "table_name": table.name,
+                "events_join_key": "distinct_id",
+                "data_warehouse_join_key": "id",
+                "timestamp_field": "ordered_at",
+                "math": "total",
+            },
+        }
+
+    @parameterized.expand([("string", "String"), ("integer", "Int64")])
+    def test_create_experiment_rejects_non_datetime_timestamp_column(self, _name: str, column_type: str):
+        table = self._table_with_timestamp_type(column_type)
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(ValidationError, match="is not a date or datetime column"):
+            service.create_experiment(
+                name="DW experiment",
+                feature_flag_key="dw-timestamp",
+                metrics=[self._dw_metric(table)],
+                allow_unknown_events=True,
+            )
+        assert not Experiment.objects.filter(team=self.team, name="DW experiment").exists()
+
+    @parameterized.expand([("datetime", "DateTime"), ("date", "Date")])
+    def test_create_experiment_accepts_date_timestamp_column(self, _name: str, column_type: str):
+        table = self._table_with_timestamp_type(column_type)
+        service = ExperimentService(team=self.team, user=self.user)
+        experiment = service.create_experiment(
+            name="DW experiment",
+            feature_flag_key="dw-timestamp",
+            metrics=[self._dw_metric(table)],
+            allow_unknown_events=True,
+        )
+        assert experiment.metrics is not None
+        assert experiment.metrics[0]["source"]["timestamp_field"] == "ordered_at"
 
 
 @patch("posthoganalytics.feature_enabled", new=MagicMock(return_value=True))

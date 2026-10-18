@@ -32,7 +32,9 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 FLAG_KEY = "split-gate"
-FULL_ACCESS = ExperimentHealthReaderAccess(can_read_flag_history=True, can_query_events=True)
+FULL_ACCESS = ExperimentHealthReaderAccess(
+    can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset()
+)
 _BY_EVENT_PROPERTY: dict[str, Any] = {
     "exposure_config": {
         "kind": "ExperimentEventExposureConfig",
@@ -194,7 +196,9 @@ class TestLoadSplitHistory(BaseTest):
         history, query = self._load(
             [True],
             reader_access=ExperimentHealthReaderAccess(
-                can_read_flag_history=can_read_flag_history, can_query_events=can_query_events
+                can_read_flag_history=can_read_flag_history,
+                can_query_events=can_query_events,
+                denied_event_properties=frozenset(),
             ),
         )
 
@@ -207,7 +211,13 @@ class TestLoadSplitHistory(BaseTest):
     @parameterized.expand(
         [
             ("exposure_filters", _BY_EVENT_PROPERTY, FULL_ACCESS),
-            ("no_query_access", {}, ExperimentHealthReaderAccess(can_read_flag_history=True, can_query_events=False)),
+            (
+                "no_query_access",
+                {},
+                ExperimentHealthReaderAccess(
+                    can_read_flag_history=True, can_query_events=False, denied_event_properties=frozenset()
+                ),
+            ),
         ]
     )
     def test_flag_without_split_changes_needs_no_check(

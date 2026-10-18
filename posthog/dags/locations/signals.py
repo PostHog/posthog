@@ -4,6 +4,7 @@ from products.signals.dags.inbox_ranking.common import is_inbox_ranking_register
 from products.signals.dags.inbox_ranking.dataset import dag as inbox_ranking_dataset
 from products.signals.dags.inbox_ranking.training import (
     dag as inbox_ranking_training,
+    promote as inbox_ranking_promote,
     served as inbox_ranking_served,
 )
 
@@ -34,6 +35,7 @@ if is_inbox_ranking_registered():
             inbox_ranking_dataset.inbox_ranking_dataset_job,
             inbox_ranking_dataset.inbox_ranking_labels_refresh_job,
             inbox_ranking_training.inbox_ranking_training_job,
+            inbox_ranking_promote.inbox_ranking_promote_job,
         ],
         schedules=[
             inbox_ranking_dataset.inbox_ranking_dataset_schedule,
