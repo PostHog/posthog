@@ -219,10 +219,14 @@ def develocity_source(
         "request_timeout": 60,
     }
     if isinstance(endpoint, BuildChildEndpoint):
-        # No build cursor is saved here: an incremental run restarts from its availableAt watermark instead.
+        # No build cursor is saved, so the pipeline must checkpoint the availableAt watermark instead.
         child = build_child_resource(endpoint, inputs.schema_name, client_config, inputs)
         return SourceResponse(
-            name=inputs.schema_name, items=lambda: child, primary_keys=[BUILD_ID_FIELD], sort_mode="asc"
+            name=inputs.schema_name,
+            items=lambda: child,
+            primary_keys=[BUILD_ID_FIELD],
+            sort_mode="asc",
+            supports_resume=False,
         )
 
     resource_config = get_resource(

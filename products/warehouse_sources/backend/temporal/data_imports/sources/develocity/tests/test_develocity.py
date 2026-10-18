@@ -189,6 +189,8 @@ class TestDevelocity(TestCase):
                 assert {key: values[0] for key, values in request.query.items()} == child_params
         assert result.response is not None
         assert result.response.primary_keys == ["buildId"] and result.response.sort_mode == "asc"
+        assert result.response.supports_resume is False
+        assert result.saved_states == []
 
     @parameterized.expand(
         [
