@@ -247,6 +247,7 @@ export const defaultMocks: Mocks = {
         },
         '/api/environments/@current/': MOCK_DEFAULT_TEAM, // bootstrap endpoint — intentionally @current
         '/api/projects/@current/': MOCK_DEFAULT_TEAM, // bootstrap endpoint — intentionally @current
+        '/api/projects/:team_id/': MOCK_DEFAULT_TEAM,
         '/api/projects/:team_id/comments/count': { count: 0 },
         '/api/projects/:team_id/comments': { results: [] },
         '/_preflight': _preflight,
