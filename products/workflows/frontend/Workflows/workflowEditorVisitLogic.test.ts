@@ -20,7 +20,6 @@ const delayStep = (id: string, config: Record<string, unknown>): HogFlowAction =
     }) as HogFlowAction
 
 const SAVED_ID = 'wf-visit-1'
-const OTHER_ID = 'wf-visit-2'
 
 const PAGEVIEW_TRIGGER = {
     type: 'event',
@@ -99,29 +98,23 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
-    it('keeps one visit across the first save, and reports how the draft started', async () => {
+    it('ends the visit to a new workflow at its first save, under the saved workflow', async () => {
         const created = { ...NEW_WORKFLOW, id: SAVED_ID }
         useMocks({
             post: { '/api/environments/:team_id/hog_flows/': created },
-            get: {
-                '/api/projects/:team_id/hog_flow_templates/tpl-1/': { ...created, id: 'tpl-1', name: 'Welcome' },
-                [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: created,
-            },
+            get: { '/api/projects/:team_id/hog_flow_templates/tpl-1/': { ...created, id: 'tpl-1', name: 'Welcome' } },
         })
-        const draftProps = { id: 'new', templateId: 'tpl-1' }
-        const draftVisit = await openEditor(draftProps)
+        const props = { id: 'new', templateId: 'tpl-1' }
+        const visit = await openEditor(props)
 
-        await expectLogic(workflowLogic(draftProps), () => {
-            workflowLogic(draftProps).actions.submitWorkflow()
+        await expectLogic(workflowLogic(props), () => {
+            workflowLogic(props).actions.submitWorkflow()
         }).toDispatchActions(['saveWorkflowSuccess'])
-        draftVisit.unmount()
-        const savedVisit = await openEditor({ id: SAVED_ID })
-        savedVisit.unmount()
+        visit.unmount()
 
         expect(captured('workflow draft created')).toEqual([
             { workflow_id: SAVED_ID, entry_source: null, start_path: 'template', template_id: 'tpl-1' },
         ])
-        expect(captured('workflow editor opened')).toHaveLength(1)
         expect(captured('workflow editor left')).toEqual([
             expect.objectContaining({
                 start_path: 'template',
@@ -148,30 +141,30 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
-    it('starts a fresh visit when the saved workflow is not the next one opened', async () => {
-        const created = { ...NEW_WORKFLOW, id: SAVED_ID }
+    it('reports a save when the save button request lands after a failed auto-save', async () => {
+        let patchCalls = 0
         useMocks({
-            post: { '/api/environments/:team_id/hog_flows/': created },
-            get: {
-                [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: created,
-                [`/api/environments/:team_id/hog_flows/${OTHER_ID}/`]: { ...created, id: OTHER_ID },
+            get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } },
+            patch: {
+                [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: () => {
+                    patchCalls += 1
+                    return patchCalls === 1 ? [500, {}] : [200, { ...NEW_WORKFLOW, id: SAVED_ID, name: 'Renamed' }]
+                },
             },
         })
-        const draftProps = { id: 'new' }
-        const draftVisit = await openEditor(draftProps)
-        await expectLogic(workflowLogic(draftProps), () => {
-            workflowLogic(draftProps).actions.submitWorkflow()
-        }).toDispatchActions(['saveWorkflowSuccess'])
-        draftVisit.unmount()
+        const props = { id: SAVED_ID }
+        const visit = await openEditor(props)
+        const editor = workflowLogic(props)
 
-        ;(await openEditor({ id: OTHER_ID })).unmount()
-        ;(await openEditor({ id: SAVED_ID })).unmount()
+        editor.actions.setWorkflowValue('name', 'Renamed')
+        await expectLogic(editor, () => {
+            editor.actions.markAutoSave(true)
+            editor.actions.saveWorkflow(editor.values.workflow)
+            editor.actions.submitWorkflow()
+        }).toDispatchActions(['saveWorkflowFailure', 'saveWorkflowSuccess'])
+        visit.unmount()
 
-        expect(captured('workflow editor opened').map(({ workflow_id }) => workflow_id)).toEqual([
-            null,
-            OTHER_ID,
-            SAVED_ID,
-        ])
+        expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'saved' })])
     })
 
     it('reports a moved step as the last edit when the save after it fails', async () => {
