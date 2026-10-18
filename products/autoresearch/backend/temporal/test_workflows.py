@@ -61,6 +61,7 @@ from products.autoresearch.backend.temporal.workflows import (
     evaluate_pipeline_outcome,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
+from products.autoresearch.backend.training.artifacts import scored_persons_key
 
 
 def _inference(status: str = "completed", error: Optional[str] = None) -> InferenceWorkflowResult:
@@ -360,9 +361,15 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
         assert mock_inference.call_args.kwargs["run"] == (earlier if reused else None)
 
     @parameterized.expand(
-        [("paused", AutoresearchPipeline.Status.PAUSED), ("archived", AutoresearchPipeline.Status.ARCHIVED)]
+        [
+            ("paused", AutoresearchPipeline.Status.PAUSED),
+            ("archived", AutoresearchPipeline.Status.ARCHIVED),
+            ("run_deleted_with_its_pipeline", None),
+        ]
     )
-    def test_shadow_activity_that_skips_a_run_deletes_its_stored_people(self, _name: str, status: str) -> None:
+    def test_shadow_activity_that_skips_a_run_deletes_its_stored_people(
+        self, _name: str, status: Optional[str]
+    ) -> None:
         pipeline = self._create_pipeline()
         run = AutoresearchRun.objects.create(
             pipeline=pipeline,
@@ -370,9 +377,14 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             scheduled=True,
             status=AutoresearchRun.Status.COMPLETED,
             started_at=django_timezone.now() - timedelta(minutes=10),
-            metrics={"prediction_date": "2026-09-11", "horizon_days": 30, "scored_persons_key": "people.txt.gz"},
+            metrics={"prediction_date": "2026-09-11", "horizon_days": 30},
         )
-        AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(status=status)
+        key = scored_persons_key(team_id=self.team.id, pipeline_id=str(pipeline.id), inference_run_id=str(run.pk))
+        AutoresearchRun.objects.filter(pk=run.pk).update(metrics={**run.metrics, "scored_persons_key": key})
+        if status is None:
+            AutoresearchRun.objects.filter(pk=run.pk).delete()
+        else:
+            AutoresearchPipeline.objects.filter(pk=pipeline.pk).update(status=status)
 
         with patch("products.autoresearch.backend.inference.scoring.delete_scored_persons") as delete:
             result = ActivityEnvironment().run(
@@ -381,7 +393,7 @@ class TestCoordinatorActivities(TeamScopedTestMixin, BaseTest):
             )
 
         assert result.status == "skipped"
-        delete.assert_called_once_with("people.txt.gz")
+        delete.assert_called_once_with(key)
 
     def test_load_active_pipelines_fails_inference_runs_left_running(self) -> None:
         pipeline = self._create_pipeline()

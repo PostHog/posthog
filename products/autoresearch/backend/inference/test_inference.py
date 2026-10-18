@@ -1147,7 +1147,8 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             model = kwargs["model"]
             if str(model.pk) in failing:
                 raise failing[str(model.pk)]
-            data = kwargs.get("score_data") or InferenceRows(rows=_SHADOW_ROWS, eligible=len(_SHADOW_ROWS))
+            # The champion scores a rolling part of a larger population, so its eligible count exceeds its rows.
+            data = kwargs.get("score_data") or InferenceRows(rows=_SHADOW_ROWS, eligible=50)
             features_sql = self.sql_by_prefix[model.artifact_prefix]
             return SandboxScoreResult(
                 scored_rows=[{**row, "p_y": 0.4} for row in data.rows],
@@ -1233,6 +1234,7 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
             assert shadow_run.scheduled is False
             assert shadow_run.metrics["prediction_date"] == run.metrics["prediction_date"]
             assert shadow_run.metrics["horizon_days"] == run.metrics["horizon_days"]
+            assert shadow_run.metrics["rows_eligible"] == run.metrics["rows_eligible"] == 50
 
         champion_call, *shadow_calls = capture.call_args_list
         for event in champion_call.kwargs["events"]:
@@ -1261,7 +1263,14 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
                 "model_load_failed",
                 True,
             ),
-            ("deferred_unpaired_rows", None, _SHADOW_ROWS[:1], "other", True),
+            # With fixed anchors, rows that key someone the champion did not score cannot pair.
+            (
+                "deferred_unpaired_rows",
+                None,
+                [_SHADOW_ROWS[0], {"distinct_id": "stranger", "events_total": 1}],
+                "other",
+                True,
+            ),
         ]
     )
     def test_a_failing_shadow_model_never_touches_the_champion(self, _name, error, shadow_rows, failure_kind, deferred):

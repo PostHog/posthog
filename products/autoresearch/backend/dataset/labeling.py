@@ -1305,6 +1305,23 @@ def build_training_features_sql(
     return sql, values
 
 
+def build_fixed_anchors_sql(*, anchor_person_ids: list[str], cutoff_ts: int | None) -> tuple[str, dict[str, Any]]:
+    """
+    Anchors at ``cutoff_ts`` for the persons in ``anchor_person_ids`` that are still live.
+
+    The live filter is the one every population uses (``_person_rows_sql``). A person deleted since
+    the ids were stored, including the losing side of a merge, drops out, so nothing scores a
+    deleted person or an obsolete id that events no longer resolve to.
+    """
+    if cutoff_ts is None:
+        raise ValueError("Fixed anchors need an explicit cutoff_ts")
+    live = _person_rows_sql("SELECT toUUID(arrayJoin({anchor_person_ids}))", [])
+    return (
+        f"SELECT id AS person_id, toInt({{cutoff_ts}}) AS cutoff_ts FROM ({live})",
+        {"anchor_person_ids": anchor_person_ids, "cutoff_ts": cutoff_ts},
+    )
+
+
 def build_inference_features_sql(
     *,
     feature_sql: str,
@@ -1326,14 +1343,12 @@ def build_inference_features_sql(
 
     Caller substitutes {lookback_days} in feature_sql before calling.
     ``rolling`` selects a rolling subset of the anchors, as in ``build_inference_anchors_sql``.
-    ``anchor_person_ids`` replaces the population with exactly these persons at ``cutoff_ts``, so a
-    later query scores the people an earlier run scored even if person data changed since.
+    ``anchor_person_ids`` replaces the population with those of these persons who are still live
+    (``build_fixed_anchors_sql``), so a later query scores the people an earlier run scored even if
+    population data changed since.
     """
     if anchor_person_ids is not None:
-        if cutoff_ts is None:
-            raise ValueError("Fixed anchors need an explicit cutoff_ts")
-        anchors_sql = "SELECT toUUID(arrayJoin({anchor_person_ids})) AS person_id, toInt({cutoff_ts}) AS cutoff_ts"
-        anchors_values: dict[str, Any] = {"anchor_person_ids": anchor_person_ids, "cutoff_ts": cutoff_ts}
+        anchors_sql, anchors_values = build_fixed_anchors_sql(anchor_person_ids=anchor_person_ids, cutoff_ts=cutoff_ts)
     else:
         anchors_sql, anchors_values = build_inference_anchors_sql(
             lookback_days=lookback_days,

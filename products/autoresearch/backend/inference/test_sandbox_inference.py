@@ -17,6 +17,7 @@ from parameterized import parameterized
 from posthog.api.capture import CaptureInternalResult
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.user import User
+from posthog.test.persons import create_person, delete_person
 
 from products.autoresearch.backend.dataset.labeling import ROLLING_SCORE_LIMIT
 from products.autoresearch.backend.evaluation.segment_thresholds import training_base_rate
@@ -209,9 +210,12 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
         assert [r["distinct_id"] for r in score_data.rows] == ["s1", "s2"]
         assert score_data.eligible == 2
 
-    def test_score_data_with_fixed_anchors_scores_exactly_those_people(self):
+    def test_score_data_with_fixed_anchors_scores_only_the_live_people(self):
         pipeline = self._pipeline()
-        people = [str(uuid.uuid4()) for _ in range(3)]
+        live = [create_person(team=self.team, distinct_ids=[f"live-{i}"], is_identified=True) for i in range(2)]
+        deleted = create_person(team=self.team, distinct_ids=["deleted"], is_identified=True)
+        delete_person(deleted)
+        people = [str(p.uuid) for p in [*live, deleted]] + [str(uuid.uuid4())]
 
         with patch.object(sandbox_inference, "count_inference_anchors") as count:
             score_data = _materialize_score_data(
@@ -223,8 +227,9 @@ class TestMaterializeData(TeamScopedTestMixin, BaseTest):
             )
 
         count.assert_not_called()
-        assert sorted(str(row["distinct_id"]) for row in score_data.rows) == sorted(people)
-        assert score_data.eligible == 3
+        # A person deleted (or merged away) since the ids were stored, or never present, is not scored.
+        assert sorted(str(row["distinct_id"]) for row in score_data.rows) == sorted(str(p.uuid) for p in live)
+        assert score_data.eligible == 2
 
     @parameterized.expand(
         [

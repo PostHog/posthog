@@ -405,6 +405,7 @@ def run_inference_for_pipeline(
                 champion=model,
                 persons=run.metrics["scored_persons_digest"] if scored.rows else None,
                 features=scored.features,
+                champion_rows_eligible=scored.rows_eligible,
                 window=window,
                 user=acting_user,
                 query_context=query_context,
@@ -417,6 +418,20 @@ def run_inference_for_pipeline(
                 run.metrics["shadow_models"] = outcome.as_metrics()
                 run.save(update_fields=["metrics"])
     return run
+
+
+def _pairs_with_champion(data: InferenceRows, *, persons: str, anchor_person_ids: list[str] | None) -> bool:
+    """
+    True when feature rows key the people the champion scored.
+
+    Fixed anchors already drop a person deleted or merged away since the champion's run, and the
+    materialization checks the rows against the live count, so the rows pair when they key only the
+    champion's people. Without fixed anchors the rows must key exactly the champion's people.
+    """
+    scored = {str(row["distinct_id"]) for row in data.rows}
+    if anchor_person_ids is not None:
+        return scored <= set(anchor_person_ids)
+    return persons_digest(scored) == persons
 
 
 def _store_scored_persons(*, run: AutoresearchRun, person_ids: list[str]) -> None:
@@ -450,6 +465,15 @@ def _load_scored_persons(run: AutoresearchRun) -> list[str] | None:
     except Exception:
         logger.exception("autoresearch_scored_persons_read_failed", run_id=str(run.pk))
         return None
+
+
+def discard_scored_persons_for(*, team_id: int, pipeline_id: str, inference_run_id: str) -> None:
+    """Delete the stored people of a run that no longer exists, from its ids alone."""
+    key = scored_persons_key(team_id=team_id, pipeline_id=pipeline_id, inference_run_id=inference_run_id)
+    try:
+        delete_scored_persons(key)
+    except Exception:
+        logger.exception("autoresearch_scored_persons_delete_failed", run_id=inference_run_id)
 
 
 def discard_scored_persons(run: AutoresearchRun) -> None:
@@ -862,6 +886,7 @@ def _score_shadow_set(
     query_context: QueryContext = INTERACTIVE_QUERY,
     clock: Callable[[], float] = time.monotonic,
     anchor_person_ids: list[str] | None = None,
+    champion_rows_eligible: int | None = None,
 ) -> ShadowScoringOutcome | None:
     """
     Score every shadow-set model other than the champion against the people the champion's run
@@ -909,6 +934,7 @@ def _score_shadow_set(
             user=user,
             query_context=query_context,
             anchor_person_ids=anchor_person_ids,
+            champion_rows_eligible=champion_rows_eligible,
         )
         (completed if ok else failed).append(str(model.pk))
         digest = digests[index]
@@ -962,6 +988,7 @@ def score_shadow_set_for_run(
             persons=digest,
             features=None,
             anchor_person_ids=_load_scored_persons(run),
+            champion_rows_eligible=metrics.get("rows_eligible"),
             window=window,
             user=_acting_user(team=team, pipeline=pipeline, user=None),
             query_context=query_context,
@@ -997,6 +1024,7 @@ def _score_shadow_model(
     user: User,
     query_context: QueryContext,
     anchor_person_ids: list[str] | None = None,
+    champion_rows_eligible: int | None = None,
 ) -> bool:
     """
     Score one shadow model and record its run. The run is never ``scheduled``, so it cannot
@@ -1063,7 +1091,8 @@ def _score_shadow_model(
             "stub": False,
             "sandbox": True,
             "holdout_auc": scored.holdout_auc,
-            "rows_eligible": scored.rows_eligible,
+            # Fixed anchors count only the champion's people, so the champion's count keeps the coverage true.
+            "rows_eligible": champion_rows_eligible if champion_rows_eligible is not None else scored.rows_eligible,
         }
     )
     run.completed_at = django_timezone.now()
@@ -1105,7 +1134,7 @@ def _shadow_score_data(
                 query_context=query_context,
                 anchor_person_ids=anchor_person_ids,
             )
-            if persons_digest(row["distinct_id"] for row in data.rows) != persons:
+            if not _pairs_with_champion(data, persons=persons, anchor_person_ids=anchor_person_ids):
                 raise InferenceRunError(
                     "The shadow feature query did not select the people the champion scored; "
                     "refusing to emit scores that do not pair with the champion's"

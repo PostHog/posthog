@@ -71,6 +71,7 @@ from products.autoresearch.backend.dataset.labeling import (
     MATERIALIZE_ROW_LIMIT,
     TrainingSample,
     TrainingSampleTooLarge,
+    build_fixed_anchors_sql,
     build_inference_anchors_sql,
     build_inference_features_sql,
     build_prediction_coverage_sql,
@@ -552,11 +553,22 @@ def _materialize_score_data(
     A population at or above the cap scores a rolling subset: the ``ROLLING_SCORE_LIMIT``
     persons whose last score by this pipeline is oldest.
 
-    ``anchor_person_ids`` scores exactly those persons instead of the population, with no count
-    and no rolling selection. Deferred shadow scoring passes the people the champion scored.
+    ``anchor_person_ids`` scores those of these persons who are still live instead of the population,
+    with no rolling selection. Deferred shadow scoring passes the people the champion scored.
     """
     if anchor_person_ids is not None:
-        eligible = len(anchor_person_ids)
+        anchors_sql, anchors_values = build_fixed_anchors_sql(anchor_person_ids=anchor_person_ids, cutoff_ts=cutoff_ts)
+        eligible = int(
+            _count_rows(
+                team=team,
+                sql=f"SELECT count() FROM ({anchors_sql})",
+                values=anchors_values,
+                user=user,
+                what="Fixed anchor count",
+                query_context=query_context,
+            )[0]
+            or 0
+        )
         rolling = None
     else:
         eligible = count_inference_anchors(
