@@ -121,7 +121,6 @@ describe('workflowEditorVisitLogic', () => {
                 template_id: 'tpl-1',
                 workflow_id: SAVED_ID,
                 ever_saved: true,
-                last_edit: 'saved',
             }),
         ])
     })
@@ -141,42 +140,13 @@ describe('workflowEditorVisitLogic', () => {
         ])
     })
 
-    it('reports a save when the save button request lands after a failed auto-save', async () => {
-        let patchCalls = 0
-        useMocks({
-            get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } },
-            patch: {
-                [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: () => {
-                    patchCalls += 1
-                    return patchCalls === 1 ? [500, {}] : [200, { ...NEW_WORKFLOW, id: SAVED_ID, name: 'Renamed' }]
-                },
-            },
-        })
-        const props = { id: SAVED_ID }
-        const visit = await openEditor(props)
-        const editor = workflowLogic(props)
-
-        editor.actions.setWorkflowValue('name', 'Renamed')
-        await expectLogic(editor, () => {
-            editor.actions.markAutoSave(true)
-            editor.actions.saveWorkflow(editor.values.workflow)
-            editor.actions.submitWorkflow()
-        }).toDispatchActions(['saveWorkflowFailure', 'saveWorkflowSuccess'])
-        visit.unmount()
-
-        expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'saved' })])
-    })
-
-    it('reports a moved step as the last edit when the save after it fails', async () => {
+    it('reports moving a step as a step edit', async () => {
         const draft = {
             ...NEW_WORKFLOW,
             id: SAVED_ID,
             actions: [...NEW_WORKFLOW.actions, delayStep('wait_valid', { delay_duration: '10m' })],
         }
-        useMocks({
-            get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: draft },
-            patch: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: () => [500, {}] },
-        })
+        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: draft } })
         const props = { id: SAVED_ID }
         const visit = await openEditor(props)
 
@@ -186,9 +156,6 @@ describe('workflowEditorVisitLogic', () => {
                 { from: 'wait_valid', to: 'exit_node', type: 'continue' },
             ],
         })
-        await expectLogic(workflowLogic(props), () => {
-            workflowLogic(props).actions.submitWorkflow()
-        }).toDispatchActions(['saveWorkflowFailure'])
         visit.unmount()
 
         expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'step_edited' })])

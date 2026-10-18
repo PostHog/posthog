@@ -5,7 +5,7 @@ import type { WorkflowLogicProps } from './workflowLogic'
 
 export type WorkflowStartPath = 'template' | 'prefilled' | 'blank' | 'existing'
 
-export type WorkflowBuilderEdit = 'trigger' | 'step_added' | 'step_edited' | 'saved' | 'none'
+export type WorkflowBuilderEdit = 'trigger' | 'step_added' | 'step_edited' | 'none'
 
 export type ValidationById = Record<string, HogFlowActionValidationResult | null>
 
