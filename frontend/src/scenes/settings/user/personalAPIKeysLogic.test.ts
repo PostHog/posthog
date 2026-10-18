@@ -68,15 +68,29 @@ describe('personalAPIKeysLogic', () => {
         expect(toastError).not.toHaveBeenCalled()
     })
 
-    it('shows the server reason and records a rejected key', async () => {
-        useMocks({
-            post: {
-                '/api/personal_api_keys/': () => [
-                    400,
-                    { type: 'validation_error', code: 'invalid_input', detail: 'Invalid scope: foo', attr: 'scopes' },
-                ],
-            },
-        })
+    it.each([
+        {
+            case: 'the server reason for a rejected key',
+            status: 400,
+            body: { type: 'validation_error', code: 'invalid_input', detail: 'Invalid scope: foo', attr: 'scopes' },
+            expectedToasts: ["Couldn't save the personal API key: Invalid scope: foo"],
+        },
+        {
+            case: 'a retry hint, not a scopes hint, for a server error',
+            status: 500,
+            body: { type: 'server_error', code: 'error' },
+            expectedToasts: [
+                "Couldn't save the personal API key. Try again, and contact support if it keeps happening.",
+            ],
+        },
+        {
+            case: 'no second toast for a gate another logic handles',
+            status: 403,
+            body: { type: 'authentication_error', code: 'impersonation_read_only', detail: 'Read-only session.' },
+            expectedToasts: [],
+        },
+    ])('shows $case and records the failure', async ({ status, body, expectedToasts }) => {
+        useMocks({ post: { '/api/personal_api_keys/': () => [status, body] } })
         const capture = jest.spyOn(posthog, 'capture')
         const toastError = jest.spyOn(lemonToast, 'error')
 
@@ -85,12 +99,13 @@ describe('personalAPIKeysLogic', () => {
         await logic.asyncActions.submitEditingKey()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(toastError).toHaveBeenCalledWith("Couldn't save the personal API key: Invalid scope: foo")
+        const keyToasts = toastError.mock.calls.map(([message]) => message).filter((m) => String(m).includes('API key'))
+        expect(keyToasts).toEqual(expectedToasts)
         expect(capture).toHaveBeenCalledWith('personal api key save failed', {
             is_new: true,
-            status: 400,
-            code: 'invalid_input',
-            attr: 'scopes',
+            status,
+            code: body.code,
+            attr: 'attr' in body ? body.attr : null,
             access_type: 'all',
             scope_count: 1,
         })

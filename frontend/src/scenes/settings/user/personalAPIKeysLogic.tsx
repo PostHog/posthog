@@ -317,6 +317,27 @@ export type personalAPIKeysLogicType = MakeLogicType<
     personalAPIKeysLogicMeta
 >
 
+const GLOBALLY_HANDLED_FORBIDDEN_CODES: ReadonlySet<string> = new Set([
+    'two_factor_setup_required',
+    'two_factor_verification_required',
+    'sensitive_action_required_reauth',
+    'verified_domain_required',
+    'impersonation_read_only',
+])
+
+function keySaveFailureMessage(error: ApiError): string | null {
+    if (error.status === 403 && error.code && GLOBALLY_HANDLED_FORBIDDEN_CODES.has(error.code)) {
+        return null
+    }
+    if (error.detail) {
+        return `Couldn't save the personal API key: ${error.detail}`
+    }
+    if (error.status !== undefined && error.status >= 400 && error.status < 500) {
+        return "Couldn't save the personal API key. Check its scopes and projects, then try again."
+    }
+    return "Couldn't save the personal API key. Try again, and contact support if it keeps happening."
+}
+
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     path(['lib', 'components', 'PersonalAPIKeys', 'personalAPIKeysLogic']),
     connect(() => ({
@@ -710,11 +731,10 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             if (!(error instanceof ApiError)) {
                 return
             }
-            lemonToast.error(
-                error.detail
-                    ? `Couldn't save the personal API key: ${error.detail}`
-                    : "Couldn't save the personal API key. Check its scopes and projects, then try again."
-            )
+            const message = keySaveFailureMessage(error)
+            if (message) {
+                lemonToast.error(message)
+            }
             posthog.capture('personal api key save failed', {
                 is_new: values.editingKeyId === 'new',
                 status: error.status,
