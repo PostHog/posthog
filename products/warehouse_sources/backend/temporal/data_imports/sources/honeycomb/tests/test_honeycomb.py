@@ -37,6 +37,9 @@ class _FakeResumableManager:
     def save_state(self, data: HoneycombResumeConfig) -> None:
         self.saved.append(data)
 
+    def safe_point(self) -> None:
+        pass
+
 
 def _make_response(status_code: int, body: Any = None) -> requests.Response:
     response = requests.Response()
@@ -344,6 +347,98 @@ class TestSloCountsHistory:
         }
         with pytest.raises(HoneycombSloCountsUnavailableError):
             _collect_counts_history(responses, watermark_hour, monkeypatch)
+
+
+SIGNALS_FIRST_PAGE = f"{US}/1/signals?page%5Bsize%5D=100"
+
+
+def _collect_signals_endpoint(
+    endpoint: str,
+    responses: Mapping[str, Any],
+    manager: _FakeResumableManager,
+    monkeypatch: Any,
+    last_value: Any = None,
+) -> tuple[list[list[dict]], _UrlSession]:
+    session = _UrlSession(responses)
+    monkeypatch.setattr(honeycomb, "make_tracked_session", lambda *args, **kwargs: session)
+    with time_machine.travel(NOW, tick=False):
+        batches = list(
+            get_rows(
+                api_key="key",
+                region="us",
+                endpoint=endpoint,
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+                db_incremental_field_last_value=last_value,
+            )
+        )
+    return batches, session
+
+
+def _anomalies_url(signal_id: str, start: int, end: int) -> str:
+    return f"{US}/1/signals/{signal_id}/historical_anomalies?start_time={start}&end_time={end}&page%5Bsize%5D=100"
+
+
+class TestSignals:
+    def test_follows_relative_next_links_and_stages_cursor_before_each_page(self, monkeypatch: Any) -> None:
+        responses = {
+            SIGNALS_FIRST_PAGE: {"signals": [{"id": "s1"}], "links": {"next": "/1/signals?page[after]=c1"}},
+            f"{US}/1/signals?page[after]=c1": {"signals": [{"id": "s2"}], "links": {"next": None}},
+        }
+        manager = _FakeResumableManager()
+        batches, _ = _collect_signals_endpoint("signals", responses, manager, monkeypatch)
+        assert batches == [[{"id": "s1"}], [{"id": "s2"}]]
+        assert [state.next_url for state in manager.saved] == [f"{US}/1/signals?page[after]=c1"]
+
+    def test_resume_starts_from_saved_next_url(self, monkeypatch: Any) -> None:
+        resume_url = f"{US}/1/signals?page[after]=c1"
+        responses = {resume_url: {"signals": [{"id": "s2"}], "links": {"next": None}}}
+        manager = _FakeResumableManager(HoneycombResumeConfig(next_url=resume_url))
+        batches, session = _collect_signals_endpoint("signals", responses, manager, monkeypatch)
+        assert batches == [[{"id": "s2"}]]
+        assert session.requested_urls == [resume_url]
+
+
+class TestSignalHistoricalAnomalies:
+    @parameterized.expand(
+        [
+            ("no_watermark", None, NOW - 90 * DAY),
+            # Incremental syncs re-read a week behind the watermark for anomalies that resolved late.
+            ("watermark", NOW - 2 * DAY, NOW - 9 * DAY),
+            ("iso_watermark", "2026-01-13T12:30:00+00:00", NOW - 9 * DAY),
+            ("watermark_older_than_lookback", 84513, NOW - 90 * DAY),
+        ]
+    )
+    def test_walks_windows_across_every_signal(self, _name: str, last_value: Any, first_start: int) -> None:
+        window_starts = list(range(first_start, NOW, 7 * DAY))
+        responses: dict[str, Any] = {
+            SIGNALS_FIRST_PAGE: {"signals": [{"id": "s1"}, {"id": "gone"}], "links": {"next": None}},
+        }
+        for start in window_starts:
+            end = min(start + 7 * DAY, NOW)
+            responses[_anomalies_url("s1", start, end)] = {
+                "historical_anomalies": [{"id": f"a{start}", "started_at": start}],
+                "links": {"next": f"/1/signals/s1/historical_anomalies?page[after]={start}"},
+            }
+            responses[f"{US}/1/signals/s1/historical_anomalies?page[after]={start}"] = {
+                "historical_anomalies": [{"id": f"b{start}", "started_at": start}],
+                "links": {"next": None},
+            }
+            # A Signal deleted since the listing 404s; that must drop its rows, not fail the sync.
+            responses[_anomalies_url("gone", start, end)] = 404
+
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            batches, session = _collect_signals_endpoint(
+                "signal_historical_anomalies", responses, _FakeResumableManager(), mp, last_value
+            )
+
+        assert len(batches) == len(window_starts)
+        assert batches[0] == [
+            {"id": f"a{first_start}", "started_at": first_start, "signal_id": "s1"},
+            {"id": f"b{first_start}", "started_at": first_start, "signal_id": "s1"},
+        ]
+        assert session.requested_urls[-1] == _anomalies_url("gone", window_starts[-1], NOW)
 
 
 class TestRecipientCredentialScrubbing:
