@@ -221,6 +221,9 @@ class ClientConfig(TypedDict, total=False):
     # `DATA_WAREHOUSE_SOURCE_*` settings apply. Raise both for a vendor with a longer rate limit window.
     retry_budget_seconds: float
     retry_after_max_seconds: float
+    # When True, a server-provided delay above `retry_after_max_seconds` becomes a wait of that
+    # limit, and the request does not fail at once. Left unset, such a request fails without a wait.
+    cap_retry_after: bool
     # SSRF host-pinning. When set (even to an empty list), every outgoing request URL —
     # including paginator next-page links and seeded resume URLs — must resolve to one of
     # these hosts; the base_url host is always implicitly allowed. Off-host URLs are rejected

@@ -384,6 +384,20 @@ class TestClaudeCodeDayFanOut:
         assert result.params("page") == ["P2"]
         assert result.params("starting_at") == [today.isoformat()]
 
+    def test_waits_out_a_rate_limit_that_asks_for_an_hour(self) -> None:
+        today = datetime.now(UTC).date()
+        result = _driver().run(
+            "claude_code_analytics",
+            [
+                ScriptedResponse(status=429, headers={"Retry-After": "3600"}),
+                _cc_page([_cc_record()], has_more=False, next_page=None),
+            ],
+            incremental_field="date",
+            db_incremental_field_last_value=_midnight(today),
+        )
+        assert result.raised is None
+        assert len(result.rows) == 1
+
 
 class TestRetiredEndpoint:
     def test_a_dropped_endpoint_fails_non_retryably(self) -> None:
