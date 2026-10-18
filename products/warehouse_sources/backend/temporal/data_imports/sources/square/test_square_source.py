@@ -17,12 +17,13 @@ class TestSquareSource:
         assert schemas[0].name == "payments"
 
     @pytest.mark.parametrize(
-        "mock_return, schema_name, expected_valid, expected_has_message",
+        "mock_return, schema_name, api_version, expected_valid, expected_has_message, expected_version",
         [
-            ((True, False), None, True, False),
-            ((False, False), None, False, True),  # 401 bad token
-            ((False, True), None, True, False),  # 403 at source-create -> accepted
-            ((False, True), "payments", False, True),  # 403 for a specific schema -> rejected
+            ((True, False), None, None, True, False, "2026-09-16"),  # pre-creation probe -> default version
+            ((True, False), "payments", "v2", True, False, "v2"),  # pinned row -> its own version
+            ((False, False), None, None, False, True, "2026-09-16"),  # 401 bad token
+            ((False, True), None, None, True, False, "2026-09-16"),  # 403 at source-create -> accepted
+            ((False, True), "payments", None, False, True, "2026-09-16"),  # 403 for a specific schema -> rejected
         ],
     )
     @mock.patch(
@@ -33,11 +34,17 @@ class TestSquareSource:
         mock_validate: mock.MagicMock,
         mock_return: tuple[bool, bool],
         schema_name: str | None,
+        api_version: str | None,
         expected_valid: bool,
         expected_has_message: bool,
+        expected_version: str,
     ) -> None:
         mock_validate.return_value = mock_return
-        is_valid, message = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+        is_valid, message = self.source.validate_credentials(
+            self.config, self.team_id, schema_name=schema_name, api_version=api_version
+        )
         assert is_valid is expected_valid
         assert (message is not None) is expected_has_message
-        mock_validate.assert_called_once_with(self.config.access_token, self.config.environment, schema_name)
+        mock_validate.assert_called_once_with(
+            self.config.access_token, self.config.environment, expected_version, schema_name
+        )

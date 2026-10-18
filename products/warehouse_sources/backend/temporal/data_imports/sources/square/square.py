@@ -16,9 +16,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.square.set
     SquareEndpointConfig,
 )
 
-# Square pins API behaviour to a dated version header. Bump deliberately after
-# re-reading the changelog — newer versions can reshape responses.
-SQUARE_API_VERSION = "2024-10-17"
+SQUARE_API_VERSION_V2 = "v2"
+SQUARE_API_VERSION_2026_09_16 = "2026-09-16"
+
+# Square pins API behaviour to a dated version header. Add new versions deliberately
+# after re-reading the changelog — newer versions can reshape responses. The legacy
+# "v2" label predates per-version pins and keeps sending the header it always sent.
+SQUARE_VERSION_HEADERS: dict[str, str] = {
+    SQUARE_API_VERSION_V2: "2024-10-17",
+    SQUARE_API_VERSION_2026_09_16: "2026-09-16",
+}
 
 SQUARE_HOSTS = {
     "production": "https://connect.squareup.com",
@@ -73,10 +80,13 @@ def _base_url(environment: str) -> str:
     return SQUARE_HOSTS.get(environment, SQUARE_HOSTS["production"])
 
 
-def _get_headers(access_token: str) -> dict[str, str]:
+def _get_headers(access_token: str, api_version: str) -> dict[str, str]:
+    square_version = SQUARE_VERSION_HEADERS.get(api_version)
+    if square_version is None:
+        raise ValueError(f"Unsupported Square API version: {api_version}")
     return {
         "Authorization": f"Bearer {access_token}",
-        "Square-Version": SQUARE_API_VERSION,
+        "Square-Version": square_version,
         "Accept": "application/json",
     }
 
@@ -116,7 +126,9 @@ def _time_filter_field(config: SquareEndpointConfig) -> Optional[str]:
     return config.incremental_fields[0]["field"]
 
 
-def validate_credentials(access_token: str, environment: str, schema_name: Optional[str] = None) -> tuple[bool, bool]:
+def validate_credentials(
+    access_token: str, environment: str, api_version: str, schema_name: Optional[str] = None
+) -> tuple[bool, bool]:
     """Probe Square to confirm the token works.
 
     Returns ``(is_valid, is_forbidden)``. ``is_forbidden`` distinguishes a 403
@@ -135,9 +147,10 @@ def validate_credentials(access_token: str, environment: str, schema_name: Optio
     url = f"{_base_url(environment)}{path}"
     if params:
         url = f"{url}?{urlencode(params)}"
+    headers = _get_headers(access_token, api_version)
 
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_token), timeout=REQUEST_TIMEOUT_SECONDS)
+        response = make_tracked_session().get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception:
         return False, False
 
@@ -153,11 +166,12 @@ def get_rows(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SquareResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = SQUARE_ENDPOINTS[endpoint]
-    headers = _get_headers(access_token)
+    headers = _get_headers(access_token, api_version)
     url = f"{_base_url(environment)}{config.path}"
 
     initial_params = _build_initial_params(config, should_use_incremental_field, db_incremental_field_last_value)
@@ -259,6 +273,7 @@ def square_source(
     endpoint: str,
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SquareResumeConfig],
+    api_version: str,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
@@ -272,6 +287,7 @@ def square_source(
             endpoint=endpoint,
             logger=logger,
             resumable_source_manager=resumable_source_manager,
+            api_version=api_version,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
