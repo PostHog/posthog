@@ -302,8 +302,10 @@ Do not infer that no configuration change occurred from missing access.
 ### Available filters
 
 `advanced_activity_logs/available_filters/` checks the organization-wide cache before counting activity rows.
+The cache stores the row count, so a cache hit does not count rows again.
 For organizations with at most 20,000 rows, cache hits reuse detail field names without fetching detail documents.
 Static options (users, scopes, activities, and clients) still use distinct values from the request's visibility-filtered queryset.
+One query reads users, and one grouped query reads scopes, activities, and clients.
 Small organizations cache discovered detail fields for 12 hours, so new detail field names can take that long to appear.
 On a cache miss, organizations with at most 20,000 rows run discovery in the request; larger organizations return empty filters until the background refresh populates the cache.
 
