@@ -61,7 +61,8 @@ export function describeWindow(window: string): string {
     if (interval.length === 2) {
         const [start, end] = interval.map((part) => dayjs(part))
         if (start.isValid() && end.isValid()) {
-            return `${start.format('MMM D, HH:mm')} to ${end.format('MMM D, HH:mm')}`
+            const viewerZone = dayjs.tz.guess()
+            return `${start.tz(viewerZone).format('MMM D, HH:mm')} to ${end.tz(viewerZone).format('MMM D, HH:mm z')}`
         }
     }
     const match = /^-(\d+)([dh])$/.exec(window)
