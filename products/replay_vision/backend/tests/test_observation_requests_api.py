@@ -5,8 +5,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.db import OperationalError, connection
 from django.utils import timezone
 
+import psycopg
 from parameterized import parameterized
 from rest_framework.test import APIClient
 
@@ -432,6 +434,32 @@ class TestCompleteSettledRequests(APIBaseTest):
         ]
         assert ReplayObservationRequest.objects.for_team(self.team.id).filter(completed_at__isnull=True).count() == 0
         assert cache.get(_SWEEP_CURSOR_KEY) is None
+
+    @patch("products.replay_vision.backend.observation_requests._SWEEP_PAGE_SIZE", 1)
+    @patch("products.replay_vision.backend.observation_requests.produce_internal_event")
+    def test_a_canceled_statement_ends_the_tick_and_keeps_its_cursor(self, _produce: MagicMock) -> None:
+        first = self._request({"s1": "skipped_quota"})
+        second = self._request({"s2": "skipped_quota"})
+        page_reads = 0
+
+        def cancel_second_page_read(execute: Any, sql: str, params: Any, many: bool, context: Any) -> Any:
+            nonlocal page_reads
+            if sql.startswith("SELECT") and '"completed_at" IS NULL' in sql and "LIMIT" in sql:
+                page_reads += 1
+                if page_reads == 2:
+                    try:
+                        raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+                    except psycopg.errors.QueryCanceled as err:
+                        raise OperationalError(str(err)) from err
+            return execute(sql, params, many, context)
+
+        with connection.execute_wrapper(cancel_second_page_read):
+            assert complete_settled_requests() == 1
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        assert (first.completed_at is not None, second.completed_at is None) == (True, True)
+        assert cache.get(_SWEEP_CURSOR_KEY) == (first.created_at.isoformat(), str(first.id))
 
     @parameterized.expand(
         [

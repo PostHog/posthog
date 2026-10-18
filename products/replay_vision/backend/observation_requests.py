@@ -12,10 +12,11 @@ from typing import Any, Literal
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.core.cache import cache
-from django.db import IntegrityError, connection, models, transaction
+from django.db import IntegrityError, OperationalError, connection, models, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
+import psycopg
 import structlog
 
 from posthog.dataclasses import frozen
@@ -61,8 +62,8 @@ MAX_STARTS_PER_TICK = 50
 # How many waiting requests one tick checks for ended sessions.
 MAX_CHECKS_PER_TICK = 200
 
-# Each sweep gets its own budget, and together they leave headroom inside the reconciler activity's 45-second
-# start-to-close timeout, so a slow start sweep can't starve the completion sweep or the reverse.
+# Each sweep gets its own budget, and together they leave headroom inside the query budget of the completion
+# activity, so a slow start sweep can't starve the completion sweep or the reverse.
 START_SWEEP_BUDGET_SECONDS = 15
 COMPLETION_SWEEP_BUDGET_SECONDS = 20
 
@@ -482,26 +483,33 @@ def complete_settled_requests(
     cursor = start
     wrapped = start is None
     completed = 0
-    while time.monotonic() < deadline:
-        page_qs = open_requests
-        if cursor is not None:
-            page_qs = page_qs.filter(_after(cursor))
-        if wrapped and start is not None:
-            page_qs = page_qs.exclude(_after(start))
-        page = list(page_qs[:_SWEEP_PAGE_SIZE])
-        if not page:
-            if wrapped:
-                _store_sweep_cursor(None)
-                return completed
-            wrapped, cursor = True, None
-            continue
-        page_completed, stopped_at = _complete_page(page, now, deadline)
-        completed += page_completed
-        if stopped_at is not None:
-            if stopped_at:
-                cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
-            break
-        cursor = (page[-1].created_at, page[-1].id)
+    try:
+        while time.monotonic() < deadline:
+            page_qs = open_requests
+            if cursor is not None:
+                page_qs = page_qs.filter(_after(cursor))
+            if wrapped and start is not None:
+                page_qs = page_qs.exclude(_after(start))
+            page = list(page_qs[:_SWEEP_PAGE_SIZE])
+            if not page:
+                if wrapped:
+                    _store_sweep_cursor(None)
+                    return completed
+                wrapped, cursor = True, None
+                continue
+            page_completed, stopped_at = _complete_page(page, now, deadline)
+            completed += page_completed
+            if stopped_at is not None:
+                if stopped_at:
+                    cursor = (page[stopped_at - 1].created_at, page[stopped_at - 1].id)
+                break
+            cursor = (page[-1].created_at, page[-1].id)
+    except OperationalError as err:
+        # The activity's query budget can run out before this sweep's own budget does. The page it cancels
+        # starts the next tick, so stop here instead of failing the activity.
+        if not isinstance(err.__cause__, psycopg.errors.QueryCanceled):
+            raise
+        logger.warning("replay_vision.observation_request.completion_sweep_canceled", completed=completed)
     _store_sweep_cursor(cursor)
     return completed
 
