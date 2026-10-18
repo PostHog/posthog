@@ -12,6 +12,7 @@ from parameterized import parameterized
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.week_start_day import WeekStartDay
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.product_analytics.backend import insight_series
@@ -118,6 +119,10 @@ def _sql_query(display: str = "ActionsLineGraph", **chart_settings: Any) -> dict
     }
 
 
+def _weekly(*rows: list[Any]) -> dict[str, Any]:
+    return {"columns": ["week", "p50"], "results": list(rows)}
+
+
 class TestSqlSeries(SimpleTestCase):
     @parameterized.expand(
         [
@@ -128,7 +133,34 @@ class TestSqlSeries(SimpleTestCase):
                     "columns": ["week", "kind", "p50", "p90"],
                     "results": [["2026-10-04", "html", 1, 2], ["2026-10-11", "html", 3, None]],
                 },
-                ("week", {"p50 · html": [1.0, 3.0], "p90 · html": [2.0, 0.0]}, None),
+                WeekStartDay.SUNDAY,
+                ("week", {"p50 · html": [1.0, 3.0], "p90 · html": [2.0, 0.0]}, None, None),
+            ),
+            (
+                "two columns that share a label keep both series",
+                _sql_query(
+                    yAxis=[
+                        {"column": "a", "settings": {"display": {"label": "Users"}}},
+                        {"column": "b", "settings": {"display": {"label": "Users"}}},
+                    ]
+                ),
+                {"columns": ["week", "a", "b"], "results": [["2026-10-04", 1, 5], ["2026-10-11", 2, 6]]},
+                WeekStartDay.SUNDAY,
+                ("week", {"Users": [1.0, 2.0], "Users (2)": [5.0, 6.0]}, None, None),
+            ),
+            (
+                "weeks that start on Monday in a Monday project",
+                _sql_query(),
+                _weekly(["2026-09-28", 1], ["2026-10-05", 2]),
+                WeekStartDay.MONDAY,
+                ("week", {"p50": [1.0, 2.0]}, None, None),
+            ),
+            (
+                "weeks that start on Monday in a Sunday project",
+                _sql_query(),
+                _weekly(["2026-09-28", 1], ["2026-10-05", 2]),
+                WeekStartDay.SUNDAY,
+                None,
             ),
             (
                 "a monthly series keeps its label and currency prefix",
@@ -142,31 +174,63 @@ class TestSqlSeries(SimpleTestCase):
                     ],
                 ),
                 {"columns": ["month", "revenue"], "results": [["2026-08-01", 10], ["2026-09-01", 12]]},
-                ("month", {"Revenue": [10.0, 12.0]}, "$"),
+                WeekStartDay.SUNDAY,
+                ("month", {"Revenue": [10.0, 12.0]}, "$", None),
             ),
-            ("a table", _sql_query(display="ActionsTable"), {"columns": ["week", "p50"], "results": []}, None),
+            (
+                "a percent column is scaled like the chart",
+                _sql_query(yAxis=[{"column": "rate", "settings": {"formatting": {"style": "percent"}}}]),
+                {"columns": ["week", "rate"], "results": [["2026-10-04", 0.2], ["2026-10-11", 0.25]]},
+                WeekStartDay.SUNDAY,
+                ("week", {"rate": [0.2, 0.25]}, None, "percentage_scaled"),
+            ),
+            (
+                "a table",
+                _sql_query(display="ActionsTable"),
+                _weekly(),
+                WeekStartDay.SUNDAY,
+                None,
+            ),
             (
                 "a truncated result",
                 _sql_query(),
-                {"columns": ["week", "p50"], "results": [["2026-10-04", 1], ["2026-10-11", 2]], "hasMore": True},
+                {**_weekly(["2026-10-04", 1], ["2026-10-11", 2]), "hasMore": True},
+                WeekStartDay.SUNDAY,
                 None,
             ),
             (
                 "rows that repeat a date",
                 _sql_query(),
-                {"columns": ["week", "p50"], "results": [["2026-10-04", 1], ["2026-10-04", 2]]},
+                _weekly(["2026-10-04", 1], ["2026-10-04", 2]),
+                WeekStartDay.SUNDAY,
                 None,
             ),
             (
                 "an x axis that is not a date",
                 _sql_query(),
-                {"columns": ["week", "p50"], "results": [["html", 1], ["react", 2]]},
+                _weekly(["html", 1], ["react", 2]),
+                WeekStartDay.SUNDAY,
                 None,
             ),
             (
                 "dates without a regular interval",
                 _sql_query(),
-                {"columns": ["week", "p50"], "results": [["2026-10-04", 1], ["2026-10-07", 2]]},
+                _weekly(["2026-10-04", 1], ["2026-10-07", 2]),
+                WeekStartDay.SUNDAY,
+                None,
+            ),
+            (
+                "a missing week",
+                _sql_query(),
+                _weekly(["2026-09-20", 1], ["2026-09-27", 2], ["2026-10-11", 3]),
+                WeekStartDay.SUNDAY,
+                None,
+            ),
+            (
+                "a missing month",
+                _sql_query(xAxis={"column": "week"}),
+                _weekly(["2026-07-01", 1], ["2026-09-01", 2]),
+                WeekStartDay.SUNDAY,
                 None,
             ),
         ]
@@ -176,11 +240,17 @@ class TestSqlSeries(SimpleTestCase):
         _name: str,
         query: dict[str, Any],
         response: dict[str, Any],
-        expected: tuple[str, dict[str, list[float]], str | None] | None,
+        week_start_day: WeekStartDay,
+        expected: tuple[str, dict[str, list[float]], str | None, str | None] | None,
     ) -> None:
         with patch.object(insight_series, "_run", return_value=response):
             found = insight_series.insight_series(
-                cast(Team, None), cast(User, None), short_id="abc", name="Build time", query=query, dashboard=None
+                Team(week_start_day=week_start_day),
+                cast(User, None),
+                short_id="abc",
+                name="Build time",
+                query=query,
+                dashboard=None,
             )
 
         summary = (
@@ -190,6 +260,7 @@ class TestSqlSeries(SimpleTestCase):
                 found.period,
                 {name: [v for _, v in points] for name, points in found.series.items()},
                 found.value_prefix,
+                found.value_format,
             )
         )
         self.assertEqual(summary, expected)

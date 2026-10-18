@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from posthog.hogql_queries.apply_dashboard_filters import resolve_effective_dashboard_filters
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Team, User
+from posthog.week_start_day import WeekStartDay
 
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 
@@ -102,16 +103,17 @@ def _as_number(value: Any) -> float | None:
     return float(value)
 
 
-def _sql_period(days: list[date]) -> str | None:
+def _sql_period(days: list[date], week_start_day: int | None) -> str | None:
     gaps = {(later - earlier).days for earlier, later in zip(days, days[1:])}
     if not gaps:
         return None
-    step = min(gaps)
-    if step == 1:
+    if min(gaps) == 1:
         return "day"
-    if step == 7 and all(gap % 7 == 0 for gap in gaps):
+    first_weekday = 0 if week_start_day == WeekStartDay.MONDAY else 6
+    if gaps == {7} and all(day.weekday() == first_weekday for day in days):
         return "week"
-    if 28 <= step <= 31 and all(day.day == 1 for day in days):
+    months = [day.year * 12 + day.month for day in days]
+    if all(day.day == 1 for day in days) and all(later - earlier == 1 for earlier, later in zip(months, months[1:])):
         return "month"
     return None
 
@@ -138,24 +140,30 @@ def _sql_series(
     if response.get("hasMore") or any(column not in columns for column in wanted):
         return None
     position = {column: index for index, column in enumerate(columns)}
-    series: dict[str, dict[date, float]] = {}
+    labels: dict[tuple[int, str | None], str] = {}
+    series: dict[tuple[int, str | None], dict[date, float]] = {}
     for row in response.get("results") or []:
         day = _as_date(row[position[x_column]])
         if day is None:
             return None
-        for axis in y_axes:
+        for index, axis in enumerate(y_axes):
             value = _as_number(row[position[axis["column"]]])
             if value is None:
                 return None
-            label = str(((axis.get("settings") or {}).get("display") or {}).get("label") or axis["column"])
-            if breakdown_column:
-                breakdown = str(row[position[breakdown_column]])
-                label = f"{label} · {breakdown}" if len(y_axes) > 1 else breakdown
-            points = series.setdefault(label, {})
+            breakdown = str(row[position[breakdown_column]]) if breakdown_column else None
+            key = (index, breakdown)
+            if key not in labels:
+                label = str(((axis.get("settings") or {}).get("display") or {}).get("label") or axis["column"])
+                if breakdown is not None:
+                    label = f"{label} · {breakdown}" if len(y_axes) > 1 else breakdown
+                while label in labels.values():
+                    label += " (2)"
+                labels[key] = label
+            points = series.setdefault(key, {})
             if day in points:
                 return None
             points[day] = value
-    period = _sql_period(sorted({day for points in series.values() for day in points}))
+    period = _sql_period(sorted({day for points in series.values() for day in points}), team.week_start_day)
     if period is None:
         return None
     formatting = ((y_axes[0].get("settings") or {}).get("formatting") or {}) if len(y_axes) == 1 else {}
@@ -163,10 +171,11 @@ def _sql_series(
     return InsightSeries(
         short_id=short_id,
         name=name,
-        series={label: sorted(points.items()) for label, points in series.items()},
+        series={labels[key]: sorted(points.items()) for key, points in series.items()},
         period=period,
-        averaged_series=list(series),
+        averaged_series=[labels[key] for key in series],
         event_name="",
+        value_format="percentage_scaled" if formatting.get("style") == "percent" else None,
         value_prefix=formatting.get("prefix") or None,
         value_postfix=formatting.get("suffix") or None,
         decimal_places=None if places is None else min(max(int(places), 0), 9),
