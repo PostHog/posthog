@@ -16,6 +16,7 @@ import type {
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { dataCheckFixPrompt } from './dataCheckFixPrompt'
+import { dataCheckText } from './dataCheckText'
 import { insightDataChecksLogic } from './insightDataChecksLogic'
 
 const CHECK_DESCRIPTIONS: Record<InsightDataCheckKeyEnumApi, string> = {
@@ -48,8 +49,9 @@ export function InsightDataCheckRow({
     insightProps: InsightLogicProps
     check: InsightDataCheckApi
 }): JSX.Element {
-    const { promptContext } = useValues(insightDataChecksLogic(insightProps))
+    const { promptContext, filtersTestAccounts } = useValues(insightDataChecksLogic(insightProps))
     const { filterOutInternalUsers, reportFixPromptSent } = useActions(insightDataChecksLogic(insightProps))
+    const text = dataCheckText(check, filtersTestAccounts)
 
     return (
         <li
@@ -61,11 +63,11 @@ export function InsightDataCheckRow({
             <LevelIcon level={check.level} />
             <div className="flex flex-col gap-1 min-w-0">
                 <Tooltip title={CHECK_DESCRIPTIONS[check.key]} placement="left">
-                    <span>{check.result}</span>
+                    <span>{text.result}</span>
                 </Tooltip>
-                {check.fix && (
+                {text.fix && (
                     <>
-                        <span className="text-xs text-secondary">{check.fix}</span>
+                        <span className="text-xs text-secondary">{text.fix}</span>
                         <div className="flex flex-wrap items-center gap-2">
                             {check.action === 'filter_internal_users' && (
                                 <LemonButton
@@ -90,10 +92,8 @@ export function InsightDataCheckRow({
                             )}
                             {promptContext && (
                                 <AgentPromptButton
-                                    storageKey="insight-data-check"
                                     size="xs"
                                     labelMode="destination"
-                                    defaultAgentKey="posthog-ai"
                                     data-attr="insight-data-check-fix-with-ai"
                                     menuClassName={CLICK_OUTSIDE_BLOCK_CLASS}
                                     onRun={({ agentKey }) => reportFixPromptSent(check, agentKey)}

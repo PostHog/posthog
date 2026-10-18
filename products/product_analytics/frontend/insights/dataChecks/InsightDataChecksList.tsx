@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
 
 import type { InsightLogicProps } from '~/types'
 
@@ -11,6 +12,7 @@ import { insightDataChecksLogic } from './insightDataChecksLogic'
 
 export function InsightDataChecksList({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
     const { status, checks, result, checkedQuery } = useValues(insightDataChecksLogic(insightProps))
+    const coverage = result?.coverage
     const { loadDataChecks } = useActions(insightDataChecksLogic(insightProps))
 
     return (
@@ -42,13 +44,11 @@ export function InsightDataChecksList({ insightProps }: { insightProps: InsightL
                             <InsightDataCheckRow key={check.key} insightProps={insightProps} check={check} />
                         ))}
                     </ul>
-                    {result && (
+                    {coverage?.events_checked != null && (
                         <span className="text-xs text-secondary">
-                            {!result.events_checked
+                            {coverage.events_checked === 0
                                 ? 'No events match this chart, so there is nothing to check.'
-                                : result.sample_rate < 1
-                                  ? `Checked a sample of ${humanFriendlyNumber(result.events_checked)} of this chart's events.`
-                                  : `${humanFriendlyNumber(result.events_checked)} events checked.`}
+                                : `Checked ${humanFriendlyNumber(coverage.events_checked)} events from the newest ${pluralize(coverage.days_checked, 'day')} of this chart.`}
                         </span>
                     )}
                 </>
