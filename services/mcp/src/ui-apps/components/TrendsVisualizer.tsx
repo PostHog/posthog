@@ -94,7 +94,7 @@ export function TrendsVisualizer({
     if (!results || results.length === 0) {
         return (
             <div>
-                <ChartHeader title={title} />
+                {showTitle && <ChartHeader title={title} />}
                 <Empty>
                     <EmptyHeader>
                         <EmptyMedia>{emptyStateIllustration('chart')}</EmptyMedia>
@@ -110,7 +110,7 @@ export function TrendsVisualizer({
         const label = results[0] ? getSeriesLabel(results[0], 0) : 'Total'
         return (
             <div>
-                <ChartHeader title={title} />
+                {showTitle && <ChartHeader title={title} />}
                 <BigNumber value={total} label={label} />
             </div>
         )
@@ -119,7 +119,7 @@ export function TrendsVisualizer({
     if (displayType === 'ActionsProportionBar') {
         return (
             <div>
-                <ChartHeader title={title} />
+                {showTitle && <ChartHeader title={title} />}
                 <div className="flex flex-col w-full justify-center p-4">
                     <ProportionBar
                         series={buildProportionBarSeries(results, colorAt)}
@@ -141,8 +141,8 @@ export function TrendsVisualizer({
         const barConfig = buildTrendsBarValueConfig()
         return (
             <div>
-                <ChartHeader title={title} />
-                <div className="flex flex-col w-full h-[400px]">
+                {showTitle && <ChartHeader title={title} />}
+                <div className={`flex flex-col w-full ${chartClassName}`}>
                     <BarValueChart
                         series={barSeries}
                         labels={items.map((item) => item.label)}
@@ -164,8 +164,8 @@ export function TrendsVisualizer({
         const pieView = pieViewFromTrendsFilter(query?.trendsFilter, displayType === 'ActionsDonut')
         return (
             <div>
-                <ChartHeader title={title} />
-                <div className="flex flex-col w-full h-[400px]">
+                {showTitle && <ChartHeader title={title} />}
+                <div className={`flex flex-col w-full ${chartClassName}`}>
                     <PieChart
                         series={slices}
                         theme={theme}
