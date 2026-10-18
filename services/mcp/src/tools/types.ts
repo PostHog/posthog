@@ -184,6 +184,8 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
         readOnlyHint: boolean
     }
     _meta?: ToolMeta
+    /** Appended to the `render-ui` result so the model knows what the rendered app already shows. */
+    renderedNote?: string
 }
 
 export type ToolBase<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = Omit<

@@ -233,6 +233,8 @@ export interface ExecToolOptions {
      * re-homed onto `_meta`. Computed from the client profile at the call site.
      */
     isInlineExecUiHost?: boolean
+    /** The host mounts apps only through `render-ui`, so a direct call of an app tool shows nothing. */
+    renderUiAvailable?: boolean
     mcpClientName?: string | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
@@ -2196,6 +2198,14 @@ export function createExecTool(
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
                         outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        if (
+                            options.renderUiAvailable &&
+                            !isInlineUiAppHost &&
+                            tool.renderedNote &&
+                            tool._meta?.ui?.resourceUri
+                        ) {
+                            outputText += `\n\nNothing is shown yet: this client displays apps only through render-ui. Call render-ui with tool_name "${tool.name}" and this same input to show it.`
+                        }
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,
