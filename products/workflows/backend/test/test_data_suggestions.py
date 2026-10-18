@@ -366,18 +366,30 @@ class TestDataSuggestions(SimpleTestCase):
                 "e2": ChoiceAnswer(choice="signup", confidence=0.6, probabilities={"signup": 0.6}),
                 "e3": ChoiceAnswer(choice="failure", confidence=0.6, probabilities={"failure": 0.6}),
                 "e4": ChoiceAnswer(choice="signup", confidence=0.9, probabilities={"signup": 0.9}),
+                "e5": ChoiceAnswer(choice="signup", confidence=0.1, probabilities={"signup": 0.1}),
+                "e6": ChoiceAnswer(choice="churn_risk", confidence=0.3, probabilities={"churn_risk": 0.3}),
             },
             input_tokens=10,
         )
         assert classify_event_stages(
             team_id=1,
-            event_names=["account_created", "thing_happened", "summary_generated", "upload_failed", "query executed"],
+            event_names=[
+                "account_created",
+                "thing_happened",
+                "summary_generated",
+                "upload_failed",
+                "query executed",
+                "workspace created",
+                "subscription paused",
+            ],
         ) == {
             "account_created": "signup",
             "thing_happened": "other",
             "summary_generated": "other",
             "upload_failed": "failure",
             "query executed": "other",
+            "workspace created": "signup",
+            "subscription paused": "churn_risk",
         }
 
     @parameterized.expand([("jev is not configured", True), ("jev does not answer", False)])

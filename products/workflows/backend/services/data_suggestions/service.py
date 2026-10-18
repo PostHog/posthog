@@ -689,7 +689,9 @@ def _generate(*, team: Team, user: User, analytics_client: Any) -> DataSuggestio
 
 def _suggest(*, team: Team, user: User, analytics_client: Any) -> DataSuggestionsResult:
     used_events = team_context.used_trigger_events(team)
-    all_counts = weekly_counts(team)
+    # The model can copy an event name into its JSON answer without escaping its quotes, which breaks the answer and
+    # loses every idea of the run. Names that JSON must escape are left out.
+    all_counts = {name: count for name, count in weekly_counts(team).items() if '"' not in name and "\\" not in name}
     # A build can wait on any busy event, including one another workflow already starts from.
     planning_events = tuple(name for name, _ in select_prompt_events(all_counts, limit=_PROMPT_EVENTS_LIMIT))
     counts = {name: count for name, count in all_counts.items() if name not in used_events}

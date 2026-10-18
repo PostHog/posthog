@@ -132,6 +132,13 @@ _ONBOARDING_RULE = (
     "even when other events fire more often. Then prefer other meaningful moments."
 )
 
+_REVENUE_RULE = (
+    "Prefer moments where a message earns or saves money: a trial that ends soon, a cart or checkout left "
+    "unfinished, a failed payment, a cancellation or pause to win back, and a sign-up that has not reached its "
+    "first key action. Prefer them over thank-you, feedback and review requests. Prefer events that happen every "
+    "week over rare ones, so the workflow keeps sending."
+)
+
 _COPY_RULES = "Write plain, friendly copy in sentence case. No emojis, no em dashes, no placeholders like [Name], no template tags."
 
 _IDEAS_PROMPT = f"""You suggest marketing and automation workflows for a product team using PostHog Workflows.
@@ -140,6 +147,7 @@ Suggest up to 6 workflows the project does not have yet. Each one starts when on
 Rules:
 - trigger_event must be copied exactly from the event list.
 - {_ONBOARDING_RULE}
+- {_REVENUE_RULE}
 - Each idea must use a different trigger_event.
 - Email is the main way to reach people. {{channel_rule}} {{slack_rule}}
 - Use the steps the workflow needs, including waits for an event and branches. {_SIMPLE_RULE}

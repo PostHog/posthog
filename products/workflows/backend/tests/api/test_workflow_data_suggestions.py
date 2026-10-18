@@ -145,6 +145,9 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
     @patch(f"{SERVICE}.suggest_ideas")
     def test_suggests_only_busy_events_and_caches_the_answer(self, suggest_ideas: MagicMock, _flag) -> None:
         suggest_ideas.return_value = [_idea("trial_started"), _idea("made_up_event")]
+        for index in range(3):
+            _create_event(team=self.team, event='clicked "buy"', distinct_id=f"person-{index}")
+        flush_persons_and_events()
 
         body = self._list()
 
