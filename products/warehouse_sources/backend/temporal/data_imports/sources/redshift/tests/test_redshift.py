@@ -1007,12 +1007,16 @@ class TestRedshiftSourceNonRetryableErrors:
 
     @pytest.mark.parametrize(
         "error_msg",
-        [f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s", TEMPORARY_HOST_RESOLUTION_ERROR],
+        [
+            f"{HOST_RESOLUTION_TIMEOUT_ERROR} after 15.0s",
+            TEMPORARY_HOST_RESOLUTION_ERROR,
+            "connection timeout expired",
+        ],
     )
-    def test_resolver_failures_before_the_connect_are_classified_retryable(self, error_msg):
+    def test_connect_time_failures_are_classified_retryable(self, error_msg):
         source = RedshiftSource()
         assert any(pattern in error_msg for pattern in source.get_retryable_errors())
-        assert not any(pattern in error_msg for pattern in source.get_non_retryable_errors())
+        assert not error_message_matches(error_msg, {**Any_Source_Errors, **source.get_non_retryable_errors()})
         assert source.get_retryable_errors() == set(source.get_retry_exhausted_errors().keys())
 
 
