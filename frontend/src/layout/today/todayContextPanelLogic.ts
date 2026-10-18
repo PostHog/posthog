@@ -25,7 +25,7 @@ export const TODAY_CONTEXT_PANEL_DOCK_EDGE = 64
 
 const NO_OFFSET: TodayContextPanelOffset = { x: 0, y: 0 }
 
-export const TODAY_AI_LAUNCHER_VARIANTS = ['island', 'grip', 'halftone', 'riso', 'mac', 'dither'] as const
+export const TODAY_AI_LAUNCHER_VARIANTS = ['island', 'logomark', 'peek', 'chunky'] as const
 export type TodayAiLauncherVariant = (typeof TODAY_AI_LAUNCHER_VARIANTS)[number]
 
 /**

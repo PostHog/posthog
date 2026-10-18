@@ -1,4 +1,11 @@
+import * as sittingHoggie from '@posthog/brand/hoggies/png/sitting'
+
+import { Logomark } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
+
 import type { TodayAiLauncherVariant } from './todayContextPanelLogic'
+
+const HedgehogSitting = pngHoggie(sittingHoggie)
 
 interface TodayAiLauncherProps {
     variant: TodayAiLauncherVariant
@@ -7,16 +14,15 @@ interface TodayAiLauncherProps {
 export function TodayAiLauncher({ variant }: TodayAiLauncherProps): JSX.Element {
     return (
         <span className="TodayAiLauncher" data-variant={variant}>
-            {variant === 'island' && <span className="TodayAiLauncher__light" />}
-            {variant === 'grip' && <span className="TodayAiLauncher__ribs" />}
-            {variant === 'riso' && <span className="TodayAiLauncher__paper" />}
-            {variant === 'mac' && (
-                <span className="TodayAiLauncher__face">
-                    <span />
-                    <span />
-                    <span />
-                </span>
-            )}
+            {variant === 'peek' && <HedgehogSitting className="TodayAiLauncher__hoggie" />}
+            <span className="TodayAiLauncher__face">
+                {variant !== 'peek' && (
+                    <Logomark
+                        variant={variant === 'chunky' ? 'mono' : variant === 'island' ? 'print' : 'gradient'}
+                        className="TodayAiLauncher__mark"
+                    />
+                )}
+            </span>
         </span>
     )
 }
