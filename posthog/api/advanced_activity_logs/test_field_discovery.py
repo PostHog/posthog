@@ -112,7 +112,7 @@ class FieldDiscoveryTest(BaseTest):
                 results = self._run_field_discovery()
                 self._assert_field_discovered(results, "Dashboard", field_pattern, expected_types)
 
-                with self.assertNumQueries(5):
+                with self.assertNumQueries(6):
                     cached_results = self._run_field_discovery()
                 self.assertEqual(cached_results, results)
 
@@ -132,14 +132,20 @@ class FieldDiscoveryTest(BaseTest):
         self._assert_field_discovered(results, "Dashboard", "name", ["string"])
 
     def test_cached_detail_fields_preserve_static_filter_scope(self) -> None:
+        self.user.first_name, self.user.last_name = "Ada", "Lovelace"
+        self.user.save()
         self._create_activity_log("Dashboard", {"name": "example"})
         self._create_activity_log("Insight", {"description": "example"})
         queryset = ActivityLog.objects.filter(organization_id=self.organization.id)
 
         self.discovery.get_available_filters(queryset.filter(scope="Dashboard"))
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(6):
             results = self.discovery.get_available_filters(queryset.filter(scope="Insight"))
 
         self.assertEqual(results["static_filters"]["scopes"], [{"value": "Insight"}])
+        self.assertEqual(
+            results["static_filters"]["users"],
+            [{"value": str(self.user.uuid), "label": "Ada Lovelace"}],
+        )
         self._assert_field_discovered(results, "Dashboard", "name", ["string"])
         self._assert_field_discovered(results, "Insight", "description", ["string"])
