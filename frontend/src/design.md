@@ -198,6 +198,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - ContextMenu: right-click only; never the only path to an action
   - Menubar: persistent app-level menus
   - Never Select for actions; never restyle Buttons into menu rows (use `Item variant="menuItem"`)
+- A list of clickable rows (tickets, programs, recent items) → `CardGroup` of `Card size="sm"`, each holding one full-width `<button>` or `<a>`. Item has no clickable variant. `Item tone` is for callouts only, such as a warning or an incident notice
 - Switching views: Tabs (sections of one page; `variant="line"` for page-level) | ToggleGroup (2–4 display modes) | Select (many views, low priority)
 - Text and numbers:
   - Input: single-line text
@@ -274,6 +275,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - Icons: use `IconPlus` for add and new actions, never `IconPlusSmall`. The small glyph looks undersized next to the other icons in a row of icon buttons
 - Body text uses the `text-xs` size: `<Text size="xs">`. `Text` defaults to `base`, so always pass `size="xs"` for body copy
 - Space a section's contents with the parent's `gap-*` (`gap-2` within a section). When a button sits beside the section's title, use `gap-1`, because the button makes the title row taller. Never give the contents, headings included, a bottom margin. The web app's global styles add margins to `h1`–`h6` and `p`, so pass `className="m-0"` on a `Heading`'s or `Text`'s `render` element
+- An inline link inside a sentence uses the same text size as the sentence: `<Button variant="link" size="inline">`. The other `Button` sizes set a control height and their own font size, so they never match the text around them. Don't patch one with `h-auto p-0`
 - <TODO: remaining short imperative rules; link to detail files with "read when…">
 
 ## 6. Don't
