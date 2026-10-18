@@ -124,7 +124,7 @@ function validateGroupSet(preparedEvent: PreIngestionEvent): PipelineWarning | n
             eventUuid: preparedEvent.eventUuid,
             distinctId: preparedEvent.distinctId,
             groupType: asPostgresParameterText(groupType),
-            groupKey: sanitizeString(String(groupKey)),
+            groupKey: sanitizeString(asPostgresParameterText(groupKey)),
             receivedType: Array.isArray(groupPropertiesToSet) ? 'array' : typeof groupPropertiesToSet,
         },
         // No `key`: the limiter's bucket map never evicts, so a client-supplied
@@ -152,7 +152,7 @@ async function upsertGroup(
             teamId,
             projectId,
             groupTypeIndex,
-            sanitizeString(groupKey.toString()),
+            sanitizeString(asPostgresParameterText(groupKey)),
             groupPropertiesToSet || {},
             timestamp
         )
