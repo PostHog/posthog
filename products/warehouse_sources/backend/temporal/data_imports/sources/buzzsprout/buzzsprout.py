@@ -1,6 +1,6 @@
 from collections.abc import Callable
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 
 from requests import Request, Response
 
@@ -10,6 +10,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout
     BUZZSPROUT_ENDPOINTS,
     BuzzsproutEndpointConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     default_request_timeout,
     make_tracked_session,
@@ -41,6 +42,18 @@ MAX_RETRIES = 8
 class BuzzsproutResumeConfig:
     # Day paginator checkpoint for the downloads table: the next podcast-local day to request.
     day_state: dict[str, Any] | None = None
+
+
+@frozen
+class BuzzsproutDownloadsCursor:
+    """The first podcast-local day (ISO date) the next incremental `downloads` sync reads.
+
+    Days with no downloads yield no rows, so the row watermark cannot record that they were read.
+    Without this cursor every sync of a quiet podcast would read every day since its last download.
+    """
+
+    cursor_kind: ClassVar[str] = "buzzsprout_downloads_day"
+    next_date: str
 
 
 class BuzzsproutDayPaginator(BasePaginator):
@@ -125,9 +138,12 @@ def _first_episode_day(api_token: str, podcast_id: str) -> Optional[date]:
     )
     response.raise_for_status()
     body = response.json()
+    # A wrong shape here would silently move the backfill start to yesterday, so fail loud instead.
+    if not isinstance(body, list):
+        raise ValueError("Buzzsprout returned an unexpected episodes response: expected a list response body")
     days = [
         _as_date(episode["published_at"])
-        for episode in (body if isinstance(body, list) else [])
+        for episode in body
         if isinstance(episode, dict) and episode.get("published_at")
     ]
     return min(days) if days else None
@@ -170,6 +186,8 @@ def buzzsprout_source(
     job_id: str,
     resumable_source_manager: ResumableSourceManager[BuzzsproutResumeConfig],
     db_incremental_field_last_value: Any = None,
+    db_incremental_field_last_value_before_lookback: Any = None,
+    cursor_manager: Optional[SourceCursorManager[BuzzsproutDownloadsCursor]] = None,
 ) -> SourceResponse:
     config = BUZZSPROUT_ENDPOINTS[endpoint]
 
@@ -187,14 +205,37 @@ def buzzsprout_source(
         # Stop at yesterday in UTC: no time zone is more than 12 hours behind UTC, so that day has
         # started for every podcast, and the endpoint never gets a future podcast-local date.
         end_day = datetime.now(UTC).date() - timedelta(days=1)
+        stored = cursor_manager.load() if cursor_manager is not None else None
+        known_starts: list[date] = []
         if db_incremental_field_last_value is not None:
-            start_day = _as_date(db_incremental_field_last_value)
+            known_starts.append(_as_date(db_incremental_field_last_value))
+        if stored is not None:
+            # The pipeline moves the watermark back by the schema's lookback. The cursor moves back by
+            # the same amount, so a lookback still reads earlier days again.
+            lookback = timedelta(0)
+            if (
+                db_incremental_field_last_value is not None
+                and db_incremental_field_last_value_before_lookback is not None
+            ):
+                lookback = max(
+                    _as_date(db_incremental_field_last_value_before_lookback)
+                    - _as_date(db_incremental_field_last_value),
+                    timedelta(0),
+                )
+            known_starts.append(date.fromisoformat(stored.next_date) - lookback)
+
+        if known_starts:
+            start_day = max(known_starts)
         elif initial_paginator_state is not None:
             # The saved day replaces the start day, so skip the episodes lookup.
             start_day = end_day
         else:
             start_day = _first_episode_day(api_token, podcast_id) or end_day
         endpoint_config["paginator"] = BuzzsproutDayPaginator(start_day, end_day)
+        if cursor_manager is not None:
+            # The pipeline stores a staged cursor only after the extraction finishes, so staging it
+            # before the walk is safe. The last day can still be in progress, so the next sync reads it again.
+            cursor_manager.stage(BuzzsproutDownloadsCursor(next_date=end_day.isoformat()))
 
         def save_day_checkpoint(state: Optional[dict[str, Any]]) -> None:
             if state:

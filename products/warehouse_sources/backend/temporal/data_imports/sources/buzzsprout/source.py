@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfigType,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.buzzsprout import (
+    BuzzsproutDownloadsCursor,
     BuzzsproutResumeConfig,
     buzzsprout_source,
     validate_credentials as validate_buzzsprout_credentials,
@@ -22,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import CursorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
@@ -36,7 +38,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 @SourceRegistry.register
-class BuzzsproutSource(ResumableSource[BuzzsproutSourceConfig, BuzzsproutResumeConfig]):
+class BuzzsproutSource(
+    ResumableSource[BuzzsproutSourceConfig, BuzzsproutResumeConfig],
+    CursorSource[BuzzsproutDownloadsCursor],
+):
     codebase_detection = detect(env=("^BUZZSPROUT_",))
 
     api_docs_url = "https://github.com/Buzzsprout/buzzsprout-api"
@@ -140,6 +145,14 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
     ) -> tuple[bool, str | None]:
         return validate_buzzsprout_credentials(config.api_token, config.podcast_id)
 
+    def cursor_class(self) -> type[BuzzsproutDownloadsCursor]:
+        return BuzzsproutDownloadsCursor
+
+    def merge_cursors(
+        self, current: BuzzsproutDownloadsCursor, candidate: BuzzsproutDownloadsCursor
+    ) -> BuzzsproutDownloadsCursor:
+        return max(current, candidate, key=lambda cursor: cursor.next_date)
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BuzzsproutResumeConfig]:
         return ResumableSourceManager[BuzzsproutResumeConfig](inputs, BuzzsproutResumeConfig)
 
@@ -158,5 +171,12 @@ You can find both your API token and podcast ID in your [Buzzsprout API settings
             resumable_source_manager=resumable_source_manager,
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
+            else None,
+            db_incremental_field_last_value_before_lookback=inputs.db_incremental_field_last_value_before_lookback
+            if inputs.should_use_incremental_field
+            else None,
+            # A full refresh rebuilds the table, so it starts from the first episode and keeps no cursor.
+            cursor_manager=self.get_cursor_manager(inputs)
+            if BUZZSPROUT_ENDPOINTS[inputs.schema_name].fan_out_over_days and inputs.should_use_incremental_field
             else None,
         )

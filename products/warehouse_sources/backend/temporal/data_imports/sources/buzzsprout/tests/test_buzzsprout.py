@@ -9,11 +9,13 @@ import requests
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.buzzsprout import (
     BUZZSPROUT_BASE_URL,
     USER_AGENT,
+    BuzzsproutDownloadsCursor,
     BuzzsproutResumeConfig,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buzzsprout.source import BuzzsproutSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -104,18 +106,50 @@ class TestBuzzsproutDownloads:
         assert result.params("date") == [None, *days]
         assert result.rows == [{"episode_id": 1, "total": int(day[-2:]), "date": day} for day in days]
 
-    def test_incremental_starts_at_watermark_without_episode_lookup(self) -> None:
+    @pytest.mark.parametrize(
+        "watermark_days_ago, cursor_days_ago, lookback_days, first_read_days_ago",
+        [
+            pytest.param(2, None, 0, 2, id="watermark_only"),
+            # A quiet podcast has an old watermark, so the stored cursor decides where to start.
+            pytest.param(30, 1, 0, 1, id="cursor_ahead_of_watermark"),
+            pytest.param(30, 1, 1, 2, id="lookback_moves_the_cursor_back"),
+        ],
+    )
+    def test_incremental_start_day(
+        self,
+        watermark_days_ago: int,
+        cursor_days_ago: int | None,
+        lookback_days: int,
+        first_read_days_ago: int,
+    ) -> None:
         yesterday = _yesterday()
-        watermark = yesterday - timedelta(days=1)
+        stored = (
+            BuzzsproutDownloadsCursor(next_date=(yesterday - timedelta(days=cursor_days_ago)).isoformat())
+            if cursor_days_ago is not None
+            else None
+        )
+        cursor = SourceCursorManager(BuzzsproutDownloadsCursor, stored, BuzzsproutSource())
+        watermark = yesterday - timedelta(days=watermark_days_ago)
         result = _driver().run(
             "downloads",
             _downloads_script("2019-01-01T00:00:00Z"),
             incremental_field="date",
             db_incremental_field_last_value=watermark.isoformat(),
+            db_incremental_field_last_value_before_lookback=(watermark + timedelta(days=lookback_days)).isoformat(),
+            source_cursor=cursor,
         )
 
         assert result.raised is None
-        assert result.params("date") == [watermark.isoformat(), yesterday.isoformat()]
+        assert result.params("date") == [
+            (yesterday - timedelta(days=offset)).isoformat() for offset in range(first_read_days_ago, -1, -1)
+        ]
+        assert cursor.staged == BuzzsproutDownloadsCursor(next_date=yesterday.isoformat())
+
+    def test_non_list_episodes_body_fails_before_choosing_the_start_day(self) -> None:
+        result = _driver().run("downloads", [ScriptedResponse(json={"unexpected": "object"})])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/api/123456/episodes.json"]
 
     def test_resumes_from_saved_day(self) -> None:
         yesterday = _yesterday()
