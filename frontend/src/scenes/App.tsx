@@ -158,7 +158,7 @@ function AppScene(): JSX.Element | null {
                 : (cb: () => void) => setTimeout(cb, 200)
         idle(() => {
             void Promise.all([
-                import('./AuthenticatedShell'),
+                loadAuthenticatedShell(),
                 import('lib/components/ProductEmptyState/ProductEmptyStateGate'),
             ]).catch(() => {
                 /* prefetch is best-effort; the real Suspense load will surface failures */
