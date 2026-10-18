@@ -72,7 +72,7 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Depot",
             keywords=["depot.dev", "depot ci"],
-            caption="Sync Depot CI job attempts for one GitHub repository. Create an organization API token in your Depot organization settings, then enter the repository as `owner/name`.",
+            caption="Sync Depot CI job attempts, job metrics, artifacts, and failure diagnoses for one GitHub repository. Create an organization API token in your Depot organization settings, then enter the repository as `owner/name`.",
             releaseStatus=ReleaseStatus.ALPHA,
             docsUrl="https://posthog.com/docs/cdp/sources/depot",
             iconPath="/static/services/depot.png",
@@ -164,6 +164,7 @@ class DepotSource(SimpleSource[DepotSourceConfig], CursorSource[DepotReconciliat
             repository=config.repository,
             created_after=lower_bound,
             logger=inputs.logger,
+            endpoint=inputs.schema_name,
             on_complete=(lambda: manager.stage(DepotReconciliationCursor(reconciled_at=now.isoformat())))
             if reconcile
             else None,
