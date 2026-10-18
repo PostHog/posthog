@@ -42,6 +42,7 @@ const CATEGORY_ORDER: string[] = [
     ProductItemCategory.DATA,
     ProductItemCategory.MONITORING,
     ProductItemCategory.PRODUCT_ENGINEERING,
+    ProductItemCategory.AUTOMATION,
     ProductItemCategory.MESSAGING,
     ProductItemCategory.CDP,
     ProductItemCategory.SCHEMA,

@@ -1285,7 +1285,8 @@ export const productConfiguration: Record<string, any> = {
         name: 'Workflows',
         iconType: 'workflows',
         projectBased: true,
-        description: 'Automate user communication and internal processes',
+        description:
+            'When something happens in your product, make anything happen. Post to Slack, call a webhook, or send a message.',
         docsHref: 'https://posthog.com/docs/workflows',
     },
     Workflow: { name: 'Workflows', iconType: 'workflows', projectBased: true },
@@ -3357,7 +3358,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Settings', href: urls.workflows('settings') },
         ],
         type: 'workflows',
-        category: ProductItemCategory.MESSAGING,
+        category: ProductItemCategory.AUTOMATION,
         iconType: 'workflows',
         iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
         sceneKey: 'Workflows',

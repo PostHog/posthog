@@ -101,12 +101,18 @@ describe('navProductsTabLogic', () => {
             },
             { path: 'Evaluations', category: 'AI engineering', href: '/ai-evals/evaluations' },
             { path: 'Logs', category: 'Monitoring', href: '/logs' },
+            { path: 'Broadcasts', category: 'Messaging', href: '/broadcasts' },
+            { path: 'Workflows', category: 'Automation', href: '/workflows' },
+            { path: 'Notebooks', category: 'Tools', href: '/notebooks' },
         ]
         const groups = groupProducts(items, '')
         expect(groups.map((group) => [group.label, group.items.map(productsItemName)])).toEqual([
             ['Analytics', ['Web analytics']],
             ['AI engineering', ['AI observability', 'Evaluations']],
             ['Monitoring', ['Logs']],
+            ['Automation', ['Workflows']],
+            ['Messaging', ['Broadcasts']],
+            ['Tools', ['Notebooks']],
             ['Unreleased', ['Pulse']],
         ])
         expect(groupProducts(items, 'observability')[0].items[0].href).toEqual('/ai')

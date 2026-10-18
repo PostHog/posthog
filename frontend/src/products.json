@@ -271,7 +271,7 @@
         },
         {
             "path": "Workflows",
-            "category": "Messaging",
+            "category": "Automation",
             "iconType": "workflows",
             "type": "workflows",
             "intents": ["workflows"]

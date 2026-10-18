@@ -2628,6 +2628,7 @@ class ProductItemCategory(StrEnum):
     DATA = "Data"
     AI_ENGINEERING = "AI engineering"
     PRODUCT_ENGINEERING = "Product engineering"
+    AUTOMATION = "Automation"
     MESSAGING = "Messaging"
     MONITORING = "Monitoring"
     TOOLS = "Tools"

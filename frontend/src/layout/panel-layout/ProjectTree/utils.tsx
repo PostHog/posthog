@@ -20,6 +20,7 @@ export const CATEGORY_ORDER = [
     'Data',
     'Monitoring',
     'Product engineering',
+    'Automation',
     'Messaging',
     'Tools',
     'Unreleased',

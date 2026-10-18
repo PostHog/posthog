@@ -128,7 +128,7 @@ const examples: Record<string, string> = {
     Tracing: 'Follow a slow request across services to find the bottleneck.',
     'Visual review': 'Review visual changes before they reach users.',
     'Web scripts': 'Add a website tag without changing your application code.',
-    Workflows: 'Send a follow-up when someone completes an onboarding step.',
+    Workflows: 'Post in Slack when a new account signs up.',
     Actions: 'Combine related clicks into a single event for analysis.',
     Annotations: 'Mark a release date to help explain a change in a chart.',
     'Core events': 'Define the events that represent meaningful product usage.',

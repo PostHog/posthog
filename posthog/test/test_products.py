@@ -40,6 +40,7 @@ class TestProducts(SimpleTestCase):
             "Data",
             "AI engineering",
             "Product engineering",
+            "Automation",
             "Messaging",
             "Monitoring",
             "Schema",
