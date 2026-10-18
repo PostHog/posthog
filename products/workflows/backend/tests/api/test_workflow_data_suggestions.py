@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.core.management import call_command
 from django.db import OperationalError
 from django.utils import timezone
 
@@ -157,6 +158,8 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert cached["suggestions"] == body["suggestions"]
         # The flag is read on every call, so a sender verified after the cards were cached shows up right away.
         assert cached["email_sender_ready"] is True
+        cache.delete(_cache_key(self.team))
+        assert self._list()["suggestions"] == body["suggestions"]
         assert suggest_ideas.call_count == 1
 
     @patch(f"{SERVICE}.classify_event_stages")
@@ -912,16 +915,29 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert actions[0]["config"]["inputs"]["token"] == {"value": "<set>"}
         assert "super-secret" not in str(actions)
 
-    @parameterized.expand([("built on click", False), ("built with the cards", True)])
+    @parameterized.expand(
+        [("built on click", "click"), ("built with the cards", "cards"), ("prepared ahead", "command")]
+    )
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_built_workflow_is_kept_on_its_idea(
-        self, _name: str, prebuild: bool, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self, _name: str, built_by: str, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
     ) -> None:
-        self.prebuild.return_value = prebuild
+        self.prebuild.return_value = built_by != "click"
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
-        suggestion_id = self._list()["suggestions"][0]["id"]
+        if built_by == "command":
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
+            call_command("prepare_workflow_ideas", team_ids=[self.team.id])
+            assert plan_steps.call_count == 1
+            # The ideas outlive the cached run, so they still show and build after it expires.
+            cache.delete(_cache_key(self.team))
+            suggestion_id = self.client.get(f"/api/projects/{self.team.id}/workflow_data_suggestions/current/").json()[
+                "suggestions"
+            ][0]["id"]
+        else:
+            suggestion_id = self._list()["suggestions"][0]["id"]
         build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
 
         first = self.client.post(build_url, {"suggestion_id": suggestion_id}, format="json").json()

@@ -9,8 +9,10 @@ from products.workflows.backend.services.data_suggestions.service import (
     FEATURE_FLAG_KEY,
     build_caller,
     count_waiting_data_suggestions,
+    data_suggestions_acting_user,
     email_sender_ready,
     get_data_suggestions,
+    is_data_suggestions_enabled,
     needs_new_build,
     needs_new_generation,
 )
@@ -20,10 +22,13 @@ __all__ = [
     "FEATURE_FLAG_KEY",
     "build_caller",
     "count_waiting_data_suggestions",
+    "data_suggestions_acting_user",
     "email_sender_ready",
     "get_data_suggestions",
+    "is_data_suggestions_enabled",
     "needs_new_build",
     "needs_new_generation",
+    "prepare_data_suggestions",
     "start_build",
     "start_data_suggestions",
 ]
@@ -49,3 +54,23 @@ def start_build(
             team.id, user.id, suggestion_id, lock_token, event_source.value, save
         ),
     )
+
+
+def prepare_data_suggestions(*, team: Team, user: User, refresh: bool) -> DataSuggestionsResult:
+    """Generates the cards and builds each one in this process, so the ideas wait for a team that has not opened
+    the workflows page yet. A click then creates the stored workflow without a model call."""
+    service.start_data_suggestions(
+        team=team,
+        refresh=refresh,
+        enqueue=lambda lock_token: service.run_data_suggestions(
+            team_id=team.id, user_id=user.id, lock_token=lock_token
+        ),
+    )
+    service.prebuild_suggestions(
+        team_id=team.id,
+        user_id=user.id,
+        enqueue=lambda suggestion_id, build_token: build_data_suggestion(
+            team.id, user.id, suggestion_id, build_token, EventSource.WEB.value
+        ),
+    )
+    return service.get_data_suggestions(team=team)

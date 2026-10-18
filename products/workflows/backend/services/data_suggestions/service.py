@@ -21,6 +21,7 @@ from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQue
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models import Team, User
+from posthog.models.organization import OrganizationMembership
 from posthog.ph_client import get_client, ph_scoped_capture
 from posthog.utils import get_instance_region
 
@@ -116,7 +117,9 @@ def get_data_suggestions(*, team: Team) -> DataSuggestionsResult:
     if cache.get(_generation_lock_key(team)) is not None:
         return _GENERATING
     cached = _read_cache(team)
-    return _with_open_ideas(team, cached) if cached is not None else _UNAVAILABLE
+    if cached is None:
+        return _stored_ideas(team) or _UNAVAILABLE
+    return _with_open_ideas(team, cached)
 
 
 def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
@@ -129,6 +132,21 @@ def is_data_suggestions_enabled(user: User, organization_id: str) -> bool:
             group_properties={"organization": {"id": organization_id}},
         )
     )
+
+
+def data_suggestions_acting_user(team: Team) -> User | None:
+    """The organization's longest-standing owner or admin, who runs the models when ideas are prepared ahead of time."""
+    membership = (
+        OrganizationMembership.objects.filter(
+            organization_id=team.organization_id,
+            level__gte=OrganizationMembership.Level.ADMIN,
+            user__is_active=True,
+        )
+        .select_related("user")
+        .order_by("-level", "joined_at")
+        .first()
+    )
+    return membership.user if membership is not None else None
 
 
 def count_waiting_data_suggestions(*, team: Team, user: User) -> int:
@@ -149,6 +167,9 @@ def start_data_suggestions(*, team: Team, refresh: bool, enqueue: Callable[[str]
     cached = _read_cache(team)
     if cached is not None and not refresh:
         return _with_open_ideas(team, cached)
+    stored = None if refresh else _stored_ideas(team)
+    if stored is not None:
+        return stored
     # Visits that arrive while a run is going would each repeat the queries and the model calls.
     lock_token = str(uuid.uuid4())
     if not cache.add(_generation_lock_key(team), lock_token, _GENERATION_LOCK_SECONDS):
@@ -169,7 +190,9 @@ def email_sender_ready(*, team: Team) -> bool:
 def needs_new_generation(*, team: Team, refresh: bool) -> bool:
     """Whether a generate call would start a run, the only case that costs model time."""
     # A refresh always counts, because the run it joins can end before the request reaches the lock.
-    return refresh or (_read_cache(team) is None and cache.get(_generation_lock_key(team)) is None)
+    return refresh or (
+        _read_cache(team) is None and cache.get(_generation_lock_key(team)) is None and _stored_ideas(team) is None
+    )
 
 
 def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None:
@@ -271,11 +294,13 @@ def run_build(
             cached = _read_cache(team)
             suggestion = _cached_suggestion(team, suggestion_id)
             # Consent can change between the click and the worker picking the build up.
-            if team.organization.is_ai_data_processing_approved is not True or suggestion is None or cached is None:
+            if team.organization.is_ai_data_processing_approved is not True or suggestion is None:
                 result = _BUILD_FAILED
             else:
+                # An idea outlives the cached run, and without it the build can still wait on its own trigger.
+                events = cached.events if cached is not None else (suggestion.trigger_event,)
                 result, validated = _plan_and_build(
-                    team=team, user=user, suggestion=suggestion, events=cached.events, validate_draft=validate_draft
+                    team=team, user=user, suggestion=suggestion, events=events, validate_draft=validate_draft
                 )
                 # A task that outlived its lock would save a second draft next to the newer run's draft.
                 if save_draft is not None and validated is not None and not _lost_lock(lock_key, lock_token):
@@ -620,6 +645,12 @@ def _open_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
     ]
     ranked = sorted(suggestions, key=lambda item: suggestion_score(item.stage, item.weekly_count), reverse=True)
     return tuple(pick_one_per_stage(ranked, stage_of=lambda item: item.stage, limit=MAX_SUGGESTIONS))
+
+
+def _stored_ideas(team: Team) -> DataSuggestionsResult | None:
+    # Ideas outlive the cached run, so ideas prepared before anyone opens the page are still shown after it expires.
+    suggestions = _open_suggestions(team)
+    return DataSuggestionsResult(status="ready", suggestions=suggestions) if suggestions else None
 
 
 def _with_open_ideas(team: Team, cached: DataSuggestionsResult) -> DataSuggestionsResult:
