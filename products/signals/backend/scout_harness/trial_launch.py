@@ -144,7 +144,9 @@ def _read_document(key: str, document_type: type[_Document]) -> _Document | None
 
 
 def _write_document_once(key: str, document: _Document) -> _Document:
-    content = document.model_dump_json()
+    # Workers on the previous TrialContext schema forbid unknown fields, so omit an empty profile.
+    omitted = {"project_profile"} if isinstance(document, TrialContext) and document.project_profile is None else None
+    content = document.model_dump_json(exclude=omitted)
     # Shared project history stays in object storage; launches carry only its context ID.
     if isinstance(document, TrialLaunch) and len(content.encode()) > MAX_TRIAL_LAUNCH_BYTES:
         raise ScoutTrialLaunchError("The trial settings are too large to save.")
