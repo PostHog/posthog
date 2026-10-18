@@ -447,10 +447,7 @@ class TestCompleteSettledRequests(APIBaseTest):
             if sql.startswith("SELECT") and '"completed_at" IS NULL' in sql and "LIMIT" in sql:
                 page_reads += 1
                 if page_reads == 2:
-                    try:
-                        raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
-                    except psycopg.errors.QueryCanceled as err:
-                        raise OperationalError(str(err)) from err
+                    raise OperationalError("statement timeout") from psycopg.errors.QueryCanceled()
             return execute(sql, params, many, context)
 
         with connection.execute_wrapper(cancel_second_page_read):
