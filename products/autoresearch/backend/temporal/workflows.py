@@ -10,9 +10,10 @@ for Django ORM + HogQL queries. Workflows are async and only orchestrate activit
 
 from __future__ import annotations
 
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import field, replace
 from datetime import date, timedelta
+from functools import partial
 from typing import Optional, TypeVar, cast
 
 import structlog
@@ -42,14 +43,14 @@ with workflow.unsafe.imports_passed_through():
     )
     from products.autoresearch.backend.inference.person_property import remove_output_person_property
     from products.autoresearch.backend.inference.sandbox import SandboxInferenceError, _resolve_acting_user
-    from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
+    from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline, score_shadow_set_for_run
     from products.autoresearch.backend.models import (
         AutoresearchModel,
         AutoresearchPipeline,
         AutoresearchRun,
         AutoresearchTrainingRun,
     )
-    from products.autoresearch.backend.query import BATCH_QUERY
+    from products.autoresearch.backend.query import BATCH_QUERY, SCORING_QUERY
     from products.autoresearch.backend.training.runner import run_training
     from products.autoresearch.backend.training.schedule import research_schedule, schedule_runs_for
     from products.tasks.backend.facade.access import get_desktop_access_decision
@@ -80,6 +81,10 @@ class InferenceWorkflowInput:
     # Set by a manual "Score now": the run row the API already returned, and the user who asked.
     run_id: Optional[str] = None
     user_id: Optional[int] = None
+    # Set by the daily sweep, which scores the shadow set in its own activity after every champion.
+    defer_shadows: bool = False
+    # The sweep's bound on pipelines in flight, recorded on the run.
+    coordinator_concurrency: Optional[int] = None
 
 
 @frozen
@@ -97,6 +102,8 @@ class RunInferenceInput:
     prediction_date: str  # ISO date string
     run_id: Optional[str] = None
     user_id: Optional[int] = None
+    defer_shadows: bool = False
+    coordinator_concurrency: Optional[int] = None
 
 
 @frozen
@@ -148,8 +155,14 @@ def activity_run_inference(inp: RunInferenceInput) -> RunInferenceResult:
             prediction_date=date.fromisoformat(inp.prediction_date),
             user=user,
             run=manual_run or _open_scheduled_run(pipeline, inp.prediction_date),
-            query_context=BATCH_QUERY,
+            query_context=SCORING_QUERY,
             scheduled=manual_run is None,
+            defer_shadows=inp.defer_shadows,
+            extra_metrics=(
+                {"coordinator_concurrency": inp.coordinator_concurrency}
+                if inp.coordinator_concurrency is not None
+                else None
+            ),
         )
     return RunInferenceResult(
         run_id=str(run.pk),
@@ -257,6 +270,8 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
                 prediction_date=inp.prediction_date,
                 run_id=inp.run_id,
                 user_id=inp.user_id,
+                defer_shadows=inp.defer_shadows,
+                coordinator_concurrency=inp.coordinator_concurrency,
             ),
             start_to_close_timeout=_SCORE_ATTEMPT_TIMEOUT,
             heartbeat_timeout=_HEARTBEAT_TIMEOUT,
@@ -279,6 +294,58 @@ class AutoresearchInferenceWorkflow(PostHogWorkflow):
             status=result.status,
             error=result.error,
         )
+
+
+# ── Shadow scoring ────────────────────────────────────────────────────────────
+
+
+@frozen
+class RunShadowScoringInput:
+    pipeline_id: str
+    team_id: int
+    # The champion's completed run. The activity reads the people it scored from the row.
+    run_id: str
+
+
+@frozen
+class RunShadowScoringResult:
+    completed: int
+    failed: int
+    skipped: int
+    status: str
+
+
+# SHADOW_TIME_BUDGET_S (20 minutes), plus the last model it starts: an anchor count, a feature query,
+# and a predict sandbox (about 30 minutes at worst).
+_SHADOW_ATTEMPT_TIMEOUT = timedelta(hours=1)
+# One attempt, because a retry would open a second shadow run for each model it already scored.
+_SHADOW_RETRY = RetryPolicy(maximum_attempts=1)
+
+
+@activity.defn(name="autoresearch-coordinator.run_shadow_scoring")
+def activity_run_shadow_scoring(inp: RunShadowScoringInput) -> RunShadowScoringResult:
+    """Score the shadow set against the people a champion's completed run scored.
+
+    The daily sweep starts this after every champion has scored. It writes only shadow runs and the
+    champion run's ``shadow_models``, so a failure here never fails the champion's run.
+    """
+    with HeartbeaterSync(), team_scope(inp.team_id):
+        run = (
+            AutoresearchRun.objects.select_related("pipeline__team__organization", "pipeline__created_by", "model")
+            .filter(pk=inp.run_id, pipeline__pk=inp.pipeline_id, run_type=AutoresearchRun.RunType.INFERENCE)
+            .first()
+        )
+        if run is None or run.pipeline.status not in _LIVE_STATUSES or _sweep_access_block(run.pipeline):
+            return RunShadowScoringResult(completed=0, failed=0, skipped=0, status="skipped")
+        outcome = score_shadow_set_for_run(run, query_context=SCORING_QUERY)
+    if outcome is None:
+        return RunShadowScoringResult(completed=0, failed=0, skipped=0, status="skipped")
+    return RunShadowScoringResult(
+        completed=len(outcome.completed),
+        failed=len(outcome.failed),
+        skipped=len(outcome.skipped),
+        status="completed",
+    )
 
 
 # ── Validation workflow I/O ───────────────────────────────────────────────────
@@ -550,10 +617,17 @@ class AutoresearchPropertyCleanupWorkflow(PostHogWorkflow):
 # ── Coordinator workflow I/O ──────────────────────────────────────────────────
 
 
+# How many pipelines the daily sweep runs at once. Each one holds a feature matrix in worker memory
+# and runs batch queries, so an unbounded sweep overloads ClickHouse and the shared worker.
+DEFAULT_COORDINATOR_CONCURRENCY = 4
+
+
 @frozen
 class CoordinatorWorkflowInput:
     # ISO date string; if omitted the workflow uses workflow.now()
     run_date: Optional[str] = None
+    # Read from the input, so an operator can change it on the schedule without a deploy.
+    max_concurrency: int = DEFAULT_COORDINATOR_CONCURRENCY
 
 
 @frozen
@@ -658,9 +732,13 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     reaches it again.
 
     It also fails every inference run that its lost worker left RUNNING.
+
+    The result lists the pipelines that are due and did not score yesterday first, so a bounded
+    sweep starts the pipelines that missed a day before the others.
     """
     fail_stale_inference_runs()
     today = django_timezone.now().date()
+    yesterday = today - timedelta(days=1)
     # unscoped() because the coordinator's job is exactly to sweep every team. The
     # pipelines it returns carry their team so the downstream activities can scope.
     candidates = (
@@ -672,7 +750,7 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         .select_related("team", "created_by")
         .order_by("created_at")
     )
-    pipelines: list[ActivePipeline] = []
+    pipelines: list[tuple[bool, ActivePipeline]] = []
     for pipeline in candidates:
         try:
             creator = _resolve_acting_user(team=pipeline.team, pipeline=pipeline, user=None)
@@ -686,14 +764,16 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
         # By calendar day, because a run finishes some time after the 02:00 UTC tick and an
         # elapsed-time comparison would skip the next day's tick.
         last_scored = pipeline.last_scored_at.date() if pipeline.last_scored_at else None
+        score_due = last_scored is None or (today - last_scored).days >= pipeline.cadence_days
+        missed_yesterday = score_due and (last_scored is None or last_scored < yesterday)
         pipelines.append(
-            ActivePipeline(
-                pipeline_id=str(pipeline.pk),
-                team_id=pipeline.team_id,
-                score_due=last_scored is None or (today - last_scored).days >= pipeline.cadence_days,
+            (
+                not missed_yesterday,
+                ActivePipeline(pipeline_id=str(pipeline.pk), team_id=pipeline.team_id, score_due=score_due),
             )
         )
-    return LoadActivePipelinesResult(pipelines=pipelines)
+    pipelines.sort(key=lambda entry: entry[0])
+    return LoadActivePipelinesResult(pipelines=[pipeline for _, pipeline in pipelines])
 
 
 def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> None:
@@ -834,6 +914,9 @@ def _tasks_gate(pipeline: AutoresearchPipeline) -> str | None:
 
 # ── Coordinator workflow ──────────────────────────────────────────────────────
 
+# Histories that started before this marker replay the unbounded sweep.
+_BOUNDED_SWEEP_PATCH = "autoresearch-bounded-sweep-2026-10"
+
 
 @workflow.defn(name="autoresearch-coordinator")
 class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
@@ -848,6 +931,10 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
       - AutoresearchInferenceWorkflow  — scores users, emits prediction events
       - activity_kickoff_training      — starts a new agent training run if eligible, once
         inference ends, so a champion promoted mid-scoring cannot fail the scoring run
+
+    At most ``max_concurrency`` pipelines run at once. Each pipeline scores, then kicks off
+    training, then validates. Once every champion has scored, the coordinator scores each
+    pipeline's shadow set (``activity_run_shadow_scoring``) under the same bound.
 
     Per-pipeline failures — raised exceptions and
     activity results that report a soft failure — are logged and counted in
@@ -873,10 +960,14 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             workflow.logger.info("autoresearch_coordinator_no_active_pipelines")
             return CoordinatorWorkflowResult(pipelines_processed=0, pipelines_errored=0, status="completed")
 
-        outcomes = await _asyncio.gather(
-            *[self._run_pipeline(pipeline, run_date) for pipeline in active.pipelines],
-            return_exceptions=True,
-        )
+        outcomes: list[PipelineRunOutcome | BaseException]
+        if workflow.patched(_BOUNDED_SWEEP_PATCH):
+            outcomes = await self._run_bounded(active.pipelines, run_date, max(1, inp.max_concurrency))
+        else:
+            outcomes = await _asyncio.gather(
+                *[self._run_pipeline(pipeline, run_date) for pipeline in active.pipelines],
+                return_exceptions=True,
+            )
 
         errored = sum(1 for o in outcomes if isinstance(o, BaseException) or not o.succeeded)
         processed = len(outcomes) - errored
@@ -892,17 +983,120 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
             status="completed" if errored == 0 else "partial",
         )
 
-    async def _run_pipeline(self, pipeline: ActivePipeline, run_date: str) -> PipelineRunOutcome:
-        """Run validation, and on a cadence day inference then training kickoff, for one pipeline."""
-        pipeline_id = pipeline.pipeline_id
-        validation = _settle(
-            workflow.execute_child_workflow(
-                AutoresearchValidationWorkflow.run,
-                ValidationWorkflowInput(pipeline_id=pipeline_id, team_id=pipeline.team_id),
-                id=f"autoresearch-validation-{pipeline_id}-{run_date}",
-                execution_timeout=_VALIDATION_WORKFLOW_TIMEOUT,
-            )
+    async def _run_bounded(
+        self, pipelines: list[ActivePipeline], run_date: str, concurrency: int
+    ) -> list[PipelineRunOutcome | BaseException]:
+        """Run every pipeline with at most ``concurrency`` in flight, then every shadow set under the same bound."""
+        slots = _asyncio.Semaphore(concurrency)
+
+        async def bounded(step: Callable[[], Awaitable[_T]]) -> _T:
+            async with slots:
+                return await step()
+
+        sweeps = await _asyncio.gather(
+            *[bounded(partial(self._run_pipeline_in_sequence, p, run_date, concurrency)) for p in pipelines],
+            return_exceptions=True,
         )
+        # Shadow scoring starts only after every champion has finished, so champions free their memory first.
+        shadows = [
+            (pipeline, sweep.inference.run_id)
+            for pipeline, sweep in zip(pipelines, sweeps)
+            if isinstance(sweep, _PipelineSweep)
+            and sweep.inference is not None
+            and sweep.inference.status == "completed"
+            and sweep.inference.run_id
+        ]
+        shadow_results = await _asyncio.gather(
+            *[bounded(partial(self._score_shadows, p, r)) for p, r in shadows],
+            return_exceptions=True,
+        )
+        for (pipeline, _), result in zip(shadows, shadow_results):
+            if isinstance(result, BaseException):
+                workflow.logger.warning(
+                    "autoresearch_shadow_scoring_failed",
+                    extra={"pipeline_id": pipeline.pipeline_id, "error": str(result)},
+                )
+        return [sweep if isinstance(sweep, BaseException) else sweep.outcome for sweep in sweeps]
+
+    async def _run_pipeline_in_sequence(
+        self, pipeline: ActivePipeline, run_date: str, concurrency: int
+    ) -> _PipelineSweep:
+        """On a cadence day score, then kick off training. Then validate. One step at a time, so a pipeline holds one slot."""
+        pipeline_id = pipeline.pipeline_id
+        inference_result: InferenceWorkflowResult | BaseException | None = None
+        kickoff_result: KickoffTrainingResult | BaseException | None = None
+        if pipeline.score_due:
+            inference_result = await _settle(
+                workflow.execute_child_workflow(
+                    AutoresearchInferenceWorkflow.run,
+                    InferenceWorkflowInput(
+                        pipeline_id=pipeline_id,
+                        team_id=pipeline.team_id,
+                        prediction_date=run_date,
+                        defer_shadows=True,
+                        coordinator_concurrency=concurrency,
+                    ),
+                    id=inference_workflow_id(pipeline_id, run_date),
+                    execution_timeout=INFERENCE_WORKFLOW_TIMEOUT,
+                )
+            )
+            kickoff_result = await _settle(self._kickoff(pipeline))
+        validation_result = await _settle(self._validate(pipeline, run_date))
+        outcome = self._evaluate(pipeline_id, inference_result, validation_result, kickoff_result)
+        return _PipelineSweep(
+            outcome=outcome,
+            inference=inference_result if isinstance(inference_result, InferenceWorkflowResult) else None,
+        )
+
+    async def _score_shadows(self, pipeline: ActivePipeline, run_id: str) -> RunShadowScoringResult:
+        return await workflow.execute_activity(
+            activity_run_shadow_scoring,
+            RunShadowScoringInput(pipeline_id=pipeline.pipeline_id, team_id=pipeline.team_id, run_id=run_id),
+            start_to_close_timeout=_SHADOW_ATTEMPT_TIMEOUT,
+            heartbeat_timeout=_HEARTBEAT_TIMEOUT,
+            retry_policy=_SHADOW_RETRY,
+        )
+
+    def _validate(self, pipeline: ActivePipeline, run_date: str) -> Awaitable[ValidationWorkflowResult]:
+        return workflow.execute_child_workflow(
+            AutoresearchValidationWorkflow.run,
+            ValidationWorkflowInput(pipeline_id=pipeline.pipeline_id, team_id=pipeline.team_id),
+            id=f"autoresearch-validation-{pipeline.pipeline_id}-{run_date}",
+            execution_timeout=_VALIDATION_WORKFLOW_TIMEOUT,
+        )
+
+    def _kickoff(self, pipeline: ActivePipeline) -> Awaitable[KickoffTrainingResult]:
+        return workflow.execute_activity(
+            activity_kickoff_training,
+            KickoffTrainingInput(pipeline_id=pipeline.pipeline_id, team_id=pipeline.team_id),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=_KICKOFF_RETRY,
+        )
+
+    def _evaluate(
+        self,
+        pipeline_id: str,
+        inference: InferenceWorkflowResult | BaseException | None,
+        validation: ValidationWorkflowResult | BaseException,
+        kickoff: KickoffTrainingResult | BaseException | None,
+    ) -> PipelineRunOutcome:
+        outcome = evaluate_pipeline_outcome(
+            pipeline_id=pipeline_id, inference=inference, validation=validation, kickoff=kickoff
+        )
+        for error in outcome.errors:
+            workflow.logger.warning(
+                "autoresearch_pipeline_step_failed",
+                extra={"pipeline_id": pipeline_id, "error": error},
+            )
+        return outcome
+
+    async def _run_pipeline(self, pipeline: ActivePipeline, run_date: str) -> PipelineRunOutcome:
+        """The unbounded sweep, kept for histories that started before ``_BOUNDED_SWEEP_PATCH``.
+
+        Runs validation, and on a cadence day inference then training kickoff, for one pipeline.
+        """
+        pipeline_id = pipeline.pipeline_id
+        validation = _settle(self._validate(pipeline, run_date))
         inference_result: InferenceWorkflowResult | BaseException | None = None
         kickoff_result: KickoffTrainingResult | BaseException | None = None
         if pipeline.score_due:
@@ -919,28 +1113,17 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
                     )
                 ),
             )
-            kickoff_result = await _settle(
-                workflow.execute_activity(
-                    activity_kickoff_training,
-                    KickoffTrainingInput(pipeline_id=pipeline_id, team_id=pipeline.team_id),
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=_KICKOFF_RETRY,
-                )
-            )
+            kickoff_result = await _settle(self._kickoff(pipeline))
         else:
             validation_result = await validation
-        outcome = evaluate_pipeline_outcome(
-            pipeline_id=pipeline_id,
-            inference=inference_result,
-            validation=validation_result,
-            kickoff=kickoff_result,
-        )
-        for error in outcome.errors:
-            workflow.logger.warning(
-                "autoresearch_pipeline_step_failed",
-                extra={"pipeline_id": pipeline_id, "error": error},
-            )
-        return outcome
+        return self._evaluate(pipeline_id, inference_result, validation_result, kickoff_result)
+
+
+@frozen
+class _PipelineSweep:
+    outcome: PipelineRunOutcome
+    # The champion's result, so the shadow phase knows which runs to score against.
+    inference: InferenceWorkflowResult | None
 
 
 async def _settle(awaitable: Awaitable[_T]) -> _T | BaseException:

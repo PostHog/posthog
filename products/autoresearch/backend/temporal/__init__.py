@@ -15,6 +15,7 @@ from .workflows import (
     activity_load_active_pipelines,
     activity_remove_person_property,
     activity_run_inference,
+    activity_run_shadow_scoring,
     activity_run_validation,
 )
 
@@ -31,6 +32,7 @@ ACTIVITIES = [
     activity_load_active_pipelines,
     activity_remove_person_property,
     activity_run_inference,
+    activity_run_shadow_scoring,
     activity_run_validation,
 ]
 
