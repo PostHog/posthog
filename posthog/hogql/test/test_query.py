@@ -1901,6 +1901,55 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.results, [(expected,)])
 
+    @parameterized.expand(
+        [
+            (
+                "mixed_timezones",
+                "hour",
+                "toTimeZone(toDateTime('2026-10-18 00:00:00', 'UTC'), 'America/Vancouver')",
+                "toDateTime('2026-10-18 12:00:00', 'UTC')",
+                12,
+            ),
+            (
+                "mixed_timezones_reversed",
+                "h",
+                "toDateTime('2026-10-18 12:00:00', 'UTC')",
+                "toTimeZone(toDateTime('2026-10-18 00:00:00', 'UTC'), 'America/Vancouver')",
+                -12,
+            ),
+            (
+                "same_instant_mixed_timezones",
+                "HOUR",
+                "toTimeZone(toDateTime('2026-10-18 00:00:00', 'UTC'), 'America/Vancouver')",
+                "toDateTime('2026-10-18 00:00:00', 'UTC')",
+                0,
+            ),
+            (
+                "across_dst_end",
+                "hour",
+                "toTimeZone(toDateTime('2026-11-01 07:00:00', 'UTC'), 'America/Vancouver')",
+                "toDateTime('2026-11-01 12:00:00', 'UTC')",
+                5,
+            ),
+            (
+                "day_uses_each_local_date",
+                "day",
+                "toTimeZone(toDateTime('2026-10-18 03:00:00', 'UTC'), 'America/Vancouver')",
+                "toDateTime('2026-10-18 12:00:00', 'UTC')",
+                1,
+            ),
+        ]
+    )
+    def test_date_diff_with_endpoints_in_different_timezones(
+        self, _name: str, unit: str, start: str, end: str, expected: int
+    ) -> None:
+        self.team.timezone = "America/Vancouver"
+        self.team.save()
+
+        response = execute_hogql_query(f"SELECT dateDiff('{unit}', {start}, {end})", team=self.team)
+
+        self.assertEqual(response.results, [(expected,)])
+
     @time_machine.travel("2026-08-06 12:00:00", tick=False)
     def test_relative_date_variable_is_resolved_when_the_query_runs(self):
         insight_variable = InsightVariable.objects.create(

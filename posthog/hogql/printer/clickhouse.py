@@ -127,6 +127,9 @@ INLINE_SENTINEL_LITERALS = frozenset(
     }
 )
 
+# ClickHouse counts hours from each argument's own epoch offset, so endpoints in different timezones skew the result.
+DATE_DIFF_HOUR_UNITS = frozenset({"hour", "hours", "hh", "h"})
+
 # Comparison ops where a datetime string with a timezone may be replaced by a datetime literal.
 ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
     {
@@ -313,6 +316,15 @@ class ClickHousePrinter(BasePrinter):
             ):
                 # These two CH functions require a precision argument before timezone
                 args = [*args[:-1], "6", *args[-1:]]
+
+        if (
+            node.name in ("dateDiff", "date_diff")
+            and len(node.args) == 3
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and node.args[0].value.lower() in DATE_DIFF_HOUR_UNITS
+        ):
+            args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
         if node.name == "toStartOfWeek" and len(node.args) == 1:
             # If week mode hasn't been specified, use the project's default.
