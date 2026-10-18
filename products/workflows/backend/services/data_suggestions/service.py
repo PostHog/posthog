@@ -83,7 +83,6 @@ FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
 # A built draft is kept this long, so a retry after a failed save does not pay for another plan.
 _BUILD_CACHE_SECONDS = 60 * 60
-PREBUILD_FLAG_KEY = "workflows-data-suggestions-prebuild"
 # The workflows editor builds without saving, and is the only caller whose build is kept on the idea.
 _EDITOR_CALLER = EventSource.WEB.value
 MAX_SUGGESTIONS = 3
@@ -400,7 +399,7 @@ def _enqueue_for(enqueue: Callable[[str, str], None], suggestion_id: str) -> Cal
 
 
 def prebuild_suggestions(*, team_id: int, user_id: int, enqueue: Callable[[str, str], None]) -> None:
-    """Builds every open card in the background for projects with the prebuild flag, so a click creates the
+    """Builds every open card in the background for organizations with data suggestions, so a click creates the
     workflow at once. `enqueue` takes the suggestion id and the build lock token."""
     team = Team.objects.select_related("organization").filter(id=team_id).first()
     user = User.objects.filter(id=user_id).first()
@@ -417,15 +416,7 @@ def prebuild_suggestions(*, team_id: int, user_id: int, enqueue: Callable[[str, 
 
 
 def _prebuild_enabled(team: Team, user: User) -> bool:
-    return bool(
-        user.distinct_id
-        and posthoganalytics.feature_enabled(
-            PREBUILD_FLAG_KEY,
-            user.distinct_id,
-            groups={"organization": str(team.organization_id)},
-            send_feature_flag_events=False,
-        )
-    )
+    return is_data_suggestions_enabled(user, str(team.organization_id))
 
 
 def _missing_inputs(team: Team, workflow: dict[str, Any]) -> tuple[MissingInput, ...]:
