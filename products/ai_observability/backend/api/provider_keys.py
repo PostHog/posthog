@@ -206,9 +206,9 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         # different provider, and would skip the check that keeps a base URL change tied to its key.
         if self.instance and value != self.instance.provider:
             raise serializers.ValidationError("A key's provider cannot be changed. Create a new key instead.")
-        # Zeabur AI Hub shuts down by Dec 31, 2026. Existing keys keep working until then.
+        # Zeabur shut down AI Hub on Sep 22, 2026.
         if self.instance is None and value == LLMProvider.ZEABUR:
-            raise serializers.ValidationError("Zeabur AI Hub is shutting down and no longer accepts new keys.")
+            raise serializers.ValidationError("Zeabur AI Hub has shut down and no longer accepts new keys.")
         return value
 
     def validate_api_key(self, value: str) -> str:
