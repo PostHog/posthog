@@ -6,7 +6,6 @@ import { Link } from '@posthog/lemon-ui'
 import { AdvertisementCard } from 'lib/components/NavPanelAdvertisement/navPanelAdShared'
 import { navPanelAdvertisementLogic } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisementLogic'
 import { getProductPushDisplay } from 'lib/components/NavPanelAdvertisement/navPanelProductPushDisplay'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
@@ -22,10 +21,29 @@ export function FirstWorkflowCard(): JSX.Element {
         reportShown()
     }, [reportShown])
 
+    const card = (
+        <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: FIRST_WORKFLOW_CARD_DISMISS_KEY }}>
+            <AdvertisementCard
+                title="Create your first workflow"
+                text="Start from your most-used event, then send an email or a Slack message each time it happens."
+                hero={getProductPushDisplay(ProductKey.WORKFLOWS)}
+                onClose={() => reportDismissed()}
+            />
+        </BindLogic>
+    )
+
+    if (!firstWorkflowUrl) {
+        return (
+            <div className="w-full cursor-progress" aria-busy="true">
+                {card}
+            </div>
+        )
+    }
+
     return (
         <div className="w-full">
             <Link
-                to={firstWorkflowUrl ?? urls.workflowNew()}
+                to={firstWorkflowUrl}
                 className="text-primary"
                 data-attr="nav-panel-first-workflow-card"
                 onClick={() => reportClicked()}
@@ -35,14 +53,7 @@ export function FirstWorkflowCard(): JSX.Element {
                     }
                 }}
             >
-                <BindLogic logic={navPanelAdvertisementLogic} props={{ dismissKey: FIRST_WORKFLOW_CARD_DISMISS_KEY }}>
-                    <AdvertisementCard
-                        title="Create your first workflow"
-                        text="Start from your most-used event, then send an email or a Slack message each time it happens."
-                        hero={getProductPushDisplay(ProductKey.WORKFLOWS)}
-                        onClose={() => reportDismissed()}
-                    />
-                </BindLogic>
+                {card}
             </Link>
         </div>
     )
