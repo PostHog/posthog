@@ -222,12 +222,12 @@ Lead with the same hook the inbox sees, then the evidence the ~300-char preview 
 Give every non-markdown cell a short `title` that says what it shows. Markdown cells take no
 `title`; start them with a `##` heading instead.
 
-| What                                  | `notebooks-add-cell` arguments                                                                                                                                                 |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Prose section                         | `cell_type: "markdown"`, `markdown: "## Baseline & method\n\n- ..."`                                                                                                           |
-| Product analytics chart (pinned)      | `cell_type: "component"`, `tag_name: "Query"`, `props: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery with an absolute dateRange>}}`                              |
+| What                                  | `notebooks-add-cell` arguments                                                                                                                                                                            |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prose section                         | `cell_type: "markdown"`, `markdown: "## Baseline & method\n\n- ..."`                                                                                                                                      |
+| Product analytics chart (pinned)      | `cell_type: "component"`, `tag_name: "Query"`, `props: {"query": {"kind": "InsightVizNode", "source": <TrendsQuery with an absolute dateRange>}}`                                                         |
 | HogQL series (the SQL-fallback score) | `cell_type: "sql"`, `code: "SELECT ..."` (pinned dates in the `WHERE`), `visualization: {"display": "ActionsLineGraph", "chartSettings": {"xAxis": {"column": "day"}, "yAxis": [{"column": "signups"}]}}` |
-| Saved insight (absolute range only)   | `cell_type: "saved_insight"`, `insight_short_id: "<short_id>"`                                                                                                                 |
+| Saved insight (absolute range only)   | `cell_type: "saved_insight"`, `insight_short_id: "<short_id>"`                                                                                                                                            |
 
 - **Query component.** `props.query` takes an `InsightVizNode` wrapping a `TrendsQuery`,
   `FunnelsQuery`, `RetentionQuery`, `PathsQuery`, `StickinessQuery`, or `LifecycleQuery`. Copy the
