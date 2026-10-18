@@ -1125,12 +1125,7 @@ jobs:
                   if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
                       BASE="HEAD^"
                   fi
-                  general_purpose_paths() {
-                      git show "$1:.github/workflows/container-images-cd.yml" \
-                          | awk '/^ *generalPurpose:$/ { inside = 1; next } inside && /^ *[A-Za-z]+:$/ { inside = 0 } inside && /^ *- / { print }' \
-                          | sort
-                  }
-                  if [ -n "$(comm -13 <(general_purpose_paths "$BASE") <(general_purpose_paths HEAD))" ]; then
+                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/subscriptions/backend/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT
