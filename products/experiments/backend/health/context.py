@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from posthog.schema import MultipleVariantHandling
 
@@ -156,6 +157,9 @@ class ReachableCondition:
     # Numbered from 1, as the page labels the release conditions ("Set 2").
     number: int
     pinned_variant: str | None
+    # The person or group property that the condition matches on alone, when its one value is the pinned variant's
+    # key. The variant then comes from whatever sets that property, usually the customer's own assignment.
+    variant_property: str | None
 
 
 @frozen
@@ -180,6 +184,10 @@ class ConditionSetTraffic:
     # The calls that returned a variant, and those of them that the flag service evaluated, which alone name a set.
     calls: int
     remotely_evaluated_calls: int
+    # The people who got a variant in a call that carries no flag version and is not a local evaluation in a server
+    # SDK, from the start of the flag-state check's grace period after `since`. Such a call comes from a bootstrap or
+    # from the customer's own code, so it can serve a variant that the flag's release conditions don't.
+    people_assigned_outside: int
 
 
 @frozen
@@ -233,10 +241,36 @@ def parse_flag_state(
         release_groups=tuple(_release_group(group) for group in conditions),
         variants=flag_variants,
         reachable_conditions=tuple(
-            ReachableCondition(number=index + 1, pinned_variant=pinned_variant(conditions[index], variant_keys))
-            for index in reachable
+            _reachable_condition(index + 1, conditions[index], variant_keys) for index in reachable
         ),
     )
+
+
+def _reachable_condition(number: int, condition: Mapping[str, Any], variant_keys: set[str]) -> ReachableCondition:
+    pinned = pinned_variant(condition, variant_keys)
+    return ReachableCondition(
+        number=number,
+        pinned_variant=pinned,
+        variant_property=None if pinned is None else _variant_property(condition, pinned),
+    )
+
+
+def _variant_property(condition: Mapping[str, Any], pinned: str) -> str | None:
+    properties = condition.get("properties")
+    if not isinstance(properties, list) or len(properties) != 1 or not isinstance(properties[0], dict):
+        return None
+    key = properties[0].get("key")
+    value = properties[0].get("value")
+    values = value if isinstance(value, list) else [value]
+    if (
+        properties[0].get("type") not in ("person", "group")
+        or properties[0].get("operator") not in ("exact", None)
+        or len(values) != 1
+        or not isinstance(key, str)
+    ):
+        return None
+    # The flag service compares `exact` values as lowercase strings.
+    return key if str(values[0]).lower() == pinned.lower() else None
 
 
 def _release_group(group: object) -> FlagReleaseGroup:
