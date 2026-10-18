@@ -409,8 +409,10 @@ def test_top_domains_walk_rank_ranges_to_terminal_page(
     max_rank: int, page_sizes: list[int], expected_ranges: list[tuple[str, str]]
 ) -> None:
     ranks = iter(range(1, 100))
-    pages = [[{"rank": next(ranks)} for _ in range(size)] for size in page_sizes]
-    pages = [[{"domain": f"d{row['rank']}.example", **row} for row in page] for page in pages]
+    pages: list[list[dict[str, object]]] = [
+        [{"domain": f"d{rank}.example", "rank": rank} for rank in [next(ranks) for _ in range(size)]]
+        for size in page_sizes
+    ]
     with patch(f"{SOURCE_MODULE}.TOP_DOMAINS_PAGE_ROWS", 2), patch(f"{SOURCE_MODULE}.TOP_DOMAINS_COUNT", max_rank):
         result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run(
             "domain_rating_top_domains", [ScriptedResponse(json={"domains": page}) for page in pages]
