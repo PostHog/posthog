@@ -2,15 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
-import {
-    Button,
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { Button, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { SidePanelTab } from '~/types'
 
@@ -19,6 +11,8 @@ import { TODAY_CONTEXT_PANEL_DOCK_EDGE, todayContextPanelLogic } from './todayCo
 
 /** Presses on these inside the header act on them instead of moving the panel. */
 const NOT_A_DRAG_HANDLE = 'button, a, input, [role="menuitem"]'
+
+const LAUNCHER_LABEL = 'Ask PostHog AI'
 
 export function TodayContextPanelFloating(): JSX.Element {
     const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint, panelTabs } =
@@ -99,32 +93,24 @@ export function TodayContextPanelFloating(): JSX.Element {
                 >
                     {/* The outline button is see-through, so an opaque pill sits behind it over the page. */}
                     <span className="pointer-events-auto rounded-full bg-background shadow-md">
-                        <Tooltip disabled={floatingOpen}>
-                            <TooltipTrigger
-                                delay={0}
-                                render={
-                                    <PopoverTrigger
-                                        render={
-                                            <Button
-                                                variant="outline"
-                                                size="lg"
-                                                aria-label="Ask PostHog AI"
-                                                className="w-34 justify-center rounded-full"
-                                                data-attr="today-ai-chat-button"
-                                            />
-                                        }
-                                    />
-                                }
-                            >
-                                <IconSparkles />
-                            </TooltipTrigger>
-                            <TooltipContent side="top">Ask PostHog AI</TooltipContent>
-                        </Tooltip>
+                        <PopoverTrigger
+                            render={
+                                <Button
+                                    variant="outline"
+                                    size="lg"
+                                    className="rounded-full px-3.5"
+                                    data-attr="today-ai-chat-button"
+                                />
+                            }
+                        >
+                            <IconSparkles />
+                            {LAUNCHER_LABEL}
+                        </PopoverTrigger>
                     </span>
                 </div>
                 <PopoverContent
                     side="top"
-                    sideOffset={8}
+                    sideOffset={({ anchor }) => -anchor.height}
                     initialFocus={() =>
                         cardRef.current?.querySelector<HTMLElement>('textarea, [contenteditable="true"]') ?? true
                     }
@@ -150,6 +136,7 @@ export function TodayContextPanelFloating(): JSX.Element {
                     />
                     <span aria-hidden className="TodayContextPanelMorph__face">
                         <IconSparkles />
+                        {LAUNCHER_LABEL}
                     </span>
                 </PopoverContent>
             </Popover>
