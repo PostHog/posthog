@@ -40,6 +40,7 @@ import {
     ListStorage,
     QuickFilterItem,
     META_GROUP_TYPES,
+    withoutSearchOnlyGroups,
     OPEN_AS_SELF_ON_REOPEN,
     SelectedProperties,
     SimpleOption,
@@ -780,7 +781,10 @@ export interface taxonomicFilterLogicMeta {
             taxonomicGroups: TaxonomicFilterGroup[],
             eventNames: any
         ) => TaxonomicFilterGroupType[]
-        categoryGroupTypes: (taxonomicGroupTypes: TaxonomicFilterGroupType[]) => TaxonomicFilterGroupType[]
+        categoryGroupTypes: (
+            taxonomicGroupTypes: TaxonomicFilterGroupType[],
+            metaGroupTypes: Set<string>
+        ) => TaxonomicFilterGroupType[]
         groupAnalyticsTaxonomicGroupNames: (
             groupTypes: Map<GroupTypeIndex, GroupType>,
             currentTeamId: number | null,
@@ -2309,13 +2313,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             { resultEqualityCheck: objectsEqual },
         ],
         categoryGroupTypes: [
-            (s) => [s.taxonomicGroupTypes],
-            (groupTypes: TaxonomicFilterGroupType[]): TaxonomicFilterGroupType[] =>
-                groupTypes.filter(
+            (s) => [s.taxonomicGroupTypes, s.metaGroupTypes],
+            (groupTypes: TaxonomicFilterGroupType[], metaGroupTypes: Set<string>): TaxonomicFilterGroupType[] => {
+                const categories = groupTypes.filter(
                     (type) =>
                         type !== TaxonomicFilterGroupType.RecentFilters &&
                         type !== TaxonomicFilterGroupType.PinnedFilters
-                ),
+                )
+                return withoutSearchOnlyGroups(
+                    categories,
+                    (type) => type,
+                    (type) => metaGroupTypes.has(type) || META_GROUP_TYPES.has(type)
+                )
+            },
             { resultEqualityCheck: objectsEqual },
         ],
         groupAnalyticsTaxonomicGroupNames: [
