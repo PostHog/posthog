@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 from collections.abc import Iterable
 from typing import Any, Optional, cast
@@ -37,9 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     DocusignSourceConfig,
 )
 
-_SESSION_FACTORY = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign.make_tracked_session"
-)
+_DOCUSIGN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign"
+_SESSION_FACTORY = f"{_DOCUSIGN_MODULE}.make_tracked_session"
 
 USERINFO_PAYLOAD: dict[str, Any] = {
     "sub": "user-guid",
@@ -342,7 +342,36 @@ class TestDocusignTransport:
             ["env-0", sub_resource],
             ["env-1", sub_resource],
         ]
+        # Form data is only released to the sender, so received envelopes must not be listed.
+        assert result.requests[-3].param("user_filter") == ("sender" if sub_resource == "form_data" else None)
         assert result.final_state is None
+
+    @pytest.mark.parametrize("remaining,expect_pause", [("500", False), ("50", True)])
+    def test_per_envelope_requests_pause_when_the_hourly_quota_runs_low(
+        self, remaining: str, expect_pause: bool, logger: FilteringBoundLogger
+    ) -> None:
+        quota_headers = {
+            "X-RateLimit-Limit": "1000",
+            "X-RateLimit-Remaining": remaining,
+            "X-RateLimit-Reset": str(int(time.time()) + 600),
+        }
+        with mock.patch(f"{_DOCUSIGN_MODULE}.interruptible_wait") as wait:
+            result = driver().run(
+                "envelope_audit_events",
+                [
+                    *auth_responses(),
+                    ScriptedResponse(json=envelope_page(1), headers=quota_headers),
+                    ScriptedResponse(json={"auditEvents": []}),
+                ],
+                logger=logger,
+            )
+
+        assert result.raised is None
+        waits = [call.args[0] for call in wait.call_args_list]
+        if expect_pause:
+            assert len(waits) == 1 and 500 < waits[0] <= 600
+        else:
+            assert waits == []
 
     def test_bulk_send_batches_always_send_from_date(self, logger: FilteringBoundLogger) -> None:
         result = driver().run(

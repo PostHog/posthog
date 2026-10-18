@@ -16,7 +16,7 @@ PAGE_SIZE = 100
 DEFAULT_LOOKBACK_DAYS = 730
 
 
-@dataclass
+@dataclass(frozen=True)
 class DocusignEndpointConfig:
     name: str
     # Path under `/restapi/v2.1/accounts/{accountId}`.
@@ -113,7 +113,9 @@ DOCUSIGN_ENDPOINTS: dict[str, DocusignEndpointConfig] = {
         path="/envelopes",
         data_key="envelopes",
         primary_key=["envelopeId"],
-        params={"order_by": "status_changed", "order": "asc"},
+        # DocuSign only releases form data to the sender (or a full admin), so received envelopes
+        # would fail the per-envelope request.
+        params={"order_by": "status_changed", "order": "asc", "user_filter": "sender"},
         date_filter_param="from_date",
         incremental_fields=_DERIVED_INCREMENTAL_FIELDS,
         partition_key="envelopeCreatedDateTime",

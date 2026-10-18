@@ -1,7 +1,7 @@
 import time
 import datetime as dt
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any, Optional
 from urllib.parse import quote, urlencode, urlparse
 
@@ -11,6 +11,9 @@ from requests.auth import HTTPBasicAuth
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interruptible_wait import (
+    interruptible_wait,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.docusign.settings import (
@@ -37,6 +40,11 @@ REQUEST_TIMEOUT_SECONDS = 120
 
 # Hard stop so a misbehaving endpoint that keeps advertising `nextUri` can't page forever.
 MAX_PAGES = 20_000
+
+# Per-envelope tables cost one request per envelope against the account's hourly API quota, which
+# the customer's other DocuSign integrations share. Pause once only this fraction of it is left.
+QUOTA_RESERVE_FRACTION = 0.1
+MAX_QUOTA_WAIT_SECONDS = 3600
 
 
 class DocusignAuthError(Exception):
@@ -272,6 +280,19 @@ def _flatten_envelope_children(
     return rows
 
 
+def _quota_wait_seconds(headers: Mapping[str, str], now: float) -> float:
+    """Seconds until DocuSign resets the hourly quota, when the last response left too little of it."""
+    try:
+        remaining = int(headers["X-RateLimit-Remaining"])
+        limit = int(headers["X-RateLimit-Limit"])
+        reset_at = float(headers["X-RateLimit-Reset"])
+    except (KeyError, ValueError):
+        return 0.0
+    if remaining > limit * QUOTA_RESERVE_FRACTION:
+        return 0.0
+    return min(max(reset_at - now, 0.0), MAX_QUOTA_WAIT_SECONDS)
+
+
 def _envelope_parent(envelope: dict[str, Any]) -> dict[str, Any]:
     return {
         "envelopeId": str(envelope["envelopeId"]),
@@ -336,8 +357,10 @@ def get_rows(
             start_position = resume.start_position
             logger.debug(f"Resuming DocuSign {endpoint_name} from start_position={start_position}")
 
+    last_headers: Mapping[str, str] = {}
+
     def request(path: str, params: dict[str, str]) -> dict[str, Any]:
-        nonlocal token
+        nonlocal token, last_headers
         url = f"{account.base_url}{path}"
         if params:
             url = f"{url}?{urlencode(params)}"
@@ -351,6 +374,7 @@ def get_rows(
             token = mint_access_token(auth_session, credentials)
             response = _do()
 
+        last_headers = response.headers
         if not response.ok:
             logger.error(f"DocuSign API error: url={url}, {_error_detail(response)}")
             response.raise_for_status()
@@ -366,6 +390,11 @@ def get_rows(
             for envelope in page:
                 if not envelope.get("envelopeId"):
                     continue
+                wait_seconds = _quota_wait_seconds(last_headers, time.time())
+                if wait_seconds > 0:
+                    logger.info(f"DocuSign hourly API quota is low, pausing {wait_seconds:.0f}s until it resets")
+                    interruptible_wait(wait_seconds, safe_point=resumable_source_manager.safe_point)
+
                 parent = _envelope_parent(envelope)
                 sub_resource_path = (
                     f"{endpoint.path}/{quote(parent['envelopeId'], safe='')}/{endpoint.envelope_sub_resource}"

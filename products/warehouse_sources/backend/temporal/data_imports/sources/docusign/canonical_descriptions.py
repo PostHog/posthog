@@ -65,7 +65,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "envelope_form_data": {
-        "description": "Field values (tab data) captured on each envelope, overall and per recipient. Needs the account's 'Allow sender to download form data' sending setting.",
+        "description": "Field values (tab data) captured on each envelope the user sent, overall and per recipient. Needs the account's 'Allow sender to download form data' sending setting.",
         "docs_url": "https://developers.docusign.com/docs/esign-rest-api/reference/envelopes/envelopeformdata/get/",
         "columns": {
             "envelopeId": "Identifier of the envelope the form data belongs to.",
