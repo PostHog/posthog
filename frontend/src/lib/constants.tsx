@@ -571,8 +571,8 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. control changes nothing, banner suggests the right tab, promote moves the predicted group to the top of the All tab
     TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
-    TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
     TODAY_PULSE_RANKING: 'today-pulse-ranking',
+    TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
@@ -642,6 +642,7 @@ export const FEATURE_FLAGS = {
     WORKFLOWS_DATA_SUGGESTIONS: 'workflows-data-suggestions', // owner: #team-workflows, suggests workflows built from the project's events on the empty state
     WORKFLOWS_EMAIL_MEDIA_LIBRARY: 'workflows-email-media-library', // owner: @mayteio #team-workflows, backs the email editor's Uploads tab with the media library
     WORKFLOWS_EMAIL_SENDER_ROTATION: 'workflows-email-sender-rotation', // owner: @arthurdedeus #team-workflows
+    WORKFLOWS_FIRST_WORKFLOW_CARD: 'workflows-first-workflow-card', // owner: #team-workflows, experiment: a sidebar card that opens a first workflow prefilled on the project's top event
     WORKFLOWS_INTERNAL_EVENT_FILTERS: 'workflows-internal-event-filters', // owner: @haven #team-workflows
     WORKFLOWS_ISP_SENDING_HEALTH: 'workflows-isp-sending-health', // owner: #team-workflows
     WORKFLOWS_LINEAR_VIEW: 'workflows-linear-view', // owner: #team-workflows

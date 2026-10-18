@@ -7,6 +7,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
+import { FirstWorkflowCard } from 'products/workflows/frontend/FirstWorkflowCard/FirstWorkflowCard'
+import { firstWorkflowCardLogic } from 'products/workflows/frontend/FirstWorkflowCard/firstWorkflowCardLogic'
+
 import { BroadcastPayload, isBroadcastPayload } from './navPanelAdShared'
 import { NavPanelBroadcastAd } from './NavPanelBroadcastAd'
 import { NavPanelProductPushAd } from './NavPanelProductPushAd'
@@ -17,6 +20,7 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { shouldShow: showFirstWorkflowCard } = useValues(firstWorkflowCardLogic)
 
     const broadcastPayload = getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST) as BroadcastPayload | undefined
 
@@ -28,6 +32,10 @@ export function NavPanelAdvertisement(): JSX.Element | null {
     // by an automated push. Both cards promote cloud features, so neither is shown on hobby.
     if (isCloudOrDev && isBroadcastPayload(broadcastPayload)) {
         return <NavPanelBroadcastAd broadcast={broadcastPayload} />
+    }
+
+    if (showFirstWorkflowCard) {
+        return <FirstWorkflowCard />
     }
 
     // The org-wide product push campaign, driven by the growth backend. Respects the
