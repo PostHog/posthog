@@ -72,8 +72,13 @@ Fresh inputs that justify a sweep before 7 days: a new or edited saved insight o
 
 ## The anchors
 
-Sweep the family whose `last_sweep` date is oldest first.
-`references/queries.md` holds a validated query for each check.
+Every run has the same shape, because a run that skims all four families finds nothing:
+
+1. **Always run the two cheap scans first:** "Failure events with one reason" and "Checks that could not measure" in `references/queries.md`, plus the live inbox reports that say a cause or effect cannot be told apart.
+   Each is one query, and together they found most of the strongest gaps in testing.
+2. **Then sweep one family in depth:** the one whose `last_sweep` date is oldest.
+   Run every query `references/queries.md` lists for that family, and take each candidate through readership, absence on the same scope, and code before you rule it in or out.
+3. Record what you checked and what you ruled out under `anchor:` keys, so the next run starts where this one stopped.
 
 ### 1. Proxy measurements
 
@@ -81,6 +86,7 @@ The team measures something through a stand-in, because the event or property it
 This family gives the most precise findings and the smallest fixes.
 
 - **A dimension rebuilt from the URL.** A saved insight, experiment metric, or cohort filters a non-`$` event by `$pathname` or `$current_url` to split it by source, surface, or product.
+  An action built on `$pageview` with a URL marker (`sessionRecordingId=`, `?tab=`, a modal hash) is a URL proxy too: run "Real events against a URL proxy" for it, because a surface that opens the same thing inline never changes the URL.
   Check that the event does not already carry a property for the split (`source`, `surface`, `product_key`, `placement`, `scene`). When it does, the insight can filter on it, and there is no code gap.
   When it does not, the fix is one property at the capture call, and the value is usually in scope there (a logic value, a prop, the route).
 - **An outcome rebuilt from clicks or pageviews.** An action whose every step is an autocapture match on a CSS selector or text, or a `$pageview` URL, stands in for an outcome (sign up, submit, subscribe, purchase), and saved insights or experiments use it.
@@ -107,8 +113,10 @@ A URL proxy that is accurate today (the route itself encodes the value) is a wea
 - **A report or check that could not measure.** An inbox report, a scout run summary, or a PR follow-up verdict says that a claim could not be checked because no event exists.
   Read `system.inbox_report_checks` where `last_outcome_reason = 'unmeasurable'`, and search fleet runs (`scout-runs-list`, `text` set to `unmeasurable`, `cannot be measured`, `no event`).
   Most of these are database or infrastructure claims that product events cannot measure; keep only the ones a product event or property would settle.
-- **A silent failure.** A failure path in a flow people depend on reaches neither analytics nor error tracking (a catch that only shows a toast, a failed request nobody captures), while replays show retries or rage clicks at that point.
-  Frame the fix as making the failure visible, and capture the failure where it happens.
+- **A silent failure.** A failure path in a flow people depend on reaches neither analytics nor error tracking (a catch that only shows a toast, a form submit whose server error is dropped, a failed request nobody captures), while people retry or rage-click at that point.
+  Find it from repeated failed requests per person on one endpoint (a request-failure event with the status and path), then rage clicks on the same page, then the code's failure path.
+  Frame the fix as making the failure visible to the user and countable by reason: show the server's message, and capture the failure with its code where it happens.
+  This shape (a user-facing fix plus the tracking that proves it) is the one teams merge most readily.
 
 ### 3. Decisions waiting on data
 
