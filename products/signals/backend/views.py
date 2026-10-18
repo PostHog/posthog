@@ -73,7 +73,7 @@ from posthog.models.github_integration_base import GitHubIntegrationBase, PullRe
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
-from posthog.oauth_provenance import is_sandbox_oauth_request
+from posthog.oauth_provenance import is_sandbox_oauth_request, is_sandbox_origin_request
 from posthog.permissions import (
     APIScopePermission,
     TeamMemberStrictManagementPermission,
@@ -120,9 +120,14 @@ from products.signals.backend.billing import (
 )
 from products.signals.backend.briefing_reports import open_report_counts, reports_for_person
 from products.signals.backend.dismissal_notes import forward_dismissal_note
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.enums import ReportPriority, ReportTaskActionKind
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.feedback_notes import forward_feedback_note
+from products.signals.backend.free_trial import (
+    FREE_TRIAL_PR_MESSAGE,
+    FreeTrialPullRequestRefused,
+    capture_signal_report_free_trial_paused,
+)
 from products.signals.backend.implementation_pr import (
     fetch_implementation_prs_for_reports,
     implementation_pr_report_filter,
@@ -197,6 +202,17 @@ from products.signals.backend.report_read_state import (
     ReportReadStateResponseSerializer,
     report_read_states,
 )
+from products.signals.backend.report_task_actions import (
+    AI_CONSENT_DISABLED_REASON,
+    INBOX_REPORT_ACTION_EVENT,
+    ReportTaskActionContext,
+    ReportTaskActionStartError,
+    active_merge_run,
+    inbox_report_action_properties,
+    list_report_task_actions,
+    resolve_report_task_action,
+    start_report_task_action,
+)
 from products.signals.backend.reviewer_correction_notes import ReviewerCorrection, forward_reviewer_correction_note
 from products.signals.backend.reviewer_pr_assignment import schedule_reviewer_pr_assignment
 from products.signals.backend.scout_harness.trial_access import trial_state_errors, trial_store_for_request
@@ -234,6 +250,10 @@ from products.signals.backend.serializers import (
     SignalReportSourceMetadataRequestSerializer,
     SignalReportSourceMetadataResponseSerializer,
     SignalReportSuggestedReviewersArtefactSerializer,
+    SignalReportTaskActionErrorSerializer,
+    SignalReportTaskActionListResponseSerializer,
+    SignalReportTaskActionRunRequestSerializer,
+    SignalReportTaskActionRunResponseSerializer,
     SignalSourceConfigSerializer,
     SignalTeamConfigSerializer,
     SignalUserAutonomyConfigCreateSerializer,
@@ -253,6 +273,7 @@ from products.signals.backend.slack_notification_targets import (
 from products.signals.backend.source_suggestions import current_source_suggestion
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 from products.signals.backend.task_attribution import TASK_ID_HEADER, resolve_request_attribution
+from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -271,8 +292,13 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
-from products.signals.backend.throttles import ReportMetricRefreshThrottle
+from products.signals.backend.throttles import (
+    ReportMetricRefreshThrottle,
+    ReportTaskActionRunBurstThrottle,
+    ReportTaskActionRunSustainedThrottle,
+)
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
@@ -3053,6 +3079,170 @@ class SignalReportViewSet(
                 {"report": survivor, "sources": result.sources},
                 context=self._enriched_report_context(survivor),
             ).data
+        )
+
+    @extend_schema(
+        responses={200: SignalReportTaskActionListResponseSerializer},
+        summary="List the report actions that start an agent run",
+        description=(
+            "List the actions on this report that start an agent run, read from the report's current state. "
+            "`get_it_merged` is available only while the report has an open, approved pull request. "
+            "`suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint."
+        ),
+        operation_id="signals_reports_actions_list",
+    )
+    @action(detail=True, methods=["get"], url_path="actions", required_scopes=["task:read"])
+    def task_actions(self, request: Request, *args, **kwargs) -> Response:
+        report = cast(SignalReport, self.get_object())
+        context = ReportTaskActionContext(team=self.team, user=cast(User, request.user))
+        actions = list_report_task_actions(context, report)
+        return Response(
+            SignalReportTaskActionListResponseSerializer(
+                {
+                    "results": [
+                        {
+                            "action": item.kind.value,
+                            "available": item.available,
+                            "disabled_reason": item.disabled_reason,
+                            "suggested_prompt_index": item.suggested_prompt_index,
+                            "text": item.question,
+                        }
+                        for item in actions
+                    ]
+                }
+            ).data
+        )
+
+    @validated_request(
+        request_serializer=SignalReportTaskActionRunRequestSerializer,
+        responses={
+            201: OpenApiResponse(response=SignalReportTaskActionRunResponseSerializer, description="Task created"),
+            400: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
+                description="The action is not available on this report now (code `report_action_unavailable`)",
+            ),
+            402: OpenApiResponse(
+                description="The organization is on a Self-driving free trial (code `self_driving_free_trial`)"
+            ),
+            403: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
+                description="AI data processing is not approved, or the request came from a task sandbox",
+            ),
+            404: OpenApiResponse(description="The report has no suggested prompt at that index"),
+            409: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
+                description=(
+                    "A merge run is already working on this report (code `report_action_run_active`). "
+                    "The body carries its `task_id` and `run_id`."
+                ),
+            ),
+            429: OpenApiResponse(
+                description=(
+                    "The report reached its task limit (code `signal_report_task_cap`), the per-user creation "
+                    "limit fired (code `throttled`), or the organization reached its usage limit"
+                )
+            ),
+        },
+        summary="Start a report action as a background agent run",
+        description=(
+            "Create a task linked to the report and start its first run in the background, with the "
+            "instructions the inbox uses for the same action. The run shows in the report's runs and counts "
+            "toward the report's task limit. Nobody can answer questions in a background run, so the agent "
+            "writes a note to the report's work log when it needs a decision."
+        ),
+        operation_id="signals_reports_actions_run_create",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="actions/run",
+        required_scopes=["task:write"],
+        throttle_classes=[ReportTaskActionRunBurstThrottle, ReportTaskActionRunSustainedThrottle],
+    )
+    def run_task_action(self, request: ValidatedRequest, *args, **kwargs) -> Response:
+        if is_sandbox_origin_request(request):
+            return Response(
+                {"code": "report_action_sandbox_refused", "detail": "A task sandbox cannot start report actions."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        report = cast(SignalReport, self.get_object())
+        user = cast(User, request.user)
+        context = ReportTaskActionContext(team=self.team, user=user)
+        data = request.validated_data
+        kind = ReportTaskActionKind(data["action"])
+        report_action = resolve_report_task_action(context, report, kind, data.get("suggested_prompt_index"))
+        if report_action is None:
+            raise exceptions.NotFound("This report has no suggested prompt at that index.")
+
+        def capture(outcome: str, limit_code: str | None = None) -> None:
+            report_user_action(
+                user,
+                INBOX_REPORT_ACTION_EVENT,
+                inbox_report_action_properties(report, report_action, outcome=outcome, limit_code=limit_code),
+                team=self.team,
+                organization=self.organization,
+                request=request,
+            )
+
+        if report_action.disabled_reason is not None:
+            capture("blocked")
+            if report_action.disabled_reason == FREE_TRIAL_PR_MESSAGE:
+                capture_signal_report_free_trial_paused(self.team, report_id=str(report.id), stage="report_action")
+                raise FreeTrialPullRequestRefused()
+            error_status: int = (
+                status.HTTP_403_FORBIDDEN
+                if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON
+                else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(
+                {"code": "report_action_unavailable", "detail": report_action.disabled_reason}, status=error_status
+            )
+
+        if kind == ReportTaskActionKind.GET_IT_MERGED and (
+            active := active_merge_run(team_id=self.team.id, report_id=str(report.id))
+        ):
+            capture("limited", "report_action_run_active")
+            return Response(
+                {
+                    "code": "report_action_run_active",
+                    "detail": "A merge run is already working on this report. Follow that run instead.",
+                    "task_id": active.task_id,
+                    "run_id": active.run_id,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if limit_response := usage_limit_response(user, self.team_id):
+            capture("limited", "usage_limit")
+            return limit_response
+
+        # The run starts repo-less unless the caller passes the Desktop gate, the same rule the tasks
+        # create endpoint applies to an inbox discussion.
+        code_access_allowed = code_access_required_response(request, self.organization) is None
+        try:
+            started = start_report_task_action(context, report, report_action, code_access_allowed=code_access_allowed)
+        except ReportTaskCapExceeded as error:
+            capture("limited", "signal_report_task_cap")
+            return Response(
+                {"type": "rate_limit", "code": "signal_report_task_cap", "error": error.detail},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        except ReportTaskActionStartError as error:
+            capture("failure")
+            return Response(
+                {"code": "report_action_start_failed", "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
+            )
+        capture("failure" if started.run_error else "success")
+        return Response(
+            SignalReportTaskActionRunResponseSerializer(
+                {
+                    "task_id": started.task_id,
+                    "run_id": started.run_id,
+                    "task_url": started.task_url,
+                    "run_error": started.run_error,
+                }
+            ).data,
+            status=status.HTTP_201_CREATED,
         )
 
     @extend_schema(responses=SignalReportFeedbackStateSerializer)
