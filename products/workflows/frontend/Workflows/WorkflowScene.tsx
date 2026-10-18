@@ -45,6 +45,7 @@ import {
 import { WorkflowAiEmailDraftStatus } from './WorkflowAiEmailDraftStatus'
 import { WorkflowAssets } from './WorkflowAssets'
 import { WorkflowBroadcastMoveBanner } from './WorkflowBroadcastMoveBanner'
+import { WorkflowEditorVisitTracker } from './WorkflowEditorVisitTracker'
 import { WorkflowEmailPauseBanner } from './WorkflowEmailPauseBanner'
 import { WorkflowInvocations } from './WorkflowInvocations'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
@@ -248,6 +249,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     return (
         <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={workflowProps}>
+                {!editTemplateId && <WorkflowEditorVisitTracker {...workflowProps} />}
                 <WorkflowSceneHeader {...props} />
                 <WorkflowEmailPauseBanner />
                 {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}

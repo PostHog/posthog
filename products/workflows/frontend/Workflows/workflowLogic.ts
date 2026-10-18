@@ -80,6 +80,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
     prefilledEmailContent,
@@ -100,6 +101,10 @@ export interface WorkflowLogicProps {
     emailPrefill?: string
     draftSource?: string
     entrySource?: string
+}
+
+export function workflowLogicKey(props: WorkflowLogicProps): string {
+    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -393,6 +398,9 @@ export interface workflowLogicActions {
         value: true
     }
     duplicate: () => {
+        value: true
+    }
+    enableBlocked: () => {
         value: true
     }
     keepMyWorkflowVersion: () => {
@@ -3275,10 +3283,7 @@ function getSaveQueue(
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
-    key(
-        (props) =>
-            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
-    ),
+    key(workflowLogicKey),
     connect(() => ({
         values: [
             userLogic,
@@ -3342,6 +3347,7 @@ export const workflowLogic = kea<workflowLogicType>([
         publishDraft: true,
         confirmPublishDraft: (confirmToken: string) => ({ confirmToken }),
         discardDraft: true,
+        enableBlocked: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         replayDeferredResourceEdited: true,
@@ -3489,6 +3495,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                 posthog.capture('workflow draft created', {
                                     workflow_id: result.id,
                                     entry_source: props.entrySource ?? null,
+                                    start_path: workflowStartPath(props),
+                                    template_id: props.templateId ?? null,
                                 })
                             }
                             return result
@@ -4490,6 +4498,7 @@ export const workflowLogic = kea<workflowLogicType>([
             const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
+                actions.enableBlocked()
                 return
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag
