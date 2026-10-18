@@ -97,8 +97,10 @@ class TimeBucketCollector(TraversingVisitor):
                         return _TIME_UNIT_BUCKETS.get(self.filter_interval or str(default))
                 return "minute"
         interval_arg = {"tostartofinterval": 1, "date_bin": 0}.get(name)
-        if interval_arg is not None and len(node.args) > interval_arg and isinstance(node.args[interval_arg], ast.Call):
-            return _TIME_UNIT_BUCKETS.get(node.args[interval_arg].name.lower().removeprefix("tointerval"))
+        if interval_arg is not None and len(node.args) > interval_arg:
+            interval = node.args[interval_arg]
+            if isinstance(interval, ast.Call):
+                return _TIME_UNIT_BUCKETS.get(interval.name.lower().removeprefix("tointerval"))
         return None
 
 
