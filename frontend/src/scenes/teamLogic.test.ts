@@ -56,6 +56,26 @@ describe('teamLogic', () => {
             expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
             expect(logic.values.currentTeam?.test_account_filters).toEqual(expectedFilters)
         })
+
+        it('loadCurrentTeam reloads the tab team after another tab changes the current project', async () => {
+            await expectLogic(logic).toDispatchActions(['loadCurrentTeamSuccess'])
+            useMocks({
+                get: {
+                    '/api/projects/@current': () => [200, { ...MOCK_DEFAULT_TEAM, id: MOCK_TEAM_ID + 1 }],
+                    '/api/projects/:id': ({ params }) =>
+                        params.id === String(MOCK_TEAM_ID)
+                            ? [200, { ...MOCK_DEFAULT_TEAM, test_account_filters: refreshedFilters }]
+                            : [404, {}],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadCurrentTeam()
+            }).toDispatchActions(['loadCurrentTeamSuccess'])
+
+            expect(logic.values.currentTeam?.id).toBe(MOCK_TEAM_ID)
+            expect(logic.values.currentTeam?.test_account_filters).toEqual(refreshedFilters)
+        })
     })
 
     describe('updateCurrentTeam with a name-only payload', () => {

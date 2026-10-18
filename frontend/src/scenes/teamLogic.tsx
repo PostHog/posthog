@@ -379,8 +379,11 @@ export const teamLogic = kea<teamLogicType>([
                     }
 
                     try {
+                        // @current is the user's server-side current project, which another tab can change.
+                        // Once this tab has a team, reload that team by id so its API calls stay in its project.
+                        const teamId = values.currentTeam?.id ?? '@current'
                         // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        return await api.get('api/projects/@current')
+                        return await api.get(`api/projects/${teamId}`)
                     } catch {
                         return values.currentTeam
                     }
