@@ -171,7 +171,7 @@ def _found(candidates: list[CandidatePayload], *, exhausted: bool = False) -> Fi
 async def _run(mocks: _BackfillMocks, inputs: EvaluationBackfillInputs | None = None, *, bounded: bool = False):
     # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
     noop = staticmethod(lambda *_a, **_kw: None)
-    fake_logger = type("Logger", (), {"exception": noop, "warning": noop})()
+    fake_logger = type("Logger", (), {"exception": noop, "warning": noop, "info": noop})()
     with (
         patch("temporalio.workflow.logger", fake_logger),
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
@@ -331,15 +331,12 @@ class TestEvaluationBackfillWorkflow:
     @pytest.mark.parametrize(
         "reason,outcome",
         [
-            ("parse_error", ChildOutcome.FAILED),
-            ("unparsable_response", ChildOutcome.FAILED),
-            ("output_limit_exceeded", ChildOutcome.FAILED),
-            ("host_unresolved", ChildOutcome.FAILED),
+            ("parse_error", ChildOutcome.SKIPPED),
+            ("unparsable_response", ChildOutcome.SKIPPED),
             ("content_filtered", ChildOutcome.SKIPPED),
-            ("request_rejected", ChildOutcome.SKIPPED),
         ],
     )
-    def test_unusable_responses_count_as_failures_but_terminal_skips_do_not(
+    def test_skips_do_not_count_as_failures_because_retry_cannot_restart_them(
         self, reason: str, outcome: ChildOutcome
     ) -> None:
         assert (
@@ -429,7 +426,7 @@ class TestEvaluationBackfillWorkflow:
             result.completed_delta,
             result.evaluation_skipped_delta,
             result.failed_delta,
-        ) == (4, 1, 1, 2)
+        ) == (4, 1, 2, 1)
 
     @pytest.mark.asyncio
     async def test_a_cancel_mid_page_records_the_runs_already_started(self) -> None:
@@ -455,7 +452,7 @@ class TestEvaluationBackfillWorkflow:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "failing,disabling,page_size,started,pauses,stop_reason",
+        "failing,stopping,page_size,started,pauses,stop_reason",
         [
             pytest.param(
                 set(range(70)), None, 70, 60, list(BACKFILL_FAILURE_PAUSES), "execution_failed", id="persistent_outage"
@@ -470,13 +467,23 @@ class TestEvaluationBackfillWorkflow:
                 id="persistent_outage_across_pages",
             ),
             pytest.param({i for i in range(70) if i % 10}, None, 70, 70, [], None, id="scattered_failures"),
-            pytest.param(set(), 1, 70, 2, [], "evaluation_disabled", id="evaluation_disabled"),
+            pytest.param(
+                set(range(10)) | set(range(11, 21)),
+                None,
+                70,
+                70,
+                [BACKFILL_FAILURE_PAUSES[0]] * 2,
+                None,
+                id="success_resets_pauses",
+            ),
+            pytest.param(set(), (1, "key_invalid"), 70, 2, [], "evaluation_disabled", id="evaluation_disabled"),
+            pytest.param(set(), (1, "evaluation_deleted"), 70, 2, [], "evaluation_deleted", id="evaluation_deleted"),
         ],
     )
     async def test_failures_pause_and_stop_the_backfill(
         self,
         failing: set[int],
-        disabling: int | None,
+        stopping: tuple[int, str] | None,
         page_size: int,
         started: int,
         pauses: list[timedelta],
@@ -485,12 +492,13 @@ class TestEvaluationBackfillWorkflow:
         results: dict[str, WorkflowResult | Exception] = {
             f"llma-hog-eval-E-u{i}-ingestion": RuntimeError("judge unavailable") for i in failing
         }
-        if disabling is not None:
-            results[f"llma-hog-eval-E-u{disabling}-ingestion"] = {
+        if stopping is not None:
+            unit, reason = stopping
+            results[f"llma-hog-eval-E-u{unit}-ingestion"] = {
                 "evaluation_id": "E",
                 "evaluation_type": "hog",
                 "skipped": True,
-                "skip_reason": "key_invalid",
+                "skip_reason": reason,
             }
         units = [_candidate(f"u{i}") for i in range(70)]
         inputs, advances, sleeps, waits = _inputs(), [], [], []

@@ -131,7 +131,7 @@ class PrepareTickOutput:
     settle: dict[str, Any] | None = None
     rerun_existing: bool = False
     batch_size: int = 0
-    # 0 starts the whole page at once.
+    # A tick prepared by a worker that predates this field carries 0, which the workflow reads as the default.
     max_in_flight: int = 0
 
 
@@ -257,6 +257,10 @@ class _BackfillPacing:
                     pause = BACKFILL_FAILURE_PAUSES[self.pauses]
                     self.pauses += 1
                     self.failures = 0
+                    temporalio.workflow.logger.info(
+                        "llma.evaluation_backfill_paused",
+                        extra={"pause_seconds": pause.total_seconds(), "pauses_in_a_row": self.pauses},
+                    )
                     # A run that stops the backfill mid-pause ends the pause too.
                     with contextlib.suppress(TimeoutError):
                         await temporalio.workflow.wait_condition(lambda: self.stopped, timeout=pause)
@@ -273,16 +277,9 @@ class _BackfillPacing:
 
 
 def _child_outcome(result: WorkflowResult) -> ChildOutcome:
-    if not result["skipped"]:
-        return ChildOutcome.EVALUATED
-    if _stop_reason(result) or result.get("skip_reason", "") in (
-        "parse_error",
-        "unparsable_response",
-        "output_limit_exceeded",
-        "host_unresolved",
-    ):
-        return ChildOutcome.FAILED
-    return ChildOutcome.SKIPPED
+    # A run that returned a skip completed, so Retry remaining could not start it again. Only runs
+    # that failed count toward the remaining units.
+    return ChildOutcome.SKIPPED if result["skipped"] else ChildOutcome.EVALUATED
 
 
 def child_workflow_name_and_id(
@@ -528,8 +525,12 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
         team_id=inputs.team_id,
         dispatched=inputs.dispatched_delta,
         skipped=inputs.skipped_delta,
+        completed=inputs.completed_delta,
+        evaluation_skipped=inputs.evaluation_skipped_delta,
         failed=inputs.failed_delta,
         exhausted=inputs.exhausted,
+        stop_reason=inputs.stop_reason,
+        cancelled=inputs.cancelled,
         applied=bool(updated),
     )
     if updated:
