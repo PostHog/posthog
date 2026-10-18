@@ -45,7 +45,7 @@ export function resolvedExposureEvent(
  * update replaced without it. A surface that reads absence as false counts different people than
  * the results do.
  */
-export function resolveFilterTestAccounts(exposureCriteria: ExperimentExposureCriteria | undefined): boolean {
+export function resolveFilterTestAccounts(exposureCriteria: ExperimentExposureCriteria | null | undefined): boolean {
     return exposureCriteria?.filterTestAccounts ?? true
 }
 

@@ -27,7 +27,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
-import { resolveFilterTestAccounts } from 'scenes/experiments/exposureContract'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { recordingsQueryToUniversalFilters } from 'scenes/session-recordings/filters/recordingsQueryConversions'
 import { teamLogic } from 'scenes/teamLogic'
@@ -77,6 +76,7 @@ import {
     buildExperimentTargeting,
     experimentScannerConfig,
     experimentScannerName,
+    experimentScannerQuery,
     parseExperimentScannerParams,
     prefillScannerForExperiment,
     ScannerExperimentScope,
@@ -2397,12 +2397,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     ...(draftQuery
                         ? {
                               query: context
-                                  ? {
-                                        ...draftQuery,
-                                        filter_test_accounts: resolveFilterTestAccounts(
-                                            context.experiment.exposure_criteria
-                                        ),
-                                    }
+                                  ? { ...draftQuery, ...experimentScannerQuery(context.experiment) }
                                   : draftQuery,
                           }
                         : {}),
