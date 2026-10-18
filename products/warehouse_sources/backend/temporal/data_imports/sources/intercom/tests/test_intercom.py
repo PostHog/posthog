@@ -437,7 +437,7 @@ class TestIntercomSource:
     @pytest.mark.parametrize("endpoint", list(INTERCOM_ENDPOINTS.keys()))
     def test_source_response_metadata(self, endpoint: str):
         cfg = INTERCOM_ENDPOINTS[endpoint]
-        result = _drive(endpoint, [], api_version="2.16")
+        result = _drive(endpoint, [], api_version="2.17")
         response = result.response
 
         assert response is not None
@@ -447,6 +447,20 @@ class TestIntercomSource:
         assert response.sort_mode == cfg.sort_mode
         # A companies scroll expires within a minute and cannot restart mid-walk.
         assert response.supports_resume is (cfg.paginator_kind != "scroll")
+
+    @pytest.mark.parametrize("pin", ["2.13", "2.15", "2.16", "2.17"])
+    @pytest.mark.parametrize(
+        "endpoint,response",
+        [
+            ("admins", ScriptedResponse(json={"admins": []})),
+            ("conversation_parts", ScriptedResponse(json={"conversations": [], "pages": {}})),
+        ],
+    )
+    def test_sync_requests_send_the_pinned_version(self, pin: str, endpoint: str, response: ScriptedResponse):
+        result = _drive(endpoint, [response], api_version=pin)
+
+        assert result.raised is None
+        assert [request.headers["intercom-version"] for request in result.requests] == [pin]
 
     @pytest.mark.parametrize(
         "endpoint", [name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is not None]
@@ -598,29 +612,33 @@ class TestResumableRestEndpoints:
             assert result.urls[0] == expected_url
 
 
-def _numbered_page(ids: list[int], page: int, total_pages: int) -> ScriptedResponse:
-    return ScriptedResponse(
-        json={
-            "type": "list",
-            "data": [{"id": i} for i in ids],
-            "page": page,
-            "per_page": 50,
-            "total_pages": total_pages,
-        }
-    )
+def _numbered_page(ids: list[int], page: int, total_pages: int, nested: bool = False) -> ScriptedResponse:
+    counts = {"page": page, "per_page": 50, "total_pages": total_pages}
+    body: dict[str, Any] = {"type": "list", "data": [{"id": i} for i in ids]}
+    body.update({"pages": {"type": "pages", **counts}} if nested else counts)
+    return ScriptedResponse(json=body)
 
 
 class TestPageNumberEndpoints:
-    @pytest.mark.parametrize("endpoint", ["audiences", "content_snippets"])
-    def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str):
-        responses = [_numbered_page([1], 1, 2), _numbered_page([2], 2, 2)]
+    @pytest.mark.parametrize(
+        "endpoint,per_page,nested",
+        [
+            ("audiences", "50", False),
+            ("content_snippets", "50", False),
+            ("dynamic_contents", "50", False),
+            ("folders", "50", True),
+            ("deleted_contacts", "150", True),
+        ],
+    )
+    def test_fresh_run_walks_every_page_and_stops_at_total_pages(self, endpoint: str, per_page: str, nested: bool):
+        responses = [_numbered_page([1], 1, 2, nested), _numbered_page([2], 2, 2, nested)]
 
         result = _drive(endpoint, responses)
 
         assert result.raised is None
         assert [row["id"] for row in result.rows] == [1, 2]
         # The last page is known from `total_pages`, so no trailing empty-page request goes out.
-        assert result.params("per_page") == ["50", "50"]
+        assert result.params("per_page") == [per_page, per_page]
         assert result.params("page") == ["1", "2"]
         assert result.saved_states == [IntercomResumeConfig(page=2)]
 
@@ -760,3 +778,22 @@ class TestResumableConversationParts:
         assert body["pagination"]["starting_after"] == "p2"
         assert body["query"]["value"] == 1600000000
         assert result.paths == ["/conversations/search", "/conversations/c4"]
+
+    def test_hitl_events_filter_parents_on_updated_at_with_the_created_at_watermark(self):
+        result = _drive(
+            "conversation_hitl_events",
+            [
+                _conversation_page(["c1"], None),
+                ScriptedResponse(
+                    json={"type": "list", "data": [{"hitl_cycle_id": "h1", "event_type": "fin_consultation_started"}]}
+                ),
+            ],
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            db_incremental_field_last_value=1700000000,
+        )
+
+        assert result.raised is None
+        assert [(e["conversation_id"], e["hitl_cycle_id"]) for e in result.rows] == [("c1", "h1")]
+        assert result.requests[0].json()["query"] == {"field": "updated_at", "operator": ">", "value": 1700000000}
+        assert result.paths == ["/conversations/search", "/conversations/c1/hitl_events"]

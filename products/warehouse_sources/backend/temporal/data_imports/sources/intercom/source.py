@@ -83,8 +83,8 @@ class IntercomSource(ResumableSource[IntercomSourceConfig, IntercomResumeConfig]
     )
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
-    supported_versions = ("2.13", "2.15", "2.16")
-    default_version = "2.16"
+    supported_versions = ("2.13", "2.15", "2.16", "2.17")
+    default_version = "2.17"
     api_docs_url = "https://developers.intercom.com/docs/references/rest-api"
 
     @property

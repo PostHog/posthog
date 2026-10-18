@@ -6404,7 +6404,7 @@ Note: Parsed the official Swagger resource index and individual JSON definitions
 
 ## Intercom — gaps
 
-Today (25): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_parts`, `conversations`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
+Today (30): `activity_logs`, `admins`, `articles`, `audiences`, `collections`, `companies`, `company_attributes`, `company_segments`, `contact_activities`, `contact_attributes`, `contacts`, `content_snippets`, `conversation_attributes`, `conversation_hitl_events`, `conversation_parts`, `conversations`, `deleted_contacts`, `dynamic_contents`, `folders`, `help_centers`, `macros`, `news_items`, `newsfeeds`, `segments`, `subscription_types`, `tags`, `teams`, `ticket_states`, `ticket_types`, `tickets`
 
 Diffed against: <https://github.com/intercom/Intercom-OpenAPI/blob/main/descriptions/2.16/api.intercom.io.yaml>
 
@@ -6414,6 +6414,14 @@ The main spec-verified diff is in [COVERAGE_GAPS.md](COVERAGE_GAPS.md#intercom--
 - [x] `GET /macros` — saved replies teammates use in the inbox (medium). Added as `macros`, incremental on `updated_at` through the `updated_since` filter.
 - [x] `GET /audiences` — saved audience definitions that content and messages target (low). Added as `audiences`.
 - [x] `GET /content_snippets` — snippets that feed Fin and Copilot answers (medium). Added as `content_snippets`.
+
+These endpoints were announced in the 2.17 changelog and are only in the 2.17 description, so the tables only show for sources pinned to 2.17.
+
+- [x] `GET /contacts/activities` — workspace feed of contact lifecycle events: created, role updated, merged, deleted (medium). Added as `contact_activities`.
+- [x] `GET /contacts/deleted` — archived, blocked, merged, and deleted contacts with the reason (medium). Added as `deleted_contacts`.
+- [x] `GET /folders` — folders that organize articles and other content, decoding `articles.folder_id` (low). Added as `folders`.
+- [x] `GET /dynamic_contents` — reusable Help Center content referenced from article bodies (low). Added as `dynamic_contents`.
+- [x] `GET /conversations/{id}/hitl_events` — Fin human-in-the-loop consultation events per conversation (medium). Added as `conversation_hitl_events`, fanned out over `conversations` and incremental on the parent's `updated_at`.
 
 ## Intruder — adequate
 
