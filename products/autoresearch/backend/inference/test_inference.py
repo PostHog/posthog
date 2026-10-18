@@ -1216,7 +1216,9 @@ class TestShadowScoring(TeamScopedTestMixin, BaseTest):
         assert sorted(c.kwargs["feature_sql"] for c in materialize.call_args_list) == sorted(expected_queries)
         # A deferred phase anchors on the people the champion scored, not on a second population query.
         # A failed store leaves the champion's run complete, and the phase selects the population again.
-        champion_people = sorted(row["distinct_id"] for row in _SHADOW_ROWS) if deferred and not store_fails else None
+        champion_people = (
+            sorted(str(row["distinct_id"]) for row in _SHADOW_ROWS) if deferred and not store_fails else None
+        )
         assert [c.kwargs.get("anchor_person_ids") for c in materialize.call_args_list] == [champion_people] * len(
             expected_queries
         )
