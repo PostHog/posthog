@@ -13,6 +13,7 @@ import {
     PostHogRateLimitError,
     PostHogTransportError,
     PostHogValidationError,
+    ToolInputValidationError,
 } from '@/lib/errors'
 import { getSearchParamsFromRecord, sanitizeHeaders, sanitizeHeaderValue } from '@/lib/utils.js'
 import type {
@@ -348,7 +349,9 @@ export class ApiClient {
             pathname.includes('//') ||
             new URL(pathname, this.baseUrl).pathname !== pathname
         ) {
-            throw new Error('Invalid API path')
+            throw new ToolInputValidationError(
+                'Invalid API path: a path parameter is empty, ".", or "..". Send a valid resource id and try again.'
+            )
         }
         const searchParams = new URLSearchParams()
         if (opts.query) {

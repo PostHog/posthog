@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiClient } from '@/api/client'
 import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-signature'
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
-import { PostHogTransportError } from '@/lib/errors'
+import { PostHogTransportError, ToolInputValidationError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
 import { GENERATED_TOOLS as PROXY_TOOLS } from '@/tools/generated/proxy-records'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
@@ -17,7 +17,9 @@ describe('ApiClient', () => {
         const context = { api: client, stateManager: { getOrgID: async () => 'example' } } as unknown as Context
         const tool = getToolByName(PROXY_TOOLS, 'proxy-delete')
         try {
-            await expect(tool.handler(context, tool.schema.parse({ id: '..' }))).rejects.toThrow('Invalid API path')
+            await expect(tool.handler(context, tool.schema.parse({ id: '..' }))).rejects.toThrow(
+                ToolInputValidationError
+            )
             expect(send).not.toHaveBeenCalled()
         } finally {
             vi.unstubAllGlobals()
@@ -33,7 +35,7 @@ describe('ApiClient', () => {
             try {
                 await expect(
                     client.request({ method: 'DELETE', path: `/api/organizations/example/proxy_records/${id}/` })
-                ).rejects.toThrow('Invalid API path')
+                ).rejects.toThrow(ToolInputValidationError)
                 expect(send).not.toHaveBeenCalled()
             } finally {
                 vi.unstubAllGlobals()
