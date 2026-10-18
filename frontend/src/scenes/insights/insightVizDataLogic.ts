@@ -2995,6 +2995,24 @@ const getActiveUsersMath = (
     return null
 }
 
+/** The closest interval that `activeUsersMath` supports, or null when `interval` is already supported.
+ *  Mirrors the intervals that `enabledIntervals` disables. */
+const getActiveUsersFallbackInterval = (
+    interval: IntervalType | undefined,
+    activeUsersMath: BaseMathType.WeeklyActiveUsers | BaseMathType.MonthlyActiveUsers
+): IntervalType | null => {
+    if (interval === 'hour' || interval === 'minute') {
+        return 'day'
+    }
+    if (
+        activeUsersMath === BaseMathType.WeeklyActiveUsers &&
+        (interval === 'month' || interval === 'quarter' || interval === 'year')
+    ) {
+        return 'week'
+    }
+    return null
+}
+
 /** Whether a date string carries a time of day, e.g. drag-to-zoom on an hourly chart emits
  *  `2024-06-10 08:00:00`. A bare `YYYY-MM-DD` means "that whole day". */
 export function hasTimeComponent(date: string): boolean {
@@ -3063,25 +3081,15 @@ const handleQuerySourceUpdateSideEffects = (
     // If the user just flipped an event action to use WAUs/MAUs math and their
     // current interval is unsupported by the math type, switch their interval
     // to an appropriate allowed interval and inform them of the change via a toast
-    if (
-        maybeChangedActiveUsersMath !== null &&
-        (interval === 'hour' ||
-            interval === 'month' ||
-            interval === 'minute' ||
-            interval === 'quarter' ||
-            interval === 'year')
-    ) {
-        if (interval === 'hour' || interval === 'minute') {
-            lemonToast.info(
-                `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
-            )
-            ;(mergedUpdate as TrendsQuery).interval = 'day'
-        } else if (maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
-            lemonToast.info(
-                `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
-            )
-            ;(mergedUpdate as TrendsQuery).interval = 'week'
-        }
+    const seriesFallbackInterval =
+        maybeChangedActiveUsersMath !== null
+            ? getActiveUsersFallbackInterval(interval, maybeChangedActiveUsersMath)
+            : null
+    if (maybeChangedActiveUsersMath !== null && seriesFallbackInterval !== null) {
+        lemonToast.info(
+            `Switched to grouping by ${seriesFallbackInterval}, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
+        )
+        ;(mergedUpdate as TrendsQuery).interval = seriesFallbackInterval
     }
 
     // clamp the funnel conversion window and per-exclusion step ranges against the new series
@@ -3209,6 +3217,18 @@ const handleQuerySourceUpdateSideEffects = (
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else {
                 ;(mergedUpdate as TrendsQuery).interval = selectedDateMapping?.defaultInterval || 'day'
+            }
+        }
+
+        // The auto-picked interval must also be one that weekly or monthly active users math supports.
+        const activeUsersMath = getActiveUsersMath(maybeChangedSeries ?? (currentState as TrendsQuery).series)
+        if (activeUsersMath !== null) {
+            const dateRangeFallbackInterval = getActiveUsersFallbackInterval(
+                (mergedUpdate as TrendsQuery).interval,
+                activeUsersMath
+            )
+            if (dateRangeFallbackInterval !== null) {
+                ;(mergedUpdate as TrendsQuery).interval = dateRangeFallbackInterval
             }
         }
     }
