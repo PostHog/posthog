@@ -1,4 +1,9 @@
-import type { HighlightItemApi, HighlightsApi, SignalViewApi } from 'products/today/frontend/generated/api.schemas'
+import type {
+    HighlightItemApi,
+    HighlightMetricApi,
+    HighlightsApi,
+    SignalViewApi,
+} from 'products/today/frontend/generated/api.schemas'
 
 export function signal(overrides: Partial<SignalViewApi>): SignalViewApi {
     return {
@@ -31,6 +36,28 @@ export function makeHighlightItem(overrides: Partial<HighlightItemApi> = {}): Hi
         series: null,
         score: 0.9,
         source: 'alerts',
+        ...overrides,
+    }
+}
+
+export function makePulseMetric(overrides: Partial<HighlightMetricApi> = {}): HighlightMetricApi {
+    return {
+        key: 'insight:abc',
+        name: 'Sign-ups',
+        value: 120,
+        unit: 'number',
+        change_pct: 4,
+        series: [100, 120],
+        interval: 'week',
+        url: '/insights/abc',
+        value_format: null,
+        period_starts: ['2026-09-21', '2026-09-28'],
+        reason: 'routine',
+        dashboard_name: null,
+        opened_days: 5,
+        last_opened: '2026-09-29',
+        movers: [],
+        previous_value: 100,
         ...overrides,
     }
 }

@@ -48,6 +48,7 @@ import {
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType, DashboardType } from '~/types'
 
+import { captureBIWorksheetAction } from 'products/business_intelligence/frontend/biEditorAnalytics'
 import { getBIResultDimensions } from 'products/business_intelligence/frontend/biEditorTypes'
 import { getBIAutoChartType } from 'products/business_intelligence/frontend/biEditorTypes'
 import { createBIMemberDisplayLookup } from 'products/business_intelligence/frontend/biMemberAliases'
@@ -2023,6 +2024,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
         },
         updateChartSettings: ({ settings }) => {
+            if (values.query.kind === NodeKind.BIVisualizationNode) {
+                captureBIWorksheetAction('chart_settings_changed', values.query.config, {
+                    setting_keys: Object.keys(settings),
+                })
+            }
             actions.setQuery((query) => ({
                 ...query,
                 chartSettings: mergeChartSettings(query.chartSettings ?? ({} as ChartSettings), settings),

@@ -270,6 +270,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     COSMOSDB = "CosmosDB", "CosmosDB"
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
+    PLANE = "Plane", "Plane"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
@@ -1026,6 +1027,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     BLACKBOARDLEARN = "BlackboardLearn", "BlackboardLearn"
     BLING = "Bling", "Bling"
     BLOOMERANG = "Bloomerang", "Bloomerang"
+    BLUESHIFT = "Blueshift", "Blueshift"
     BLUESKY = "Bluesky", "Bluesky"
     BOLRETAILER = "BolRetailer", "BolRetailer"
     BOULEVARD = "Boulevard", "Boulevard"
@@ -1455,6 +1457,8 @@ class ExternalDataSourceType(LabeledStrEnum):
     WISE = "Wise", "Wise"
     LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
     NORTHBEAM = "Northbeam", "Northbeam"
+    NAVERADS = "NaverAds", "NaverAds"
+    CHANNELIO = "ChannelIO", "ChannelIO"
 
 
 def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
