@@ -1284,6 +1284,32 @@ describe('supportTicketSceneLogic AI source refresh on poll', () => {
         expect(logic.values.status).toBe('pending')
     })
 
+    it('retries source refresh when the AI comment arrives before triage finishes', async () => {
+        commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
+        ticketRetrieveMock
+            .mockResolvedValueOnce({
+                ...loadedTicket(),
+                ai_triage: { status: 'in_progress', citations: [], sources: [] },
+            })
+            .mockResolvedValue({
+                ...loadedTicket(),
+                ai_triage: { ...loadedTicket().ai_triage, citations: ['chunk-1'], sources: [source] },
+            })
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.ticket?.ai_triage?.sources).toEqual([])
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.ticket?.ai_triage?.sources).toEqual([source])
+        expect(ticketRetrieveMock).toHaveBeenCalledTimes(2)
+
+        logic.actions.loadMessages()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(ticketRetrieveMock).toHaveBeenCalledTimes(2)
+    })
+
     it('does not fetch the ticket again when the poll brings no new AI message', async () => {
         commentsListMock.mockResolvedValue({ results: [citedAiComment()] })
         logic.actions.loadMessages()

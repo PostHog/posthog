@@ -1363,6 +1363,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 const ticket = (await conversationsTicketsRetrieve(String(getCurrentTeamId()), ticketId)) as Ticket
                 breakpoint()
                 if (values.ticket?.id === ticketId) {
+                    cache.pendingAiSourceRefresh =
+                        ticket.ai_triage?.status === 'in_progress' && !ticket.ai_triage.sources?.length
                     // Only ai_triage changes: setTicket would reset the unsaved status, priority and tag edits.
                     const currentHumanOutcome = values.ticket.ai_triage?.human_outcome
                     actions.setAiTriage(
@@ -1481,9 +1483,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     cache.messagesLoadedForTicketId === ticketId &&
                     results.some((message) => !knownIds.has(message.id) && hasAiCitations(message))
                 cache.messagesLoadedForTicketId = ticketId
+                cache.pendingAiSourceRefresh = cache.pendingAiSourceRefresh || hasNewCitedAiMessage
                 // Reverse to show oldest first (bottom = newest)
                 actions.setMessages(results.reverse())
-                if (hasNewCitedAiMessage) {
+                if (cache.pendingAiSourceRefresh) {
                     actions.refreshAiTriage()
                 }
             } catch {
