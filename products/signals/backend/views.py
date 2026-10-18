@@ -3081,6 +3081,15 @@ class SignalReportViewSet(
             ).data
         )
 
+    @staticmethod
+    def _task_action_error(
+        code: str, detail: str, status_code: int, *, task_id: str | None = None, run_id: str | None = None
+    ) -> Response:
+        body: dict[str, str] = {"code": code, "detail": detail}
+        if task_id is not None and run_id is not None:
+            body |= {"task_id": task_id, "run_id": run_id}
+        return Response(SignalReportTaskActionErrorSerializer(body).data, status=status_code)
+
     @extend_schema(
         responses={200: SignalReportTaskActionListResponseSerializer},
         summary="List the report actions that start an agent run",
@@ -3137,10 +3146,11 @@ class SignalReportViewSet(
                 ),
             ),
             429: OpenApiResponse(
+                response=SignalReportTaskActionErrorSerializer,
                 description=(
                     "The report reached its task limit (code `signal_report_task_cap`), the per-user creation "
                     "limit fired (code `throttled`), or the organization reached its usage limit"
-                )
+                ),
             ),
         },
         summary="Start a report action as a background agent run",
@@ -3161,9 +3171,10 @@ class SignalReportViewSet(
     )
     def run_task_action(self, request: ValidatedRequest, *args, **kwargs) -> Response:
         if is_sandbox_origin_request(request):
-            return Response(
-                {"code": "report_action_sandbox_refused", "detail": "A task sandbox cannot start report actions."},
-                status=status.HTTP_403_FORBIDDEN,
+            return self._task_action_error(
+                "report_action_sandbox_refused",
+                "A task sandbox cannot start report actions.",
+                status.HTTP_403_FORBIDDEN,
             )
         report = cast(SignalReport, self.get_object())
         user = cast(User, request.user)
@@ -3194,22 +3205,18 @@ class SignalReportViewSet(
                 if report_action.disabled_reason == AI_CONSENT_DISABLED_REASON
                 else status.HTTP_400_BAD_REQUEST
             )
-            return Response(
-                {"code": "report_action_unavailable", "detail": report_action.disabled_reason}, status=error_status
-            )
+            return self._task_action_error("report_action_unavailable", report_action.disabled_reason, error_status)
 
         if kind == ReportTaskActionKind.GET_IT_MERGED and (
             active := active_merge_run(team_id=self.team.id, report_id=str(report.id))
         ):
             capture("limited", "report_action_run_active")
-            return Response(
-                {
-                    "code": "report_action_run_active",
-                    "detail": "A merge run is already working on this report. Follow that run instead.",
-                    "task_id": active.task_id,
-                    "run_id": active.run_id,
-                },
-                status=status.HTTP_409_CONFLICT,
+            return self._task_action_error(
+                "report_action_run_active",
+                "A merge run is already working on this report. Follow that run instead.",
+                status.HTTP_409_CONFLICT,
+                task_id=active.task_id,
+                run_id=active.run_id,
             )
 
         if limit_response := usage_limit_response(user, self.team_id):
@@ -3223,15 +3230,10 @@ class SignalReportViewSet(
             started = start_report_task_action(context, report, report_action, code_access_allowed=code_access_allowed)
         except ReportTaskCapExceeded as error:
             capture("limited", "signal_report_task_cap")
-            return Response(
-                {"type": "rate_limit", "code": "signal_report_task_cap", "error": error.detail},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
+            return self._task_action_error("signal_report_task_cap", error.detail, status.HTTP_429_TOO_MANY_REQUESTS)
         except ReportTaskActionStartError as error:
             capture("failure")
-            return Response(
-                {"code": "report_action_start_failed", "detail": error.detail}, status=status.HTTP_400_BAD_REQUEST
-            )
+            return self._task_action_error("report_action_start_failed", error.detail, status.HTTP_400_BAD_REQUEST)
         capture("failure" if started.run_error else "success")
         return Response(
             SignalReportTaskActionRunResponseSerializer(
