@@ -35,6 +35,8 @@ class TriggerDevResumeConfig:
     after: str | None = None
     # Only the run fan-out sets this: the runs of the page at `after` up to and including this one are done.
     last_run_id: str | None = None
+    # That run's createdAt, the fallback boundary when the run no longer exists on the page.
+    last_run_created_at: str | None = None
 
 
 def resolve_base_url(base_url: str | None) -> str:
@@ -246,14 +248,13 @@ def _iter_run_events(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     after: str | None = resume.after if resume else None
     skip_through: str | None = resume.last_run_id if resume else None
+    skip_created_at = resume.last_run_created_at if resume else None
     formatted_cutoff = _format_incremental_value(cutoff) if cutoff is not None else None
 
     while True:
         runs, next_after = _fetch_cursor_page(session, base_url, headers, runs_config, logger, after, formatted_cutoff)
         stop = _should_stop_desc(runs, runs_config.default_incremental_field, cutoff)
-        if skip_through is not None and skip_through not in {run.get("id") for run in runs}:
-            # The run was deleted since the checkpoint, so there is nothing to skip past.
-            skip_through = None
+        marker_on_page = skip_through is not None and skip_through in {run.get("id") for run in runs}
         if not runs:
             resumable_source_manager.safe_point()
 
@@ -262,9 +263,20 @@ def _iter_run_events(
             if not run_id:
                 continue
             if skip_through is not None:
-                if run_id == skip_through:
-                    skip_through = None
-                continue
+                if marker_on_page:
+                    if run_id == skip_through:
+                        skip_through = None
+                    continue
+                # The checkpointed run is gone, and the page is newest-first, so every run strictly newer
+                # than it was already done.
+                created_at = run.get("createdAt")
+                if (
+                    skip_created_at is not None
+                    and created_at
+                    and not _is_older_than_cutoff(created_at, dateutil_parser.parse(skip_created_at))
+                ):
+                    continue
+                skip_through = None
             url = _build_url(base_url, config.path.format(run_id=run_id), {})
             try:
                 data = _fetch_page(session, url, headers, logger)
@@ -279,7 +291,9 @@ def _iter_run_events(
             if not events:
                 resumable_source_manager.safe_point()
                 continue
-            resumable_source_manager.save_state(TriggerDevResumeConfig(after=after, last_run_id=run_id))
+            resumable_source_manager.save_state(
+                TriggerDevResumeConfig(after=after, last_run_id=run_id, last_run_created_at=run.get("createdAt"))
+            )
             yield [{**event, "_runs_id": run_id, "_runs_createdAt": run.get("createdAt")} for event in events]
 
         if stop or not next_after:
@@ -337,7 +351,8 @@ def get_rows(
     config = TRIGGER_DEV_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # allow_redirects=False keeps the bearer token pinned to the validated host across every page.
-    session = make_tracked_session(allow_redirects=False)
+    # Capture off when rows carry a field that must not leave the source: samples are stored before excluded_fields is applied.
+    session = make_tracked_session(allow_redirects=False, capture=not config.excluded_fields)
 
     if config.pagination in ("cursor", "run_fanout"):
         cutoff: datetime | None = None

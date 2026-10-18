@@ -228,6 +228,25 @@ class TestRunEventsFanOut:
         assert [(r["_runs_id"], r["spanId"]) for r in resumed.rows] == [("run_a", "s9")]
         assert [r.path for r in resumed.requests] == ["/api/v1/runs", "/api/v1/runs/run_a/events"]
 
+    def test_resume_skips_newer_runs_when_the_checkpointed_run_was_deleted(self) -> None:
+        # Without the marker run, the createdAt boundary keeps the newer, already written runs out.
+        runs_page = {
+            "data": [
+                {"id": "run_c", "createdAt": "2026-01-12T00:00:00Z"},
+                {"id": "run_a", "createdAt": "2026-01-10T00:00:00Z"},
+            ],
+            "pagination": {},
+        }
+        resumed = _run(
+            "run_events",
+            [_json(runs_page), _json({"events": [{"spanId": "s9"}]})],
+            resume_state=TriggerDevResumeConfig(
+                after=None, last_run_id="run_b", last_run_created_at="2026-01-11T00:00:00Z"
+            ),
+        )
+        assert [r["_runs_id"] for r in resumed.rows] == ["run_a"]
+        assert [r.path for r in resumed.requests] == ["/api/v1/runs", "/api/v1/runs/run_a/events"]
+
 
 class TestClassicPagination:
     def test_walks_pages_until_total_and_never_checkpoints(self) -> None:
@@ -329,3 +348,17 @@ class TestSourceResponseSortMode:
         response = _run(endpoint, []).response
         assert response is not None
         assert response.sort_mode == expected
+
+
+class TestSampleCapture:
+    @parameterized.expand([("runs", True), ("waitpoint_tokens", False)])
+    def test_capture_is_off_when_a_field_is_excluded(self, endpoint: str, expected: bool) -> None:
+        # HTTP samples are stored before excluded_fields is applied, so the callback URL would leak.
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        with patch.object(trigger_dev, "make_tracked_session") as make_session:
+            make_session.return_value.get.return_value = MagicMock(
+                status_code=200, json=lambda: {"data": [], "pagination": {}}
+            )
+            list(trigger_dev.get_rows("tr_prod_x", BASE_URL, endpoint, MagicMock(), manager))
+        assert make_session.call_args.kwargs["capture"] is expected
