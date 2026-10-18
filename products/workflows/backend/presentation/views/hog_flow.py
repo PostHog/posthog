@@ -5757,10 +5757,12 @@ class HogFlowViewSet(
         if bounds is None and (not window or not re.fullmatch(r"-\d+[dh]", window)):
             window = "-7d"
         try:
-            after_date, before_date = bounds or (
-                relative_date_parse_with_delta_mapping(window, self.team.timezone_info)[0],
-                None,
+            after_date = (
+                bounds.start
+                if bounds
+                else relative_date_parse_with_delta_mapping(window or "-7d", self.team.timezone_info)[0]
             )
+            before_date = bounds.end if bounds else None
             tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
             reading = version_outcome(
                 team_id=self.team_id,

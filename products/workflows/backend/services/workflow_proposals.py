@@ -11,6 +11,7 @@ from django.db.models import QuerySet
 from django.utils import timezone
 
 from posthog.api.app_metrics2 import fetch_app_metric_totals
+from posthog.dataclasses import frozen
 
 from products.workflows.backend.facade.contracts import CreatedWorkflowProposal, ProposalChanges, WorkflowProposalRecord
 from products.workflows.backend.facade.enums import WorkflowProposalStatus
@@ -657,7 +658,13 @@ def versions_carrying_change(hog_flow: HogFlow, proposal: WorkflowProposal) -> t
 _MAX_ABSOLUTE_WINDOW = timedelta(days=90)
 
 
-def absolute_window(window: object, now: datetime) -> Optional[tuple[datetime, datetime]]:
+@frozen
+class AbsoluteWindow:
+    start: datetime
+    end: datetime
+
+
+def absolute_window(window: object, now: datetime) -> Optional[AbsoluteWindow]:
     """The bounds of an ISO 8601 interval such as "2026-10-07T22:00:00Z/2026-10-14T22:00:00Z", or None.
 
     A producer that reads only closed days names them this way, so PostHog must read the same days back."""
@@ -671,7 +678,7 @@ def absolute_window(window: object, now: datetime) -> Optional[tuple[datetime, d
         return None
     if not start < end <= now or end - start > _MAX_ABSOLUTE_WINDOW:
         return None
-    return start, end
+    return AbsoluteWindow(start=start, end=end)
 
 
 def version_outcome(
