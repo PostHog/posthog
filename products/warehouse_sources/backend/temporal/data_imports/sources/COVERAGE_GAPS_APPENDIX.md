@@ -4217,6 +4217,9 @@ Diffed against: <https://api.elevenlabs.io/openapi.json>
 - [ ] `/v1/dubbing (list dubs)` — dubbing jobs are a separate billable workload not represented by history or conversations (low)
 - [ ] `/v1/convai/agent-testing and /v1/convai/test-invocations` — agent test definitions and their invocation results for quality tracking (low)
 - [x] `/v1/convai/triage-tickets` — workspace-wide Conversational AI triage tickets raised about agent performance on conversations (medium)
+- [x] `/v1/convai/agents/{agent_id}/deployments` — current and historical traffic splits across agent branches (medium)
+- [x] `/v1/flows/templates and /v1/flows/templates/{template_id}/runs` — Flows templates plus the runs created through the API (low)
+- [x] `/v1/voices/collections` — voice collections lookup (low)
 
 Note: Official spec is large (277 paths); the ConvAI surface is the bulk of it. Static endpoint list in settings.py, no dynamic discovery.
 
