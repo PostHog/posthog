@@ -28,6 +28,7 @@ Common reinventions and what to use instead:
 | a select / combobox / autocomplete  | `LemonSelect`, `LemonInputSelect`                                                         |
 | a card / panel                      | `LemonCard`                                                                               |
 | a modal / confirm dialog            | `LemonModal` / `LemonDialog`                                                              |
+| a date or time shown to a user      | `TZLabel` (`lib/components/TZLabel`), not `dayjs().fromNow()`/`.format()`, in quill too   |
 
 If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork. If you do end up building custom, stay on brand: system tokens and primitives only, matching the surrounding scene's density and flatness — and none of the generic AI-generated look (purple/blue gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion). The full slop-tell catalog is in the `/writing-ui-components` skill.
 
