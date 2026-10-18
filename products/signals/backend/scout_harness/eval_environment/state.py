@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.eval_environment.schema import (
     ScoutEnvironmentUser,
 )
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
+from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.models import Task, TaskRun
@@ -451,6 +452,12 @@ class ScoutEnvironmentState:
                 frozenset({"key", "content", "created_by_run_id", "created_by_identity", "expires_at"}),
             )
         if profile := self.case.state.profile:
+            # Local trials read the starting profile through the current-version reader, so another version is unusable.
+            if profile.fields.get("source_version") != INVENTORY_SOURCE_VERSION:
+                raise ValueError(
+                    f"The recorded project profile must use source version {INVENTORY_SOURCE_VERSION}; "
+                    "rebuild it on this checkout before preparing the environment."
+                )
             self._insert(SignalProjectProfile, profile, frozenset({"expires_at", "source_version", "payload"}))
         identities = {str(source): str(target) for source, target in self.transform.ids.items()}
         identities.update({f"user:{source}": str(target) for source, target in self.user_ids.items()})
