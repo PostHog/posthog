@@ -16,6 +16,8 @@ from datetime import date, timedelta
 from functools import partial
 from typing import Optional, TypeVar, cast
 
+from django.core.cache import cache
+
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -751,11 +753,12 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     With ``catch_up_date`` it lists only the due pipelines whose latest scheduled run of that date
     failed with a kind a retry can pass (``scheduled_run_can_retry()``). A pipeline that the daily
     sweep has not reached yet has no run for the date, so the catch-up does not score it twice.
-    A catch-up lists nothing while another sweep still scores (``_sweep_in_flight()``), so the two
-    sweeps never exceed one bound together. The next catch-up tick tries again.
+    A catch-up lists nothing while the daily sweep of that date still runs (``activity_mark_daily_sweep``),
+    including its kickoff, validation and shadow phases, so the two sweeps never exceed one bound
+    together. The next catch-up tick tries again.
     """
     fail_stale_inference_runs()
-    if inp.catch_up_date is not None and _sweep_in_flight():
+    if inp.catch_up_date is not None and cache.get(daily_sweep_key(inp.catch_up_date)) == DAILY_SWEEP_RUNNING:
         logger.info("autoresearch_catch_up_deferred", catch_up_date=inp.catch_up_date)
         return LoadActivePipelinesResult(pipelines=[])
     today = django_timezone.now().date()
@@ -804,22 +807,35 @@ def activity_load_active_pipelines(inp: LoadActivePipelinesInput) -> LoadActiveP
     return LoadActivePipelinesResult(pipelines=[pipeline for _, pipeline in pipelines])
 
 
-def _sweep_in_flight() -> bool:
-    """True when any inference run, champion or shadow, is RUNNING inside one attempt's timeout.
+# The coordinator's execution timeout, which the schedules set. Longer than one pipeline's children
+# (inference, then kickoff), shorter than a day, so a stuck coordinator ends before the next tick
+# instead of making SKIP drop every later one. The daily sweep marker expires with it.
+COORDINATOR_TIMEOUT = timedelta(hours=12)
+DAILY_SWEEP_RUNNING = "running"
+DAILY_SWEEP_DONE = "done"
+# A finished sweep stays marked past the last catch-up tick of its date.
+_DAILY_SWEEP_DONE_TTL = timedelta(days=2)
 
-    The window is ``INFERENCE_WORKFLOW_TIMEOUT``, not one attempt's timeout, because a retry reuses the
-    row of the attempt before it and keeps its ``started_at``. A RUNNING row older than the window has
-    no live attempt behind it, and ``fail_stale_inference_runs()`` fails it before this check runs.
+
+def daily_sweep_key(run_date: str) -> str:
+    return f"autoresearch:daily-sweep:{run_date}"
+
+
+@frozen
+class MarkDailySweepInput:
+    run_date: str
+    state: str
+
+
+@activity.defn(name="autoresearch-coordinator.mark_daily_sweep")
+def activity_mark_daily_sweep(inp: MarkDailySweepInput) -> None:
+    """Record that the daily sweep of a date is running or done, so a catch-up waits for it.
+
+    The running marker expires with ``COORDINATOR_TIMEOUT``, so a coordinator that dies without
+    marking done holds the catch-up back no longer than it could still run.
     """
-    return (
-        AutoresearchRun.objects.unscoped()
-        .filter(
-            run_type=AutoresearchRun.RunType.INFERENCE,
-            status=AutoresearchRun.Status.RUNNING,
-            started_at__gte=django_timezone.now() - INFERENCE_WORKFLOW_TIMEOUT,
-        )
-        .exists()
-    )
+    ttl = COORDINATOR_TIMEOUT if inp.state == DAILY_SWEEP_RUNNING else _DAILY_SWEEP_DONE_TTL
+    cache.set(daily_sweep_key(inp.run_date), inp.state, timeout=int(ttl.total_seconds()))
 
 
 def _pause_orphaned_pipeline(pipeline: AutoresearchPipeline, *, reason: str) -> None:
@@ -984,6 +1000,8 @@ def _tasks_gate(pipeline: AutoresearchPipeline) -> str | None:
 _BOUNDED_SWEEP_PATCH = "autoresearch-bounded-sweep-2026-10"
 # Histories that started before this marker do not close the runs of a failed inference child.
 _CLOSE_LOST_RUNS_PATCH = "autoresearch-close-lost-runs-2026-10"
+# Histories that started before this marker do not tell a catch-up that the daily sweep is running.
+_DAILY_SWEEP_MARKER_PATCH = "autoresearch-daily-sweep-marker-2026-10"
 
 
 @workflow.defn(name="autoresearch-coordinator")
@@ -1020,6 +1038,25 @@ class AutoresearchCoordinatorWorkflow(PostHogWorkflow):
         run_date = inp.run_date or workflow.now().strftime("%Y-%m-%d")
 
         workflow.logger.info("autoresearch_coordinator_start", extra={"run_date": run_date})
+
+        tracks_daily_sweep = not inp.catch_up and workflow.patched(_DAILY_SWEEP_MARKER_PATCH)
+        if tracks_daily_sweep:
+            await _settle(self._mark_daily_sweep(run_date, DAILY_SWEEP_RUNNING))
+        try:
+            return await self._sweep(inp, run_date)
+        finally:
+            if tracks_daily_sweep:
+                await _settle(self._mark_daily_sweep(run_date, DAILY_SWEEP_DONE))
+
+    def _mark_daily_sweep(self, run_date: str, state: str) -> Awaitable[None]:
+        return workflow.execute_activity(
+            activity_mark_daily_sweep,
+            MarkDailySweepInput(run_date=run_date, state=state),
+            start_to_close_timeout=timedelta(minutes=1),
+            retry_policy=RetryPolicy(maximum_attempts=5),
+        )
+
+    async def _sweep(self, inp: CoordinatorWorkflowInput, run_date: str) -> CoordinatorWorkflowResult:
 
         active = await workflow.execute_activity(
             activity_load_active_pipelines,

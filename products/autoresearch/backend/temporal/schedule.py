@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
-
 from django.conf import settings
 
 from temporalio.client import (
@@ -19,7 +17,7 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.autoresearch.backend.temporal.workflows import CoordinatorWorkflowInput
+from products.autoresearch.backend.temporal.workflows import COORDINATOR_TIMEOUT, CoordinatorWorkflowInput
 
 _SCHEDULE_ID = "autoresearch-daily-coordinator"
 _WORKFLOW_ID = "autoresearch-coordinator"
@@ -28,9 +26,6 @@ _CATCH_UP_WORKFLOW_ID = "autoresearch-coordinator-catch-up"
 # An inference child can fail up to INFERENCE_WORKFLOW_TIMEOUT after it starts, and the daily sweep starts
 # children until its own timeout. Each tick retries the runs lost since the tick before it.
 _CATCH_UP_HOURS = [8, 14, 20]
-# Longer than one pipeline's children (inference, then kickoff), shorter than a day, so a
-# stuck coordinator ends before the next tick instead of making SKIP drop every later one.
-_COORDINATOR_TIMEOUT = timedelta(hours=12)
 
 
 def _coordinator_schedule(
@@ -42,7 +37,7 @@ def _coordinator_schedule(
             inp,
             id=workflow_id,
             task_queue=settings.AUTORESEARCH_TASK_QUEUE,
-            execution_timeout=_COORDINATOR_TIMEOUT,
+            execution_timeout=COORDINATOR_TIMEOUT,
         ),
         spec=ScheduleSpec(
             calendars=[
