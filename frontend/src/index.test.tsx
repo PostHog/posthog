@@ -60,6 +60,7 @@ describe('app entry boot', () => {
         delete window.__posthogAppRoot
         delete window.ESBUILD_CSS_READY
         delete window.POSTHOG_USER_IDENTITY_WITH_FLAGS
+        delete window.POSTHOG_APP_CONTEXT
         document.body.innerHTML = ''
         jest.clearAllTimers()
         jest.useRealTimers()
@@ -154,6 +155,30 @@ describe('app entry boot', () => {
             expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
             expect(bootApp).toHaveBeenCalledTimes(1)
         })
+
+        if (renderAppAsUpdate) {
+            it('preloads the authenticated shell for a logged-in user before App renders', async () => {
+                window.POSTHOG_APP_CONTEXT = { current_user: { id: 1 } } as any
+                const loadOrder: string[] = []
+                const loadAuthenticatedShell = jest.fn(async () => {
+                    loadOrder.push('shell')
+                })
+                jest.doMock('scenes/authenticatedShellLoader', () => ({ loadAuthenticatedShell }))
+                jest.doMock('scenes/App', () => ({
+                    App: (): JSX.Element => {
+                        loadOrder.push('app-rendered')
+                        return <div data-attr="boot-test-app" />
+                    },
+                }))
+
+                await loadEntry()
+                await act(async () => stylesheet.resolve(true))
+
+                expect(loadAuthenticatedShell).toHaveBeenCalledTimes(1)
+                expect(loadOrder).toEqual(['shell', 'app-rendered'])
+                expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
+            })
+        }
 
         it.each(['scenes/App', 'scenes/bootApp'])(
             'shows an early %s failure through the boot error boundary after CSS is ready',
