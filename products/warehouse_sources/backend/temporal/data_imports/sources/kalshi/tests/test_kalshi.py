@@ -402,3 +402,15 @@ class TestKalshiWeatherIndex:
         assert result.rows == [{"city": city, **point} for city in WEATHER_INDEX_CITIES]
         assert result.response is not None
         assert result.response.sort_mode == "desc"
+
+    def test_resumes_from_the_saved_city_and_stages_the_next_one(self) -> None:
+        result = _driver().run(
+            "weather_index",
+            always(ScriptedResponse(json={"city": "any", "units": "fahrenheit", "timeseries": [{"t": 1, "v": 1.0}]})),
+            resume_state=KalshiResumeConfig(cursor=WEATHER_INDEX_CITIES[-2]),
+            should_use_incremental_field=False,
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/trade-api/v2/live_data/weather/{city}" for city in WEATHER_INDEX_CITIES[-2:]]
+        assert result.saved_states[-1] == KalshiResumeConfig(cursor=WEATHER_INDEX_CITIES[-1])

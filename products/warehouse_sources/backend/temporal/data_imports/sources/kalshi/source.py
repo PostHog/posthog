@@ -88,7 +88,8 @@ It syncs markets, events, series, trades, milestones, daily market candlesticks,
     ) -> list[SourceSchema]:
         # Only the trade, candlestick, and weather index endpoints carry incremental fields, so build_endpoint_schemas
         # marks them incremental and leaves the rest full-refresh.
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        # Append would duplicate the hour each weather index run re-reads; merge dedupes it.
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=("weather_index",))
 
     def validate_credentials(
         self,

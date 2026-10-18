@@ -204,7 +204,13 @@ def _weather_index_rows(
     from_ms: int,
     to_ms: int,
 ) -> Iterator[list[dict[str, Any]]]:
-    for city in WEATHER_INDEX_CITIES:
+    cities = list(WEATHER_INDEX_CITIES)
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor in cities:
+            cities = cities[cities.index(resume.cursor) :]
+
+    for position, city in enumerate(cities):
         rows: list[dict[str, Any]] = []
         for page in client.paginate(
             path=f"/live_data/weather/{city}",
@@ -214,6 +220,9 @@ def _weather_index_rows(
             data_selector_required=True,
         ):
             rows.extend({"city": city, **point} for point in page)
+        if position + 1 < len(cities):
+            # The cursor names the next city to read, so a resume skips the cities already yielded.
+            resumable_source_manager.save_state(KalshiResumeConfig(cursor=cities[position + 1]))
         if rows:
             yield rows
         else:
