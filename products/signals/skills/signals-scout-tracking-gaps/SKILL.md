@@ -76,7 +76,8 @@ Every run has the same shape, because a run that skims all four families finds n
 
 1. **Always run the two cheap scans first:** "Failure events with one reason" and "Checks that could not measure" in `references/queries.md`, plus the live inbox reports that say a cause or effect cannot be told apart.
    Each is one query, and together they found most of the strongest gaps in testing.
-2. **Then sweep one family in depth:** the one whose `last_sweep` date is oldest.
+2. **Then sweep one family in depth:** the one whose `last_sweep` date is oldest. A family with no date is the oldest.
+   A candidate you already hold under `watch:` does not count as a sweep: refresh it in one query, then sweep the next family.
    Run every query `references/queries.md` lists for that family, and take each candidate through readership, absence on the same scope, and code before you rule it in or out.
 3. Record what you checked and what you ruled out under `anchor:` keys, so the next run starts where this one stopped.
 
@@ -156,7 +157,7 @@ Mark them `requires_human_input` with the exact insights and the replacement, an
 - `config:tracking_gaps:repos`: the repository list a person wrote. Never overwrite it.
 - `roster:tracking_gaps:repos`: the repositories you discovered, ranked, with the evidence for each.
 - `pattern:tracking_gaps:idioms:<owner/repo>`: the SDKs, capture helpers with a file:line example each, the server identity pattern, and the naming rule.
-- `pattern:tracking_gaps:last_sweep`: the date each anchor family was last swept.
+- `pattern:tracking_gaps:last_sweep`: one line per anchor family with the date of its last in-depth sweep, or `never`. Keep all four lines in every write.
 - `cursor:tracking_gaps:<owner/repo>`: the last merge you read.
 - `anchor:tracking_gaps:<entity>`: an anchor you checked, the verdict, and why (for example "event already carries `source`, the insight can filter on it").
 - `watch:tracking_gaps:<area>`: a gap that has no anchor yet, or no repository, and what would make it reportable.
