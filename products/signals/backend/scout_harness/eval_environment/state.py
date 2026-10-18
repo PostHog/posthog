@@ -31,6 +31,7 @@ from products.signals.backend.scout_harness.eval_environment.schema import (
     ScoutEnvironmentUser,
 )
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_origin
+from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile, LLMSkillOwner
 from products.tasks.backend.models import Task, TaskRun
 
@@ -411,23 +412,32 @@ class ScoutEnvironmentState:
             self._seed_run(record, config)
         for record in self.case.state.reports:
             self._insert(SignalReport, record, self._REPORT_FIELDS)
+        reviewer_report_ids: set[str] = set()
         for record in self.case.state.report_artefacts:
-            self._insert(
+            artefact = cast(
                 SignalReportArtefact,
-                record,
-                frozenset(
-                    {
-                        "report_id",
-                        "type",
-                        "content",
-                        "actor_kind",
-                        "actor_agent",
-                        "created_by_id",
-                        "task_id",
-                        "claim_id",
-                    }
+                self._insert(
+                    SignalReportArtefact,
+                    record,
+                    frozenset(
+                        {
+                            "report_id",
+                            "type",
+                            "content",
+                            "actor_kind",
+                            "actor_agent",
+                            "created_by_id",
+                            "task_id",
+                            "claim_id",
+                        }
+                    ),
                 ),
             )
+            if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
+                reviewer_report_ids.add(str(artefact.report_id))
+        # Bulk inserts skip the save receiver that maintains the reviewer index, so rebuild it from the restored rows.
+        for report_id in sorted(reviewer_report_ids):
+            sync_suggested_reviewer_index(team_id=team.id, report_id=report_id)
         for record in self.case.state.notes:
             self._insert(
                 SignalScoutNote,
