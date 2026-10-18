@@ -9,6 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { InsightVizNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { ChartDisplayType } from '~/types'
 import type { InsightShortId } from '~/types'
 
 import { insightDataChecksLogic } from './insightDataChecksLogic'
@@ -189,5 +190,32 @@ describe('insightDataChecksLogic', () => {
         await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
 
         expect(logic.values.status).toBe(expected)
+    })
+
+    it('checks again when the chart type changes and the chart reuses its result', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        await expectLogic(logic, turnTheFlagOn).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            vizData.actions.updateQuerySource({ trendsFilter: { display: ChartDisplayType.ActionsBar } })
+        }).toFinishAllListeners()
+
+        expect(dataChecks).toHaveBeenCalledTimes(2)
+        expect(logic.values.status).toBe('passed')
+    })
+
+    it('does not check a chart with overrides, because only the server holds the query it runs', async () => {
+        dataChecks.mockImplementation(answer([200, checksOf('passed')]))
+        const overridden = { dashboardItemId: '456' as InsightShortId, filtersOverride: { date_from: '-1d' } }
+        insightDataLogic(overridden).mount()
+        insightVizDataLogic(overridden).mount()
+        const overriddenLogic = insightDataChecksLogic(overridden)
+        overriddenLogic.mount()
+
+        await expectLogic(overriddenLogic, turnTheFlagOn).toFinishAllListeners()
+
+        expect(overriddenLogic.values.status).toBe('unavailable')
+        expect(dataChecks).toHaveBeenCalledTimes(1)
+        overriddenLogic.unmount()
     })
 })
