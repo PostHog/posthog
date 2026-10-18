@@ -21,8 +21,6 @@ describe('forYouRows', () => {
     it('keeps the server order, puts reports before highlights and more reports last, and steps through reports in list order', () => {
         const reports = ['a', 'b', 'c', 'd', 'e', 'f'].map((id) => makeReport({ id }))
         const { rows, limit } = forYouRows({
-            showPersonalBriefing: false,
-            briefingItems: [],
             reports,
             loadedMoreReports: [makeReport({ id: 'more' })],
             highlights: [highlight('risk-1', 'risk'), highlight('opportunity-1', 'opportunity')],

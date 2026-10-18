@@ -23,6 +23,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowIdeaWorkflowMismatch,
 )
 from products.workflows.backend.facade.data_suggestions import (
+    FEATURE_FLAG_KEY,
     build_caller,
     email_sender_ready,
     get_data_suggestions,
@@ -32,9 +33,6 @@ from products.workflows.backend.facade.data_suggestions import (
     start_data_suggestions,
 )
 from products.workflows.backend.facade.workflow_ideas import accept_idea, dismiss_idea
-
-# pinned: feature flag key - the frontend gates the same surfaces on it
-FEATURE_FLAG_KEY = "workflows-data-suggestions"
 
 
 class DataSuggestionStepKind(models.TextChoices):

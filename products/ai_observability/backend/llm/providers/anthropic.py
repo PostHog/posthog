@@ -302,6 +302,11 @@ class AnthropicAdapter:
             if tools is not None:
                 common_kwargs["tools"] = tools
 
+            if request.output_schema is not None:
+                common_kwargs["output_config"] = {
+                    "format": {"type": "json_schema", "schema": request.output_schema.schema}
+                }
+
             if reasoning_on:
                 stream = client.messages.create(
                     **common_kwargs,

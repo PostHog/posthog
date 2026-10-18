@@ -1232,7 +1232,8 @@ function MarkdownNotebookEditor({
         const firstTextNode = getRenderedNodes()[0]
         const firstElement = firstTextNode ? blockRefs.current[firstTextNode.id] : null
         if (firstElement) {
-            firstElement.focus()
+            // The host may have restored a scroll position, such as when the reader goes back to a notebook.
+            firstElement.focus({ preventScroll: true })
             restoreSelection(firstElement, 0, 0)
         }
         // oxlint-disable-next-line exhaustive-deps
@@ -3322,7 +3323,7 @@ function MarkdownNotebookEditor({
         window.document.addEventListener('focusin', handleDocumentSelectionChange)
         window.document.addEventListener('mousedown', handleDocumentPointerStart, true)
         window.document.addEventListener('pointerdown', handleDocumentPointerStart, true)
-        window.document.addEventListener('touchstart', handleDocumentPointerStart, true)
+        window.document.addEventListener('touchstart', handleDocumentPointerStart, { capture: true, passive: true })
         window.addEventListener('resize', handleViewportChange)
         window.addEventListener('scroll', handleViewportChange, { capture: true, passive: true })
 

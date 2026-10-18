@@ -7,9 +7,9 @@ from posthog.temporal.session_replay.rasterize_recording.types import Navigation
 
 # The timeline stays a skim-able digest: bounded per URL, per entry count, and in total URL characters, so a bouncy
 # session with long URLs can't bloat the cached prompt.
-_MAX_NAVIGATION_ENTRIES = 50
+_MAX_NAVIGATION_ENTRIES = 100
 _MAX_NAVIGATION_URL_LEN = 200
-_MAX_NAVIGATION_TOTAL_URL_CHARS = 5000
+_MAX_NAVIGATION_TOTAL_URL_CHARS = 10000
 
 
 class NavigationEntry(BaseModel, frozen=True):
@@ -52,14 +52,22 @@ def navigation_timeline(changes: Sequence[NavigationChange]) -> tuple[list[Navig
         ends.append(None)
     entries = [entry.model_copy(update={"end_t": end}) for entry, end in zip(entries, ends)]
 
-    kept: list[NavigationEntry] = []
+    # Over budget, the shortest visits go first, so late long visits outlast early bounces. Tab openings stay, since
+    # they mark hand-offs, and a visit that lasts to the end has no known length.
+    kept: set[int] = set()
     url_chars = 0
-    for entry in entries:
-        if len(kept) >= _MAX_NAVIGATION_ENTRIES or url_chars + len(entry.url) > _MAX_NAVIGATION_TOTAL_URL_CHARS:
+    for i in sorted(range(len(entries)), key=lambda i: (not entries[i].new_window, -_visit_length(entries[i]), i)):
+        if len(kept) >= _MAX_NAVIGATION_ENTRIES:
             break
-        kept.append(entry)
-        url_chars += len(entry.url)
-    return kept, len(entries) - len(kept)
+        if url_chars + len(entries[i].url) > _MAX_NAVIGATION_TOTAL_URL_CHARS:
+            continue
+        kept.add(i)
+        url_chars += len(entries[i].url)
+    return [entries[i] for i in sorted(kept)], len(entries) - len(kept)
+
+
+def _visit_length(entry: NavigationEntry) -> float:
+    return math.inf if entry.end_t is None else entry.end_t - entry.vid_t + 1
 
 
 def _first_whole_second(video_s: float) -> int:

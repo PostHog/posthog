@@ -31,7 +31,12 @@ from products.signals.backend.contracts import (
     STEERING_MAX_LENGTH,
     scope_ids_problem,
 )
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
+from products.signals.backend.enums import (
+    ReportTaskActionKind,
+    SignalSourceProduct,
+    SignalSourceType,
+    SuggestedSourceProduct,
+)
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -1945,8 +1950,7 @@ class SignalReportsForYouQuerySerializer(serializers.Serializer):
         default=True,
         help_text=(
             "Whether to include P0 reports that nobody owns. These belong to the project rather than to "
-            "one person, and they rank above everything else, so a surface that only shows a person's own "
-            "work passes false. Defaults to true."
+            "one person, so a surface that only shows a person's own work passes false. Defaults to true."
         ),
     )
 
@@ -1955,12 +1959,10 @@ class SignalReportsForYouResponseSerializer(serializers.Serializer):
     results = SignalReportListSerializer(
         many=True,
         help_text=(
-            "One page of the open, actionable reports that matter most to the current user. The ranking "
-            "model picks which reports make the page; the page is then in display order: by priority, P0 "
-            "first and reports without a priority last, then best first within a priority. They are "
-            "reports waiting for their input, reports they claimed, reports naming them as a reviewer, "
-            "and P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks "
-            "reports the same way."
+            "One page of the open, actionable reports that matter most to the current user, in the inbox "
+            "priority order: priority, then status, then most recently updated. They are reports waiting for their input, reports they claimed, "
+            "reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` "
+            "is false. The Today briefing ranks reports the same way."
         ),
     )
     count = serializers.IntegerField(
@@ -2109,6 +2111,17 @@ class SignalMatchMetadataField(serializers.JSONField):
 
 
 class SignalNodeSerializer(serializers.Serializer):
+    total_spend = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked signals.",
+    )
+    spend_accounting_failed_stages = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        default=list,
+        help_text="Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers.",
+    )
     signal_id = serializers.CharField(help_text="ClickHouse document id of the signal.")
     content = serializers.CharField(help_text="The signal's human-readable description.")
     source_product = serializers.ChoiceField(
@@ -2205,6 +2218,14 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
         config = representation.get("config")
         if isinstance(config, Mapping):
             config = dict(config)
+            if "monitoring" in config:
+                enabled_by_team = cast(
+                    dict[int, bool], self.context.setdefault("report_monitoring_enabled_by_team", {})
+                )
+                if instance.team_id not in enabled_by_team:
+                    enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
+                if not enabled_by_team[instance.team_id]:
+                    config.pop("monitoring")
             if instance.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
                 metric = next(
                     (
@@ -2419,6 +2440,35 @@ class SignalReportCheckWriteSerializer(serializers.Serializer):
         return attrs
 
 
+# The head fields a reader needs to show a score: readability and the base rate behind each lift.
+_COMPACT_RANKING_HEAD_FIELDS = ("head", "readable", "refit_classification_threshold")
+
+
+def compact_ranking_score_content(content: dict) -> dict:
+    """Drop the copied model metadata from a `ranking_score` row, except the head fields that read a score.
+
+    The metadata holds training and holdout data that is tens of KB per model, so a work log with a
+    few scores is mostly metadata. The single-artefact read keeps the full row.
+    """
+    results = content.get("results")
+    if not isinstance(results, dict):
+        return content
+    compact_results = {}
+    for key, result in results.items():
+        if not isinstance(result, dict):
+            compact_results[key] = result
+            continue
+        metadata = result.get("metadata")
+        heads = metadata.get("heads") if isinstance(metadata, dict) else None
+        compact_heads = [
+            {field: entry[field] for field in _COMPACT_RANKING_HEAD_FIELDS if field in entry}
+            for entry in (heads if isinstance(heads, list) else [])
+            if isinstance(entry, dict)
+        ]
+        compact_results[key] = {**result, "metadata": {"heads": compact_heads}}
+    return {**content, "results": compact_results}
+
+
 class SignalReportArtefactSerializer(serializers.ModelSerializer):
     claim_id = serializers.UUIDField(
         read_only=True, allow_null=True, help_text="Work claim that produced this artefact."
@@ -2500,6 +2550,13 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
 
         if obj.type == SignalReportArtefact.ArtefactType.CHECK_RESULT and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
+
+        if (
+            obj.type == SignalReportArtefact.ArtefactType.RANKING_SCORE
+            and isinstance(parsed, dict)
+            and self.context.get("signals_compact_ranking_scores")
+        ):
+            return compact_ranking_score_content(parsed)
 
         if obj.type == SignalReportArtefact.ArtefactType.IMPACT_MEASUREMENT_PLAN and isinstance(parsed, dict):
             policy = report_metric_access_policy(self.context)
@@ -2992,3 +3049,69 @@ class PullRequestReviewCommentReactionCreateResponseSerializer(serializers.Seria
     """Response after adding a reaction — the created reaction, so the frontend can track its id."""
 
     reaction = PullRequestCommentReactionSerializer(read_only=True)
+
+
+class SignalReportTaskActionSerializer(serializers.Serializer):
+    """One report action that starts an agent run, with whether the report offers it now."""
+
+    action = serializers.ChoiceField(
+        choices=ReportTaskActionKind.choices,
+        help_text=(
+            "The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. "
+            "`suggested_prompt` sends one of the prompts the report suggests."
+        ),
+    )
+    available = serializers.BooleanField(help_text="Whether a run of this action can start now.")
+    disabled_reason = serializers.CharField(
+        allow_null=True, help_text="Why the action cannot start now. Null when `available` is true."
+    )
+    suggested_prompt_index = serializers.IntegerField(
+        allow_null=True,
+        help_text="Position of the prompt in the report's suggested prompts. Null for other actions.",
+    )
+    text = serializers.CharField(help_text="The message the run gets as its first request.")
+
+
+class SignalReportTaskActionListResponseSerializer(serializers.Serializer):
+    results = SignalReportTaskActionSerializer(
+        many=True, help_text="Every action the report has, available or not, in a stable order."
+    )
+
+
+class SignalReportTaskActionRunRequestSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(
+        choices=ReportTaskActionKind.choices,
+        help_text="The action to run. Use a value from the actions list.",
+    )
+    suggested_prompt_index = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.",
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs["action"] == ReportTaskActionKind.SUGGESTED_PROMPT and attrs.get("suggested_prompt_index") is None:
+            raise serializers.ValidationError(
+                {"suggested_prompt_index": "Give the index of the suggested prompt to send."}
+            )
+        return attrs
+
+
+class SignalReportTaskActionRunResponseSerializer(serializers.Serializer):
+    task_id = serializers.UUIDField(help_text="The task the action created. It is linked to the report.")
+    run_id = serializers.UUIDField(allow_null=True, help_text="The background run that started, if one did.")
+    task_url = serializers.CharField(help_text="Link to the task in PostHog.")
+    run_error = serializers.CharField(
+        allow_null=True, help_text="Why the run did not start. Null when it started. The task exists either way."
+    )
+
+
+class SignalReportTaskActionErrorSerializer(serializers.Serializer):
+    code = serializers.CharField(help_text="Machine-readable error code.")
+    detail = serializers.CharField(help_text="Human-readable error message.")
+    task_id = serializers.UUIDField(
+        required=False, help_text="For `report_action_run_active`: the task of the run that is still working."
+    )
+    run_id = serializers.UUIDField(
+        required=False, help_text="For `report_action_run_active`: the run that is still working."
+    )
