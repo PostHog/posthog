@@ -439,7 +439,10 @@ class ScoutEvaluationTrials:
 
         from products.signals.backend.models import SignalScoutRun  # noqa: PLC0415
         from products.signals.backend.scout_harness.trial_launch import read_trial_launch  # noqa: PLC0415
-        from products.signals.backend.scout_harness.trial_result import read_trial_result  # noqa: PLC0415
+        from products.signals.backend.scout_harness.trial_result import (  # noqa: PLC0415
+            get_trial_workflow_status,
+            read_trial_result,
+        )
         from products.signals.backend.scout_harness.trial_state import ScoutTrialStore  # noqa: PLC0415
         from products.tasks.backend.facade.api import (  # noqa: PLC0415
             get_task_run_log_size,
@@ -486,10 +489,11 @@ class ScoutEvaluationTrials:
                 )
             )
         except SignalScoutRun.DoesNotExist:
+            workflow = get_trial_workflow_status(team_id=self.seed.team_id, launch_id=launch_id)
             return TrialExport(
-                status="pending",
+                status="pending" if workflow.status == "completed" and workflow.run_id else workflow.status,
                 launch_id=launch_id,
-                errors=["No bound scout run is available yet; inspect the comparison or workflow status."],
+                errors=[workflow.error or "No bound scout run is available yet; inspect the comparison status."],
             )
         except SignalScoutRun.MultipleObjectsReturned:
             return TrialExport(
