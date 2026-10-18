@@ -34,6 +34,9 @@ GOAL_ID = "goalId"
 # List values are addressed by their custom field, and the value rows do not carry it.
 CUSTOM_FIELD_ID = "customFieldId"
 
+# Parent row key holding the percent-encoded copy of a fan-out parent id, for the child path.
+ENCODED_PARENT_ID = "_encoded_parent_id"
+
 # BambooHR's org locations endpoint is the only one that takes a page size.
 LOCATIONS_PAGE_SIZE = 500
 # The documented maximum page size of each newer collection endpoint.
@@ -74,6 +77,9 @@ class BambooHREndpointConfig:
     chunked_date_window: ChunkedDateWindow | None = None
     # Fan-out over a parent listing, for endpoints addressed by a single parent record.
     fanout: DependentEndpointConfig | None = None
+    # Parent field to percent-encode before the fan-out binds it into the child path, for ids
+    # that are not known to be numeric. The fan-out must resolve on ENCODED_PARENT_ID.
+    encode_parent_field: str | None = None
     # Set when the endpoint is two fan-out levels deep, which the single-hop helper cannot express.
     custom_iterator: Literal["goal_comments"] | None = None
     # Static query params every request for this endpoint carries.
@@ -146,7 +152,7 @@ def _time_tracking_endpoint(name: str, resource: str, sort: str) -> BambooHREndp
 _CUSTOM_FIELD_FANOUT = DependentEndpointConfig(
     parent_name="custom_fields",
     resolve_param=CUSTOM_FIELD_ID,
-    resolve_field="id",
+    resolve_field=ENCODED_PARENT_ID,
     include_from_parent=["id"],
     parent_field_renames={"id": CUSTOM_FIELD_ID},
     parent_params={"pageSize": CUSTOM_FIELDS_PAGE_SIZE},
@@ -362,6 +368,8 @@ BAMBOOHR_ENDPOINTS: dict[str, BambooHREndpointConfig] = {
         primary_keys=[CUSTOM_FIELD_ID, "id"],
         pagination="single",
         fanout=_CUSTOM_FIELD_FANOUT,
+        # Custom field ids are strings, and the path binding applies no escaping.
+        encode_parent_field="id",
     ),
 }
 

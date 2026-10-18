@@ -559,6 +559,18 @@ class TestCustomFieldListValues:
         ]
         assert result.queries[0] == {"pageSize": (str(CUSTOM_FIELDS_PAGE_SIZE),)}
 
+    def test_field_ids_from_the_api_cannot_extend_the_request_path(self) -> None:
+        responses = [
+            ScriptedResponse(json={"data": [{"id": "../../other?x="}], "_links": {}}),
+            ScriptedResponse(json={"id": "x", "values": [{"id": "1"}]}),
+        ]
+
+        result = _driver().run("custom_field_list_values", responses)
+
+        assert result.raised is None
+        assert result.paths[1] == "/api/gateway.php/acme/v1/hris/custom-fields/..%2F..%2Fother%3Fx%3D/list-values"
+        assert result.rows == [{"id": "1", CUSTOM_FIELD_ID: "../../other?x="}]
+
 
 class TestEndpointCatalog:
     @parameterized.expand(
