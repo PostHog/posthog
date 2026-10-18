@@ -56,7 +56,7 @@ FLUTTERWAVE_ENDPOINTS: dict[str, FlutterwaveEndpointConfig] = {
 ENDPOINTS = tuple(FLUTTERWAVE_ENDPOINTS.keys())
 
 
-@dataclass
+@dataclass(frozen=True)
 class FlutterwaveV4EndpointConfig:
     path: str
     partition_key: Optional[str] = "created_datetime"

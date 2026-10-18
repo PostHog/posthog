@@ -60,7 +60,7 @@ _NO_RECORDS_RESPONSE_ACTIONS: list[ResponseAction] = [
 ]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FlutterwaveResumeConfig:
     # 1-based page number to resume pagination from. 1 means "start from the beginning".
     next_page: int = 1
@@ -74,15 +74,16 @@ class FlutterwaveCursorPaginator(JSONResponseCursorPaginator):
         super().__init__(cursor_path="data.cursor.next", cursor_param="next", raise_on_repeated_cursor=True)
 
     def update_state(self, response: Any, data: Optional[list[Any]] = None) -> None:
-        super().update_state(response, data)
-        # v4 reports `has_more_items` next to the cursor; honor it so a cursor on the last page does
-        # not start an extra request.
+        # v4 reports `has_more_items` next to the cursor. Check it first, so a last page that
+        # repeats or still carries a cursor ends the list instead of tripping the repeat guard.
         try:
             has_more = response.json()["data"]["cursor"].get("has_more_items")
         except Exception:
             has_more = None
         if has_more is False:
             self._has_next_page = False
+            return
+        super().update_state(response, data)
 
 
 def base_url(api_version: str) -> str:
@@ -149,9 +150,11 @@ def _validate_v4_credentials(client_id: Optional[str], client_secret: Optional[s
         f"{FLUTTERWAVE_V4_API_HOST}/settlements",
         headers={"Authorization": f"Bearer {token}", "Accept": "application/json"},
     )
-    if ok:
+    # The token mint already proved the credentials, so a 403 only means these keys cannot read
+    # settlements. That must not block connecting the tables they can read.
+    if ok or status == 403:
         return True, None
-    if status in (401, 403):
+    if status == 401:
         return False, invalid
     return False, "Could not reach the Flutterwave API. Try again in a few minutes."
 

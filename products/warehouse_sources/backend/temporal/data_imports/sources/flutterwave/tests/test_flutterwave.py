@@ -262,7 +262,7 @@ class TestValidateCredentials:
             ("ok", 200, 200, True),
             ("rejected_client", 401, None, False),
             ("token_cannot_read", 200, 401, False),
-            ("forbidden", 200, 403, False),
+            ("token_lacks_settlements_access", 200, 403, True),
             ("server_error", 200, 500, False),
         ]
     )
@@ -315,8 +315,9 @@ class TestV4:
                     TOKEN_PATH: [_token()],
                     "/transfers": [
                         _cursor_page("transfers", [{"id": "trf_1"}], "cursor-2", True),
-                        # The last page still carries a cursor; has_more_items is what ends the list.
-                        _cursor_page("transfers", [{"id": "trf_2"}], "cursor-3", False),
+                        # The last page repeats the cursor; has_more_items ends the list before the
+                        # repeat guard sees it.
+                        _cursor_page("transfers", [{"id": "trf_2"}], "cursor-2", False),
                     ],
                 }
             ),
