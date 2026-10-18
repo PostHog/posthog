@@ -93,6 +93,17 @@ class ScoutEnvironmentCommand:
             raise ValueError("Prepare the environment successfully before freezing it.")
         seed_path = self.workspace / "scout-seed.json"
         seed = ScoutEnvironmentSeed.model_validate_json(seed_path.read_bytes())
+        if (
+            receipt.manifest_sha256 != dataset.manifest_sha256
+            or receipt.environment_id != case.environment_id
+            or dataset.manifest.environment_id != case.environment_id
+            or seed.environment_id != case.environment_id
+            or seed.team_id != receipt.team_id
+        ):
+            raise ValueError(
+                "The case, event bundle, seed and receipt describe different environments. "
+                "Prepare the changed inputs in a new workspace."
+            )
         paths = [case_path, self.workspace / "receipt.json", seed_path, dataset.path]
         paths.extend(reference.resolve(dataset.path.parent) for reference in dataset.manifest.events)
         if dataset.manifest.metrics:
