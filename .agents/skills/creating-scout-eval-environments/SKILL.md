@@ -213,6 +213,10 @@ Only after the setup works, run repeated sessions or provide a private JSON list
 of `TrialVariant` objects through `--variants`. Existing Scout comparisons freeze
 starting notes/memory/history and run the saved rubric judges. Adopt or save the
 reviewed rubric after reconstruction is frozen, using the existing rubric tools.
+Decide this before preparation: rubric generation and saving change the config's
+`rubrics` and `updated_at`, and verification compares every `case.config` field
+before each plan and launch. When rubrics will change later, omit both fields from
+`case.config` and keep their source values in private evidence.
 Keep finding accuracy, scope compliance and reconstruction fidelity separate.
 
 Trials keep reports and memory private per run. Keep the underlying project data
