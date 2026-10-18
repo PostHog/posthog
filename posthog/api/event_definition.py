@@ -435,6 +435,7 @@ class EventDefinitionViewSet(
 
         search = self.request.GET.get("search", None)
         has_search_terms = bool(search and search.strip())
+        fuzzy_search = self.request.GET.get("fuzzy_search", "false").lower() == "true"
         exclude_stale = self.request.GET.get("exclude_stale", "false").lower() == "true"
         verified_param = self.request.GET.get("verified") if EE_AVAILABLE else None
         names = [name for value in self.request.query_params.getlist("names") for name in value.split(",") if name]
@@ -471,33 +472,31 @@ class EventDefinitionViewSet(
             "count_cap": LARGE_PROJECT_COUNT_CAP,
             **search_kwargs,
         }
+        filter_query = ""
 
         exclude_hidden = self.request.GET.get("exclude_hidden", "false").lower() == "true"
         if exclude_hidden and EE_AVAILABLE:
-            search_query = search_query + " AND (hidden IS NULL OR hidden = false)"
+            filter_query += " AND (hidden IS NULL OR hidden = false)"
 
         if exclude_stale:
             # `last_seen_at` is not indexed: the predicate runs after the project-scoped
             # pre-filter in `create_event_definitions_sql` has already narrowed the row
             # set per tenant, and the response is paginated. Worth re-checking with
             # EXPLAIN if the largest tenants start showing this in slow-query logs.
-            search_query = (
-                search_query
-                + " AND (posthog_eventdefinition.last_seen_at IS NULL"
+            filter_query += (
+                " AND (posthog_eventdefinition.last_seen_at IS NULL"
                 + " OR posthog_eventdefinition.last_seen_at > NOW() - %(stale_interval)s::interval)"
             )
             params["stale_interval"] = f"{STALE_EVENT_DAYS} days"
 
         if verified_param is not None:
             if verified_param.lower() == "true":
-                search_query = (
-                    search_query + " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
-                )
+                filter_query += " AND (verified = true OR posthog_eventdefinition.name = ANY(%(core_events)s))"
                 params["core_events"] = CORE_EVENTS
             else:
-                search_query = (
-                    search_query
-                    + " AND (verified IS NULL OR verified = false) AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
+                filter_query += (
+                    " AND (verified IS NULL OR verified = false)"
+                    " AND NOT posthog_eventdefinition.name = ANY(%(core_events)s)"
                 )
                 params["core_events"] = CORE_EVENTS
 
@@ -505,19 +504,18 @@ class EventDefinitionViewSet(
 
         if excluded_properties:
             excluded_list = list(set(orjson.loads(excluded_properties)))
-            search_query = search_query + " AND NOT name = ANY(%(excluded_list)s)"
+            filter_query += " AND NOT name = ANY(%(excluded_list)s)"
             params["excluded_list"] = excluded_list
 
         if names:
-            search_query = search_query + " AND posthog_eventdefinition.name = ANY(%(names)s)"
+            filter_query += " AND posthog_eventdefinition.name = ANY(%(names)s)"
             params["names"] = list(set(names))
 
         if tags_list:
             # EXISTS, not a join: it keeps one row per definition, so the page stays a page and
             # the count stays a count, with no DISTINCT over the whole result set.
-            search_query = (
-                search_query
-                + " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
+            filter_query += (
+                " AND EXISTS (SELECT 1 FROM posthog_taggeditem"
                 + " JOIN posthog_tag ON posthog_tag.id = posthog_taggeditem.tag_id"
                 + " WHERE posthog_taggeditem.content_type_id = %(tagged_content_type_id)s"
                 + " AND posthog_taggeditem.object_uuid = posthog_eventdefinition.id"
@@ -544,33 +542,41 @@ class EventDefinitionViewSet(
         if has_search_terms and "ordering" not in self.request.GET:
             order_expressions = [("length(name)", "ASC"), *order_expressions]
 
-        sql = create_event_definitions_sql(
-            event_type,
-            is_enterprise=EE_AVAILABLE,
-            conditions=search_query,
-            order_expressions=order_expressions,
-        )
-
         paginator = cast(CappedCountLimitOffsetPagination, self.paginator)
         query = EventDefinitionQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
         params["limit"] = query.validated_data["limit"]
         params["offset"] = query.validated_data["offset"]
 
-        count_sql = create_event_definitions_count_sql(
-            event_type,
-            is_enterprise=EE_AVAILABLE,
-            conditions=search_query,
-            bounded=bounded,
-        )
+        conditions = search_query + filter_query
         # The count has to run on the connection the page fetch will use, or it describes a
         # different row set than the one it bounds.
         with connections[read_db_alias()].cursor() as cursor:
+            count_sql = create_event_definitions_count_sql(
+                event_type, is_enterprise=EE_AVAILABLE, conditions=conditions, bounded=bounded
+            )
             cursor.execute(count_sql, params)
             definition_count = cursor.fetchone()[0]
+            fuzzy_term = search.replace("\x00", "").strip() if search else ""
+            if fuzzy_search and definition_count == 0 and 3 <= len(fuzzy_term) <= 200:
+                params["fuzzy_search"] = fuzzy_term
+                conditions = " AND posthog_eventdefinition.name %% %(fuzzy_search)s" + filter_query
+                count_sql = create_event_definitions_count_sql(
+                    event_type, is_enterprise=EE_AVAILABLE, conditions=conditions
+                )
+                cursor.execute(count_sql, params)
+                definition_count = cursor.fetchone()[0]
+                if "ordering" not in self.request.GET:
+                    order_expressions = [("similarity(name, %(fuzzy_search)s)", "DESC"), *order_expressions]
             # Only a count that reached the cap is a lower bound; a filtered large project can be under it.
             paginator.set_count(definition_count, is_capped=bounded and definition_count >= LARGE_PROJECT_COUNT_CAP)
 
+        sql = create_event_definitions_sql(
+            event_type,
+            is_enterprise=EE_AVAILABLE,
+            conditions=conditions,
+            order_expressions=order_expressions,
+        )
         return event_definition_object_manager.raw(sql, params=params)
 
     def _tags_filter_from_request(self) -> list[str]:
@@ -653,6 +659,13 @@ class EventDefinitionViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Case-insensitive match on the event name. Every whitespace-separated term has to match.",
+            ),
+            OpenApiParameter(
+                "fuzzy_search",
+                OpenApiTypes.BOOL,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When true, find similar event names only if the filtered search has no matches.",
             ),
             OpenApiParameter(
                 "event_type",

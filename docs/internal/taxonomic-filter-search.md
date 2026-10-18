@@ -17,6 +17,7 @@ A failed search does not offer an uncaptured event name, and it does not change 
 When a caller allows custom event names, a successful empty search offers "Use event name".
 Pressing Enter in the search input selects that custom event name.
 The classic picker does not infer ingestion history from a filtered definition list.
+Event and Custom Events searches keep case-insensitive substring matches first. If the filtered event-definition search has no matches, it can return similar event names. Hidden and excluded events stay out of both match sets.
 
 Scoped property searches return properties associated with the selected events. A separate unscoped request counts matches across the project so the picker can offer an expansion to other properties.
 

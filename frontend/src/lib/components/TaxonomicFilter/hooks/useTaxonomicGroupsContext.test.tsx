@@ -168,6 +168,15 @@ describe('useTaxonomicGroupsContext', () => {
         expect(types.has(TaxonomicFilterGroupType.SuggestedFilters)).toBe(true)
     })
 
+    it.each([TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.CustomEvents])(
+        'enables fuzzy fallback for %s',
+        (groupType) => {
+            const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
+            const group = buildTaxonomicGroups(result.current).find((item) => item.type === groupType)
+            expect(new URL(group!.endpoint!, 'http://localhost').searchParams.get('fuzzy_search')).toBe('true')
+        }
+    )
+
     it('makes exception properties commit as event property filters', () => {
         const { result } = renderHook(() => useTaxonomicGroupsContext({}), { wrapper })
         const exceptionGroup = buildTaxonomicGroups(result.current).find(

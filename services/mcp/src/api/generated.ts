@@ -124835,6 +124835,10 @@ export namespace Schemas {
      */
     excluded_properties?: string;
     /**
+     * When true, find similar event names only if the filtered search has no matches.
+     */
+    fuzzy_search?: boolean;
+    /**
      * Number of results to return per page.
      * @minimum 1
      */
