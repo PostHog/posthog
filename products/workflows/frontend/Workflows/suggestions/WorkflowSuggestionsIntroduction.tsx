@@ -21,16 +21,16 @@ function sampleProgress(sample: SuggestionsSampleApi | null | undefined): string
         return null
     }
     const sends = `${sample.tracked_sends} tracked ${sample.tracked_sends === 1 ? 'send' : 'sends'}`
-    const needs = `PostHog needs about ${sample.required_sends} per email step over 2 days before it can judge it.`
+    const needs = `PostHog needs ${sample.required_sends} tracked sends on one email step within 7 days, from a version that has been live for at least 2 days.`
     const liveSince = dayjs(sample.version_live_since)
     const tooNew = dayjs().diff(liveSince, 'hour') < MIN_VERSION_AGE_HOURS
     if (sample.tracked_sends >= sample.required_sends) {
         return `This version went live ${liveSince.fromNow()}. PostHog waits until a version has been live for 2 days before it judges it.`
     }
     if (tooNew) {
-        return `This version went live ${liveSince.fromNow()} and has had ${sends} on its busiest email step. ${needs}`
+        return `This version went live ${liveSince.fromNow()}, and its busiest email step has had ${sends} in the last 7 days. ${needs}`
     }
-    return `This version has had ${sends} on its busiest email step in the last 7 days. ${needs}`
+    return `This version's busiest email step has had ${sends} in the last 7 days. ${needs}`
 }
 
 export function WorkflowSuggestionsIntroduction({
@@ -53,7 +53,7 @@ export function WorkflowSuggestionsIntroduction({
                 description={[
                     'PostHog reads how this workflow performs, such as how many people open and click each email, and suggests one concrete change when a step underperforms. Nothing reaches anyone until you approve a suggestion and publish it.',
                     progress &&
-                        `This workflow doesn't have enough email data yet for PostHog to judge it. ${progress} You can turn suggestions on now, and they start once it does.`,
+                        `PostHog can't judge this workflow yet. ${progress} You can turn suggestions on now, and they start once it can.`,
                 ]
                     .filter(Boolean)
                     .join(' ')}
