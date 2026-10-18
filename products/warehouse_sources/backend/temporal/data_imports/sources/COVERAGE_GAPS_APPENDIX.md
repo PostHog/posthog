@@ -1667,7 +1667,7 @@ pull request in one walk, so it costs one request per page instead of one per pu
 
 ## Bitrise — gaps
 
-Today (8): `apps`, `artifacts`, `branches`, `builds`, `organization_members`, `organizations`, `pipelines`, `workflows`
+Today (12): `activities`, `apps`, `archived_builds`, `artifacts`, `available_stacks`, `branches`, `build_requests`, `builds`, `organization_members`, `organizations`, `pipelines`, `workflows`
 
 Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 
@@ -1675,10 +1675,10 @@ Diffed against: <https://api-docs.bitrise.io/docs/swagger.json>
 - [x] `/organizations/{org-slug}/members` — org membership records for attributing builds to people (medium)
 - [x] `/organizations` — lookup resolving the org that owns each app we already sync (medium)
 - [x] `/apps/{app-slug}/branches` — branch lookup for grouping build history (medium)
-- [ ] `/apps/{app-slug}/archived-builds` — extends build history past the live builds window (medium)
-- [ ] `/apps/{app-slug}/build-requests` — queued/pending build requests reveal CI backlog (low)
-- [ ] `/me/activities` — account-level activity event feed (low)
-- [ ] `/available-stacks` — lookup for the stack identifier carried on builds (low)
+- [x] `/apps/{app-slug}/archived-builds` — extends build history past the live builds window (medium)
+- [x] `/apps/{app-slug}/build-requests` — queued/pending build requests reveal CI backlog (low)
+- [x] `/me/activities` — account-level activity event feed (low)
+- [x] `/available-stacks` — lookup for the stack identifier carried on builds (low)
 
 ## BlandAI — **thin**
 
