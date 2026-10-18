@@ -185,7 +185,7 @@ def fail_stale_inference_runs() -> int:
 
 def _scheduled_runs(team_id: int, pipeline_id: str, prediction_date: str) -> QuerySet[AutoresearchRun]:
     return AutoresearchRun.objects.for_team(team_id).filter(
-        pipeline_id=pipeline_id,
+        pipeline__pk=pipeline_id,
         run_type=AutoresearchRun.RunType.INFERENCE,
         scheduled=True,
         metrics__prediction_date=prediction_date,

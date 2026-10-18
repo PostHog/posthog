@@ -25,12 +25,17 @@ _SCHEDULE_ID = "autoresearch-daily-coordinator"
 _WORKFLOW_ID = "autoresearch-coordinator"
 _CATCH_UP_SCHEDULE_ID = "autoresearch-catch-up-coordinator"
 _CATCH_UP_WORKFLOW_ID = "autoresearch-coordinator-catch-up"
+# An inference child can fail up to INFERENCE_WORKFLOW_TIMEOUT after it starts, and the daily sweep starts
+# children until its own timeout. Each tick retries the runs lost since the tick before it.
+_CATCH_UP_HOURS = [8, 14, 20]
 # Longer than one pipeline's children (inference, then kickoff), shorter than a day, so a
 # stuck coordinator ends before the next tick instead of making SKIP drop every later one.
 _COORDINATOR_TIMEOUT = timedelta(hours=12)
 
 
-def _coordinator_schedule(*, workflow_id: str, inp: CoordinatorWorkflowInput, hour: int, comment: str) -> Schedule:
+def _coordinator_schedule(
+    *, workflow_id: str, inp: CoordinatorWorkflowInput, hours: list[int], comment: str
+) -> Schedule:
     return Schedule(
         action=ScheduleActionStartWorkflow(
             "autoresearch-coordinator",
@@ -40,7 +45,9 @@ def _coordinator_schedule(*, workflow_id: str, inp: CoordinatorWorkflowInput, ho
             execution_timeout=_COORDINATOR_TIMEOUT,
         ),
         spec=ScheduleSpec(
-            calendars=[ScheduleCalendarSpec(comment=comment, hour=[ScheduleRange(start=hour, end=hour)])]
+            calendars=[
+                ScheduleCalendarSpec(comment=comment, hour=[ScheduleRange(start=hour, end=hour) for hour in hours])
+            ]
         ),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
@@ -63,15 +70,16 @@ async def create_autoresearch_daily_schedule(client: Client) -> None:
     and training-kickoff for every active pipeline. SKIP overlap prevents a new run
     from starting if the previous day's coordinator is still executing.
 
-    The catch-up sweep fires at 6 AM UTC, after the lost-worker retries of the daily sweep have
-    ended. It scores again only the pipelines whose scheduled run of the day was lost. It has its
-    own workflow id, so it can run while the daily sweep is still working through its backlog.
+    The catch-up sweep fires at 8 AM, 2 PM and 8 PM UTC. Each tick scores again only the pipelines
+    whose latest scheduled run of the day was lost, so a child that times out after one tick gets
+    the next. It has its own workflow id, so it can run while the daily sweep is still working
+    through its backlog.
     """
     await _create_or_update(
         client,
         _SCHEDULE_ID,
         _coordinator_schedule(
-            workflow_id=_WORKFLOW_ID, inp=CoordinatorWorkflowInput(), hour=2, comment="Daily at 2 AM UTC"
+            workflow_id=_WORKFLOW_ID, inp=CoordinatorWorkflowInput(), hours=[2], comment="Daily at 2 AM UTC"
         ),
     )
     await _create_or_update(
@@ -80,7 +88,7 @@ async def create_autoresearch_daily_schedule(client: Client) -> None:
         _coordinator_schedule(
             workflow_id=_CATCH_UP_WORKFLOW_ID,
             inp=CoordinatorWorkflowInput(catch_up=True),
-            hour=6,
-            comment="Daily catch-up at 6 AM UTC",
+            hours=_CATCH_UP_HOURS,
+            comment="Catch-up at 8 AM, 2 PM and 8 PM UTC",
         ),
     )

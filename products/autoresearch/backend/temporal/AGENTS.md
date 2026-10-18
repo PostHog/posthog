@@ -18,7 +18,8 @@ Scoring, validation and training live in `../inference/`, `../evaluation/`, and 
   Each workflow has a typed input/result dataclass pair (`InferenceWorkflowInput` / `InferenceWorkflowResult`, and so on). Activities are named with a `autoresearch-<workflow>.<activity>` convention.
 
 - `schedule.py`
-  `create_autoresearch_daily_schedule()` registers schedule `autoresearch-daily-coordinator` driving workflow id `autoresearch-coordinator` at 02:00 UTC, and schedule `autoresearch-catch-up-coordinator` driving workflow id `autoresearch-coordinator-catch-up` at 06:00 UTC with `catch_up=True`.
+  `create_autoresearch_daily_schedule()` registers schedule `autoresearch-daily-coordinator` driving workflow id `autoresearch-coordinator` at 02:00 UTC, and schedule `autoresearch-catch-up-coordinator` driving workflow id `autoresearch-coordinator-catch-up` at 08:00, 14:00 and 20:00 UTC with `catch_up=True`.
+  The catch-up fires more than once, because an inference child can fail up to `INFERENCE_WORKFLOW_TIMEOUT` after it starts, and the daily sweep starts children until its own timeout. Each tick retries the runs lost since the tick before it, so a pipeline gets at most three retries a day.
   The catch-up has its own workflow id, so it can run while the daily sweep still works through its backlog. Each sweep has its own concurrency bound.
   Overlap policy is **SKIP** — a tick that is still running causes the next one to be dropped rather than queued, so a slow day cannot pile up a backlog of duplicate scoring runs.
   An update keeps the schedule's live state, so a deploy does not resume a schedule an operator paused.
@@ -40,7 +41,7 @@ daily schedule
         └─ after every pipeline above, per completed champion run, under the same bound:
              └─ activity_run_shadow_scoring     → ../inference/
 
-catch-up schedule (06:00 UTC, catch_up=True)
+catch-up schedule (08:00, 14:00, 20:00 UTC, catch_up=True)
    └─ AutoresearchCoordinatorWorkflow
         └─ the same tree, for lost pipelines only, without kickoff and validation
 ```
