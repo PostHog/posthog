@@ -1,8 +1,10 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -51,6 +53,47 @@ describe('personalAPIKeysLogic', () => {
 
         logic = personalAPIKeysLogic()
         logic.mount()
+    })
+
+    it('records a created key', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        const toastError = jest.spyOn(lemonToast, 'error')
+
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setEditingKeyValues({ label: 'Test key', access_type: 'all', scopes: ['insight:read'] })
+        await logic.asyncActions.submitEditingKey()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(capture).toHaveBeenCalledWith('personal api key created', { access_type: 'all', scope_count: 1 })
+        expect(toastError).not.toHaveBeenCalled()
+    })
+
+    it('shows the server reason and records a rejected key', async () => {
+        useMocks({
+            post: {
+                '/api/personal_api_keys/': () => [
+                    400,
+                    { type: 'validation_error', code: 'invalid_input', detail: 'Invalid scope: foo', attr: 'scopes' },
+                ],
+            },
+        })
+        const capture = jest.spyOn(posthog, 'capture')
+        const toastError = jest.spyOn(lemonToast, 'error')
+
+        logic.actions.setEditingKeyId('new')
+        logic.actions.setEditingKeyValues({ label: 'Test key', access_type: 'all', scopes: ['insight:read'] })
+        await logic.asyncActions.submitEditingKey()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(toastError).toHaveBeenCalledWith("Couldn't save the personal API key: Invalid scope: foo")
+        expect(capture).toHaveBeenCalledWith('personal api key save failed', {
+            is_new: true,
+            status: 400,
+            code: 'invalid_input',
+            attr: 'scopes',
+            access_type: 'all',
+            scope_count: 1,
+        })
     })
 
     it('strips llm_gateway scopes from create payload when GATEWAY_PERSONAL_API_KEY flag is disabled', async () => {

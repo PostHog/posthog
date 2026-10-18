@@ -3,10 +3,12 @@ import { forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { LemonBanner, LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -704,6 +706,24 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        submitEditingKeyFailure: ({ error }) => {
+            if (!(error instanceof ApiError)) {
+                return
+            }
+            lemonToast.error(
+                error.detail
+                    ? `Couldn't save the personal API key: ${error.detail}`
+                    : "Couldn't save the personal API key. Check its scopes and projects, then try again."
+            )
+            posthog.capture('personal api key save failed', {
+                is_new: values.editingKeyId === 'new',
+                status: error.status,
+                code: error.code,
+                attr: error.attr,
+                access_type: values.editingKey.access_type,
+                scope_count: values.editingKey.scopes?.length ?? 0,
+            })
+        },
         touchEditingKeyField: ({ key }) => {
             if (key === 'label') {
                 // If the label contains a prefillable preset, set the preset and access type
@@ -793,6 +813,14 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         },
 
         createKeySuccess: async ({ key }) => {
+            posthog.capture('personal api key created', {
+                access_type: key.scoped_teams?.length
+                    ? 'teams'
+                    : key.scoped_organizations?.length
+                      ? 'organizations'
+                      : 'all',
+                scope_count: key.scopes?.length ?? 0,
+            })
             const value = key.value
 
             if (!value) {
