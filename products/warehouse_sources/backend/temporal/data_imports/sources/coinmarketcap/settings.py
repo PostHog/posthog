@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Literal, Optional
 
 from posthog.dataclasses import frozen
@@ -40,7 +40,7 @@ HISTORICAL_BACKFILL_DAYS = 365
 HISTORICAL_MAX_COUNT = 10000
 
 
-@dataclass
+@frozen
 class CoinMarketCapEndpointConfig:
     name: str
     # Path on https://pro-api.coinmarketcap.com (e.g. "/v1/cryptocurrency/map").
