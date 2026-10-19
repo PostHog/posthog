@@ -73,6 +73,57 @@ describe('batchTriggerLogic', () => {
         })
     })
 
+    describe('realtime cohort status', () => {
+        it('refreshes until the cohort is ready, past a failed check', async () => {
+            const states = ['needs_attention', 'error', 'ready']
+            let calls = 0
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/hog_flows/user_blast_radius/': async ({ request }) => {
+                        // The recipient email check posts here too, with an extra condition.
+                        const { filters } = (await request.json()) as { filters: { properties: unknown[] } }
+                        if (filters.properties.length > 1) {
+                            return [200, { affected: 0, total: 0 }]
+                        }
+                        const state = states[Math.min(calls++, states.length - 1)]
+                        if (state === 'error') {
+                            return [500, { detail: 'Simulated outage' }]
+                        }
+                        return [
+                            200,
+                            {
+                                affected: 0,
+                                total: 0,
+                                realtime_cohort: { id: 42, name: 'Upgraded', state, percent_complete: null },
+                            },
+                        ]
+                    },
+                },
+            })
+            initKeaTests()
+            const logic = batchTriggerLogic({
+                id: 'realtime-status',
+                filters: { properties: [{ key: 'id', type: 'cohort', value: 42, operator: 'in' }] as any },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess'])
+            expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('needs_attention')
+
+            jest.useFakeTimers()
+            try {
+                await jest.advanceTimersByTimeAsync(20000)
+                await expectLogic(logic).toDispatchActions(['loadBlastRadiusSuccess'])
+                expect(logic.values.blastRadius?.realtime_cohort?.state).toEqual('ready')
+
+                await jest.advanceTimersByTimeAsync(30000)
+                expect(calls).toEqual(3)
+            } finally {
+                jest.useRealTimers()
+                logic.unmount()
+            }
+        })
+    })
+
     describe('recipientsWithoutEmail', () => {
         const audience = { properties: [{ key: 'plan', value: 'pro', operator: 'exact', type: 'person' }] }
 

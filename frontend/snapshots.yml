@@ -8286,6 +8286,14 @@ snapshots:
         hash: v1.k794b7964.9e7a12c3094416ddf703121095bc7eba5189420cab88d6967618bf43139069fe.UZSvEld_DwpzTPi6QpbRfxOtDYP7S_gR0F03DJcFMpM
     products-workflows-steps-delay--fixed-duration--light:
         hash: v1.k794b7964.f394f1e00c55c84136a291d5acb646dc12e0b27951a99e493137f7bad05a2082.zj4h9BHlkIR9RBHiB6nkO0QjDgPC1UKa08uSHemhjSQ
+    products-workflows-steps-realtime-cohort-calculating-banner--calculating--dark:
+        hash: v1.k794b7964.f8d96220904631c8b3272c69f05c32ae18aaa1f6ab885595fa093914fb4b9585.vMfQ-MPIZHxlUj7bQT739aLrmXkrNzq0avGb2p0mwmE
+    products-workflows-steps-realtime-cohort-calculating-banner--calculating--light:
+        hash: v1.k794b7964.d5f5076185fb6ff85442cea0dd8d7a0948bf71536526d97ad868e987f8260a50.5KYTfDsEby8LKM0FGZxgD4eqPk5FbEfIi4eEre9AWSg
+    products-workflows-steps-realtime-cohort-calculating-banner--needs-attention--dark:
+        hash: v1.k794b7964.81dfba2ceeec9af0760080c21a7febbca95c089e51543dcb8c0b1b94a7827f65.FIY338VfKe3yLoPte4RKAtmK_JOqDxkJbo2H7fU7DDI
+    products-workflows-steps-realtime-cohort-calculating-banner--needs-attention--light:
+        hash: v1.k794b7964.35f34e84a0beb529c8d6f92fb8ae876196eb3040a46666704c4d03b1722d3a50.H2tDGrJ4zAZQeOMCOeulpzK7CBBrTxzDRtI2J0Pbqsc
     products-workflows-steps-trigger-volume--event-trigger--dark:
         hash: v1.k794b7964.2650854dfdf42c9ce43499445bbe06f8bd55b8d5a032cbdd8e5dcf037ee21080.zVFSrKI3MkfgGSToHH78WhYcRVqXQUUTYcVJQFSgJ0Y
     products-workflows-steps-trigger-volume--event-trigger--light:
