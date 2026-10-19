@@ -26,7 +26,7 @@ const Switch = React.forwardRef<
             <SwitchPrimitive.Thumb data-slot="switch-thumb" className="quill-switch__thumb" />
         </SwitchPrimitive.Root>,
         disabledReason,
-        { target: 'inline' }
+        { target: 'inline', focusable: hasTooltipContent(disabledReason) }
     )
 })
 

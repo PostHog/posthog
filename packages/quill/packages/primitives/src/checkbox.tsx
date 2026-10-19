@@ -92,7 +92,7 @@ const Checkbox = React.forwardRef<
             </CheckboxPrimitive.Indicator>
         </CheckboxPrimitive.Root>,
         disabledReason,
-        { target: 'inline' }
+        { target: 'inline', focusable: hasTooltipContent(disabledReason) }
     )
 })
 

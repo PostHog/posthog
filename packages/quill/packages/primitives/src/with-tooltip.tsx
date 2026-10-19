@@ -27,11 +27,22 @@ export function withTooltip(
         target,
         delay,
         side,
-    }: { target: TooltipTarget; delay?: number; side?: React.ComponentProps<typeof TooltipContent>['side'] }
+        focusable = false,
+    }: {
+        target: TooltipTarget
+        delay?: number
+        side?: React.ComponentProps<typeof TooltipContent>['side']
+        /**
+         * Puts a `block` or `inline` wrapper in the tab order. A disabled control leaves the tab
+         * order, so the wrapper is the only way a keyboard user can open its reason.
+         */
+        focusable?: boolean
+    }
 ): React.ReactElement {
     if (!hasTooltipContent(content)) {
         return element
     }
+    const tabIndex = focusable ? 0 : undefined
     return (
         <Tooltip>
             {target === 'self' ? (
@@ -39,7 +50,13 @@ export function withTooltip(
             ) : (
                 <TooltipTrigger
                     delay={delay}
-                    render={target === 'block' ? <div /> : <span className="inline-flex" />}
+                    render={
+                        target === 'block' ? (
+                            <div tabIndex={tabIndex} />
+                        ) : (
+                            <span className="inline-flex" tabIndex={tabIndex} />
+                        )
+                    }
                 >
                     {element}
                 </TooltipTrigger>

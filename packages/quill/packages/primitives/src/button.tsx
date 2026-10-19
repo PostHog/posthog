@@ -71,7 +71,8 @@ export type ButtonProps = ButtonPrimitive.Props &
         tooltip?: React.ReactNode
         /**
          * Disables the button and says why in its tooltip. The button stays hoverable and focusable,
-         * so the reason is always reachable. Takes the place of `tooltip` while set.
+         * so the reason is always reachable. Takes the place of `tooltip` while set. A rendered link
+         * loses its destination while disabled, so a modifier click cannot open it either.
          */
         disabledReason?: React.ReactNode
     }
@@ -79,6 +80,20 @@ export type ButtonProps = ButtonPrimitive.Props &
 /** A `render` element that is not a `<button>` (a router link, an `<a>`) needs Base UI's non-native button handling. */
 function rendersNonButton(render: ButtonPrimitive.Props['render']): boolean {
     return React.isValidElement(render) && render.type !== 'button'
+}
+
+/**
+ * A disabled button keeps no destination. The browser handles a modifier click on a rendered link
+ * before any click guard runs, so a kept `href` or `to` would still open in a new tab.
+ */
+function withoutDestination(render: ButtonPrimitive.Props['render']): ButtonPrimitive.Props['render'] {
+    if (!React.isValidElement<{ to?: unknown; href?: unknown }>(render)) {
+        return render
+    }
+    if (render.props.to === undefined && render.props.href === undefined) {
+        return render
+    }
+    return React.cloneElement(render, { to: undefined, href: undefined })
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -95,12 +110,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             tooltip,
             disabledReason,
             nativeButton,
+            render,
             children,
             ...props
         },
         ref
     ) => {
         const hasDisabledReason = hasTooltipContent(disabledReason)
+        const isDisabled = disabled || loading || hasDisabledReason
         const button = (
             <ButtonPrimitive
                 ref={ref}
@@ -109,8 +126,9 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
                 data-size={size}
                 data-loading={loading || undefined}
                 aria-busy={loading || undefined}
-                disabled={disabled || loading || hasDisabledReason}
-                nativeButton={nativeButton ?? !rendersNonButton(props.render)}
+                disabled={isDisabled}
+                nativeButton={nativeButton ?? !rendersNonButton(render)}
+                render={isDisabled ? withoutDestination(render) : render}
                 // While loading, stay focusable: Base UI then renders aria-disabled instead of
                 // the native disabled attribute, keeping the button in the tab order so screen
                 // readers can reach it and announce busy. Activation stays blocked. A disabled
