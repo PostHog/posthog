@@ -113,6 +113,9 @@ export function loadPostHogJS(): void {
                 : {},
             // The first flags request must wait until the user and groups from the page are set.
             advanced_disable_feature_flags_on_first_load: true,
+            // Flags tagged only with other contexts stay out of the app. The server bootstrap
+            // applies the same rule in `flags_for_app_evaluation_context` (posthog/utils.py).
+            evaluation_contexts: ['posthog-app'],
             opt_in_site_apps: true,
             disable_surveys: window.IMPERSONATED_SESSION,
             disable_product_tours: true,

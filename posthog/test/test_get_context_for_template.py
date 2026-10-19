@@ -17,7 +17,11 @@ from parameterized import parameterized
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.models import UserHomeSettings
 from posthog.stable_chunks import StableChunks
-from posthog.utils import get_context_for_template, get_persisted_feature_flags_for_app_context
+from posthog.utils import (
+    flags_for_app_evaluation_context,
+    get_context_for_template,
+    get_persisted_feature_flags_for_app_context,
+)
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
 
@@ -90,6 +94,26 @@ STABLE_CHUNKS = StableChunks(
     preload_js_urls=("static/index-S0000000000.js",),
     authenticated_preload_js_urls=("static/shell-S1111111111.js",),
 )
+
+
+class TestFlagsForAppEvaluationContext(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_contexts_is_kept", None, True),
+            ("empty_contexts_is_kept", [], True),
+            ("app_context_is_kept", ["posthog-app", "posthog-website"], True),
+            ("other_context_is_dropped", ["posthog-website"], False),
+        ]
+    )
+    def test_keeps_flags_the_app_evaluates(self, _name, evaluation_contexts, kept):
+        definitions = [{"key": "the-flag", "evaluation_contexts": evaluation_contexts}]
+
+        actual = flags_for_app_evaluation_context({"the-flag": True, "untagged": True}, definitions)
+
+        assert actual == ({"the-flag": True, "untagged": True} if kept else {"untagged": True})
+
+    def test_keeps_every_flag_before_definitions_load(self):
+        assert flags_for_app_evaluation_context({"the-flag": True}, None) == {"the-flag": True}
 
 
 class TestGetContextForTemplate(APIBaseTest):
