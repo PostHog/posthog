@@ -518,6 +518,7 @@ export type AssistantTool =
     | 'draft_replay_vision_scanner_prompt'
     | 'search_replay_vision_observations'
     | 'scan_replay_vision_sessions'
+    | 'get_replay_vision_scan_results'
     | 'retry_replay_vision_observation'
     | 'get_replay_vision_quota'
     | 'create_replay_vision_scanner'

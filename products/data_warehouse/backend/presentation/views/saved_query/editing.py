@@ -41,7 +41,6 @@ from products.data_modeling.backend.facade.modeling import ResolutionCycleError,
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
-    Node,
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
@@ -578,23 +577,16 @@ class DataWarehouseSavedQuerySerializer(
                 detail=Detail(name=view.name, changes=changes),
             )
 
-            # Best effort sync to the data modeling DAG representation. It reads the node's
-            # placement, so it stays under the row lock a move also takes: outside it a move can
-            # land between the read and the sync, which would then create a second node in the
-            # DAG the move just left. The savepoint keeps a failed sync best effort without
-            # poisoning the update's own transaction.
+            # Best effort sync to the data modeling DAG representation. The savepoint keeps a
+            # failed sync best effort without poisoning the update's own transaction.
             if "query" in validated_data:
-                node = Node.objects.filter(team_id=view.team_id, saved_query=view).select_related("dag").first()
-                dag = node.dag if node else None
                 try:
                     with transaction.atomic():
-                        modeling_api.sync_saved_query_to_dag(view, dag=dag)
+                        modeling_api.sync_saved_query_to_dag(view)
                 except Exception as e:
                     capture_exception(e)
                     logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-                    modeling_api.adopt_saved_query_without_edges(
-                        view.team_id, view.id, _lineage_sync_error_detail(e), dag_id=dag.id if dag else None
-                    )
+                    modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
 
         self._report_view_action(
             "view updated",

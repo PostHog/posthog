@@ -293,7 +293,7 @@ export type EmailTemplateApiDesign = {
 }
 
 export interface EmailTemplateApi {
-    /** Email subject line. Supports Liquid templating. Required for email-type templates. */
+    /** Email subject line. Supports Liquid templating. Required in `content` for email-type templates. A `draft_content` may leave it blank until it is published. */
     subject?: string
     /** Plain-text fallback body for clients that can't render the email. */
     text?: string
@@ -400,6 +400,8 @@ export interface MessageTemplateApi {
      * @nullable
      */
     readonly transactional_hog_flow_id: string | null
+    /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+    draft_content?: MessageTemplateContentApi | null
 }
 
 export interface PaginatedMessageTemplateListApi {
@@ -442,6 +444,8 @@ export interface PatchedMessageTemplateApi {
      * @nullable
      */
     readonly transactional_hog_flow_id?: string | null
+    /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
+    draft_content?: MessageTemplateContentApi | null
 }
 
 /**
