@@ -107,6 +107,7 @@ export interface todayShellLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     mobileLayout: boolean // navigationLogic
     activePane: TodayRailPane
+    lastSceneUrl: string | null
     leftNavWidth: number
     mobileSidebarOpen: boolean
     onAiPage: boolean
@@ -157,6 +158,13 @@ export interface todayShellLogicActions {
     }
     pickPane: (pane: TodayRailPane) => {
         pane: TodayRailPane
+    }
+    rememberSceneUrl: (location: { hash: string; pathname: string; search: string }) => {
+        location: {
+            hash: string
+            pathname: string
+            search: string
+        }
     }
     setMobileSidebarOpen: (open: boolean) => {
         open: boolean
@@ -223,6 +231,18 @@ export type todayShellLogicType = MakeLogicType<
     todayShellLogicMeta
 >
 
+function isAiPath(pathname: string): boolean {
+    const path = removeProjectIdIfPresent(pathname)
+    return path === urls.ai() || path.startsWith(`${urls.ai()}/`)
+}
+
+function sceneUrlOutsideAi(
+    current: string | null,
+    { pathname, search, hash }: { pathname: string; search: string; hash: string }
+): string | null {
+    return isAiPath(pathname) ? current : `${pathname}${search}${hash}`
+}
+
 export const todayShellLogic = kea<todayShellLogicType>([
     path(['layout', 'today', 'todayShellLogic']),
     connect(() => ({
@@ -230,6 +250,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
         actions: [router, ['locationChanged']],
     })),
     actions({
+        rememberSceneUrl: (location: { pathname: string; search: string; hash: string }) => ({ location }),
         pickPane: (pane: TodayRailPane) => ({ pane }),
         goBackOnPhone: true,
         setPhonePages: (pages: TodayPhonePage[]) => ({ pages }),
@@ -282,6 +303,14 @@ export const todayShellLogic = kea<todayShellLogicType>([
                     nextPhonePages(state, method, { pathname, url: `${pathname}${search}${hash}` }),
             },
         ],
+        // Where the user was before /ai, so a chat moved from /ai into the panel opens over that scene again.
+        lastSceneUrl: [
+            null as string | null,
+            {
+                locationChanged: (state, location) => sceneUrlOutsideAi(state, location),
+                rememberSceneUrl: (state, { location }) => sceneUrlOutsideAi(state, location),
+            },
+        ],
         // The resizer persists the width itself. This copy lets the app layout size the main column from it.
         sidebarWidth: [TODAY_SIDEBAR_DEFAULT_WIDTH, { setSidebarWidth: (_, { width }) => clampSidebarWidth(width) }],
     }),
@@ -324,10 +353,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
         ],
         onAiPage: [
             () => [router.selectors.location],
-            (location: { pathname: string }): boolean => {
-                const path = removeProjectIdIfPresent(location.pathname)
-                return path === urls.ai() || path.startsWith(`${urls.ai()}/`)
-            },
+            (location: { pathname: string }): boolean => isAiPath(location.pathname),
         ],
         phoneHeaderHidden: [
             (s) => [s.onAiPage, router.selectors.searchParams, s.todayRailEnabled, s.phoneLayout],
@@ -445,6 +471,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
     afterMount(({ actions, cache }) => {
         const { pathname, search, hash } = router.values.location
         cache.lastPathname = pathname
+        actions.rememberSceneUrl({ pathname, search, hash })
         actions.setPhonePages([{ pathname, url: `${pathname}${search}${hash}` }])
     }),
 ])

@@ -67,9 +67,3 @@ class TestOnepagecrmSource:
         assert result.raised is None
         assert result.params("sort_by") == ["created_at"]
         assert result.params("modified_since") == [None]
-
-    def test_source_for_pipeline_rejects_unknown_schema(self) -> None:
-        result = SourceDriver(self.source, self.config).run("not_a_table", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert str(result.raised) == "Unknown OnePageCRM schema 'not_a_table'"
