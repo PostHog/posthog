@@ -128,10 +128,9 @@ def _discover_experiment_metrics_sync(recalculation_id: str) -> list[ExperimentM
         experiment = recalculation.experiment
 
         # request_recalculation sets total_metrics from the same resolver, so the run's progress count
-        # matches the metrics this activity schedules. The payload keeps the role in metric_type because
-        # recorded workflow histories carry that field name.
+        # matches the metrics this activity schedules.
         metrics_to_recalculate = [
-            ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, metric_type=metric.role)
+            ExperimentMetricToRecalculate(experiment_id=experiment.id, metric_uuid=metric.uuid, role=metric.role)
             for metric in get_metrics_for_calculation(experiment)
         ]
 
@@ -524,7 +523,7 @@ def _capture_experiment_metric_event(
     """Emit a per-metric product analytics event. Telemetry must never fail the activity, so any error
     is swallowed. Attributed to the experiment creator, falling back to a team-scoped distinct_id.
 
-    `role` ("primary" or "secondary") is carried from discovery in `ExperimentMetricToRecalculate.metric_type`,
+    `role` ("primary" or "secondary") is carried from discovery in `ExperimentMetricToRecalculate.role`,
     threaded through the workflow + activity args so the capture path doesn't have to re-query the M2M to
     resolve it.
 
@@ -986,7 +985,7 @@ def _record_metric_out_of_time_failure_sync(failure: MetricOutOfTimeFailure) -> 
         _capture_experiment_metric_event(
             experiment,
             failure.metric_uuid,
-            failure.metric_type,
+            failure.role,
             calculation_config.definition,
             "experiment metric error",
             {"error_type": "timeout", "error_message": _OUT_OF_TIME_MESSAGE},
