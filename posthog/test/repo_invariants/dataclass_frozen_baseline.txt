@@ -1166,8 +1166,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uk_companies_house/uk_companies_house.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/unleash/unleash.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/unstructured/unstructured.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uppromote/uppromote.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/upstash/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/uptimerobot/settings.py
