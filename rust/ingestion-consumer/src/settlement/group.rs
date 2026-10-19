@@ -70,6 +70,10 @@ impl Settlement for GroupSettlement {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
         self.uncommitted.forget_partitions(topic_partitions);
     }
+
+    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
+        self.uncommitted.uncommitted(topic_partition)
+    }
 }
 
 #[cfg(test)]

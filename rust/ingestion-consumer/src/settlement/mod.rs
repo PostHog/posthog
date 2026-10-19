@@ -48,6 +48,8 @@ pub(crate) trait Settlement: Send + Sync {
     fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
+
+    fn uncommitted(&self, topic_partition: &TopicPartition) -> Held;
 }
 
 pub(crate) fn for_granularity(

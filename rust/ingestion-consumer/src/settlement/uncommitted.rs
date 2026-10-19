@@ -96,6 +96,10 @@ impl Uncommitted {
         }
     }
 
+    pub(super) fn uncommitted(&self, topic_partition: &TopicPartition) -> Held {
+        self.ledger.held(topic_partition) + self.pacer.lock().unwrap().pending(topic_partition)
+    }
+
     fn publish_window(&self, due: &HashMap<TopicPartition, Offset>) {
         for topic_partition in due.keys() {
             publish(topic_partition, self.ledger.held(topic_partition));
