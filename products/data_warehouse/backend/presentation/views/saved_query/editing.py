@@ -694,8 +694,6 @@ class DataWarehouseSavedQuerySerializer(
         # The stored column types describe the stored query, so they say nothing about a query being
         # replaced. The runtime guard still catches a nullable key on the first incremental run.
         column_types = None if query_changed or self.instance is None else self.instance.columns
-        # The context only carries a database when the request touches the query or name; a
-        # config-only PATCH still has to check `SELECT *` against real columns, so build one then.
         database = definition_database(self.context["team_id"], user=cast(User, self.context["request"].user))
         result = check_incremental_eligibility(
             sql,
