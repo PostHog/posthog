@@ -1,8 +1,9 @@
 import uuid
 import asyncio
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from datetime import timedelta
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -22,22 +23,29 @@ from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.customer_analytics.backend.facade.temporal_contracts import (
     AccountPropertySegmentTelemetryInput,
+    AccountPropertySourceSyncInput,
     DispatchAccountPropertySyncInput,
     FinalizeAccountPropertySyncRunsInput,
     StageAccountPropertySyncInput,
 )
 from products.customer_analytics.backend.logic.account_property_sync import AccountPropertySourceValueError
 from products.customer_analytics.backend.temporal.account_property_sync import (
+    ACCOUNT_PROPERTY_SYNC_ACTIVITIES,
     ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME,
+    ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
     AccountPropertySyncInput,
     StageWarehouseAccountPropertiesWorkflow,
+    SyncWarehouseAccountPropertiesFanoutWorkflow,
     SyncWarehouseAccountPropertiesWorkflow,
+    complete_warehouse_account_property_segment_activity,
     dispatch_warehouse_account_property_sync_activity,
     emit_warehouse_account_property_segment_telemetry_activity,
     finalize_warehouse_account_property_runs_activity,
+    list_warehouse_account_property_sources_activity,
     stage_warehouse_account_property_files_activity,
     start_warehouse_account_property_runs_activity,
     sync_warehouse_account_properties_activity,
+    sync_warehouse_account_property_source_activity,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -45,6 +53,7 @@ pytestmark = pytest.mark.asyncio
 _MODULE = "products.customer_analytics.backend.temporal.account_property_sync"
 _SOURCE_COUNTS = {"rows_read": 10, "changed": 4, "matched": 3, "written": 2, "source_errors": 0, "source_count": 2}
 _FAILED_COUNTS = {**_SOURCE_COUNTS, "written": 1, "source_errors": 1}
+_FANOUT_COUNTS = {**_SOURCE_COUNTS, "source_count": 1}
 
 
 def _create_activity_error(cause: Exception) -> ActivityError:
@@ -221,7 +230,16 @@ async def test_staging_and_dispatch_recover_from_transient_activity_failures() -
     assert attempts == [("stage", 1), ("stage", 2), ("dispatch", 1), ("dispatch", 2)]
 
 
-async def test_dispatch_starts_missing_segment_when_its_sibling_already_runs() -> None:
+@pytest.mark.parametrize(
+    "fanout_enabled,workflow_name",
+    [
+        (False, "sync-warehouse-account-properties"),
+        (True, "sync-warehouse-account-properties-fanout"),
+    ],
+)
+async def test_dispatch_selects_one_workflow_type_and_keeps_stable_segment_ids(
+    fanout_enabled: bool, workflow_name: str
+) -> None:
     client = AsyncMock()
     client.start_workflow.side_effect = [WorkflowAlreadyStartedError("tracked", "workflow"), None]
     input = DispatchAccountPropertySyncInput(
@@ -231,25 +249,23 @@ async def test_dispatch_starts_missing_segment_when_its_sibling_already_runs() -
     )
 
     with (
-        patch("products.customer_analytics.backend.temporal.account_property_sync.async_connect", return_value=client),
-        patch("products.customer_analytics.backend.temporal.account_property_sync.activity.info") as activity_info,
-        patch(
-            "products.customer_analytics.backend.temporal.account_property_sync.update_account_property_sync_runs_phase"
-        ),
+        patch(f"{_MODULE}.async_connect", return_value=client),
+        patch(f"{_MODULE}.account_property_sync_fanout_enabled", return_value=fanout_enabled) as flag,
         patch(
             "products.customer_analytics.backend.logic.account_property_sync_monitoring.ph_background_capture"
         ) as capture_factory,
+        patch(f"{_MODULE}.activity.info") as activity_info,
+        patch(f"{_MODULE}.update_account_property_sync_runs_phase"),
     ):
         activity_info.return_value.attempt = 1
         activity_info.return_value.workflow_id = "stage-workflow-job-1"
         await dispatch_warehouse_account_property_sync_activity(input)
 
+    flag.assert_called_once_with(7)
     calls = client.start_workflow.await_args_list
-    assert [call.args[0] for call in calls] == [
-        ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME,
-        ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME,
-    ]
+    assert [call.args[0] for call in calls] == [workflow_name, workflow_name]
     assert [call.args[1].segment for call in calls] == ["tracked", "ignored"]
+    # Both workflow types share these IDs, so a retry after a flag change finds the running segment.
     assert [call.kwargs["id"] for call in calls] == [
         "sync-warehouse-account-properties-job-1-tracked",
         "sync-warehouse-account-properties-job-1-ignored",
@@ -260,7 +276,7 @@ async def test_dispatch_starts_missing_segment_when_its_sibling_already_runs() -
     assert {key: properties[key] for key in ("scope", "status", "path", "segment", "workflow_id")} == {
         "scope": "segment",
         "status": "started",
-        "path": "legacy",
+        "path": "fanout" if fanout_enabled else "legacy",
         "segment": "ignored",
         "workflow_id": "sync-warehouse-account-properties-job-1-ignored",
     }
@@ -340,6 +356,232 @@ async def test_legacy_workflow_preserves_sync_outcome_when_telemetry_times_out(s
             await SyncWarehouseAccountPropertiesWorkflow().run(_segment_input())
 
 
+class _FakeFanoutActivities:
+    def __init__(self, source_ids: list[str]) -> None:
+        loop = asyncio.get_running_loop()
+        self.source_ids = source_ids
+        self.log: list[str] = []
+        self.inputs: dict[str, object] = {}
+        self.in_flight = 0
+        self.max_in_flight = 0
+        self.started = {source_id: asyncio.Event() for source_id in source_ids}
+        self.results: dict[str, asyncio.Future[dict[str, int]]] = {
+            source_id: loop.create_future() for source_id in source_ids
+        }
+
+    async def execute_activity(self, activity_fn: Callable[..., Any], arg: object, **_kwargs: object) -> object:
+        if activity_fn is list_warehouse_account_property_sources_activity:
+            return list(self.source_ids)
+        if activity_fn is sync_warehouse_account_property_source_activity:
+            assert isinstance(arg, AccountPropertySourceSyncInput)
+            return await self._sync_source(arg.source_id)
+        self.log.append(activity_fn.__name__)
+        self.inputs[activity_fn.__name__] = arg
+        return None
+
+    async def _sync_source(self, source_id: str) -> dict[str, int]:
+        self.in_flight += 1
+        self.max_in_flight = max(self.max_in_flight, self.in_flight)
+        self.log.append(f"started:{source_id}")
+        self.started[source_id].set()
+        try:
+            result = await self.results[source_id]
+        except asyncio.CancelledError:
+            self.log.append(f"cancelled:{source_id}")
+            raise
+        except Exception:
+            self.log.append(f"failed:{source_id}")
+            raise
+        finally:
+            self.in_flight -= 1
+        self.log.append(f"completed:{source_id}")
+        return result
+
+    def started_sources(self) -> list[str]:
+        return [entry.removeprefix("started:") for entry in self.log if entry.startswith("started:")]
+
+    def telemetry(self) -> AccountPropertySegmentTelemetryInput:
+        telemetry = self.inputs[emit_warehouse_account_property_segment_telemetry_activity.__name__]
+        assert isinstance(telemetry, AccountPropertySegmentTelemetryInput)
+        return telemetry
+
+
+async def _wait(event: asyncio.Event) -> None:
+    # Guards against a hang if the coordinator never starts the source. Correct runs never reach it.
+    await asyncio.wait_for(event.wait(), timeout=5)
+
+
+async def test_fanout_runs_sources_in_parallel_up_to_the_cap() -> None:
+    source_ids = ["source-1", "source-2", "source-3", "source-4", "source-5"]
+    fake = _FakeFanoutActivities(source_ids)
+
+    with (
+        patch.object(workflow, "execute_activity", new=fake.execute_activity),
+        patch.object(workflow, "time", side_effect=[100.0, 145.0]),
+    ):
+        run = asyncio.create_task(SyncWarehouseAccountPropertiesFanoutWorkflow().run(_segment_input()))
+        await _wait(fake.started["source-3"])
+        assert fake.started_sources() == ["source-1", "source-2", "source-3"]
+
+        fake.results["source-2"].set_result(dict(_FANOUT_COUNTS))
+        await _wait(fake.started["source-4"])
+        assert fake.in_flight == 3
+        assert fake.started_sources() == ["source-1", "source-2", "source-3", "source-4"]
+
+        for source_id in ("source-1", "source-3", "source-4", "source-5"):
+            if not fake.results[source_id].done():
+                fake.results[source_id].set_result(dict(_FANOUT_COUNTS))
+        await asyncio.wait_for(run, timeout=5)
+
+    assert fake.max_in_flight == 3
+    complete = complete_warehouse_account_property_segment_activity.__name__
+    assert fake.log.count(complete) == 1
+    assert all(fake.log.index(f"completed:{source_id}") < fake.log.index(complete) for source_id in source_ids)
+    telemetry = fake.telemetry()
+    assert (telemetry.path, telemetry.status, telemetry.duration_seconds, telemetry.source_count) == (
+        "fanout",
+        "completed",
+        45.0,
+        5,
+    )
+    assert telemetry.counts == {
+        "rows_read": 50,
+        "changed": 20,
+        "matched": 15,
+        "written": 10,
+        "source_errors": 0,
+        "source_count": 5,
+    }
+
+
+async def test_fanout_waits_for_running_siblings_before_failing_the_segment() -> None:
+    fake = _FakeFanoutActivities(["source-a", "source-b", "source-c"])
+    fake.results["source-a"].set_result(dict(_FANOUT_COUNTS))
+    fake.results["source-b"].set_exception(RuntimeError("source failed"))
+
+    with (
+        patch.object(workflow, "execute_activity", new=fake.execute_activity),
+        patch.object(workflow, "time", return_value=100.0),
+    ):
+        run = asyncio.create_task(SyncWarehouseAccountPropertiesFanoutWorkflow().run(_segment_input()))
+        await _wait(fake.started["source-c"])
+        fake.results["source-c"].set_result(dict(_FANOUT_COUNTS))
+        with pytest.raises(ApplicationError):
+            await asyncio.wait_for(run, timeout=5)
+
+    finalize = finalize_warehouse_account_property_runs_activity.__name__
+    assert "cancelled:source-c" not in fake.log
+    assert fake.log.index("completed:source-c") < fake.log.index(finalize)
+    assert complete_warehouse_account_property_segment_activity.__name__ not in fake.log
+    finalization = fake.inputs[finalize]
+    assert isinstance(finalization, FinalizeAccountPropertySyncRunsInput)
+    assert (finalization.status, finalization.segment) == ("failed", "tracked")
+    telemetry = fake.telemetry()
+    assert (telemetry.status, telemetry.source_count) == ("failed", 3)
+    assert telemetry.counts == {
+        "rows_read": 20,
+        "changed": 8,
+        "matched": 6,
+        "written": 4,
+        "source_errors": 1,
+        "source_count": 2,
+    }
+
+
+async def test_fanout_finishes_a_segment_without_sources() -> None:
+    fake = _FakeFanoutActivities([])
+
+    with (
+        patch.object(workflow, "execute_activity", new=fake.execute_activity),
+        patch.object(workflow, "time", return_value=100.0),
+    ):
+        await SyncWarehouseAccountPropertiesFanoutWorkflow().run(_segment_input())
+
+    assert fake.log == [
+        complete_warehouse_account_property_segment_activity.__name__,
+        emit_warehouse_account_property_segment_telemetry_activity.__name__,
+    ]
+    assert (fake.telemetry().status, fake.telemetry().source_count) == ("completed", 0)
+
+
+async def test_fanout_cancellation_keeps_runs_open_and_reports_cancelled() -> None:
+    fake = _FakeFanoutActivities(["source-a"])
+
+    with (
+        patch.object(workflow, "execute_activity", new=fake.execute_activity),
+        patch.object(workflow, "time", return_value=100.0),
+    ):
+        run = asyncio.create_task(SyncWarehouseAccountPropertiesFanoutWorkflow().run(_segment_input()))
+        await _wait(fake.started["source-a"])
+        run.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run
+
+    assert finalize_warehouse_account_property_runs_activity.__name__ not in fake.log
+    assert complete_warehouse_account_property_segment_activity.__name__ not in fake.log
+    assert fake.telemetry().status == "cancelled"
+
+
+async def test_fanout_workflow_retries_each_source_independently_and_replays() -> None:
+    attempts: list[tuple[str, int]] = []
+    completed: list[str] = []
+    telemetry: list[AccountPropertySegmentTelemetryInput] = []
+
+    @activity.defn(name="list-warehouse-account-property-sources")
+    async def list_sources(_input: AccountPropertySyncInput) -> list[str]:
+        return ["source-a", "source-b"]
+
+    @activity.defn(name="sync-warehouse-account-property-source")
+    async def sync_source(input: AccountPropertySourceSyncInput) -> dict[str, int]:
+        attempt = activity.info().attempt
+        attempts.append((input.source_id, attempt))
+        if input.source_id == "source-a" and attempt == 1:
+            raise RuntimeError("warehouse temporarily unavailable")
+        return dict(_FANOUT_COUNTS)
+
+    @activity.defn(name="complete-warehouse-account-property-segment")
+    async def complete_segment(input: AccountPropertySyncInput) -> None:
+        completed.append(input.segment)
+
+    @activity.defn(name="finalize-warehouse-account-property-runs")
+    async def finalize_runs(_input: FinalizeAccountPropertySyncRunsInput) -> None:
+        raise AssertionError("A successful segment must not finalize runs as failed")
+
+    @activity.defn(name="emit-warehouse-account-property-segment-telemetry")
+    async def emit_telemetry(input: AccountPropertySegmentTelemetryInput) -> None:
+        telemetry.append(input)
+
+    fakes: list[Callable[..., Any]] = [list_sources, sync_source, complete_segment, finalize_runs, emit_telemetry]
+    registered = {getattr(fn, "__temporal_activity_definition").name for fn in ACCOUNT_PROPERTY_SYNC_ACTIVITIES}
+    assert {getattr(fn, "__temporal_activity_definition").name for fn in fakes} <= registered
+
+    task_queue = str(uuid.uuid4())
+    async with await WorkflowEnvironment.start_time_skipping() as environment:
+        async with Worker(
+            environment.client,
+            task_queue=task_queue,
+            workflows=ACCOUNT_PROPERTY_SYNC_WORKFLOWS,
+            activities=fakes,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await environment.client.start_workflow(
+                SyncWarehouseAccountPropertiesFanoutWorkflow.run,
+                _segment_input(),
+                id=str(uuid.uuid4()),
+                task_queue=task_queue,
+                execution_timeout=timedelta(minutes=10),
+            )
+            await handle.result()
+            history = await handle.fetch_history()
+
+    await Replayer(
+        workflows=[SyncWarehouseAccountPropertiesFanoutWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
+    ).replay_workflow(history)
+    assert sorted(attempts) == [("source-a", 1), ("source-a", 2), ("source-b", 1)]
+    assert completed == ["tracked"]
+    assert [(event.status, event.source_count) for event in telemetry] == [("completed", 2)]
+
+
 @workflow.defn(name=ACCOUNT_PROPERTY_SYNC_WORKFLOW_NAME)
 class _PreTelemetrySyncWorkflow:
     @workflow.run
@@ -417,26 +659,60 @@ async def test_legacy_workflow_replays_histories_from_before_and_after_the_telem
     }
 
 
+_ATTEMPT_OUTCOMES = [
+    ("completed", dict(_SOURCE_COUNTS), "completed", None),
+    ("transient_failure", RuntimeError("warehouse unavailable"), "failed", "RuntimeError"),
+    (
+        "invalid_values",
+        AccountPropertySourceValueError("bad value", counts=_FAILED_COUNTS),
+        "failed",
+        "AccountPropertySourceValueError",
+    ),
+    ("cancelled", asyncio.CancelledError(), "cancelled", None),
+]
+
+
 @pytest.mark.parametrize(
-    "runtime_result,expected_status,expected_error_type",
+    "path,activity_fn,runtime_target,activity_input,expected_source_id",
     [
-        (dict(_SOURCE_COUNTS), "completed", None),
-        (RuntimeError("warehouse unavailable"), "failed", "RuntimeError"),
         (
-            AccountPropertySourceValueError("bad value", counts=_FAILED_COUNTS),
-            "failed",
-            "AccountPropertySourceValueError",
+            "legacy",
+            sync_warehouse_account_properties_activity,
+            "run_account_property_segment_sync",
+            _segment_input(),
+            None,
         ),
-        (asyncio.CancelledError(), "cancelled", None),
+        (
+            "fanout",
+            sync_warehouse_account_property_source_activity,
+            "run_account_property_source_sync",
+            AccountPropertySourceSyncInput(
+                team_id=7,
+                saved_query_id="019f0000-0000-7000-8000-000000000001",
+                job_id="job-1",
+                segment="tracked",
+                source_id="019f0000-0000-7000-8000-0000000000aa",
+            ),
+            "019f0000-0000-7000-8000-0000000000aa",
+        ),
     ],
 )
+@pytest.mark.parametrize("_outcome,runtime_result,expected_status,expected_error_type", _ATTEMPT_OUTCOMES)
 async def test_sync_activity_reports_attempt_lifecycle(
-    runtime_result: object, expected_status: str, expected_error_type: str | None
+    path: str,
+    activity_fn: Callable[[Any], Any],
+    runtime_target: str,
+    activity_input: object,
+    expected_source_id: str | None,
+    _outcome: str,
+    runtime_result: object,
+    expected_status: str,
+    expected_error_type: str | None,
 ) -> None:
     runtime = AsyncMock(side_effect=[runtime_result])
 
     with (
-        patch(f"{_MODULE}.run_account_property_segment_sync", new=runtime),
+        patch(f"{_MODULE}.{runtime_target}", new=runtime),
         patch(f"{_MODULE}.capture_account_property_sync_event") as capture_event,
         patch(f"{_MODULE}.capture_exception"),
         patch(f"{_MODULE}.saved_query_binding"),
@@ -449,18 +725,18 @@ async def test_sync_activity_reports_attempt_lifecycle(
         activity_info.return_value.workflow_run_id = "segment-run"
         if isinstance(runtime_result, BaseException):
             with pytest.raises(BaseException) as raised:
-                await sync_warehouse_account_properties_activity(_segment_input())
+                await activity_fn(activity_input)
             if isinstance(runtime_result, AccountPropertySourceValueError):
                 assert isinstance(raised.value, ApplicationError) and raised.value.non_retryable
                 assert raised.value.type == "AccountPropertySourceValueError"
                 assert raised.value.details == (_FAILED_COUNTS,)
         else:
-            assert await sync_warehouse_account_properties_activity(_segment_input()) == runtime_result
+            assert await activity_fn(activity_input) == runtime_result
 
     events = [call.kwargs for call in capture_event.call_args_list]
     assert [event["status"] for event in events] == ["started", expected_status]
     assert {(event["path"], event["scope"], event["source_id"], event["attempt"]) for event in events} == {
-        ("legacy", "attempt", None, 2)
+        (path, "attempt", expected_source_id, 2)
     }
     assert events[1]["error_type"] == expected_error_type
     assert events[1]["duration_seconds"] is not None
