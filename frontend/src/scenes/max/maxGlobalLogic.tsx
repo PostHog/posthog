@@ -2,6 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -165,30 +166,6 @@ export interface maxGlobalLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
-    setExportedScene: (
-        exportedScene: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps>,
-        sceneId: string,
-        sceneKey: string | undefined,
-        params: import('../sceneTypes').SceneParams
-    ) => {
-        exportedScene: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps>
-        params: import('../sceneTypes').SceneParams
-        sceneId: string
-        sceneKey: string | undefined
-    } // sceneLogic
-    setScene: (
-        sceneId: string,
-        sceneKey: string | undefined,
-        params: import('../sceneTypes').SceneParams,
-        scrollToTop?: boolean | undefined,
-        exportedScene?: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps> | undefined
-    ) => {
-        exportedScene: import('../sceneTypes').SceneExport<import('../sceneTypes').SceneProps> | undefined
-        params: import('../sceneTypes').SceneParams
-        sceneId: string
-        sceneKey: string | undefined
-        scrollToTop: boolean
-    } // sceneLogic
     openSidePanel: (
         tab: SidePanelTab,
         options?: string | undefined
@@ -324,8 +301,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         actions: [
             router,
             ['locationChanged'],
-            sceneLogic,
-            ['setScene', 'setExportedScene'],
             attachedContextLogic,
             ['setDismissScope'],
             sidePanelStateLogic,
@@ -425,8 +400,6 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        setScene: ({ sceneId }) => actions.setDismissScope(sceneId),
-        setExportedScene: ({ sceneId }) => actions.setDismissScope(sceneId),
         setPhaiViewMode: ({ mode }) => {
             // The task list only loads on mount. A chat made on the legacy view has a task copy by the
             // time the user switches, and the merged list shows it as that task once it is loaded.
@@ -488,10 +461,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
             }
         },
     })),
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
         actions.loadConversationHistory()
-        actions.setDismissScope(values.sceneId ?? '')
     }),
+    subscriptions(({ actions }) => ({
+        sceneId: (sceneId: string | null) => actions.setDismissScope(sceneId ?? ''),
+    })),
 
     selectors({
         currentConversationId: [

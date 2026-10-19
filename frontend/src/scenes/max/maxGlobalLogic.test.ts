@@ -13,7 +13,7 @@ import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { attachedContextLogic } from 'products/posthog_ai/frontend/logics/attachedContextLogic'
+import { attachedContextLogic } from 'products/posthog_ai/frontend/api/logics'
 import { tasksLogic } from 'products/posthog_ai/frontend/logics/tasksLogic'
 
 import { TOOL_DEFINITIONS, ToolDefinition } from './max-constants'

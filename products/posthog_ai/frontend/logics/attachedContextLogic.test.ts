@@ -116,6 +116,7 @@ describe('attachedContextLogic', () => {
         { name: 'a grouped chip', chip: { type: 'insight', key: 'a', dismissGroup: 'viewer' } as AttachedContextItem },
     ])('dismissing $name hides it only in the scope it was closed in', async ({ chip }) => {
         const otherScopeChip = { ...chip, key: chip.dismissGroup ? 'b' : chip.key }
+        const returningChip = { ...chip, key: chip.dismissGroup ? 'c' : chip.key }
         logic.actions.setDismissScope('Workflow')
         logic.actions.registerContext('scene', [chip])
         logic.actions.dismissContext(attachedContextItemKey(chip), chip.dismissGroup)
@@ -127,7 +128,7 @@ describe('attachedContextLogic', () => {
 
         await expectLogic(logic, () => {
             logic.actions.setDismissScope('Workflow')
-            logic.actions.registerContext('scene', [chip])
+            logic.actions.registerContext('scene', [returningChip])
         }).toMatchValues({ contextItems: [] })
     })
 })
