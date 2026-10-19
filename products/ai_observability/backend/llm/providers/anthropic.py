@@ -86,7 +86,7 @@ class _AnthropicFoundry(anthropic.AnthropicFoundry):
     def __init__(self, posthog_client: PostHogClient, **kwargs: Any):
         super().__init__(**kwargs)
         self._ph_client = posthog_client
-        self.messages = WrappedMessages(self)  # type: ignore[assignment]
+        self.messages = WrappedMessages(self)  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
 
 
 def _is_quota_or_billing_error(error: Exception) -> bool:
