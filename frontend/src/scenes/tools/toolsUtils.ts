@@ -56,21 +56,30 @@ export function isToolItem(item: FileSystemImport): boolean {
     )
 }
 
-let productLabelsByLibraryType: Map<string, string[]> | null = null
+let productsByLibraryType: Map<string, FileSystemImport[]> | null = null
 
-/** The names of the products a Library type row opens, so a search for "Product analytics" finds Insights. */
-export function libraryRowProductLabels(type: string): string[] {
-    if (!productLabelsByLibraryType) {
-        const labels = new Map<string, string[]>()
+function libraryRowProducts(type: string): FileSystemImport[] {
+    if (!productsByLibraryType) {
+        const products = new Map<string, FileSystemImport[]>()
         for (const item of getToolSourceItems()) {
             if (libraryRowOpensProduct(item)) {
                 const itemType = productObjectType(item)
-                labels.set(itemType, [...(labels.get(itemType) ?? []), toolLabel(item)])
+                products.set(itemType, [...(products.get(itemType) ?? []), item])
             }
         }
-        productLabelsByLibraryType = labels
+        productsByLibraryType = products
     }
-    return productLabelsByLibraryType.get(type) ?? []
+    return productsByLibraryType.get(type) ?? []
+}
+
+/** The names of the products a Library type row opens, so a search for "Product analytics" finds Insights. */
+export function libraryRowProductLabels(type: string): string[] {
+    return libraryRowProducts(type).map(toolLabel)
+}
+
+/** The product a Library type row opens, so the row can show its description and be starred like a product. */
+export function libraryRowProduct(type: string): FileSystemImport | null {
+    return libraryRowProducts(type)[0] ?? null
 }
 
 export function toolHrefForPath(

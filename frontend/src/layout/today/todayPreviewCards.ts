@@ -1,7 +1,8 @@
 import { libraryObjectHref, libraryObjectName, libraryTypeLabel } from 'scenes/library/libraryUtils'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { sidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -51,7 +52,17 @@ export interface TodayObjectPreview {
     lastViewedAt: string | null
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview
+/** What a Products row's hover card says: the same description, example and docs link as the current navigation. */
+export interface TodayProductPreview {
+    kind: 'product'
+    label: string
+    product: FileSystemImport
+    description: string
+    example: string | null
+    docsHref: string | null
+}
+
+export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview | TodayProductPreview
 
 export function sessionPreview(
     item: TodayWorkItem,
@@ -113,5 +124,17 @@ export function chatPreview(item: TodayWorkItem): TodayChatPreview {
         title: item.title || 'Untitled chat',
         source: 'PostHog AI',
         timestamp: item.timestamp,
+    }
+}
+
+export function productPreview(label: string, product: FileSystemImport): TodayProductPreview {
+    const { description, example, docsHref } = sidebarProductMeta(product)
+    return {
+        kind: 'product',
+        label,
+        product,
+        description: description ?? `Explore ${label.toLowerCase()} in your project.`,
+        example: example ?? null,
+        docsHref: docsHref ?? null,
     }
 }
