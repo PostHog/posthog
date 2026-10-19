@@ -186,7 +186,7 @@ class MetricSerializer(serializers.ModelSerializer):
                 "help_text": "What the number is, in 1-2 short sentences under 300 characters: its meaning and "
                 "grain plus any inclusion or exclusion that changes it. Leave out source tables or views, lineage, "
                 "column lists, and comparisons with other metrics. Never narrate the query - the definition carries "
-                "the mechanics; put rationale for query choices in 'reasoning'.",
+                "the mechanics; put the query's design decisions in 'reasoning'.",
                 "max_length": MAX_DESCRIPTION_LENGTH,
                 "error_messages": {"max_length": DESCRIPTION_TOO_LONG_MESSAGE},
             },
@@ -197,7 +197,12 @@ class MetricSerializer(serializers.ModelSerializer):
                 "min_value": 0.0,
                 "max_value": 1.0,
             },
-            "reasoning": {"help_text": "AI author's reasoning, surfaced as review context."},
+            "reasoning": {
+                "help_text": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design "
+                "decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an "
+                "approximation. Leave out the use case, who asked, run results, validation figures, and edit "
+                "history."
+            },
         }
 
     @extend_schema_field(serializers.CharField(allow_null=True))
