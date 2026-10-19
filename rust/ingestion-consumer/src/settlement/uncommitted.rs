@@ -11,8 +11,9 @@ const UNCOMMITTED_OFFSETS: &str = "kafka_consumer_ledger_uncommitted_offsets";
 const UNCOMMITTED_EVENTS: &str = "kafka_consumer_ledger_uncommitted_events";
 const UNCOMMITTED_BYTES: &str = "kafka_consumer_ledger_uncommitted_bytes";
 
-/// A partition's uncommitted charge is in the ledger's window until a take,
-/// then in the pacer until the commit goes out.
+/// Counts each partition's charge from poll until the consumer makes the Kafka
+/// commit call that covers it: first in the ledger's window, then in the pacer.
+/// That call is asynchronous, and nothing here waits for Kafka to confirm it.
 pub(super) struct Uncommitted {
     ledger: Arc<TopicOffsetLedger>,
     pacer: Mutex<CommitPacer>,
