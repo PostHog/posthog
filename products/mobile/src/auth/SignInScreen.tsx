@@ -3,7 +3,7 @@ import { type ReactElement, useState } from 'react'
 import { ActivityIndicator, Linking, ScrollView, StyleSheet, Text, View } from 'react-native'
 
 import { useDemoMode } from '@/demo/demoMode'
-import { currentDefaultPageHref } from '@/features/settings/defaultPageStore'
+import { currentDefaultPageHref, defaultPageHref, settleDefaultPage } from '@/features/settings/defaultPageStore'
 import { track } from '@/lib/analytics'
 import { toError } from '@/lib/errors'
 import { openLegalLink, PRIVACY_POLICY_URL, TERMS_URL } from '@/lib/legalLinks'
@@ -71,7 +71,7 @@ export function SignInScreen(): ReactElement {
                 track('mobile_demo_ended', { from: 'sign_in' })
             }
             setDemo(false)
-            router.replace(currentDefaultPageHref())
+            router.replace(defaultPageHref(settleDefaultPage()))
         } catch (caught) {
             // Retrying cannot help when this platform has no OAuth sign-in.
             const retryable = !(caught instanceof OAuthError && caught.kind === 'unsupported')

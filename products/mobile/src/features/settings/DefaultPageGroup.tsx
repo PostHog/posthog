@@ -2,12 +2,18 @@ import type { ReactElement } from 'react'
 
 import { track } from '@/lib/analytics'
 
-import { DEFAULT_PAGES, type DefaultPage, defaultPageLabel, useDefaultPageStore } from './defaultPageStore'
+import {
+    DEFAULT_PAGES,
+    type DefaultPage,
+    defaultPageLabel,
+    effectiveDefaultPage,
+    useDefaultPageStore,
+} from './defaultPageStore'
 import { SettingsGroup } from './SettingsGroup'
 import { SettingsRadioRow } from './SettingsRadioRow'
 
 export function DefaultPageGroup(): ReactElement {
-    const page = useDefaultPageStore((state) => state.page)
+    const page = useDefaultPageStore((state) => effectiveDefaultPage(state.page))
     const setPage = useDefaultPageStore((state) => state.setPage)
 
     const choose = (next: DefaultPage): void => {

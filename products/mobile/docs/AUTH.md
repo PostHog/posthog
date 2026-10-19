@@ -185,6 +185,7 @@ The sign-in, session and settings events never carry the host, the error text or
 - `mobile_project_picker_opened`, and `mobile_project_switched` with `from` (`nav_menu`, `settings` or `push`).
 - `mobile_settings_opened` with `from` (`nav_menu`).
 - `mobile_default_page_changed` with `page` and `previous_page` (`inbox`, `chats` or `views`), when Start page in Settings changes.
+- `mobile_default_page_defaulted` with `page` (`inbox` or `views`) and `org_ai_approved`, when the app saves the start page once for a person who never chose one.
 - `mobile_sign_out_confirm_shown` and `mobile_sign_out_cancelled` with `from` (`settings` or `nav_menu`).
 - `mobile_demo_started` with `from` (`sign_in` or `settings`), and `mobile_demo_ended` with `from` (`settings`, `sign_out`, `sign_in` or `push`).
 - `mobile_deep_link_opened` with `path_kind` (the first path segment as an enum, `deepLinkKind()` in `src/lib/deepLinkKind.ts`) and `initial`. `app/+native-intent.tsx` sends it. `deepLinkKind()` returns null for the app's root URL, which Expo Router also passes on a cold start without a link, so that start sends nothing.

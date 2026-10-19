@@ -178,3 +178,5 @@ Its 16pt input has an explicit 20pt line height, centered vertically without And
   Start page and Project use the same radio rows (`SettingsRadioRow`).
   Start page picks the tab the app opens on (Inbox, Chats or Views) and is saved on the device (`defaultPageStore`).
   Sign in also lands there, and so do Back on Settings or a view and closing the chat when there is no screen to go back to.
+  Until the person picks one, the app saves a start page once, on the first launch that knows whether the selected project's organization approved AI data processing: Views if it did not, Inbox if it did.
+  While that status is unknown, the app opens the inbox and saves nothing.
