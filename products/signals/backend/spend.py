@@ -400,10 +400,13 @@ def begin_report_spend(*, team_id: int, report_id: str, signal_id: str) -> None:
         logger.exception("signals.spend.accounting_failed", stage="report_start", team_id=team_id)
 
 
-def finish_report_spend(*, team_id: int, report_id: str) -> None:
+def finish_report_spend(*, team_id: int, report_id: str, allow_candidate: bool = False) -> None:
     with transaction.atomic():
         report = SignalReport.objects.filter(team_id=team_id, id=report_id).first()
-        if report and report.status in {SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS}:
+        if report and (
+            report.status == SignalReport.Status.IN_PROGRESS
+            or (report.status == SignalReport.Status.CANDIDATE and not allow_candidate)
+        ):
             return
         for spend in SignalSpend.objects.for_team(team_id).select_for_update().filter(report_id=report_id):
             if report:
@@ -447,7 +450,7 @@ async def complete_report_spend(*, team_id: int, report_id: str) -> None:
             except WorkflowFailureError:
                 # Failed work still incurs spend. Finalization below also requires settled usage.
                 pass
-    await database_sync_to_async(finish_report_spend)(team_id=team_id, report_id=report_id)
+    await database_sync_to_async(finish_report_spend)(team_id=team_id, report_id=report_id, allow_candidate=True)
 
 
 def _report_spend_signal_ids(*, team_id: int, report_id: str) -> list[str]:

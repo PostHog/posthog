@@ -7,7 +7,7 @@ from collections import deque
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Any
 from uuid import UUID
 
@@ -1233,6 +1233,10 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
     )
     if not stale_runs:
         return
+    from products.signals.backend.tasks import (
+        settle_scout_spend,  # noqa: PLC0415 - avoids loading the Celery task registry when importing the runner
+    )
+
     # Resolve the team once, only when there is actually something to reap, so the reaped
     # event carries the same team / groups shape as the other scout lifecycle events.
     team = _get_team(team_id)
@@ -1259,6 +1263,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 claimed = _claim_finished_orphan(run_id=run.id, team_id=team_id)
             if not claimed:
                 continue
+            transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
             logger.warning(
                 "signals_scout: reaped stale in-progress run before dispatch",
                 extra={

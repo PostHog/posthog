@@ -234,7 +234,7 @@ class SignalReportSummaryWorkflow:
                             publish_report_spend_activity,
                             inputs,
                             start_to_close_timeout=timedelta(minutes=20),
-                            retry_policy=RetryPolicy(maximum_attempts=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
                         )
                     except Exception:
                         workflow.logger.exception("Failed to publish completed report spend")

@@ -887,6 +887,9 @@ async def emit_signal(
             weight=weight,
             extra=extra or {},
         ):
+            await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
+                team_id=team.id, signal_id=signal_id
+            )
             return
 
     client = await async_connect()

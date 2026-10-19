@@ -1170,7 +1170,7 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
             db_result.report_id, input.team_id
         ):
             report_title = ""
-        await database_sync_to_async(complete_signal_pipeline)(
+        await database_sync_to_async(complete_signal_pipeline, thread_sensitive=False)(
             team_id=input.team_id,
             signal_id=input.signal_id,
             report_id=db_result.report_id,

@@ -245,6 +245,8 @@ Each signal or scout run owns one cumulative `SignalSpend` row. One-shot LLM cal
 
 Workflows explicitly finalize spend. Task teardown waits for gateway accounting through a retrying activity before returning, and pipeline sessions await that completion. The summary workflow closes spend after its implementation dispatch decision; an implementation task closes it after execution and accounting finish. A dropped signal closes at the drop. Failed and cancelled tasks also settle their costs. Persistent missing usage leaves spend unfinalized and fails the completion activity; it is never treated as zero. A later run reopens the same owner row.
 
+Direct-source steering drops close their spend without entering the batch pipeline. A summary that stops at a quota gate closes its completed pass even when the report remains a candidate, while task completion still waits for an active summary. Summary accounting retries transient failures, and reaped scout runs enqueue retrying accounting after their terminal status commits.
+
 The owner stores no request inventory or pending-work list. The old source table remains readable during rolling deployment so late writes from older workers remain visible without double counting. New workers write only owner rows. Removing the compatibility table requires a later migration after old workers have drained.
 
 ## Usage-based billing rollout

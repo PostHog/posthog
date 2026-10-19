@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from django.db import OperationalError
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio import activity
@@ -183,6 +185,7 @@ class _Recorder:
         research_metrics: list[dict[str, object]] | None = None,
         checks_snapshot: dict[str, str] | None = None,
         selected_repository: str | None = "owner/repo",
+        spend_failures: int = 0,
     ) -> None:
         self.gate_answers = gate_answers or {}
         self.fetch_results = fetch_results or [[_signal_data()]]
@@ -202,6 +205,7 @@ class _Recorder:
         self.repo_selections = 0
         self.researches = 0
         self.spend_publications = 0
+        self.spend_failures = spend_failures
         self.reverts = 0
         self.resets = 0
         self.failures = 0
@@ -305,6 +309,8 @@ async def _run_summary_workflow(recorder: _Recorder) -> None:
     @activity.defn(name="publish_report_spend_activity")
     async def fake_publish_spend(input: SignalReportSummaryWorkflowInputs) -> None:
         recorder.spend_publications += 1
+        if recorder.spend_publications <= recorder.spend_failures:
+            raise OperationalError("Transient accounting failure")
 
     @activity.defn(name="revert_report_to_candidate_activity")
     async def fake_revert(input: RevertReportToCandidateInput) -> None:
@@ -382,12 +388,13 @@ async def test_pre_research_gate_reverts_report_and_skips_research():
 
 
 @pytest.mark.asyncio
-async def test_open_gates_let_the_run_flow_through():
-    recorder = _Recorder(gate_answers={})
+@pytest.mark.parametrize("spend_failures", [0, 1])
+async def test_open_gates_let_the_run_flow_through(spend_failures: int) -> None:
+    recorder = _Recorder(gate_answers={}, spend_failures=spend_failures)
     await _run_summary_workflow(recorder)
     assert recorder.gate_checks == ["summary_entry", "pre_repo_selection", "pre_research"]
     assert recorder.researches == 1
-    assert recorder.spend_publications == 1
+    assert recorder.spend_publications == spend_failures + 1
     assert recorder.reverts == 0
     assert recorder.failures == 0
 
