@@ -42,6 +42,9 @@ describe("ConsentPanel", () => {
     const content = texts(renderer);
     expect(content).toContain("Approve AI data processing");
     expect(content).toContain(
+      'This app isn\'t yet HIPAA-compliant and is not intended for processing of Protected Health Information ("PHI").',
+    );
+    expect(content).toContain(
       'If you\'ve entered into a Business Associate Agreement ("BAA") with PostHog, it does not currently apply to PostHog Code features.',
     );
   });
