@@ -303,7 +303,7 @@ def _read_object_filter(
     with pooled_openfga_client() as client:
         if client.get_store_id() is None:
             raise RuntimeError("Bootstrap the OpenFGA store before listing authorized resources")
-        reader = _Reader(client, user, type_name, prefix, cap, consistency)
+        reader = _Reader(client, user, type_name, prefix, cap, consistency, resource.project_id)
         if permission == Action.VIEW and reader.allowed(category_key, "can_view"):
             with_rule = reader.list_ids("has_rule")
             if with_rule is None:
@@ -324,10 +324,18 @@ class _Reader:
     """The three OpenFGA calls a resource list is made of, for one user and one object type."""
 
     def __init__(
-        self, client: OpenFgaClient, user: str, type_name: str, prefix: str, cap: int, consistency: Consistency
+        self,
+        client: OpenFgaClient,
+        user: str,
+        type_name: str,
+        prefix: str,
+        cap: int,
+        consistency: Consistency,
+        project_id: int,
     ) -> None:
         self.client = client
         self.user = user
+        self.project_id = project_id
         self.type_name = type_name
         self.prefix = prefix
         self.cap = cap
@@ -353,20 +361,39 @@ class _Reader:
                 denied.add(id)
         return frozenset(denied)
 
+    def active_ids(self, ids: set[str]) -> frozenset[str]:
+        if not ids:
+            return frozenset()
+        if self.type_name == ResourceType.DASHBOARD:
+            return active_authorization_dashboard_ids(self.project_id, ids)
+        if self.type_name == ResourceType.INSIGHT:
+            from products.product_analytics.backend.facade.api import (  # noqa: PLC0415 -- keep product analytics models off the authorization import path
+                active_authorization_insight_ids,
+            )
+
+            return active_authorization_insight_ids(self.project_id, ids)
+        return frozenset(ids)
+
     def list_ids(self, relation: str) -> frozenset[str] | None:
-        """Ids of this project's objects that hold `relation` for the user, or None past the cap."""
+        """Active IDs holding `relation` in this project, or None past the cap."""
         ids: set[str] = set()
+        pending: set[str] = set()
         request = ClientListObjectsRequest(user=self.user, relation=relation, type=self.type_name)
         stream = self.client.streamed_list_objects(request, self.options)
         try:
             for result in stream:
                 if result.object.startswith(self.prefix):
-                    ids.add(result.object.removeprefix(self.prefix))
-                    if len(ids) > self.cap:
-                        return None
+                    pending.add(result.object.removeprefix(self.prefix))
+                    # Sync retains deleted objects; only active IDs consume the result cap.
+                    if len(pending) >= min(100, self.cap + 1):
+                        ids.update(self.active_ids(pending))
+                        pending.clear()
+                        if len(ids) > self.cap:
+                            return None
+            ids.update(self.active_ids(pending))
+            return None if len(ids) > self.cap else frozenset(ids)
         finally:
             stream.close()
-        return frozenset(ids)
 
 
 def query_relation(

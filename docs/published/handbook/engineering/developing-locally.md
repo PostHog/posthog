@@ -295,6 +295,7 @@ Create the flag with these variant keys before testing a rollout.
   For reads, `excluded=False` includes only the returned IDs; `excluded=True` excludes those IDs.
   A permitted `creator_exempt` adds creator-owned rows within the existing tenant scope.
   Incomplete filters deny every row. Read filters default to a 1,000-ID cap; `limit` overrides it.
+  OpenFGA read filters exclude soft-deleted dashboards and insights before counting IDs toward the cap.
   IDs describe a filter, not an inventory of existing objects; callers retain tenant and soft-deletion filters.
   Write actions retain inclusion-only results and their action-specific permission checks.
   The existing viewset list hook applies the filter through `posthog/models/access_filter.py` before pagination.

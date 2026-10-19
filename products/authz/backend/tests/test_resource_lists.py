@@ -20,6 +20,10 @@ class TestOpenFgaResourceLists(SimpleTestCase):
         self.resource = Resource(type=ResourceType.DASHBOARD, project_id=1, organization_id=self.org_id)
         self.subject = Subject(user_id=1)
         self.prefix = f"dashboard:{self.org_id}/1/"
+        self.active_dashboard_ids = self.enterContext(
+            patch("products.authz.backend.logic.authorization.active_authorization_dashboard_ids")
+        )
+        self.active_dashboard_ids.side_effect = lambda team_id, ids: frozenset(ids)
         self.fga_client = MagicMock()
         self.enterContext(
             patch("products.authz.backend.logic.authorization.pooled_openfga_client")
@@ -104,3 +108,14 @@ class TestOpenFgaResourceLists(SimpleTestCase):
                 subject=self.subject,
             )
         assert result.complete and result.allows(table_id) is query_allowed
+
+    @parameterized.expand([("grants", False), ("overrides", True)])
+    def test_deleted_objects_do_not_consume_cap(self, _name: str, category_allowed: bool) -> None:
+        self.fga_client.check.return_value.allowed = category_allowed
+        self.active_dashboard_ids.side_effect = lambda team_id, ids: frozenset(ids) & {"active"}
+        self.stream([self.prefix + str(i) for i in range(1001)] + [self.prefix + "active"])
+        self.fga_client.client_batch_check.return_value = [SimpleNamespace(allowed=False, error=None)]
+        result = api.list_objects(resource=self.resource, action=Action.VIEW, subject=self.subject, limit=1)
+        assert result.complete
+        assert result.excluded is category_allowed
+        assert result.ids == frozenset({"active"})
