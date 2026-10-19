@@ -13,8 +13,8 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { signingSecretLogic } from './signingSecretLogic'
 
 export function IdentityVerificationSecretSection(): JSX.Element {
-    const { signingSecret, signingSecretLoading } = useValues(signingSecretLogic)
-    const { rotateSigningSecret } = useActions(signingSecretLogic)
+    const { signingSecret, signingSecretLoading, signingSecretLoadFailed } = useValues(signingSecretLogic)
+    const { rotateSigningSecret, loadSigningSecret } = useActions(signingSecretLogic)
     const { isTeamTokenResetAvailable } = useValues(teamLogic)
 
     const secret = signingSecret?.secret ?? null
@@ -45,6 +45,11 @@ export function IdentityVerificationSecretSection(): JSX.Element {
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                 {signingSecretLoading && !signingSecret ? (
                     <LemonSkeleton className="h-10" />
+                ) : signingSecretLoadFailed ? (
+                    <LemonBanner type="error" action={{ children: 'Retry', onClick: () => loadSigningSecret() }}>
+                        Couldn't load the identity verification secret. Retry, and if it keeps happening contact
+                        support.
+                    </LemonBanner>
                 ) : (
                     <>
                         <CodeSnippet

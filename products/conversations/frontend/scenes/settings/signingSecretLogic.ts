@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, path } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -10,6 +10,7 @@ import type { SigningSecretApi } from '../../generated/api.schemas'
 export interface signingSecretLogicValues {
     currentTeamId: number | null // teamLogic
     signingSecret: SigningSecretApi | null
+    signingSecretLoadFailed: boolean
     signingSecretLoading: boolean
 }
 
@@ -62,6 +63,18 @@ export const signingSecretLogic = kea<signingSecretLogicType>([
             },
         ],
     })),
+    reducers({
+        // A failed fetch must not render as "no secret yet": generating from that state
+        // would rotate an existing secret without the cutoff warning.
+        signingSecretLoadFailed: [
+            false,
+            {
+                loadSigningSecret: () => false,
+                loadSigningSecretSuccess: () => false,
+                loadSigningSecretFailure: () => true,
+            },
+        ],
+    }),
     afterMount(({ actions }) => {
         actions.loadSigningSecret()
     }),
