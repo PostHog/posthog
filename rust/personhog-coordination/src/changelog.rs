@@ -289,7 +289,7 @@ mod tests {
             topic: "new".to_string(),
             partitions,
             epoch: 9,
-            gated_groups: vec![],
+            writer_group: String::new(),
             draining: draining
                 .into_iter()
                 .map(|(partitions, epoch)| Generation {

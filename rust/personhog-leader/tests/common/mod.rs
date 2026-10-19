@@ -210,7 +210,7 @@ pub struct LeaderPodHandles {
 pub async fn seed_test_changelog(store: &PersonhogStore) -> TestTopic {
     let topic = owned_broker_topic(NUM_PARTITIONS as i32).await;
     assert!(store
-        .seed_changelog_config(&topic.topic, NUM_PARTITIONS, vec![])
+        .seed_changelog_config(&topic.topic, NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
     topic

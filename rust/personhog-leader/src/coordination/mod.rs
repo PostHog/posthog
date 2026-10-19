@@ -615,7 +615,7 @@ mod tests {
             topic: topic.to_string(),
             partitions,
             epoch,
-            gated_groups: Vec::new(),
+            writer_group: String::new(),
             draining: Vec::new(),
         };
         for (partition, cfg) in [(5, config("old", 8, 1)), (1, config("new", 4, 2))] {

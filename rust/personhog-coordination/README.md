@@ -125,7 +125,7 @@ Several failure modes are handled explicitly:
 
 ## Changelog generations
 
-`config/changelog` (`{topic, partitions, epoch, gated_groups, draining}`) is the one live object every participant reads. A pod captures it by a strong read when it acquires a partition and serves the partition under that capture until it releases it.
+`config/changelog` (`{topic, partitions, epoch, writer_group, draining}`) is the one live object every participant reads. A pod captures it by a strong read when it acquires a partition and serves the partition under that capture until it releases it.
 
 A leader serving a partition holds in its cache every acked write for that partition's keys that Postgres does not have yet, so a warm reads every source that can hold one: for each draining generation, the old partitions congruent to the new one modulo `gcd(old, new)`, from the writer's committed offset to their end and filtered to the keys that hash to the new partition, then the live partition itself. Marks from an old source keep their own stream (`topic`, source partition), so recovery fetches them from the old topic and the prune settles them against the writer's offsets there. A mark also names the cache partition it belongs to, and a release or prune of one partition only removes the marks and lifecycle fences homed there: an old partition and a new one on the same pod share keys, and either may be released or pruned first.
 
