@@ -20,7 +20,7 @@ import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
 import { SendCalendar } from './SendCalendar'
 import { sendCalendarLogic } from './sendCalendarLogic'
 import { SendCalendarSendDetails } from './SendCalendarSendDetails'
-import { CalendarSend, describeRepeat, sendAudience, sendCategory } from './sendCalendarUtils'
+import { CalendarSend, describeRepeat, scheduleSendTimes, sendAudience, sendCategory } from './sendCalendarUtils'
 import { SendDayPicker } from './SendDayPicker'
 
 const meta: Meta<typeof SendCalendar> = {
@@ -277,7 +277,10 @@ const detailsSend = (item: HogFlowMinimalApi): CalendarSend => {
         name: item.name ?? '',
         kind: item.origin_product === 'broadcasts' ? 'broadcast' : 'workflow',
         state: 'planned',
-        at: dayjs(itemSchedule.starts_at),
+        // The calendar shows each send at its next occurrence, not at the schedule's first one.
+        at:
+            scheduleSendTimes(itemSchedule, { start: dayjs(), end: dayjs().add(1, 'year') })[0] ??
+            dayjs(itemSchedule.starts_at),
         repeat: describeRepeat(itemSchedule),
         isRecurring: itemSchedule.rrule !== 'FREQ=DAILY;COUNT=1',
         createdBy: item.created_by,
