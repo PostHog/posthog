@@ -35475,18 +35475,6 @@ export namespace Schemas {
       metadata?: DatasetCreateMetadata;
     }
 
-    /**
-     * * `events` - events
-     * * `persons` - persons
-     */
-    export type DatasetEnum = typeof DatasetEnum[keyof typeof DatasetEnum];
-
-
-    export const DatasetEnum = {
-      Events: 'events',
-      Persons: 'persons',
-    } as const;
-
     export interface DatasetExportCreate {
       /**
          * Dataset revision to export. Defaults to the latest revision when the export is created.
@@ -66730,12 +66718,27 @@ export namespace Schemas {
       SyncPaused: 'sync_paused',
     } as const;
 
+    /**
+     * * `events` - events
+     * * `persons` - persons
+     * * `groups` - groups
+     */
+    export type ManagedWarehouseDatasetEnum = typeof ManagedWarehouseDatasetEnum[keyof typeof ManagedWarehouseDatasetEnum];
+
+
+    export const ManagedWarehouseDatasetEnum = {
+      Events: 'events',
+      Persons: 'persons',
+      Groups: 'groups',
+    } as const;
+
     export interface ManagedWarehouseDatasetStatus {
       /** Warehouse dataset represented by this status.
        *
        * * `events` - events
-       * * `persons` - persons */
-      dataset: DatasetEnum;
+       * * `persons` - persons
+       * * `groups` - groups */
+      dataset: ManagedWarehouseDatasetEnum;
       /** User-facing readiness state for this dataset.
        *
        * * `not_configured` - not_configured
@@ -66830,6 +66833,8 @@ export namespace Schemas {
       events: ManagedWarehouseDatasetStatus;
       /** Persons backfill readiness. */
       persons: ManagedWarehouseDatasetStatus;
+      /** Groups backfill readiness. */
+      groups: ManagedWarehouseDatasetStatus;
       /** Imported source table readiness. */
       sources: ManagedWarehouseSourcesStatus;
       /** When this status snapshot was generated. */

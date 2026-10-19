@@ -225,6 +225,10 @@ Both Django and pure Trino compilation map `groups` and `raw_groups` to the prov
 The physical columns preserve the ClickHouse groups schema, so HogQL `index`, `key`, `properties`, and `updated_at` resolve to `group_type_index`, `group_key`, `group_properties`, and `_timestamp`.
 Groups queries require the groups backfill to have created the table.
 
+The Data ops Overview tab shows groups readiness alongside events and persons, using the recorded backfill partition lifecycle.
+Groups historical progress counts the single full export; daily partitions affect the current status without increasing the historical total.
+A completed export does not indicate that the stopped-by-default groups sensors have been enabled.
+
 ## Managed warehouse bulk translation
 
 `managed-warehouse.translate-views` is the tracked bulk consumer of the managed-warehouse compiler facade. It calls `compile_hogql_to_trino_sql(...)` with `expansion_mode=TrinoExpansionMode.DJANGO` and `include_hogql=True`, because views reference saved queries and warehouse relations that pure manifest-backed compilation rejects. A `ManagedWarehouseViewTranslationJob` identifies the organization, trigger, Temporal run, aggregate counts, and terminal status. Its team-scoped `ManagedWarehouseViewTranslationResult` rows identify the saved-query snapshot and store either compiled SQL or an error.

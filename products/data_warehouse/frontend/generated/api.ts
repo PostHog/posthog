@@ -450,7 +450,7 @@ export const getDataWarehouseManagedWarehouseDataStatusRetrieveUrl = (projectId:
 }
 
 /**
- * Get events, persons, and imported source readiness for the managed warehouse.
+ * Get events, persons, groups, and imported source readiness for the managed warehouse.
  */
 export const dataWarehouseManagedWarehouseDataStatusRetrieve = async (
     projectId: string,

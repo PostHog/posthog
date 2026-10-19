@@ -295,20 +295,24 @@ export const ManagedWarehouseReadinessStateEnumApi = {
 /**
  * * `events` - events
  * * `persons` - persons
+ * * `groups` - groups
  */
-export type DatasetEnumApi = (typeof DatasetEnumApi)[keyof typeof DatasetEnumApi]
+export type ManagedWarehouseDatasetEnumApi =
+    (typeof ManagedWarehouseDatasetEnumApi)[keyof typeof ManagedWarehouseDatasetEnumApi]
 
-export const DatasetEnumApi = {
+export const ManagedWarehouseDatasetEnumApi = {
     Events: 'events',
     Persons: 'persons',
+    Groups: 'groups',
 } as const
 
 export interface ManagedWarehouseDatasetStatusApi {
     /** Warehouse dataset represented by this status.
      *
      * * `events` - events
-     * * `persons` - persons */
-    dataset: DatasetEnumApi
+     * * `persons` - persons
+     * * `groups` - groups */
+    dataset: ManagedWarehouseDatasetEnumApi
     /** User-facing readiness state for this dataset.
      *
      * * `not_configured` - not_configured
@@ -403,6 +407,8 @@ export interface ManagedWarehouseDataStatusResponseApi {
     events: ManagedWarehouseDatasetStatusApi
     /** Persons backfill readiness. */
     persons: ManagedWarehouseDatasetStatusApi
+    /** Groups backfill readiness. */
+    groups: ManagedWarehouseDatasetStatusApi
     /** Imported source table readiness. */
     sources: ManagedWarehouseSourcesStatusApi
     /** When this status snapshot was generated. */

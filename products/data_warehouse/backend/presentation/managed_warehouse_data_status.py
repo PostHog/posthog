@@ -3,6 +3,12 @@ from django.db import models
 from rest_framework import serializers
 
 
+class ManagedWarehouseDataset(models.TextChoices):
+    EVENTS = "events", "events"
+    PERSONS = "persons", "persons"
+    GROUPS = "groups", "groups"
+
+
 class ManagedWarehouseReadinessState(models.TextChoices):
     NOT_CONFIGURED = "not_configured", "not_configured"
     WAITING = "waiting", "waiting"
@@ -19,7 +25,7 @@ WORKFLOW_STATUS_CHOICES = ["running", "completed", "failed", "skipped", "stale"]
 
 class ManagedWarehouseDatasetStatusSerializer(serializers.Serializer):
     dataset = serializers.ChoiceField(
-        choices=["events", "persons"], help_text="Warehouse dataset represented by this status."
+        choices=ManagedWarehouseDataset.choices, help_text="Warehouse dataset represented by this status."
     )
     readiness_state = serializers.ChoiceField(
         choices=READINESS_STATE_CHOICES, help_text="User-facing readiness state for this dataset."
@@ -123,5 +129,6 @@ class ManagedWarehouseDataStatusResponseSerializer(serializers.Serializer):
     )
     events = ManagedWarehouseDatasetStatusSerializer(help_text="Events backfill readiness.")
     persons = ManagedWarehouseDatasetStatusSerializer(help_text="Persons backfill readiness.")
+    groups = ManagedWarehouseDatasetStatusSerializer(help_text="Groups backfill readiness.")
     sources = ManagedWarehouseSourcesStatusSerializer(help_text="Imported source table readiness.")
     generated_at = serializers.DateTimeField(help_text="When this status snapshot was generated.")

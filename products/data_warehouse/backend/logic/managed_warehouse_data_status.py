@@ -42,7 +42,7 @@ READINESS_PRIORITY: tuple[ReadinessState, ...] = (
 
 
 class DatasetStatus(TypedDict):
-    dataset: Literal["events", "persons"]
+    dataset: Literal["events", "persons", "groups"]
     readiness_state: ReadinessState
     detail: str
     completed_partitions: int
@@ -89,6 +89,7 @@ class ManagedWarehouseDataStatus(TypedDict):
     overall_readiness_state: ReadinessState
     events: DatasetStatus
     persons: DatasetStatus
+    groups: DatasetStatus
     sources: SourcesStatus
     generated_at: datetime
 
@@ -103,7 +104,7 @@ def _event_historical_partition_count(backfill: ManagedWarehouseTeamMembership) 
 
 def dataset_status(
     *,
-    dataset: Literal["events", "persons"],
+    dataset: Literal["events", "persons", "groups"],
     backfill: ManagedWarehouseTeamMembership | None,
     partitions: list[ManagedWarehouseBackfillPartition],
 ) -> DatasetStatus:
@@ -119,7 +120,7 @@ def dataset_status(
         }
 
     relevant_partitions = partitions
-    # History is per-month for events and a single full export for persons. Both are read off the
+    # History is per-month for events and a single full export for persons and groups. Read the
     # granularity column rather than the key's spelling, so a scheduler that names its partitions
     # differently can't silently change what these numbers mean.
     if dataset == "events":
@@ -171,7 +172,11 @@ def dataset_status(
         current_partition = None
     else:
         readiness_state = "up_to_date"
-        detail = "Historical data is loaded and daily updates are enabled."
+        detail = (
+            "Historical group data is loaded."
+            if dataset == "groups"
+            else "Historical data is loaded and daily updates are enabled."
+        )
         current_partition = None
 
     return {
@@ -384,13 +389,24 @@ def get_managed_warehouse_data_status(
         backfill=backfill,
         partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.PERSONS],
     )
+    groups = dataset_status(
+        dataset="groups",
+        backfill=backfill,
+        partitions=[row for row in partitions if row.dataset == ManagedWarehouseBackfillPartition.Dataset.GROUPS],
+    )
     sources = _sources_status(team_id, user_access_control=user_access_control)
     return {
         "overall_readiness_state": _roll_up_state(
-            [events["readiness_state"], persons["readiness_state"], sources["readiness_state"]]
+            [
+                events["readiness_state"],
+                persons["readiness_state"],
+                groups["readiness_state"],
+                sources["readiness_state"],
+            ]
         ),
         "events": events,
         "persons": persons,
+        "groups": groups,
         "sources": sources,
         "generated_at": timezone.now(),
     }

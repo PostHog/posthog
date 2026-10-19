@@ -1,80 +1,23 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDatabase, IconPeople, IconRefresh } from '@posthog/icons'
+import { IconDatabase, IconGroups, IconPeople, IconRefresh } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { urls } from 'scenes/urls'
 
-import type {
-    ManagedWarehouseDatasetStatusApi,
-    ManagedWarehouseSourceSummaryApi,
-} from 'products/data_warehouse/frontend/generated/api.schemas'
+import type { ManagedWarehouseSourceSummaryApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
+import { DatasetCard } from './DatasetCard'
 import { managedWarehouseDataStatusLogic } from './managedWarehouseDataStatusLogic'
 import { SourceSchemasModal } from './SourceSchemasModal'
 import { sourceSchemasModalLogic } from './sourceSchemasModalLogic'
 import { STATUS_SEVERITY, StatusTag } from './warehouseStatusDisplay'
-
-function DatasetCard({
-    title,
-    description,
-    icon,
-    status,
-}: {
-    title: string
-    description: string
-    icon: JSX.Element
-    status: ManagedWarehouseDatasetStatusApi
-}): JSX.Element {
-    const hasProgress = status.total_partitions !== null && status.total_partitions > 0
-    const progress = hasProgress ? Math.round((status.completed_partitions / status.total_partitions!) * 100) : null
-
-    return (
-        <LemonCard className="p-4 space-y-4" hoverEffect={false}>
-            <div className="flex items-start justify-between gap-3">
-                <div className="flex items-start gap-3">
-                    <div className="text-xl text-muted mt-0.5">{icon}</div>
-                    <div>
-                        <h3 className="mb-1">{title}</h3>
-                        <p className="text-muted mb-0">{description}</p>
-                    </div>
-                </div>
-                <StatusTag readinessState={status.readiness_state} />
-            </div>
-            <div className="border-t pt-4 space-y-3">
-                <p className="mb-0">{status.detail}</p>
-                {progress !== null && (
-                    <div className="space-y-1">
-                        <div className="flex justify-between text-xs text-muted">
-                            <span>Historical backfill</span>
-                            <span>
-                                {status.completed_partitions} / {status.total_partitions}
-                            </span>
-                        </div>
-                        <LemonProgress percent={progress} />
-                    </div>
-                )}
-                {status.current_partition && (
-                    <div className="text-xs text-muted">
-                        Current partition: <code>{status.current_partition}</code>
-                    </div>
-                )}
-                {status.last_updated_at && (
-                    <div className="text-xs text-muted">
-                        Updated {humanFriendlyDetailedTime(status.last_updated_at)}
-                    </div>
-                )}
-            </div>
-        </LemonCard>
-    )
-}
 
 export function OverviewTab(): JSX.Element {
     const { managedWarehouseDataStatus, managedWarehouseDataStatusLoading } = useValues(managedWarehouseDataStatusLogic)
@@ -138,7 +81,7 @@ export function OverviewTab(): JSX.Element {
     if (!managedWarehouseDataStatus) {
         return (
             <LemonBanner type="error" className="mt-4">
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                     <span>Warehouse data status could not be loaded.</span>
                     <LemonButton
                         type="secondary"
@@ -162,8 +105,8 @@ export function OverviewTab(): JSX.Element {
               : 'info'
 
     return (
-        <div className="mt-4 space-y-4">
-            <div className="flex items-center justify-between gap-3">
+        <div className="@container mt-4 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                     <h2 className="mb-1">Warehouse data readiness</h2>
                     <p className="text-muted mb-0">
@@ -187,7 +130,7 @@ export function OverviewTab(): JSX.Element {
                 </div>
             </LemonBanner>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 @min-[40rem]:grid-cols-2 @min-[64rem]:grid-cols-3 gap-4">
                 <DatasetCard
                     title="Events"
                     description="Historical events and daily warehouse updates"
@@ -199,6 +142,12 @@ export function OverviewTab(): JSX.Element {
                     description="Historical persons and daily warehouse updates"
                     icon={<IconPeople />}
                     status={managedWarehouseDataStatus.persons}
+                />
+                <DatasetCard
+                    title="Groups"
+                    description="Historical groups and warehouse updates"
+                    icon={<IconGroups />}
+                    status={managedWarehouseDataStatus.groups}
                 />
             </div>
 
