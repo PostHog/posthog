@@ -37,6 +37,7 @@ CANNOT_LIST_WITHOUT_CREDENTIALS = {"Github"}
 # descriptions reach nobody. Fix the key or expose the endpoint, then drop the entry.
 DESCRIPTIONS_NOT_IN_SCHEMAS = {
     "BrowserUse",
+    "Census",
     "CheckoutCom",
     "EZOfficeInventory",
     "Flutterwave",
