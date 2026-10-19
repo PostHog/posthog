@@ -211,17 +211,24 @@ class TestSnapshotEndpoints:
         assert result.rows == [
             {
                 "carbonIntensity": 250,
-                "datetime": "2025-06-15T12:00:00.000Z",
+                "datetime": datetime(2025, 6, 15, 12, 0, 0, tzinfo=UTC),
                 "zone": "DE",
-                "updatedAt": "2025-06-15T11:00:00.000Z",
+                "updatedAt": datetime(2025, 6, 15, 11, 0, 0, tzinfo=UTC),
             },
             {
                 "carbonIntensity": 240,
-                "datetime": "2025-06-15T13:00:00.000Z",
+                "datetime": datetime(2025, 6, 15, 13, 0, 0, tzinfo=UTC),
                 "zone": "DE",
-                "updatedAt": "2025-06-15T11:00:00.000Z",
+                "updatedAt": datetime(2025, 6, 15, 11, 0, 0, tzinfo=UTC),
             },
         ]
+
+    @pytest.mark.parametrize("body", [{"zone": "DE"}, {"zone": "DE", "forecast": None}])
+    def test_forecast_response_without_forecast_list_fails_the_sync(self, body: dict[str, Any]) -> None:
+        result = _driver().run("carbon_intensity_forecast", [ScriptedResponse(json=body)])
+
+        assert isinstance(result.raised, ValueError)
+        assert "forecast list for zone DE" in str(result.raised)
 
     def test_zones_object_is_flattened_to_one_row_per_zone(self) -> None:
         result = _driver(zones="").run(

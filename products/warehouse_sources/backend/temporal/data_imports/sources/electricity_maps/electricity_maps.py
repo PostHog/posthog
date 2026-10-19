@@ -206,11 +206,22 @@ def _iter_carbon_intensity_forecast(
     session = _make_session(api_token)
     for zone in zones:
         body = _get_json(session, CARBON_INTENSITY_FORECAST_PATH, {"zone": zone})
+        forecast = body.get("forecast")
+        # A full refresh replaces the table, so a malformed response must fail the sync rather than
+        # silently drop this zone's rows.
+        if not isinstance(forecast, list):
+            raise ValueError(f"Electricity Maps returned a forecast response without a forecast list for zone {zone}")
         # Forecast points carry only the target hour and value; the zone and the forecast's issue
         # time live on the envelope.
+        updated_at = _coerce_datetime(body.get("updatedAt"))
         rows = [
-            {**point, "zone": body.get("zone") or zone, "updatedAt": body.get("updatedAt")}
-            for point in body.get("forecast") or []
+            {
+                **point,
+                "datetime": _coerce_datetime(point.get("datetime")),
+                "zone": body.get("zone") or zone,
+                "updatedAt": updated_at,
+            }
+            for point in forecast
         ]
         if rows:
             yield rows

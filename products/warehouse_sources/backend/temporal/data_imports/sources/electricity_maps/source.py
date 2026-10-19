@@ -108,6 +108,21 @@ class ElectricityMapsSource(ResumableSource[ElectricityMapsSourceConfig, Electri
 
         return validate_electricity_maps_credentials(config.api_token, zones)
 
+    def get_endpoint_permissions(
+        self,
+        config: ElectricityMapsSourceConfig,
+        team_id: int,
+        endpoints: list[str],
+        api_version: str | None = None,
+    ) -> dict[str, str | None]:
+        has_pricing_nodes = bool(parse_pricing_nodes(config.pricing_nodes))
+        return {
+            endpoint: "Add at least one pricing node in the source settings to sync this table."
+            if endpoint in NODE_ENDPOINTS and not has_pricing_nodes
+            else None
+            for endpoint in endpoints
+        }
+
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ElectricityMapsResumeConfig]:
         # Each endpoint keeps its own (window, zone) cursor, so a retry that switches
         # endpoints can't load another endpoint's resume state.
