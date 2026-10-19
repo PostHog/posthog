@@ -162,6 +162,14 @@ def collect_selectable_field_names(
     return _collect_field_names(scope, context, lambda table: table.get_asterisk().keys())
 
 
+def _has_one_json_properties_field(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> bool:
+    try:
+        field = lookup_field_by_name(scope, "properties", context)
+        return field is not None and isinstance(field.resolve_constant_type(context), ast.StringJSONType)
+    except Exception:
+        return False
+
+
 def available_fields_suffix(
     scope: ast.SelectQueryType | ast.SelectSetQueryType, node: ast.Field, context: HogQLContext
 ) -> str:
@@ -183,14 +191,6 @@ def available_fields_suffix(
         else ""
     )
     return f". Available fields: {listed}{more}.{property_hint}"
-
-
-def _has_one_json_properties_field(scope: ast.SelectQueryType | ast.SelectSetQueryType, context: HogQLContext) -> bool:
-    try:
-        field = lookup_field_by_name(scope, "properties", context)
-        return field is not None and isinstance(field.resolve_constant_type(context), ast.StringJSONType)
-    except Exception:
-        return False
 
 
 def suggest_field_names(
