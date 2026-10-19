@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from django.core.cache import cache
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, User
@@ -217,7 +218,23 @@ class TestWelcomeEndpoint(APIBaseTest):
         entity_names = [item["entity_name"] for item in data["recent_activity"]]
         self.assertNotIn("Cross-org leak", entity_names)
 
-    def test_popular_dashboards(self):
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, False),
+            ("member_with_access_control", OrganizationMembership.Level.MEMBER, True),
+            ("admin_with_access_control", OrganizationMembership.Level.ADMIN, True),
+        ]
+    )
+    def test_popular_dashboards(self, _name, level, access_control_available):
+        from posthog.constants import AvailableFeature
+
+        if access_control_available:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
         dashboard = Dashboard.objects.create(team=self.team, name="Top dashboard")
         dashboard.last_accessed_at = timezone.now()
         dashboard.save()
@@ -225,6 +242,39 @@ class TestWelcomeEndpoint(APIBaseTest):
         data = response.json()
         self.assertEqual(len(data["popular_dashboards"]), 1)
         self.assertEqual(data["popular_dashboards"][0]["name"], "Top dashboard")
+
+    def test_popular_dashboards_hide_a_restricted_dashboard_from_a_member_after_an_admin_loads_it(self):
+        from posthog.constants import AvailableFeature
+
+        from products.access_control.backend.models.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        restricted = Dashboard.objects.create(team=self.team, name="Board only", last_accessed_at=timezone.now())
+        AccessControl.objects.create(
+            team=self.team, resource="dashboard", resource_id=str(restricted.id), access_level="none"
+        )
+        admin = User.objects.create_and_join(
+            self.organization, "admin@example.com", None, "Admin", level=OrganizationMembership.Level.ADMIN
+        )
+        self.client.force_login(admin)
+        admin_names = [
+            d["name"]
+            for d in self.client.get("/api/organizations/@current/welcome/current/").json()["popular_dashboards"]
+        ]
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.client.force_login(self.user)
+        member_names = [
+            d["name"]
+            for d in self.client.get("/api/organizations/@current/welcome/current/").json()["popular_dashboards"]
+        ]
+
+        self.assertEqual(admin_names, ["Board only"])
+        self.assertEqual(member_names, [])
 
     def test_products_in_use_from_ingested_events(self):
         self.team.ingested_event = True

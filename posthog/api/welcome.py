@@ -1,4 +1,5 @@
 import hashlib
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
@@ -14,7 +15,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 
@@ -61,6 +62,7 @@ def _activity_path_id(scope: str, item_id: str | None, detail: dict[str, Any]) -
 
 _RECENT_ACTIVITY_MAX_ITEMS = 10
 _POPULAR_DASHBOARDS_MAX_ITEMS = 3
+_POPULAR_DASHBOARDS_CANDIDATE_FACTOR = 4
 _TEAM_MEMBERS_MAX_ITEMS = 8
 _SUGGESTED_NEXT_STEPS_MAX_ITEMS = 3
 _RECENT_DAYS = 30
@@ -186,7 +188,6 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
             "organization_name": organization.name,
             "team_members": _get_team_members(organization),
             "recent_activity": _get_recent_activity(accessible_team_ids, since),
-            "popular_dashboards": _get_popular_dashboards(accessible_team_ids, access_control),
             "products_in_use": _get_products_in_use(organization),
         }
         cache.set(cache_key, cacheable, _CACHE_TTL_SECONDS)
@@ -195,6 +196,7 @@ def _get_welcome_payload(organization: Organization, user: User) -> dict[str, An
     return {
         **cacheable,
         "inviter": _get_inviter(user, organization),
+        "popular_dashboards": _get_popular_dashboards(accessible_team_ids, user),
         "team_members": _filter_self(_filter_visible(cacheable["team_members"], organization, user), user),
         "suggested_next_steps": _build_suggested_next_steps(user, cacheable["products_in_use"]),
         "is_organization_first_user": _is_organization_first_user(user, organization),
@@ -483,26 +485,34 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
     }
 
 
-def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessControl) -> list[dict[str, Any]]:
+def _get_popular_dashboards(team_ids: list[int], user: User) -> list[dict[str, Any]]:
     if not team_ids:
         return []
     from products.dashboards.backend.models.dashboard import Dashboard
 
-    queryset = Dashboard.objects.filter(team_id__in=team_ids, deleted=False)
-    # Apply per-object access control so restricted dashboard names/descriptions don't leak via
-    # this aggregation endpoint (same pattern as the main dashboards viewset).
-    try:
-        queryset = access_control.filter_queryset_by_access_level(queryset, include_all_if_admin=True)
-    except Exception:
-        logger.exception(
-            "welcome.dashboard_access_control_failed",
-            team_count=len(team_ids),
-        )
-        return []
-
-    dashboards = list(
-        queryset.order_by(F("last_accessed_at").desc(nulls_last=True), "-created_at")[:_POPULAR_DASHBOARDS_MAX_ITEMS]
+    candidates = list(
+        Dashboard.objects.filter(team_id__in=team_ids, deleted=False).order_by(
+            F("last_accessed_at").desc(nulls_last=True), "-created_at"
+        )[: _POPULAR_DASHBOARDS_MAX_ITEMS * _POPULAR_DASHBOARDS_CANDIDATE_FACTOR]
     )
+    candidate_ids_by_team: dict[int, list[int]] = defaultdict(list)
+    for candidate in candidates:
+        candidate_ids_by_team[candidate.team_id].append(candidate.id)
+
+    visible_ids: set[int] = set()
+    for team in Team.objects.filter(id__in=candidate_ids_by_team.keys()):
+        try:
+            visible_ids.update(
+                UserAccessControl(user=user, team=team)
+                .filter_queryset_by_access_level(
+                    Dashboard.objects.filter(id__in=candidate_ids_by_team[team.id]), include_all_if_admin=True
+                )
+                .values_list("id", flat=True)
+            )
+        except Exception:
+            logger.exception("welcome.dashboard_access_control_failed", team_id=team.id)
+
+    dashboards = [candidate for candidate in candidates if candidate.id in visible_ids][:_POPULAR_DASHBOARDS_MAX_ITEMS]
     return [
         {
             "id": dashboard.id,
