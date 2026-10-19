@@ -15,13 +15,6 @@ import {
     predictionSegmentDefinitions,
 } from './predictionSegments'
 
-export interface RealizedAucPoint {
-    date: string
-    auc: number
-    low: number | null
-    high: number | null
-}
-
 export interface SegmentCalibration {
     segment: PredictionSegmentDefinition
     people: number
@@ -121,17 +114,164 @@ export function accuracyStats(row: OnlinePerformanceRowApi, target: string): Acc
     ]
 }
 
-/** The champion's realized AUC per date, oldest first, for the trend chart. */
-export function realizedAucSeries(rows: OnlinePerformanceRowApi[]): RealizedAucPoint[] {
-    return rows
-        .filter((row) => row.emitted_role === 'champion' && row.realized_auc != null)
-        .map((row) => ({
-            date: row.prediction_date,
-            auc: row.realized_auc as number,
-            low: row.realized_auc_ci_low,
-            high: row.realized_auc_ci_high,
-        }))
-        .sort((a, b) => a.date.localeCompare(b.date))
+export type AccuracyTrendMetric = 'ranking' | 'hit_rate' | 'coverage' | 'lift' | 'calibration'
+
+export const ACCURACY_TREND_METRICS: { key: AccuracyTrendMetric; label: string }[] = [
+    { key: 'ranking', label: 'Ranking (AUC)' },
+    { key: 'hit_rate', label: 'Hit rate' },
+    { key: 'coverage', label: 'Coverage' },
+    { key: 'lift', label: 'Lift' },
+    { key: 'calibration', label: 'Predicted and actual' },
+]
+
+export function trendMetricUsesCutoff(metric: AccuracyTrendMetric): boolean {
+    return metric === 'hit_rate' || metric === 'coverage' || metric === 'lift'
+}
+
+export interface AccuracyTrendPoint {
+    date: string
+    value: number
+    /** The 95% AUC interval. Null for every metric except ranking. */
+    low: number | null
+    high: number | null
+}
+
+export interface AccuracyTrendSeries {
+    key: string
+    label: string
+    /** `actual` is the share of people who did the target, drawn next to the average score. */
+    role: 'champion' | 'challenger' | 'actual'
+    /** Oldest date first. A date the model has no value for is missing, not zero. */
+    points: AccuracyTrendPoint[]
+}
+
+export interface AccuracyTrend {
+    /** Every date any series has a value for, oldest first. */
+    dates: string[]
+    /** The champion series comes first. */
+    series: AccuracyTrendSeries[]
+    /** The champion's people scored and people who did the target, per date. */
+    people: Record<string, { scored: number; positive: number }>
+}
+
+function liftAt(row: OnlinePerformanceRowApi, cutoff: AccuracyCutoff): number | null {
+    // Lift has no meaning when no one did the target, and the backend reports 0 then.
+    if (row.n_positive === 0) {
+        return null
+    }
+    switch (cutoff) {
+        case 'top_10':
+            return row.lift_at_10
+        case 'top_20':
+            return row.lift_at_20
+        case 'likely': {
+            const precision = row.confusion?.likely.precision
+            return precision != null && row.base_rate > 0 ? precision / row.base_rate : null
+        }
+    }
+}
+
+function trendPoint(
+    row: OnlinePerformanceRowApi,
+    metric: AccuracyTrendMetric,
+    cutoff: AccuracyCutoff
+): AccuracyTrendPoint | null {
+    const point = (
+        value: number | null | undefined,
+        low: number | null = null,
+        high: number | null = null
+    ): AccuracyTrendPoint | null => (value != null ? { date: row.prediction_date, value, low, high } : null)
+    switch (metric) {
+        case 'ranking':
+            return point(row.realized_auc, row.realized_auc_ci_low, row.realized_auc_ci_high)
+        case 'hit_rate':
+            return point(row.confusion?.[cutoff].precision)
+        case 'coverage':
+            return point(row.confusion?.[cutoff].recall)
+        case 'lift':
+            return point(liftAt(row, cutoff))
+        case 'calibration':
+            return point(row.mean_p_y)
+    }
+}
+
+/**
+ * One metric per prediction date, for the champion and, when asked, each model that emitted
+ * predictions in another role. A row keeps the role its model held on that date, so a promoted
+ * challenger's older dates stay on its challenger line.
+ */
+export function accuracyTrend(
+    rows: OnlinePerformanceRowApi[],
+    metric: AccuracyTrendMetric,
+    cutoff: AccuracyCutoff,
+    withChallengers: boolean
+): AccuracyTrend {
+    const oldestFirst = [...rows].sort((a, b) => a.prediction_date.localeCompare(b.prediction_date))
+    const championRows = oldestFirst.filter((row) => row.emitted_role === 'champion')
+    const pointsOf = (modelRows: OnlinePerformanceRowApi[]): AccuracyTrendPoint[] =>
+        modelRows.flatMap((row) => trendPoint(row, metric, cutoff) ?? [])
+
+    const series: AccuracyTrendSeries[] = [
+        {
+            key: 'champion',
+            label: metric === 'calibration' ? 'Champion score' : 'Champion',
+            role: 'champion',
+            points: pointsOf(championRows),
+        },
+    ]
+    if (withChallengers) {
+        const challengerRows = oldestFirst.filter((row) => row.emitted_role !== 'champion')
+        const challengers = [...new Set(challengerRows.map((row) => row.model_id))]
+            .map((modelId) => pointsOf(challengerRows.filter((row) => row.model_id === modelId)))
+            .filter((points) => points.length > 0)
+        challengers.forEach((points, index) =>
+            series.push({
+                key: `challenger-${index}`,
+                label: challengers.length > 1 ? `Challenger ${index + 1}` : 'Challenger',
+                role: 'challenger',
+                points,
+            })
+        )
+    }
+    if (metric === 'calibration') {
+        series.push({
+            key: 'actual',
+            label: 'Actual rate',
+            role: 'actual',
+            points: championRows.map((row) => ({
+                date: row.prediction_date,
+                value: row.base_rate,
+                low: null,
+                high: null,
+            })),
+        })
+    }
+
+    return {
+        dates: [...new Set(series.flatMap((s) => s.points.map((point) => point.date)))].sort(),
+        series,
+        people: Object.fromEntries(
+            championRows.map((row) => [row.prediction_date, { scored: row.n_scored, positive: row.n_positive }])
+        ),
+    }
+}
+
+/** A metric value in its own unit. `precise` adds a decimal place to AUC for the per-date details. */
+export function formatTrendValue(metric: AccuracyTrendMetric, value: number, precise = false): string {
+    switch (metric) {
+        case 'ranking':
+            return value.toFixed(precise ? 3 : 2)
+        case 'lift':
+            return `${value.toFixed(1)}×`
+        default:
+            return percent(value)
+    }
+}
+
+/** The gap between the average score and the actual rate, in percentage points with a sign. */
+export function percentagePoints(gap: number): string {
+    const points = (gap * 100).toFixed(1)
+    return `${gap > 0 ? '+' : ''}${points} pts`
 }
 
 /**
@@ -236,6 +376,71 @@ export function accuracySummary(confusion: PooledConfusion, cutoff: AccuracyCuto
     const everyone = confusion.tp + confusion.fp + confusion.fn + confusion.tn
     const overall = (confusion.tp + confusion.fn) / everyone
     return `${period}, ${percent(confusion.precision)} of ${cutoffGroup(cutoff)} did ${eventName(target)}, against ${percent(overall)} of everyone. They include ${percent(confusion.recall)} of everyone who did it.`
+}
+
+function median(values: number[]): number {
+    const sorted = [...values].sort((a, b) => a - b)
+    const middle = Math.floor(sorted.length / 2)
+    return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2
+}
+
+/** One sentence on how the champion did on the picked metric over the checked dates. Null with no values. */
+export function accuracyTrendSummary(
+    rows: OnlinePerformanceRowApi[],
+    metric: AccuracyTrendMetric,
+    cutoff: AccuracyCutoff,
+    target: string,
+    holdoutAuc: number | null
+): string | null {
+    const checked = rows
+        .filter((row) => row.emitted_role === 'champion')
+        .flatMap((row) => {
+            const point = trendPoint(row, metric, cutoff)
+            return point ? [{ row, value: point.value }] : []
+        })
+    if (checked.length === 0) {
+        return null
+    }
+    const values = checked.map(({ value }) => value)
+    const typical = median(values)
+    const single = checked.length === 1
+    const lead = single ? `On ${dayjs(checked[0].row.prediction_date).format('MMM D')}` : 'On a typical date'
+    const event = eventName(target)
+
+    switch (metric) {
+        case 'ranking': {
+            if (single) {
+                return `${lead}, realized AUC was ${values[0].toFixed(3)}.`
+            }
+            const range = `Over ${checked.length} checked dates, realized AUC ranged from ${Math.min(...values).toFixed(3)} to ${Math.max(...values).toFixed(3)}.`
+            if (holdoutAuc == null) {
+                return range
+            }
+            const holdout = holdoutAuc.toFixed(3)
+            const beat = values.filter((value) => value >= holdoutAuc).length
+            if (beat === 0) {
+                return `${range} It stayed below its holdout AUC of ${holdout} on every date.`
+            }
+            const dates = beat === checked.length ? 'every date' : `${beat} of ${checked.length} dates`
+            return `${range} It matched or beat its holdout AUC of ${holdout} on ${dates}.`
+        }
+        case 'hit_rate': {
+            const everyone = median(checked.map(({ row }) => row.base_rate))
+            return `${lead}, ${percent(typical)} of ${cutoffGroup(cutoff)} did ${event}, against ${percent(everyone)} of everyone.`
+        }
+        case 'coverage':
+            return `${lead}, ${cutoffGroup(cutoff)} included ${percent(typical)} of everyone who did ${event}.`
+        case 'lift':
+            return `${lead}, ${cutoffGroup(cutoff)} did ${event} at ${typical.toFixed(1)}× the rate of everyone.`
+        case 'calibration': {
+            const gaps = checked.map(({ row, value }) => value - row.base_rate)
+            if (single) {
+                return `${lead}, the champion's average score was ${(Math.abs(gaps[0]) * 100).toFixed(1)} points ${gaps[0] >= 0 ? 'above' : 'below'} the actual rate.`
+            }
+            const widest = Math.max(...gaps.map(Math.abs))
+            return `Over ${checked.length} checked dates, the champion's average score stayed within ${(widest * 100).toFixed(1)} points of the actual rate.`
+        }
+    }
 }
 
 /** When the first scored date matures: the earliest completed scoring run plus the horizon. */

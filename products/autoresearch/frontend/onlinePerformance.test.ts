@@ -2,9 +2,10 @@ import { AutoresearchRunApi, ConfusionByCutoffApi, OnlinePerformanceRowApi } fro
 import {
     accuracyStats,
     accuracySummary,
+    accuracyTrend,
+    accuracyTrendSummary,
     calibrationBySegment,
     pooledConfusion,
-    realizedAucSeries,
     validatedPredictionDates,
 } from './onlinePerformance'
 
@@ -20,8 +21,20 @@ function row(overrides: Partial<OnlinePerformanceRowApi>): OnlinePerformanceRowA
 }
 
 function counts(tp: number, fp: number, fn: number, tn: number): ConfusionByCutoffApi {
-    const cutoff = { tp, fp, fn, tn, n_flagged: tp + fp, precision: null, recall: null }
-    return { top_10: cutoff, top_20: cutoff, likely: { ...cutoff, tp: 0, fp: 0, n_flagged: 0, tn: tn + tp + fp } }
+    const cutoff = {
+        tp,
+        fp,
+        fn,
+        tn,
+        n_flagged: tp + fp,
+        precision: tp + fp > 0 ? tp / (tp + fp) : null,
+        recall: tp + fn > 0 ? tp / (tp + fn) : null,
+    }
+    return {
+        top_10: cutoff,
+        top_20: cutoff,
+        likely: { ...cutoff, tp: 0, fp: 0, n_flagged: 0, tn: tn + tp + fp, precision: null, recall: 0 },
+    }
 }
 
 describe('onlinePerformance', () => {
@@ -43,18 +56,85 @@ describe('onlinePerformance', () => {
         ])
     })
 
-    test('realizedAucSeries keeps the champion rows with an AUC, oldest date first', () => {
-        const points = realizedAucSeries([
-            row({ prediction_date: '2026-02-12', realized_auc: 0.82 }),
-            row({ prediction_date: '2026-02-12', emitted_role: 'challenger', realized_auc: 0.7 }),
-            row({ prediction_date: '2026-02-11', realized_auc: null }),
-            row({ prediction_date: '2026-02-10', realized_auc: 0.79 }),
-        ])
+    test('accuracyTrend keeps each role on its own line, oldest date first, with gaps for missing values', () => {
+        const rows = [
+            row({
+                prediction_date: '2026-02-12',
+                model_id: 'champ',
+                realized_auc: 0.82,
+                confusion: counts(3, 1, 2, 94),
+            }),
+            row({ prediction_date: '2026-02-12', model_id: 'chal', emitted_role: 'challenger', realized_auc: 0.7 }),
+            row({ prediction_date: '2026-02-11', model_id: 'champ', realized_auc: null, confusion: null }),
+            row({
+                prediction_date: '2026-02-10',
+                model_id: 'champ',
+                realized_auc: 0.79,
+                confusion: counts(1, 3, 2, 94),
+            }),
+            row({ prediction_date: '2026-02-10', model_id: 'chal', emitted_role: 'challenger', realized_auc: 0.74 }),
+        ].map((r) => ({ ...r, n_positive: 5, base_rate: 0.05 }))
+        const values = (trend: ReturnType<typeof accuracyTrend>): [string, [string, number][]][] =>
+            trend.series.map((s) => [s.label, s.points.map((p) => [p.date, p.value])])
 
-        expect(points.map((p) => [p.date, p.auc])).toEqual([
-            ['2026-02-10', 0.79],
-            ['2026-02-12', 0.82],
+        expect(values(accuracyTrend(rows, 'ranking', 'top_10', false))).toEqual([
+            [
+                'Champion',
+                [
+                    ['2026-02-10', 0.79],
+                    ['2026-02-12', 0.82],
+                ],
+            ],
         ])
+        expect(values(accuracyTrend(rows, 'ranking', 'top_10', true))[1]).toEqual([
+            'Challenger',
+            [
+                ['2026-02-10', 0.74],
+                ['2026-02-12', 0.7],
+            ],
+        ])
+        // Likely lift is the Likely hit rate over the base rate: 3/4 against 5%.
+        expect(values(accuracyTrend(rows, 'lift', 'likely', false))).toEqual([['Champion', []]])
+        const likely = rows.map((r) =>
+            r.confusion ? { ...r, confusion: { ...r.confusion, likely: r.confusion.top_10 } } : r
+        )
+        expect(values(accuracyTrend(likely, 'lift', 'likely', false))[0][1]).toEqual([
+            ['2026-02-10', expect.closeTo(0.25 / 0.05)],
+            ['2026-02-12', expect.closeTo(0.75 / 0.05)],
+        ])
+        expect(values(accuracyTrend(rows, 'calibration', 'top_10', false)).map(([label]) => label)).toEqual([
+            'Champion score',
+            'Actual rate',
+        ])
+    })
+
+    test.each([
+        {
+            metric: 'ranking' as const,
+            expected:
+                'Over 2 checked dates, realized AUC ranged from 0.790 to 0.820. It matched or beat its holdout AUC of 0.800 on 1 of 2 dates.',
+        },
+        {
+            metric: 'hit_rate' as const,
+            expected:
+                'On a typical date, 30.0% of the top 10% the model flagged did “File shared”, against 4.0% of everyone.',
+        },
+        {
+            metric: 'calibration' as const,
+            expected: "Over 2 checked dates, the champion's average score stayed within 2.0 points of the actual rate.",
+        },
+    ])('accuracyTrendSummary describes the champion over the checked dates for $metric', ({ metric, expected }) => {
+        const rows = [
+            row({ prediction_date: '2026-02-12', realized_auc: 0.82, base_rate: 0.03, mean_p_y: 0.05 }),
+            row({ prediction_date: '2026-02-12', emitted_role: 'challenger', realized_auc: 0.5, mean_p_y: 0.5 }),
+            row({ prediction_date: '2026-02-10', realized_auc: 0.79, base_rate: 0.05, mean_p_y: 0.04 }),
+        ].map((r, index) => ({
+            ...r,
+            n_positive: 5,
+            confusion: index === 0 ? counts(4, 6, 1, 89) : counts(2, 8, 3, 87),
+        }))
+
+        expect(accuracyTrendSummary(rows, metric, 'top_10', 'File shared', 0.8)).toEqual(expected)
     })
 
     test('pooledConfusion sums the current champion dates and counts pre-change dates apart', () => {
