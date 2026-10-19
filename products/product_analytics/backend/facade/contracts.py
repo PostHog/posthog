@@ -109,6 +109,13 @@ class InsightDataChecks:
 
 
 @dataclass(frozen=True)
+class TeamEmailAccess:
+    # A match reveals that an email belongs to the team, so each source needs the caller to be allowed to read it.
+    member_emails: bool
+    verified_domains: bool
+
+
+@dataclass(frozen=True)
 class InsightSeries:
     short_id: str
     name: str | None

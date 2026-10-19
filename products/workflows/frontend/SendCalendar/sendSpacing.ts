@@ -50,12 +50,11 @@ export function mayShareRecipients(a: SendAudience, b: SendAudience): boolean {
 
 /**
  * Whether another send counts against a new send to `audience`, as the frequency cap counts it at send
- * time: transactional email is never capped, and a send to a fixed address has no person to count.
+ * time: a send to a fixed address has no person to count. The calendar endpoint already leaves out
+ * transactional email, which the cap never counts.
  */
-export function countsTowardRule(send: Pick<CalendarSend, 'category' | 'audience'>, audience: SendAudience): boolean {
-    return (
-        send.category.type !== 'transactional' && !send.audience.address && mayShareRecipients(audience, send.audience)
-    )
+export function countsTowardRule(send: Pick<CalendarSend, 'audience'>, audience: SendAudience): boolean {
+    return !send.audience.address && mayShareRecipients(audience, send.audience)
 }
 
 /**

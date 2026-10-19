@@ -5755,9 +5755,6 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
         return []
 
 
-def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric]:
+def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
+    """The key metrics, or None while a background calculation is still running."""
     return _key_metrics_logic.key_metrics(team, user)
-
-
-def get_key_metrics_fingerprint(team: Team) -> str:
-    return _key_metrics_logic.key_metrics_fingerprint(team)

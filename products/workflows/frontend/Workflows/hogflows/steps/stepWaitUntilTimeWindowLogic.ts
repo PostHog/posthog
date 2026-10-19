@@ -119,6 +119,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
                   reason?: string | undefined
               }
             | {
+                  type: 'api'
+              }
+            | {
                   type: 'schedule'
               }
             | {
@@ -429,6 +432,9 @@ export interface stepWaitUntilTimeWindowLogicActions {
               }
             | {
                   reason?: string | undefined
+              }
+            | {
+                  type: 'api'
               }
             | {
                   type: 'schedule'

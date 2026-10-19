@@ -7,19 +7,17 @@ import { dayjs } from 'lib/dayjs'
 import { initKeaTests } from '~/test/init'
 
 import {
-    hogFlowsBatchJobsList,
-    hogFlowsList,
     hogFlowsSchedulesList,
     hogFlowsSchedulesPartialUpdate,
+    hogFlowsSendCalendarRetrieve,
 } from 'products/workflows/frontend/generated/api'
-import type { HogFlowMinimalApi, HogFlowScheduleApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowScheduleApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { sendCalendarLogic } from './sendCalendarLogic'
 
 jest.mock('products/workflows/frontend/generated/api', () => ({
-    hogFlowsList: jest.fn(),
+    hogFlowsSendCalendarRetrieve: jest.fn(),
     hogFlowsSchedulesList: jest.fn(),
-    hogFlowsBatchJobsList: jest.fn(),
     hogFlowsSchedulesPartialUpdate: jest.fn(),
 }))
 jest.mock('@posthog/lemon-ui', () => ({
@@ -45,12 +43,13 @@ const SCHEDULE: HogFlowScheduleApi = {
 const FLOW = {
     id: 'flow-1',
     name: 'October product update',
-    status: 'active',
     origin_product: 'broadcasts',
-    trigger: { type: 'batch' },
-    actions: [{ type: 'function_email' }],
+    trigger_type: 'batch',
+    audience_properties: [],
     user_access_level: 'editor',
-} as unknown as HogFlowMinimalApi
+    schedules: [SCHEDULE],
+    batch_jobs: [],
+} as unknown as SendCalendarFlowApi
 
 describe('sendCalendarLogic', () => {
     let logic: ReturnType<typeof sendCalendarLogic.build>
@@ -67,30 +66,29 @@ describe('sendCalendarLogic', () => {
     beforeEach(async () => {
         jest.clearAllMocks()
         initKeaTests()
-        jest.mocked(hogFlowsList).mockImplementation(async (_projectId, params) => ({
-            count: 1,
-            next: null,
-            previous: null,
-            results: params?.trigger?.includes('batch') ? [FLOW] : [],
-        }))
+        jest.mocked(hogFlowsSendCalendarRetrieve).mockResolvedValue([FLOW])
         jest.mocked(hogFlowsSchedulesList).mockResolvedValue([SCHEDULE])
-        jest.mocked(hogFlowsBatchJobsList).mockResolvedValue([])
         logic = sendCalendarLogic()
         logic.mount()
         logic.actions.setView('week')
         logic.actions.setAnchor(SEND_AT.format('YYYY-MM-DD'))
-        await expectLogic(logic).toDispatchActions(['loadScheduledFlowsSuccess'])
+        await expectLogic(logic).toDispatchActions(['loadScheduledFlowsSuccess']).toFinishAllListeners()
     })
 
     afterEach(() => logic.unmount())
 
+    // The server keeps what the last save wrote, so the check before Undo sees the moved schedule.
+    const saveOnServer = (): void => {
+        jest.mocked(hogFlowsSchedulesPartialUpdate).mockImplementation(async (_projectId, _id, _scheduleId, fields) => {
+            const saved = { ...SCHEDULE, ...fields }
+            jest.mocked(hogFlowsSchedulesList).mockResolvedValue([saved])
+            return saved
+        })
+    }
+    const TEAMMATE_EDIT = { ...SCHEDULE, rrule: 'FREQ=WEEKLY;BYDAY=TU,TH' }
+
     it('moves a one-time send to the day it was dropped on, and Undo moves it back', async () => {
-        jest.mocked(hogFlowsSchedulesPartialUpdate).mockImplementation(
-            async (_projectId, _id, _scheduleId, fields) => ({
-                ...SCHEDULE,
-                ...fields,
-            })
-        )
+        saveOnServer()
 
         await dropOnMovedDay()
 
@@ -110,6 +108,32 @@ describe('sendCalendarLogic', () => {
         expect(savedStart()).toEqual(SCHEDULE.starts_at)
     })
 
+    it('refuses a move when a teammate changed the schedule after the calendar loaded, and reloads', async () => {
+        jest.mocked(hogFlowsSchedulesList).mockResolvedValue([TEAMMATE_EDIT])
+
+        await dropOnMovedDay()
+
+        expect(hogFlowsSchedulesPartialUpdate).not.toHaveBeenCalled()
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            "Couldn't move October product update. Its schedule changed after the calendar loaded. Check the reloaded calendar and try again."
+        )
+        expect(savedStart()).toEqual(SCHEDULE.starts_at)
+    })
+
+    it('refuses Undo when a teammate changed the schedule after the move', async () => {
+        saveOnServer()
+        await dropOnMovedDay()
+        jest.mocked(hogFlowsSchedulesList).mockResolvedValue([TEAMMATE_EDIT])
+
+        const undo = jest.mocked(lemonToast.success).mock.calls[0][1]?.button?.action
+        await expectLogic(logic, () => undo?.()).toFinishAllListeners()
+
+        expect(hogFlowsSchedulesPartialUpdate).toHaveBeenCalledTimes(1)
+        expect(lemonToast.error).toHaveBeenCalledWith(
+            "Couldn't undo the move. Its schedule changed after the calendar loaded. Check the reloaded calendar and try again."
+        )
+    })
+
     it('refuses to move a send whose time passed while the calendar was open, and reloads', async () => {
         const send = logic.values.sends.find((item) => item.flowId === FLOW.id)!
         const elapsed = { ...send, at: dayjs.utc().subtract(1, 'hour') }
@@ -122,6 +146,30 @@ describe('sendCalendarLogic', () => {
         expect(lemonToast.error).toHaveBeenCalledWith(
             "Couldn't move October product update. This send already went out."
         )
+    })
+
+    it('loads the runs of the new range when the person moves to another week', async () => {
+        await expectLogic(logic, () => logic.actions.goForward()).toDispatchActions(['loadScheduledFlowsSuccess'])
+
+        expect(hogFlowsSendCalendarRetrieve).toHaveBeenLastCalledWith(expect.any(String), {
+            start: logic.values.range.start.toISOString(),
+            end: logic.values.range.end.toISOString(),
+        })
+    })
+
+    it('ignores a failed request for a week the person already left', async () => {
+        let rejectFirst: (error: Error) => void = () => {}
+        jest.mocked(hogFlowsSendCalendarRetrieve)
+            .mockImplementationOnce(() => new Promise((_resolve, reject) => (rejectFirst = reject)))
+            .mockResolvedValueOnce([FLOW])
+
+        logic.actions.goForward()
+        await expectLogic(logic, () => logic.actions.goForward()).toDispatchActions(['loadScheduledFlowsSuccess'])
+        rejectFirst(new Error('Network error'))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.loadFailed).toBe(false)
+        expect(logic.values.scheduledFlows).toEqual([FLOW])
     })
 
     it('puts the send back when the server rejects the move', async () => {

@@ -1,5 +1,5 @@
 import re
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -13,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.models import FileSystemViewLog
 
-from products.dashboards.backend.facade.api import HomeDashboardInsights, HomeDashboardTile
+from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeries
 from products.today.backend.logic.highlight_rules import human, short
 from products.today.backend.logic.highlight_sources import home, routine
@@ -38,14 +38,39 @@ def insight(series: dict[str, list[tuple[date, float]]], **fields: Any) -> Insig
 class TestInsightRules(SimpleTestCase):
     @parameterized.expand(
         [
-            ("opened on most days", [TODAY - timedelta(days=d) for d in range(10)], 10),
-            ("opened every Monday", [TODAY - timedelta(days=1 + 7 * w) for w in range(4)], 4),
-            ("opened on many days of one week", [TODAY - timedelta(days=d) for d in range(5)], 0),
-            ("a habit that stopped a month ago", [TODAY - timedelta(days=30 + 7 * w) for w in range(4)], 0),
+            ("opened on most days", [TODAY - timedelta(days=d) for d in range(10)], False, 10),
+            ("opened every Monday", [TODAY - timedelta(days=1 + 7 * w) for w in range(4)], False, 4),
+            ("opened on many days of one week", [TODAY - timedelta(days=d) for d in range(5)], False, 0),
+            ("a habit that stopped a month ago", [TODAY - timedelta(days=30 + 7 * w) for w in range(4)], False, 0),
+            ("opened on two days while history is short", [TODAY, TODAY - timedelta(days=3)], True, 2),
+            ("opened on one day while history is short", [TODAY], True, 0),
         ]
     )
-    def test_routine_days(self, _name: str, view_days: list[date], expected: int) -> None:
-        self.assertEqual(routine.routine_days(view_days, TODAY), expected)
+    def test_routine_days(self, _name: str, view_days: list[date], warming_up: bool, expected: int) -> None:
+        self.assertEqual(routine.routine_days(view_days, TODAY, warming_up), expected)
+
+    @parameterized.expand(
+        [
+            ("the day recording started", date(2026, 10, 16), True),
+            ("the last warm-up day", date(2026, 10, 29), True),
+            ("two weeks after recording started", date(2026, 10, 30), False),
+            ("months later", date(2027, 3, 1), False),
+        ]
+    )
+    def test_is_warming_up(self, _name: str, today: date, expected: bool) -> None:
+        self.assertEqual(routine.is_warming_up(today), expected)
+
+    @parameterized.expand(
+        [
+            ("opened today", [TODAY], 1.0),
+            ("opened two weeks ago counts half", [TODAY - timedelta(days=14)], 0.5),
+            ("each day adds its own weight", [TODAY, TODAY - timedelta(days=14)], 1.5),
+            ("a view older than the lookback counts nothing", [TODAY - timedelta(days=91)], 0.0),
+            ("a day after today counts nothing", [TODAY + timedelta(days=1)], 0.0),
+        ]
+    )
+    def test_frecency(self, _name: str, view_days: list[date], expected: float) -> None:
+        self.assertAlmostEqual(routine.frecency(view_days, TODAY), expected)
 
     @parameterized.expand(
         [
@@ -179,11 +204,12 @@ class TestHomeTiles(SimpleTestCase):
                 guard=lambda _name, provider, _default: provider(),
             ),
         )
-        home_tiles = HomeDashboardInsights(
+        home_tiles = DashboardInsights(
             dashboard_id=7,
+            name="Growth",
             filters={},
             variables=None,
-            tiles=(HomeDashboardTile(insight_short_id="abc", filters_overrides=None),),
+            tiles=(DashboardInsightTile(insight_short_id="abc", filters_overrides=None),),
         )
 
         with (
@@ -248,8 +274,129 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual(
             [
-                (m.name, m.value, m.change_pct, m.interval, m.url, m.value_format and m.value_format.format)
+                (
+                    m.name,
+                    m.value,
+                    m.change_pct,
+                    m.interval,
+                    m.url,
+                    m.value_format and m.value_format.format,
+                    m.reason,
+                    m.opened_days,
+                    m.last_opened,
+                    [(mover.label, mover.value, mover.change_pct) for mover in m.movers],
+                    m.previous_value,
+                )
                 for m in pulse
             ],
-            [("Files opened (Exported report)", 14.0, 100.0, "day", "/insights/abc", "currency")],
+            [
+                (
+                    "Files opened (Exported report)",
+                    14.0,
+                    100.0,
+                    "day",
+                    "/insights/abc",
+                    "currency",
+                    "routine",
+                    10,
+                    TODAY,
+                    [("Exported report", 14.0, 100.0), ("Pageview", 7.0, 100.0)],
+                    7.0,
+                )
+            ],
         )
+
+    @parameterized.expand(
+        [
+            (
+                "a session",
+                None,
+                [
+                    ("insight:signups", "/dashboard/7", "Growth", 2, TODAY - timedelta(days=1)),
+                    ("insight:old", "/insights/old", None, 0, TODAY - timedelta(days=20)),
+                ],
+            ),
+            (
+                "a key without dashboard access",
+                frozenset({"insight:read"}),
+                [("insight:old", "/insights/old", None, 0, TODAY - timedelta(days=20))],
+            ),
+        ]
+    )
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_the_frecency_ranking_shows_a_dashboard_opened_often_as_its_first_working_tile(
+        self, _name: str, scopes: frozenset[str] | None, expected: list[tuple[str, str, str | None, int, date]]
+    ) -> None:
+        for kind, ref, ages in (("insight", "old", (20,)), ("dashboard", "7", (1, 2))):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=kind,
+                ref=ref,
+                view_days=[TODAY - timedelta(days=age) for age in ages],
+                viewed_at=datetime.combine(TODAY - timedelta(days=min(ages)), time(12), tzinfo=UTC),
+            )
+        growth = DashboardInsights(
+            dashboard_id=7,
+            name="Growth",
+            filters={},
+            variables=None,
+            tiles=(
+                DashboardInsightTile(insight_short_id="broken", filters_overrides=None),
+                DashboardInsightTile(insight_short_id="table", filters_overrides=None),
+                DashboardInsightTile(insight_short_id="signups", filters_overrides=None),
+            ),
+        )
+        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
+        charts = {
+            "signups": insight({"signed_up": points}, short_id="signups", name="Sign-ups"),
+            "old": insight({"opened": points}, short_id="old", name="Files opened"),
+        }
+
+        def series(**kwargs: Any) -> InsightSeries | None:
+            if kwargs["short_id"] == "broken":
+                raise ValueError("query failed")
+            return charts.get(kwargs["short_id"])
+
+        with (
+            patch.object(routine, "pulse_ranking", return_value="frecency"),
+            patch.object(routine, "dashboard_insights", return_value=growth),
+            patch.object(routine, "get_insight_series", side_effect=series),
+        ):
+            pulse = routine.find(Context(self.team, self.user, TODAY, scopes)).pulse
+
+        self.assertEqual([(m.key, m.url, m.dashboard_name, m.opened_days, m.last_opened) for m in pulse], expected)
+        self.assertEqual([m.movers for m in pulse], [[]] * len(expected))
+
+    @parameterized.expand(
+        [
+            ("frecency puts the habit first", "frecency", ["insight:habit", "insight:fresh"]),
+            ("recency puts the latest open first", "recency", ["insight:fresh", "insight:habit"]),
+        ]
+    )
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_each_new_ranking_orders_the_same_views_its_own_way(
+        self, _name: str, ranking: str, expected: list[str]
+    ) -> None:
+        for ref, ages in (("habit", range(2, 10)), ("fresh", (1,))):
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=ref,
+                view_days=[TODAY - timedelta(days=age) for age in ages],
+                viewed_at=datetime.combine(TODAY - timedelta(days=min(ages)), time(12), tzinfo=UTC),
+            )
+        points = [(TODAY - timedelta(days=d), 2.0 if d <= 7 else 1.0) for d in range(14, 0, -1)]
+
+        with (
+            patch.object(routine, "pulse_ranking", return_value=ranking),
+            patch.object(
+                routine,
+                "get_insight_series",
+                side_effect=lambda **kwargs: insight({"opened": points}, short_id=kwargs["short_id"], name="Opened"),
+            ),
+        ):
+            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+
+        self.assertEqual([m.key for m in pulse], expected)

@@ -27,7 +27,7 @@ export function SendDayPickerStatus(): JSX.Element {
                 type="error"
                 action={{
                     children: 'Retry',
-                    onClick: loadScheduledFlows,
+                    onClick: () => loadScheduledFlows(),
                     'data-attr': 'send-day-picker-retry-load',
                 }}
             >

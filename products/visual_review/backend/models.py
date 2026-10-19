@@ -327,9 +327,10 @@ class ToleratedHash(ProductTeamModel):
     specific baseline and snapshot identifier, allowing future runs to skip
     expensive diff processing.
 
-    Keyed by (repo, identifier, baseline_hash, content_hash) — when the
-    canonical baseline changes, old tolerations expire naturally because
-    baseline_hash no longer matches.
+    Keyed by (repo, identifier, baseline_hash, content_hash). A row accepts the
+    pair in both directions, so it still matches when the baseline flips to the
+    alternate render. When the baseline moves to any other hash, old tolerations
+    expire naturally because neither hash matches.
     """
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)

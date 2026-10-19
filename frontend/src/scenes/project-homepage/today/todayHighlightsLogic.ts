@@ -3,10 +3,11 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { todayHighlightsRetrieve } from 'products/today/frontend/generated/api'
-import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
+import type { HighlightItemApi, HighlightMetricApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
 export const HIGHLIGHTS_POLL_MS = 2_000
 const HIGHLIGHTS_WAIT_MS = 2_000
@@ -60,6 +61,20 @@ export interface todayHighlightsLogicActions {
         highlights: HighlightsApi | null
         payload?: any
     }
+    pulseMetricOpened: (
+        metric: HighlightMetricApi,
+        position: number
+    ) => {
+        metric: HighlightMetricApi
+        position: number
+    }
+    pulseMetricPreviewed: (
+        metric: HighlightMetricApi,
+        position: number
+    ) => {
+        metric: HighlightMetricApi
+        position: number
+    }
     setHiddenHighlights: (hidden: Record<string, string>) => {
         hidden: Record<string, string>
     }
@@ -108,6 +123,8 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
     })),
     actions({
         highlightOpened: (item: HighlightItemApi, position: number) => ({ item, position }),
+        pulseMetricOpened: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
+        pulseMetricPreviewed: (metric: HighlightMetricApi, position: number) => ({ metric, position }),
         hideHighlight: (item: HighlightItemApi, position: number) => ({ item, position }),
         unhideHighlight: (item: HighlightItemApi, position: number) => ({ item, position }),
         setHiddenHighlights: (hidden: Record<string, string>) => ({ hidden }),
@@ -226,6 +243,27 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 score: item.score,
             })
         },
+        pulseMetricOpened: ({ metric, position }) => {
+            posthog.capture('today pulse metric opened', {
+                kind: metric.key.startsWith('insight:') ? 'insight' : 'key_metric',
+                reason: metric.reason,
+                position,
+                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
+            })
+        },
+        pulseMetricPreviewed: ({ metric, position }) => {
+            const previewed: Set<string> = (cache.previewedPulseMetrics ??= new Set<string>())
+            if (previewed.has(metric.key)) {
+                return
+            }
+            previewed.add(metric.key)
+            posthog.capture('today pulse metric previewed', {
+                kind: metric.key.startsWith('insight:') ? 'insight' : 'key_metric',
+                reason: metric.reason,
+                position,
+                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
+            })
+        },
         loadHighlightsSuccess: ({ highlights }) => {
             if (!highlights) {
                 return
@@ -244,6 +282,8 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 opportunity_count: highlights.items.filter((item) => item.label === 'opportunity').length,
                 sources: highlights.items.map((item) => item.source),
                 pulse_count: highlights.pulse.length,
+                pulse_reasons: highlights.pulse.map((metric) => metric.reason),
+                pulse_ranking: posthog.getFeatureFlag(FEATURE_FLAGS.TODAY_PULSE_RANKING) ?? null,
             })
         },
     })),

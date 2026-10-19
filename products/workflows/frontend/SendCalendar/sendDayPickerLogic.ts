@@ -1,20 +1,25 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { dayjs } from 'lib/dayjs'
+import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyPropertyFilter, TeamPublicType, TeamType } from '~/types'
+
+import { hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
+import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import {
     BroadcastEmailSettings,
     BroadcastWizardLogicProps,
     broadcastWizardLogic,
 } from '../Broadcasts/broadcastWizardLogic'
-import { sendCalendarLogic } from './sendCalendarLogic'
 import {
+    CalendarRange,
     CalendarSend,
-    ScheduledEmailFlow,
     SendAudience,
     audienceFromProperties,
     calendarDays,
@@ -42,11 +47,9 @@ export interface sendDayPickerLogicValues {
     effectiveTimezone: string // broadcastWizardLogic
     emailSettings: BroadcastEmailSettings // broadcastWizardLogic
     sendAt: string | null // broadcastWizardLogic
-    loadFailed: boolean // sendCalendarLogic
-    scheduledFlows: ScheduledEmailFlow[] | null // sendCalendarLogic
-    scheduledFlowsLoading: boolean // sendCalendarLogic
-    weekStartDay: number // sendCalendarLogic
+    currentProjectId: number | null // projectLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    weekStartDay: number // teamLogic
     anchor: string | null
     anchorDate: string
     countingKeys: Record<string, boolean>
@@ -55,8 +58,12 @@ export interface sendDayPickerLogicValues {
     days: string[]
     draftAudience: SendAudience
     isTransactional: boolean
+    loadFailed: boolean
+    loadRange: CalendarRange
     otherSends: CalendarSend[]
     rule: SendingRule
+    scheduledFlows: SendCalendarFlowApi[] | null
+    scheduledFlowsLoading: boolean
     selectedCrowding: CalendarSend[]
     selectedDay: string | null
     sendsByDay: Record<string, CalendarSend[]>
@@ -70,7 +77,6 @@ export interface sendDayPickerLogicActions {
     setSendAt: (sendAt: string | null) => {
         sendAt: string | null
     } // broadcastWizardLogic
-    loadScheduledFlows: () => any // sendCalendarLogic
     applySuggestion: () => {
         value: true
     }
@@ -79,6 +85,21 @@ export interface sendDayPickerLogicActions {
     }
     goForward: () => {
         value: true
+    }
+    loadScheduledFlows: (_: void) => void
+    loadScheduledFlowsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScheduledFlowsSuccess: (
+        scheduledFlows: SendCalendarFlowApi[],
+        payload?: void
+    ) => {
+        scheduledFlows: SendCalendarFlowApi[]
+        payload?: void
     }
     pickDay: (day: string) => {
         day: string
@@ -100,11 +121,10 @@ export interface sendDayPickerLogicMeta {
         selectedDay: (sendAt: string | null, effectiveTimezone: string) => string | null
         anchorDate: (anchor: string | null, selectedDay: string | null, today: string) => string
         days: (anchorDate: string, weekStartDay: number) => string[]
+        loadRange: (days: string[], effectiveTimezone: string, rule: SendingRule) => CalendarRange
         otherSends: (
-            scheduledFlows: ScheduledEmailFlow[] | null,
-            days: string[],
-            effectiveTimezone: string,
-            rule: SendingRule,
+            scheduledFlows: SendCalendarFlowApi[] | null,
+            loadRange: CalendarRange,
             id: string
         ) => CalendarSend[]
         countingSends: (
@@ -145,14 +165,14 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'SendCalendar', 'sendDayPickerLogic', key]),
     connect((props: BroadcastWizardLogicProps) => ({
         values: [
-            sendCalendarLogic,
-            ['scheduledFlows', 'scheduledFlowsLoading', 'weekStartDay', 'loadFailed'],
             teamLogic,
-            ['currentTeam'],
+            ['currentTeam', 'weekStartDay'],
+            projectLogic,
+            ['currentProjectId'],
             broadcastWizardLogic(props),
             ['sendAt', 'effectiveTimezone', 'audienceProperties', 'emailSettings'],
         ],
-        actions: [broadcastWizardLogic(props), ['setSendAt'], sendCalendarLogic, ['loadScheduledFlows']],
+        actions: [broadcastWizardLogic(props), ['setSendAt']],
     })),
     actions({
         setAnchor: (anchor: string | null) => ({ anchor }),
@@ -161,9 +181,38 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
         pickDay: (day: string) => ({ day }),
         applySuggestion: true,
     }),
+    loaders(({ values }) => ({
+        scheduledFlows: [
+            null as SendCalendarFlowApi[] | null,
+            {
+                loadScheduledFlows: async (_: void, breakpoint) => {
+                    let flows: SendCalendarFlowApi[]
+                    try {
+                        flows = await hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
+                            start: values.loadRange.start.toISOString(),
+                            end: values.loadRange.end.toISOString(),
+                        })
+                    } catch (error) {
+                        // A failed request for a month the person already left must not show the error.
+                        breakpoint()
+                        throw error
+                    }
+                    breakpoint()
+                    return flows
+                },
+            },
+        ],
+    })),
     reducers({
         // Null follows the picked day, or today. A date pins the month that the person moved to.
         anchor: [null as string | null, { setAnchor: (_, { anchor }) => anchor }],
+        loadFailed: [
+            false,
+            {
+                loadScheduledFlows: () => false,
+                loadScheduledFlowsFailure: () => true,
+            },
+        ],
     }),
     selectors({
         rule: [
@@ -199,29 +248,30 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
             (s) => [s.anchorDate, s.weekStartDay],
             (anchorDate: string, weekStartDay: number): string[] => calendarDays('month', anchorDate, weekStartDay),
         ],
-        otherSends: [
-            (s, p) => [s.scheduledFlows, s.days, s.effectiveTimezone, s.rule, p.id],
-            (
-                scheduledFlows: ScheduledEmailFlow[] | null,
-                days: string[],
-                timezone: string,
-                rule: SendingRule,
-                id: string
-            ): CalendarSend[] => {
-                const now = dayjs()
+        loadRange: [
+            (s) => [s.days, s.effectiveTimezone, s.rule],
+            (days: string[], timezone: string, rule: SendingRule): CalendarRange => {
+                // The hour keeps the range steady across renders, so it only loads again when the month changes.
+                const now = dayjs().startOf('hour')
                 const grid = calendarRange(days, timezone)
                 // The suggestion looks ahead past the grid. Every day it checks counts the sends a full cap
                 // window either side of it, so the range reaches one window past both ends.
                 const firstChecked = grid.start.isBefore(now) ? grid.start : now
                 const horizonEnd = now.add(SUGGESTION_HORIZON_DAYS + 1, 'day')
                 const lastChecked = grid.end.isAfter(horizonEnd) ? grid.end : horizonEnd
-                const range = {
+                return {
                     start: firstChecked.subtract(rule.windowDays, 'day'),
                     end: lastChecked.add(rule.windowDays, 'day'),
                 }
+            },
+        ],
+        otherSends: [
+            (s, p) => [s.scheduledFlows, s.loadRange, p.id],
+            (scheduledFlows: SendCalendarFlowApi[] | null, loadRange: CalendarRange, id: string): CalendarSend[] => {
+                const now = dayjs()
                 return (scheduledFlows ?? [])
-                    .filter((item) => item.flow.id !== id)
-                    .flatMap((item) => calendarSendsForFlow(item, range, now))
+                    .filter((flow) => flow.id !== id)
+                    .flatMap((flow) => calendarSendsForFlow(flow, loadRange, now))
                     .filter((send) => send.state !== 'paused' && send.state !== 'failed')
             },
         ],
@@ -300,6 +350,14 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
                 crowded: false,
                 rule_from_cap: values.rule.fromCap,
             })
+        },
+    })),
+    subscriptions(({ actions }) => ({
+        // The endpoint returns only the runs inside the range, so a new month loads again.
+        loadRange: (range: CalendarRange, previous?: CalendarRange) => {
+            if (!previous || !range.start.isSame(previous.start) || !range.end.isSame(previous.end)) {
+                actions.loadScheduledFlows()
+            }
         },
     })),
 ])
