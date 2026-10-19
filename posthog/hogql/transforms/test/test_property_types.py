@@ -561,11 +561,12 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
 
     @parameterized.expand(
         [
-            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0]),
-            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1]),
-            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None]),
-            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None]),
-            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0]),
+            ("text_equals", "properties.step = 'template'", [1, 0, 0, 0, 0, 0]),
+            ("text_not_equals", "properties.step != 'template'", [0, 1, 1, 1, 1, 1]),
+            ("text_in", "properties.step IN ('template', 'domain')", [1, 1, 0, 0, None, 0]),
+            ("text_and_number_in", "properties.step IN ('template', '5')", [1, 0, 1, 1, None, 0]),
+            ("number_equals", "properties.step = '5'", [0, 0, 1, 1, 0, 0]),
+            ("non_finite_text", "properties.step = 'nan'", [0, 0, 0, 0, 0, 1]),
         ]
     )
     def test_numeric_property_compared_to_text_matches_text(
@@ -585,6 +586,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                     '{"step":5}',
                     '{"step":"5"}',
                     "{}",
+                    '{"step":"nan"}',
                 ],
             },
         )

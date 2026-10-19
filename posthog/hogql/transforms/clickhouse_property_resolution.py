@@ -2045,13 +2045,10 @@ class ClickHousePropertyResolver(CloningVisitor):
         )
 
     def _numeric_property_to_compare_as_text(self, expr: ast.Expr, values: list[str]) -> _OptimizableProperty | None:
-        """A Numeric JSON property compared to a literal that is not a number, which must be read as text.
+        """A Numeric JSON property compared to non-numeric text, read as text the way the legacy table compares it.
 
-        A property definition records the type of the first value a project sent under that key, so a Numeric
-        key can still hold text on other events. A Float64 read cannot match a text literal: the comparison
-        matches no row, or fails with TYPE_MISMATCH once a row holds a number. The legacy table compares the
-        raw text, so reading the subcolumn as text gives the same result. A literal that converts to a number
-        keeps the Float64 comparison, so numeric filters do not change.
+        A property definition keeps the type of the first value seen, so a Numeric key can still hold text that a
+        Float64 read never matches.
         """
         single = self._single_key_property(expr)
         if single is None:
