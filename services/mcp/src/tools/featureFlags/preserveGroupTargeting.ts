@@ -1,8 +1,9 @@
 /**
  * Preserve group-based feature-flag targeting when MCP agents send partial `filters`.
- * Agents rebuild release conditions with only `key` / `operator` / `value`, and the API
- * reads an omitted property `type` as person, which silently converts a group flag to a
- * person flag (PostHog/posthog#46501).
+ * Agents rebuild release conditions with only `key` / `operator` / `value`. The API rejects a
+ * property that has no `type`. A condition set without `aggregation_group_type_index` takes the
+ * flag-level value, so it can lose its group targeting. The merge therefore restores these
+ * omitted fields from the stored flag (PostHog/posthog#46501).
  *
  * An incoming condition set takes the stored set at its own index as its source when every stored
  * set keeps its property keys at its index. New sets may only follow the stored ones. On a flag
