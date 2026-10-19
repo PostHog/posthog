@@ -795,6 +795,40 @@ class TestCompactDuringRebuild:
             assert len(table.file_uris()) == files_after
             assert table.to_pyarrow_table().sort_by("id").to_pydict() == rows_before
 
+    @pytest.mark.asyncio
+    async def test_a_smaller_planned_bin_reselects_the_partitions(self):
+        # At 100 MiB every file is small. At the planned 300 KB, partition "a" holds only files of about
+        # 160 KB, which a compaction cannot merge, so the pass must move to partition "b".
+        with tempfile.TemporaryDirectory() as path:
+            for i in range(8):
+                deltalake.write_deltalake(
+                    path,
+                    pa.table({PARTITION_KEY: ["a"], "id": [i], "blob": [os.urandom(80_000).hex()]}),
+                    mode="append",
+                    partition_by=[PARTITION_KEY],
+                )
+            for i in range(7):
+                deltalake.write_deltalake(
+                    path,
+                    pa.table({PARTITION_KEY: ["b"], "id": [100 + i], "blob": ["x"]}),
+                    mode="append",
+                    partition_by=[PARTITION_KEY],
+                )
+            maintenance = DeltaMaintenance(make_local_table_ref(path))
+            plan = CompactionPlan(
+                target_size=300_000, max_concurrent_tasks=1, compression_ratio=1.0, slot_budget_mb=1356.8
+            )
+
+            with patch.object(maintenance, "_plan_compaction", AsyncMock(return_value=plan)):
+                result = await maintenance.compact_during_rebuild(min_removable_files=6)
+
+            files = deltalake.DeltaTable(path).file_uris()
+            assert result == "compacted"
+            assert (
+                sum(f"{PARTITION_KEY}=a/" in uri for uri in files),
+                sum(f"{PARTITION_KEY}=b/" in uri for uri in files),
+            ) == (8, 1)
+
     @parameterized.expand(
         [
             ("transient_object_store_error", TransientObjectStoreError("throttled"), False),

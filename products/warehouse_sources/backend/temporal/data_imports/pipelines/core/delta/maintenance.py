@@ -807,9 +807,17 @@ class DeltaMaintenance:
         *,
         pass_name: str,
         stats: str,
-        partitions: list[str] | None = None,
+        select_partitions: Callable[[list[_PartitionFileStats]], list[str] | None] | None = None,
     ) -> bool:
-        """Compact with deltalite when it is on, else with delta-rs. `partitions` limits the pass."""
+        """Compact with deltalite when it is on, else with delta-rs.
+
+        `select_partitions` limits the pass, from the partition stats at the bin size the engine uses.
+        """
+        partitions = None
+        if select_partitions is not None:
+            partitions = select_partitions(
+                await asyncio.to_thread(_partition_file_stats, table, DEFAULT_COMPACT_TARGET_SIZE_BYTES)
+            )
         if settings.DATA_WAREHOUSE_DELTALITE_COMPACTION:
             await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
             compacted = await self._compact_with_deltalite(table, partitions=partitions)
@@ -833,6 +841,8 @@ class DeltaMaintenance:
                     f"{pass_name}: skipping; no files are removable at planned target_size={plan.target_size} ({stats})"
                 )
                 return False
+            if select_partitions is not None:
+                partitions = select_partitions(planned)
 
         await self._logger.ainfo(f"{pass_name}: triggering compact ({stats})")
         return await self._compact(table, plan, partitions=partitions)
@@ -856,7 +866,6 @@ class DeltaMaintenance:
             if removable_files < min_removable_files:
                 return "skipped"
 
-            selected = _partitions_up_to(partitions, min_removable_files)
             compacted = await self._compact_table(
                 table,
                 lambda planned: (
@@ -866,10 +875,9 @@ class DeltaMaintenance:
                 pass_name="compact_during_rebuild",
                 stats=(
                     f"removable_files={removable_files}, partitions={len(partitions)}, "
-                    f"selected_partitions={len(selected) if selected is not None else 'all'}, "
                     f"min_removable_files={min_removable_files}"
                 ),
-                partitions=selected,
+                select_partitions=lambda stats: _partitions_up_to(stats, min_removable_files),
             )
             return "compacted" if compacted else "skipped"
         except Exception as e:
