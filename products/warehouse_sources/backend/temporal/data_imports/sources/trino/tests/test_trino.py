@@ -695,6 +695,14 @@ def test_worker_node_communication_failures_are_classified_as_retryable() -> Non
     assert error_message_matches(message, TrinoSource().get_retryable_errors())
 
 
+def test_query_not_found_is_classified_as_retryable() -> None:
+    # The exact wrapping `trino.dbapi.Cursor.fetchone()` does for the driver's `HttpError` on a 404
+    # response, which is what a later page fetch sees once the coordinator no longer holds the query.
+    message = "error 404: b'Error 404 Not Found: Query not found'"
+
+    assert error_message_matches(message, TrinoSource().get_retryable_errors())
+
+
 def test_build_pipeline_refuses_a_disallowed_host_before_connecting() -> None:
     with (
         patch(f"{_TRINO_MODULE}.connect_trino") as mock_connect,
