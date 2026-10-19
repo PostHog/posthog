@@ -756,6 +756,426 @@
             },
             "required": ["insightId"]
         },
+        "MarketingConversionGoalSchema": {
+            "allOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "conversion_goal_id": {
+                            "type": "string",
+                            "description": "Draft ID, ignored by the server. Preserve the preview ID on apply."
+                        },
+                        "conversion_goal_name": {
+                            "type": "string",
+                            "description": "Name of the conversion goal."
+                        },
+                        "schema_map": {
+                            "type": "object",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "additionalProperties": {},
+                            "description": "Source column mappings. Use an empty object for an event or action without mappings."
+                        },
+                        "counts_as_customer": {
+                            "description": "Whether this conversion defines a customer. Repeat payments do not mean new customers.",
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "counts_as_revenue": {
+                            "description": "Whether the conversion value is money. Revenue requires sum and an amount property.",
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "math": {
+                            "description": "Aggregation. Preview supports total, dau (unique people), and sum (amounts).",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "math_property": {
+                            "description": "Numeric property or column to sum.",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "math_property_revenue_currency": {
+                            "description": "Currency of the amount. Preserve the preview currency settings when applying.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "property": {
+                                            "description": "Property or column containing currency codes.",
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "static": {
+                                            "description": "Fixed currency code, such as USD or EUR.",
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "additionalProperties": {}
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "properties": {
+                            "description": "Conversion filters. Preserve all type-specific fields, including nested behavioral filters.",
+                            "anyOf": [
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "type": {
+                                                "description": "Property source, such as event, person, cohort, hogql, or data_warehouse.",
+                                                "type": "string"
+                                            },
+                                            "key": {
+                                                "description": "Property name, cohort key, or HogQL expression for this filter type.",
+                                                "type": "string"
+                                            },
+                                            "operator": {
+                                                "description": "Comparison operator, such as exact, is_not, gt, or is_set.",
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "value": {
+                                                "description": "Comparison value or list of values. Preserve its original JSON type."
+                                            },
+                                            "label": {
+                                                "description": "Optional display label for the filter.",
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "additionalProperties": {}
+                                    }
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "fixedProperties": {
+                            "description": "Fixed conversion filters. Preserve all type-specific fields from the draft or preview.",
+                            "anyOf": [
+                                {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "type": {
+                                                "description": "Property source, such as event, person, cohort, hogql, or data_warehouse.",
+                                                "type": "string"
+                                            },
+                                            "key": {
+                                                "description": "Property name, cohort key, or HogQL expression for this filter type.",
+                                                "type": "string"
+                                            },
+                                            "operator": {
+                                                "description": "Comparison operator, such as exact, is_not, gt, or is_set.",
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            },
+                                            "value": {
+                                                "description": "Comparison value or list of values. Preserve its original JSON type."
+                                            },
+                                            "label": {
+                                                "description": "Optional display label for the filter.",
+                                                "anyOf": [
+                                                    {
+                                                        "type": "string"
+                                                    },
+                                                    {
+                                                        "type": "null"
+                                                    }
+                                                ]
+                                            }
+                                        },
+                                        "additionalProperties": {}
+                                    }
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "math_group_type_index": {
+                            "description": "Group aggregation index. Group aggregation is unsupported by preview.",
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "math_multiplier": {
+                            "description": "Amount multiplier. Preview only supports an absent multiplier or 1.",
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "math_hogql": {
+                            "description": "Custom aggregation expression, when present.",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "math_property_type": {
+                            "description": "Type of the amount property, when present.",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "custom_name": {
+                            "description": "Optional custom display name.",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "name": {
+                            "description": "Optional source display name.",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "optionalInFunnel": {
+                            "description": "Existing query-node option, when present.",
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "response": {
+                            "description": "Existing query-node response metadata, when present.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "additionalProperties": {}
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "version": {
+                            "description": "Existing query-node schema version, when present.",
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["conversion_goal_id", "conversion_goal_name", "schema_map"],
+                    "additionalProperties": {}
+                },
+                {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "description": "An event conversion goal.",
+                                    "type": "string",
+                                    "const": "EventsNode"
+                                },
+                                "event": {
+                                    "description": "Conversion event name. Null selects all events.",
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "limit": {
+                                    "description": "Existing event-query result limit, when present.",
+                                    "anyOf": [
+                                        {
+                                            "type": "number"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                },
+                                "orderBy": {
+                                    "description": "Existing event-query ordering, when present.",
+                                    "anyOf": [
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            },
+                            "additionalProperties": {}
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "description": "A conversion goal based on an existing action.",
+                                    "type": "string",
+                                    "const": "ActionsNode"
+                                },
+                                "id": {
+                                    "type": "number",
+                                    "description": "ID of the existing action. Its saved filters remain in effect."
+                                }
+                            },
+                            "required": ["id"],
+                            "additionalProperties": {}
+                        },
+                        {
+                            "type": "object",
+                            "properties": {
+                                "kind": {
+                                    "description": "A warehouse table or saved-view goal.",
+                                    "type": "string",
+                                    "const": "DataWarehouseNode"
+                                },
+                                "id": {
+                                    "type": "string",
+                                    "description": "Warehouse table or saved-view ID."
+                                },
+                                "table_name": {
+                                    "type": "string",
+                                    "description": "Warehouse table or saved-view name."
+                                },
+                                "id_field": {
+                                    "type": "string",
+                                    "description": "Column containing the unique conversion row ID."
+                                },
+                                "distinct_id_field": {
+                                    "type": "string",
+                                    "description": "Column mapped to the person distinct ID."
+                                },
+                                "timestamp_field": {
+                                    "type": "string",
+                                    "description": "Column containing the conversion timestamp."
+                                },
+                                "dw_source_type": {
+                                    "description": "Warehouse source type, when present.",
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ]
+                                }
+                            },
+                            "required": ["id", "table_name", "id_field", "distinct_id_field", "timestamp_field"],
+                            "additionalProperties": {}
+                        }
+                    ]
+                }
+            ]
+        },
         "OfflineExperimentUploadItemsSchema": {
             "description": "Complete immutable declarations for referenced items. Omit existing items to reuse them without a payload.",
             "maxItems": 1000,
