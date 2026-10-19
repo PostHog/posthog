@@ -34,7 +34,7 @@ import type {
     PersonsListParams,
     PersonsPartialUpdateParams,
     PersonsPropertiesAtTimeRetrieveParams,
-    PersonsPropertiesTimelineRetrieveParams,
+    PersonsPropertiesTimelineCreateParams,
     PersonsPushNotificationsListParams,
     PersonsResetPersonDistinctIdCreateParams,
     PersonsRetrieveParams,
@@ -42,6 +42,8 @@ import type {
     PersonsUpdateParams,
     PersonsUpdatePropertyCreateParams,
     PersonsValuesRetrieveParams,
+    PropertiesTimelineRequestApi,
+    PropertiesTimelineResponseApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -296,10 +298,10 @@ export const personsEmailsList = async (
     })
 }
 
-export const getPersonsPropertiesTimelineRetrieveUrl = (
+export const getPersonsPropertiesTimelineCreateUrl = (
     projectId: string,
-    id: number,
-    params?: PersonsPropertiesTimelineRetrieveParams
+    id: string,
+    params?: PersonsPropertiesTimelineCreateParams
 ) => {
     const normalizedParams = new URLSearchParams()
 
@@ -317,17 +319,21 @@ export const getPersonsPropertiesTimelineRetrieveUrl = (
 }
 
 /**
- * This endpoint is meant for reading and deleting persons. To create or update persons, we recommend using the [capture API](https://posthog.com/docs/api/capture), the `$set` and `$unset` [properties](https://posthog.com/docs/product-analytics/user-properties), or one of our SDKs.
+ * Shows how the person's key properties changed within the time window of a Trends data point. The key properties are the person properties that the insight's query uses.
+ * @summary Get a person's properties timeline for an insight data point
  */
-export const personsPropertiesTimelineRetrieve = async (
+export const personsPropertiesTimelineCreate = async (
     projectId: string,
-    id: number,
-    params?: PersonsPropertiesTimelineRetrieveParams,
+    id: string,
+    propertiesTimelineRequestApi: PropertiesTimelineRequestApi,
+    params?: PersonsPropertiesTimelineCreateParams,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getPersonsPropertiesTimelineRetrieveUrl(projectId, id, params), {
+): Promise<PropertiesTimelineResponseApi> => {
+    return apiMutator<PropertiesTimelineResponseApi>(getPersonsPropertiesTimelineCreateUrl(projectId, id, params), {
         ...options,
-        method: 'GET',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(propertiesTimelineRequestApi),
     })
 }
 

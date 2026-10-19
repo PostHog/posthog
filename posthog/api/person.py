@@ -30,9 +30,10 @@ from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 
-from posthog.schema import ActorsQuery, ProductKey
+from posthog.schema import ActionsNode, ActorsQuery, EventsNode, InsightActorsQuery, ProductKey, TrendsQuery
 
 from posthog.hogql.constants import CSV_EXPORT_LIMIT
+from posthog.hogql.errors import QueryError
 
 from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import PersonPropertiesSerializer
@@ -74,6 +75,7 @@ from posthog.models.person.util import (
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import ClickHouseBurstRateThrottle, PersonalApiKeyRateThrottle, UserOrEmailRateThrottle
 from posthog.renderers import SafeJSONRenderer
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.slo.context import JsonValue, SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
 from posthog.tasks.delete_persons import queue_person_deletion
@@ -513,6 +515,62 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     point_in_time_metadata = PersonPropertiesAtTimeMetadataSerializer(
         help_text="Metadata about the point-in-time query"
     )
+
+
+@extend_schema_field(InsightActorsQuery)  # type: ignore[arg-type]  # Supported by the Pydantic schema extension.
+class InsightActorsQueryField(serializers.JSONField):
+    """Types the field as an `InsightActorsQuery` in the OpenAPI schema. `validate_query` parses it."""
+
+
+class PropertiesTimelineRequestSerializer(serializers.Serializer):
+    query = InsightActorsQueryField(
+        help_text=(
+            "The actors query of the insight data point, as the persons modal sends it. The timeline reads the "
+            "person's events in the data point's time window, and tracks the person properties that the series, "
+            "the insight's filters and its breakdown use. The source must be a Trends query, and the selected "
+            "series must be an events or actions series."
+        )
+    )
+
+    def validate_query(self, value: Any) -> InsightActorsQuery:
+        try:
+            query = InsightActorsQuery.model_validate(upgrade(value) if isinstance(value, dict) else value)
+        except ValueError:
+            raise serializers.ValidationError("Provide a valid insight actors query.")
+        if not isinstance(query.source, TrendsQuery):
+            raise serializers.ValidationError("The properties timeline supports Trends insights only.")
+        series_index = query.series or 0
+        if not 0 <= series_index < len(query.source.series):
+            raise serializers.ValidationError("The query's series index is out of range.")
+        if not isinstance(query.source.series[series_index], EventsNode | ActionsNode):
+            raise serializers.ValidationError("The properties timeline supports events and actions series only.")
+        if query.day is not None and not isinstance(query.day, str):
+            raise serializers.ValidationError("A Trends data point's day must be a date string.")
+        return query
+
+
+class PropertiesTimelinePointSerializer(serializers.Serializer):
+    timestamp = serializers.DateTimeField(
+        help_text="The time of the first event in the window that has this combination of key property values."
+    )
+    properties = serializers.DictField(
+        child=serializers.JSONField(), help_text="The person's properties as that event recorded them."
+    )
+    relevant_event_count = serializers.IntegerField(
+        help_text="The number of the person's events in the window from this point until the next point."
+    )
+
+
+class PropertiesTimelineResponseSerializer(serializers.Serializer):
+    points = PropertiesTimelinePointSerializer(
+        many=True, help_text="One point for each change of the key property values, oldest first."
+    )
+    crucial_property_keys = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The key person properties: those the insight's query uses. Empty when it uses none.",
+    )
+    effective_date_from = serializers.DateTimeField(help_text="The start of the window, in the project's time zone.")
+    effective_date_to = serializers.DateTimeField(help_text="The end of the window, in the project's time zone.")
 
 
 # Not in `posthog/api/cohort.py` because that module cannot be imported here at module level: it
@@ -1632,15 +1690,41 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
-    @action(methods=["GET"], detail=True)
+    @extend_schema(
+        methods=["GET"],
+        deprecated=True,
+        parameters=[_PERSON_ID_PARAMETER],
+        responses={200: PropertiesTimelineResponseSerializer},
+        summary="Get a person's properties timeline from legacy filter parameters",
+        description="Reads a legacy insight filter from the query string. Send a POST with the data point's actors query instead.",
+    )
+    @extend_schema(
+        methods=["POST"],
+        parameters=[_PERSON_ID_PARAMETER],
+        request=PropertiesTimelineRequestSerializer,
+        responses={200: PropertiesTimelineResponseSerializer},
+        summary="Get a person's properties timeline for an insight data point",
+        description=(
+            "Shows how the person's key properties changed within the time window of a Trends data point. The key "
+            "properties are the person properties that the insight's query uses."
+        ),
+    )
+    @action(methods=["GET", "POST"], detail=True, required_scopes=["person:read"])
     def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         if request.user.is_anonymous or not self.team:
             return response.Response(data=[])
 
         person = self.get_object()
-        filter = PropertiesTimelineFilter(request=request, team=self.team)
+        if request.method == "GET":
+            filter = PropertiesTimelineFilter(request=request, team=self.team)
+            return response.Response(data=PropertiesTimeline().run_for_filter(filter, self.team, person))
 
-        properties_timeline = PropertiesTimeline().run(filter, self.team, person)
+        serializer = PropertiesTimelineRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            properties_timeline = PropertiesTimeline().run(serializer.validated_data["query"], self.team, person)
+        except QueryError as error:
+            raise ValidationError({"query": [str(error)]})
 
         return response.Response(data=properties_timeline)
 

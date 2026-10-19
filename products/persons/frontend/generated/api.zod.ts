@@ -47,6 +47,14 @@ export const PersonsDeletePropertyCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Shows how the person's key properties changed within the time window of a Trends data point. The key properties are the person properties that the insight's query uses.
+ * @summary Get a person's properties timeline for an insight data point
+ */
+export const PersonsPropertiesTimelineCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
+/**
  * Split distinct_ids off a merged person. Two mutually exclusive modes:
  *
  * - **`distinct_ids_to_split`** (recommended for surgical edits): moves only the listed distinct_ids off this person onto new single-id persons. The original person keeps every other distinct_id and its properties.

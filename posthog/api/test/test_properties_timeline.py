@@ -1,7 +1,7 @@
 import json
 import uuid
 import random
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import time_machine
 from posthog.test.base import (
@@ -14,10 +14,33 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
 from rest_framework import status
+
+from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
+    Compare,
+    CompareFilter,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    FilterLogicalOperator,
+    HogQLPropertyFilter,
+    InsightActorsQuery,
+    PersonPropertyFilter,
+    PropertyGroupFilter,
+    PropertyGroupFilterValue,
+    PropertyOperator,
+    StickinessQuery,
+    TrendsQuery,
+)
 
 from posthog.hogql_queries.properties_timeline.properties_timeline import PropertiesTimelineResult
 from posthog.models.filters.mixins.base import BreakdownType
+
+if TYPE_CHECKING:
+    from rest_framework.response import _MonkeyPatchedResponse
 
 MATERIALIZED_COLUMN_KWARGS = {"person_properties": ["foo", "bar"]}
 TEST_PERSON_ID = uuid.UUID("12345678-0000-0000-0000-000000000001")
@@ -70,6 +93,155 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         properties_timeline = self.client.get(url)
         self.assertEqual(properties_timeline.status_code, expected_status)
         return properties_timeline.json()
+
+    def _post_timeline_query(self, query: InsightActorsQuery) -> "_MonkeyPatchedResponse":
+        return self.client.post(
+            f"/api/projects/{self.team.id}/persons/{TEST_PERSON_ID}/properties_timeline/",
+            {"query": query.model_dump(mode="json", exclude_none=True)},
+            format="json",
+        )
+
+    def _get_query_timeline_result(self, query: InsightActorsQuery) -> PropertiesTimelineResult:
+        response = self._post_timeline_query(query)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        return response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "series_filter",
+                {
+                    "series": [
+                        EventsNode(
+                            event="$pageview",
+                            properties=[
+                                PersonPropertyFilter(key="foo", value="whatever", operator=PropertyOperator.EXACT),
+                                EventPropertyFilter(key="fin", value="anything", operator=PropertyOperator.EXACT),
+                            ],
+                        )
+                    ]
+                },
+            ),
+            (
+                "nested_property_group",
+                {
+                    "properties": PropertyGroupFilter(
+                        type=FilterLogicalOperator.OR_,
+                        values=[
+                            PropertyGroupFilterValue(
+                                type=FilterLogicalOperator.AND_,
+                                values=[
+                                    PersonPropertyFilter(key="foo", value="whatever", operator=PropertyOperator.EXACT),
+                                    EventPropertyFilter(key="fin", value="anything", operator=PropertyOperator.EXACT),
+                                ],
+                            )
+                        ],
+                    )
+                },
+            ),
+            ("hogql_filter", {"properties": [HogQLPropertyFilter(key="person.properties.foo != 'whatever'")]}),
+            ("person_breakdown", {"breakdownFilter": BreakdownFilter(breakdown="foo", breakdown_type="person")}),
+            (
+                "multiple_breakdowns",
+                {
+                    "breakdownFilter": BreakdownFilter(
+                        breakdowns=[Breakdown(property="$browser"), Breakdown(property="foo", type="person")]
+                    )
+                },
+            ),
+        ]
+    )
+    def test_query_timeline_tracks_key_properties_within_clicked_day(self, _name: str, source_fields: dict):
+        self._create_person({"foo": "abc", "bar": 123})
+        self._create_event(
+            event="$pageview", actor_properties={"foo": "abc", "bar": 123}, timestamp="2020-01-01T00:00:00Z"
+        )
+        self._create_event(
+            event="$pageview", actor_properties={"foo": "klm", "bar": 456}, timestamp="2020-01-01T21:37:00Z"
+        )
+        self._create_event(
+            event="$pageview", actor_properties={"foo": "xyz", "bar": 456}, timestamp="2020-01-02T08:00:00Z"
+        )
+        flush_persons_and_events()
+
+        source = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-05"),
+        ).model_copy(update=source_fields)
+        timeline = self._get_query_timeline_result(InsightActorsQuery(source=source, day="2020-01-01", series=0))
+
+        self.assertEqual(
+            timeline,
+            {
+                "points": [
+                    {
+                        "properties": {"foo": "abc", "bar": 123},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-01T00:00:00Z",
+                    },
+                    {
+                        "properties": {"foo": "klm", "bar": 456},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-01T21:37:00Z",
+                    },
+                ],
+                "crucial_property_keys": ["foo"],
+                "effective_date_from": "2020-01-01T00:00:00+00:00",
+                "effective_date_to": "2020-01-02T00:00:00+00:00",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (Compare.CURRENT, "2020-01-10", "2020-01-11", {"foo": "abc", "bar": 789}),
+            (Compare.PREVIOUS, "2020-01-03", "2020-01-04", {"foo": "abc", "bar": 456}),
+        ]
+    )
+    def test_query_timeline_uses_clicked_day_of_compared_period(
+        self, compare: Compare, expected_day: str, expected_next_day: str, expected_properties: dict
+    ):
+        self._create_person({"foo": "abc", "bar": 123})
+        self._create_event(
+            event="$pageview", actor_properties={"foo": "abc", "bar": 456}, timestamp="2020-01-03T10:00:00Z"
+        )
+        self._create_event(
+            event="$pageview", actor_properties={"foo": "abc", "bar": 789}, timestamp="2020-01-10T10:00:00Z"
+        )
+        flush_persons_and_events()
+
+        source = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            properties=[PersonPropertyFilter(key="bar", value="xyz", operator=PropertyOperator.EXACT)],
+            dateRange=DateRange(date_from="2020-01-08", date_to="2020-01-14"),
+            compareFilter=CompareFilter(compare=True),
+        )
+        timeline = self._get_query_timeline_result(InsightActorsQuery(source=source, day="2020-01-10", compare=compare))
+
+        self.assertEqual(
+            timeline,
+            {
+                "points": [
+                    {
+                        "properties": expected_properties,
+                        "relevant_event_count": 1,
+                        "timestamp": f"{expected_day}T10:00:00Z",
+                    }
+                ],
+                "crucial_property_keys": ["bar"],
+                "effective_date_from": f"{expected_day}T00:00:00+00:00",
+                "effective_date_to": f"{expected_next_day}T00:00:00+00:00",
+            },
+        )
+
+    def test_query_timeline_rejects_unsupported_insight(self):
+        self._create_person({"foo": "abc"})
+        flush_persons_and_events()
+
+        query = InsightActorsQuery(source=StickinessQuery(series=[EventsNode(event="$pageview")]), day=3)
+        response = self._post_timeline_query(query)
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "query")
 
     @also_test_with_materialized_columns(**MATERIALIZED_COLUMN_KWARGS)
     @snapshot_clickhouse_queries
