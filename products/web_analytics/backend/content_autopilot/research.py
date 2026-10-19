@@ -187,6 +187,7 @@ class _TextExtractor(HTMLParser):
             self._main_depth -= 1
 
     def handle_data(self, data: str) -> None:
+        data = data.replace("\x00", "")
         if self._inside_title:
             self.title += data
         elif self._skip_depth:

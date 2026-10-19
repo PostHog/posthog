@@ -828,6 +828,12 @@ class TestFetchSitePage(SimpleTestCase):
                 "<p>Then commit it.</p>",
                 "## Write a README\n````md\n```bash\nnpm install\n```\n# Usage\n````\nThen commit it.",
             ),
+            (
+                "page_text_that_looks_like_a_code_block_token",
+                '<pre class="language-js"><code>run()</code></pre>'
+                "<p>See \x00code-block-0\x00 and \x00code-block-99\x00.</p>",
+                "```js\nrun()\n```\nSee code-block-0 and code-block-99.",
+            ),
         ]
     )
     def test_html_to_text_keeps_code_blocks_and_the_pages_own_spacing(
