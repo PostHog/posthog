@@ -266,6 +266,14 @@ class _CohortQueryResult:
         }
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class _CohortRun:
+    stats: dict[str, int]
+    notified: list[NotifiedAlert]
+    # The manifest restricted to alerts deferred as busy, or None when nothing was deferred.
+    deferred: CohortManifest | None
+
+
 @dataclasses.dataclass(frozen=True)
 class _AlertEvaluation:
     """Phase 1 output: per-alert state-machine result. No Kafka, no PG yet.
@@ -666,9 +674,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
 
     semaphore = asyncio.Semaphore(MAX_CONCURRENT_COHORTS_PER_BATCH)
 
-    async def _run_one_cohort(
-        manifest: CohortManifest,
-    ) -> tuple[dict[str, int], list[NotifiedAlert], CohortManifest | None]:
+    async def _run_one_cohort(manifest: CohortManifest) -> _CohortRun:
         """Process one cohort, returning its stats delta, notified alerts, and the
         manifest restricted to alerts deferred as busy. Always returns — per-cohort
         failure is captured into local_stats, never raised.
@@ -689,7 +695,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     missing_count=len(manifest.alert_ids),
                 )
                 local_stats["errored"] += len(manifest.alert_ids)
-                return local_stats, local_notified, None
+                return _CohortRun(stats=local_stats, notified=local_notified, deferred=None)
 
             _safe_record("cohort_size histogram", record_cohort_size, len(cohort.alerts))
 
@@ -725,7 +731,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     for slo_handle in slo_handles.values():
                         slo_handle.fail(failure_phase="cohort_query")
                     local_stats["errored"] += len(cohort.alerts)
-                    return local_stats, local_notified, None
+                    return _CohortRun(stats=local_stats, notified=local_notified, deferred=None)
 
                 busy_alert_ids = query_result.busy_alert_ids()
                 deferred: CohortManifest | None = None
@@ -741,7 +747,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                         for alert_id in deferred.alert_ids:
                             slo_handles[alert_id].fail(failure_phase="cohort_query", deferred_as_busy=True)
                         if len(deferred.alert_ids) == len(cohort.alerts):
-                            return local_stats, local_notified, deferred
+                            return _CohortRun(stats=local_stats, notified=local_notified, deferred=deferred)
                     else:
                         _safe_record(
                             "busy cohort counter", increment_busy_cohort_outcome, "exhausted", input.busy_cohort_attempt
@@ -850,7 +856,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                         slo_handles[str(dispatched_alert.evaluation.alert.id)].fail(failure_phase="save")
                     local_stats["errored"] += len(dispatched)
                     local_stats["checked"] += len(dispatched)
-                    return local_stats, local_notified, deferred
+                    return _CohortRun(stats=local_stats, notified=local_notified, deferred=deferred)
 
                 elapsed_by_id = {str(d.evaluation.alert.id): ms for d, ms in zip(dispatched, elapsed_ms_per_alert)}
                 for dispatched_alert in saved:
@@ -875,7 +881,7 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
                     local_stats["errored"] += 1
 
                 local_notified.extend(_build_notified_from_saved(saved))
-                return local_stats, local_notified, deferred
+                return _CohortRun(stats=local_stats, notified=local_notified, deferred=deferred)
 
     cohort_results = await asyncio.gather(
         *(_run_one_cohort(m) for m in input.manifests),
@@ -890,12 +896,12 @@ async def evaluate_cohort_batch_activity(input: EvaluateCohortBatchInput) -> Eva
     stats = {"checked": 0, "fired": 0, "resolved": 0, "errored": 0}
     batch_notified: list[NotifiedAlert] = []
     busy_cohorts: list[CohortManifest] = []
-    for local_stats, local_notified, deferred in cohort_results:
-        for k, v in local_stats.items():
+    for run in cohort_results:
+        for k, v in run.stats.items():
             stats[k] += v
-        batch_notified.extend(local_notified)
-        if deferred is not None:
-            busy_cohorts.append(deferred)
+        batch_notified.extend(run.notified)
+        if run.deferred is not None:
+            busy_cohorts.append(run.deferred)
 
     if stats["checked"] > 0 or busy_cohorts:
         logger.info("Cohort batch complete", busy_cohorts=len(busy_cohorts), **stats)
