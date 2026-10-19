@@ -95,7 +95,7 @@ from products.logs.backend.alert_check_query import (
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
-from products.logs.backend.alert_group_columns import GROUP_COLUMNS
+from products.logs.backend.alert_group_columns import grouping_problem
 from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
@@ -756,13 +756,7 @@ def _labels_of(grouping_key: str) -> dict[str, str] | None:
 def _broken_grouping(check: PlatformAlertCheckInput) -> str | None:
     if check.grouping.mode == GroupingMode.SINGLE:
         return None
-    if set(check.grouping.keys) - GROUP_COLUMNS.keys():
-        return f"A logs alert can only group by {', '.join(sorted(GROUP_COLUMNS))}"
-    # A group with no matching log returns no row, so a service gone silent, the case a `below`
-    # alert exists for, is never seen unless it was already open.
-    if check.condition.get("threshold_operator") != LogsAlertConfiguration.ThresholdOperator.ABOVE:
-        return "A grouped logs alert can only alert above a threshold"
-    return None
+    return grouping_problem(check.grouping.keys, check.condition.get("threshold_operator"))
 
 
 def _evaluate_grouped(

@@ -20,6 +20,8 @@ from posthog.enums import LabeledStrEnum
 from products.alerts_platform.backend.facade.enums import DeliveryPath, PlatformAlertCheckStatus, PlatformAlertState
 
 if TYPE_CHECKING:
+    from pydantic import BaseModel
+
     # facade.lifecycle imports this module, so the policy type stays off the runtime import path.
     from products.alerts_platform.backend.facade.lifecycle import AlertPolicy
 
@@ -103,20 +105,24 @@ def source_condition(source_config: dict[str, Any]) -> dict[str, Any]:
     return condition if isinstance(condition, dict) else {}
 
 
-class GroupingMode(StrEnum):
-    SINGLE = "single"
-    BY_RESULT_LABELS = "by_result_labels"
+class GroupingMode(LabeledStrEnum):
+    SINGLE = "single", "Single"
+    BY_RESULT_LABELS = "by_result_labels", "By result labels"
 
 
-class OnOverflow(StrEnum):
+class OnOverflow(LabeledStrEnum):
     # The only mode, because a cap that drops groups silently reads the same as nothing being wrong.
-    DEGRADE_VISIBLE = "degrade_visible"
+    DEGRADE_VISIBLE = "degrade_visible", "Degrade visible"
 
 
 DEFAULT_MAX_INSTANCES: Final = 100
 # One check's outcome carries a group per instance, and it crosses Temporal whole, so
 # `MAX_BATCH_PAYLOAD_BYTES` is sized to hold this many groups with their keys and labels at full length.
 MAX_INSTANCES_CEILING: Final = 100
+# The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
+MAX_STORED_INTEGER: Final = 2_147_483_647
+# The most recent checks an N-of-M decision can look back over.
+MAX_EVALUATION_PERIODS: Final = 10
 
 
 @frozen
@@ -790,9 +796,58 @@ class PlatformAlertConfigurationView:
     next_check_at: datetime | None
     consecutive_failures: int
     legacy_configuration_id: UUID | None
+    grouping: Grouping
+    snooze_until: datetime | None
+    check_status: str
+    owner: str
     created_at: datetime
     updated_at: datetime
     alerts: tuple[PlatformAlertSnapshot, ...]
+
+
+@frozen
+class PlatformAlertConfigurationEdit:
+    """The settings of a configuration that its owner may change through the API.
+
+    The schedule, the source kind and every runtime field stay out, because a write that could set
+    them would read as drift on the next check.
+    """
+
+    name: str
+    enabled: bool
+    source_config: dict[str, Any]
+    grouping: Grouping
+    schedule_restriction: dict[str, Any] | None
+    evaluation_periods: int
+    datapoints_to_alarm: int
+    cooldown_minutes: int
+
+
+class InvalidPlatformAlertEdit(ValueError):
+    """An edit the configuration's source kind rejects, naming the field at fault."""
+
+    def __init__(self, field_name: str, message: str) -> None:
+        super().__init__(message)
+        self.field_name = field_name
+
+
+class PlatformAlertNotEditable(Exception):
+    """A configuration the platform does not own, so its source's own API writes it."""
+
+
+@frozen
+class SourceConfigSpec:
+    """A source kind's schema for `source_config` and its rules for a whole edit.
+
+    `model` validates `source_config` and supplies its defaults. `validate` raises
+    `InvalidPlatformAlertEdit` for a rule that spans fields, such as one that reads `enabled`.
+    """
+
+    model: type[BaseModel]
+    validate: Callable[[PlatformAlertConfigurationEdit], None]
+
+
+SourceConfigLoader = Callable[[], SourceConfigSpec]
 
 
 @frozen
