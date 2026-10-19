@@ -5,22 +5,18 @@ use common_kafka_consumer::{Charge, Offset, Rejection, TopicOffsetLedger, TopicP
 use metrics::counter;
 use tracing::warn;
 
-use super::{ChargedSlice, Commit, PartitionBudget, Pause, Settlement, Uncommitted};
+use super::{ChargedSlice, Commit, Pause, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
-use crate::partition_budget::BudgetLimits;
 
 pub(crate) struct PollSettlement {
-    budget: PartitionBudget,
+    uncommitted: Uncommitted,
 }
 
 impl PollSettlement {
-    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>, limits: BudgetLimits) -> Self {
+    pub(crate) fn new(ledger: Arc<TopicOffsetLedger>) -> Self {
         Self {
-            budget: PartitionBudget::new(
-                Uncommitted::new(ledger, CommitPacer::immediate()),
-                limits,
-            ),
+            uncommitted: Uncommitted::new(ledger, CommitPacer::immediate()),
         }
     }
 }
@@ -32,7 +28,9 @@ impl Settlement for PollSettlement {
         generation: u64,
         charges: &[(Offset, Charge)],
     ) -> Result<Option<Pause>, Rejection> {
-        self.budget.charge(topic_partition, generation, charges)
+        self.uncommitted
+            .charge(topic_partition, generation, charges)
+            .map(|_| None)
     }
 
     fn settle_run(
@@ -53,7 +51,7 @@ impl Settlement for PollSettlement {
             return Ok(());
         }
 
-        if let Some(no_frontier) = settle_slices(&self.budget, slices)? {
+        if let Some(no_frontier) = settle_slices(&self.uncommitted, slices)? {
             let reason = no_frontier.reason();
             counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
             warn!(reason, "Poll handed over no frontier; nothing to commit");
@@ -62,19 +60,19 @@ impl Settlement for PollSettlement {
     }
 
     fn take_due(&self, now: Instant) -> Option<Commit> {
-        self.budget.take_due(now)
+        self.uncommitted.take_due(now).map(Commit::without_resumes)
     }
 
     fn take_all(&self) -> Option<Commit> {
-        self.budget.take_all()
+        self.uncommitted.take_all().map(Commit::without_resumes)
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.budget.forget_partitions(topic_partitions);
+        self.uncommitted.forget_partitions(topic_partitions);
     }
 
     fn paused(&self) -> Vec<TopicPartition> {
-        self.budget.paused()
+        Vec::new()
     }
 }
 
@@ -93,13 +91,13 @@ impl NoFrontier {
 }
 
 fn settle_slices(
-    budget: &PartitionBudget,
+    uncommitted: &Uncommitted,
     slices: &[ChargedSlice<'_>],
 ) -> anyhow::Result<Option<NoFrontier>> {
     let mut settled = false;
     let mut handed_over = false;
     for slice in slices {
-        let frontier = match budget.settled(
+        let frontier = match uncommitted.settled(
             slice.topic_partition,
             slice.generation,
             slice.charges.iter().map(|(offset, _)| *offset),
@@ -136,7 +134,7 @@ mod tests {
 
     fn settlement() -> (Arc<TopicOffsetLedger>, PollSettlement) {
         let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = PollSettlement::new(Arc::clone(&ledger), BudgetLimits::unset());
+        let settlement = PollSettlement::new(Arc::clone(&ledger));
         (ledger, settlement)
     }
 

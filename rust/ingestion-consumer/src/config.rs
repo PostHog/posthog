@@ -520,11 +520,15 @@ impl Config {
     }
 
     pub fn partition_budget(&self) -> Result<BudgetLimits, String> {
-        BudgetLimits::new(
+        let limits = BudgetLimits::new(
             NonZeroU64::new(self.consumer_partition_budget_events),
             NonZeroU64::new(self.consumer_partition_budget_bytes),
             self.consumer_partition_budget_low_watermark,
-        )
+        )?;
+        if limits.is_set() && self.consumer_completion_granularity == CompletionGranularity::Poll {
+            return Err(crate::settlement::BUDGET_NEEDS_GROUP.to_string());
+        }
+        Ok(limits)
     }
 
     const MIN_REQUEST_SOFT_BUDGET_MS: u64 = 100;
@@ -724,18 +728,26 @@ mod tests {
 
     #[rstest]
     #[case::unset(&[], false)]
-    #[case::events_only(&[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000")], true)]
-    #[case::bytes_only(&[("CONSUMER_PARTITION_BUDGET_BYTES", "1048576")], true)]
+    #[case::events_only(&[
+        ("CONSUMER_COMPLETION_GRANULARITY", "group"),
+        ("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"),
+    ], true)]
+    #[case::bytes_only(&[
+        ("CONSUMER_COMPLETION_GRANULARITY", "group"),
+        ("CONSUMER_PARTITION_BUDGET_BYTES", "1048576"),
+    ], true)]
     fn a_valid_partition_budget_is_read(#[case] vars: &[(&str, &str)], #[case] is_set: bool) {
         assert_eq!(config(vars).partition_budget().unwrap().is_set(), is_set);
     }
 
-    #[test]
-    fn a_partition_budget_with_an_invalid_watermark_is_rejected() {
-        let vars = &[
-            ("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"),
-            ("CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", "1.2"),
-        ];
+    #[rstest]
+    #[case::invalid_watermark(&[
+        ("CONSUMER_COMPLETION_GRANULARITY", "group"),
+        ("CONSUMER_PARTITION_BUDGET_EVENTS", "5000"),
+        ("CONSUMER_PARTITION_BUDGET_LOW_WATERMARK", "1.2"),
+    ])]
+    #[case::poll_granularity(&[("CONSUMER_PARTITION_BUDGET_EVENTS", "5000")])]
+    fn an_invalid_partition_budget_is_rejected(#[case] vars: &[(&str, &str)]) {
         assert!(config(vars).partition_budget().is_err());
     }
 

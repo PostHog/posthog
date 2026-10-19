@@ -53,6 +53,7 @@ The ledger emits its own counters, so any consumer built on the crate reports th
 ## Partition budget
 
 `CONSUMER_PARTITION_BUDGET_EVENTS` and `CONSUMER_PARTITION_BUDGET_BYTES` bound each partition's replay exposure: the events and bytes the settlement reports as uncommitted for it.
+A budget needs `CONSUMER_COMPLETION_GRANULARITY=group`, and the consumer refuses to start with one at `poll`: there a stalled partition holds back the commits of every partition in its poll, so their budgets would fill and pause together.
 When either axis reaches its limit after a poll, the consumer pauses that partition's fetch through the Kafka client; when a commit brings both axes back under `CONSUMER_PARTITION_BUDGET_LOW_WATERMARK` (a fraction of the budget, default 0.8), it resumes.
 The hysteresis matters because a pause purges the partition's fetched messages from librdkafka's queue and a resume refetches them.
 Polling never stops, so a paused partition still serves rebalance callbacks and keeps `max.poll.interval.ms` alive.

@@ -20,6 +20,15 @@ pub(crate) struct Commit {
     pub(crate) resume: Vec<TopicPartition>,
 }
 
+impl Commit {
+    pub(super) fn without_resumes(offsets: HashMap<TopicPartition, Offset>) -> Self {
+        Self {
+            offsets,
+            resume: Vec::new(),
+        }
+    }
+}
+
 pub(super) struct PartitionBudget {
     uncommitted: Uncommitted,
     limits: BudgetLimits,
@@ -102,7 +111,7 @@ impl PartitionBudget {
             if !paused.contains(topic_partition) {
                 continue;
             }
-            let uncommitted = self.uncommitted.of(topic_partition).charge;
+            let uncommitted = self.uncommitted.held(topic_partition).charge;
             if self.limits.resumes(uncommitted) {
                 paused.remove(topic_partition);
                 log_transition(topic_partition, "resume", uncommitted);

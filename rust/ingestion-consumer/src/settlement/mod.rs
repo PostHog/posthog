@@ -55,6 +55,9 @@ pub(crate) trait Settlement: Send + Sync {
     fn paused(&self) -> Vec<TopicPartition>;
 }
 
+pub(crate) const BUDGET_NEEDS_GROUP: &str =
+    "a partition budget needs CONSUMER_COMPLETION_GRANULARITY=group";
+
 pub(crate) fn for_granularity(
     granularity: CompletionGranularity,
     ledger: Arc<TopicOffsetLedger>,
@@ -62,7 +65,10 @@ pub(crate) fn for_granularity(
     limits: BudgetLimits,
 ) -> Arc<dyn Settlement> {
     match granularity {
-        CompletionGranularity::Poll => Arc::new(PollSettlement::new(ledger, limits)),
+        CompletionGranularity::Poll => {
+            assert!(!limits.is_set(), "{BUDGET_NEEDS_GROUP}");
+            Arc::new(PollSettlement::new(ledger))
+        }
         CompletionGranularity::Group => {
             Arc::new(GroupSettlement::new(ledger, commit_interval, limits))
         }
