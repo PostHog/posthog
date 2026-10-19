@@ -102210,6 +102210,70 @@ export namespace Schemas {
       queries: string[];
     }
 
+    export interface SendCalendarBatchJob {
+      /** ID of the batch run. */
+      readonly id: string;
+      /** Status of the batch run.
+       *
+       * * `waiting` - Waiting
+       * * `queued` - Queued
+       * * `active` - Active
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled
+       * * `failed` - Failed */
+      readonly status: HogFlowBatchJobStateEnum;
+      /** When the batch run started. */
+      readonly created_at: string;
+    }
+
+    export type SendCalendarFlowAudiencePropertiesItem = { [key: string]: unknown };
+
+    export interface SendCalendarFlow {
+      /** ID of the workflow. */
+      readonly id: string;
+      /**
+         * Name of the workflow.
+         * @nullable
+         */
+      readonly name: string | null;
+      /** The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.
+       *
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails */
+      readonly origin_product: HogFlowOriginProductEnum | null;
+      /** User who created the workflow. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The reader's access level on the workflow.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /** The trigger type: batch or schedule. */
+      readonly trigger_type: string;
+      /** The property filters of a batch trigger's audience. Empty for a schedule trigger. */
+      readonly audience_properties: readonly SendCalendarFlowAudiencePropertiesItem[];
+      /**
+         * persons or accounts for a batch trigger's audience. Null when the trigger does not set it.
+         * @nullable
+         */
+      readonly audience_type: string | null;
+      /**
+         * The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.
+         * @nullable
+         */
+      readonly email_to: string | null;
+      /**
+         * ID of the message category of the first email step.
+         * @nullable
+         */
+      readonly message_category_id: string | null;
+      /** The schedules that still have sends to come. */
+      readonly schedules: readonly HogFlowSchedule[];
+      /** The batch runs that started inside the requested range. */
+      readonly batch_jobs: readonly SendCalendarBatchJob[];
+    }
+
     export interface SendCommentToSlack {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
@@ -102398,6 +102462,26 @@ export namespace Schemas {
       /** One-line summary of the plan */
       summary: string;
     }
+
+    /**
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow
+     */
+    export type SetupStepKeyEnum = typeof SetupStepKeyEnum[keyof typeof SetupStepKeyEnum];
+
+
+    export const SetupStepKeyEnum = {
+      Channel: 'channel',
+      Domain: 'domain',
+      OptOuts: 'opt-outs',
+      SendingRules: 'sending-rules',
+      EmailTemplate: 'email-template',
+      FirstWorkflow: 'first-workflow',
+    } as const;
 
     export interface SharePassword {
       readonly id: number;
@@ -116474,6 +116558,46 @@ export namespace Schemas {
       estimated_cost_usd: number | null;
     }
 
+    export interface WorkflowSetupStep {
+      /** Which setup step this is. The steps come in the order the setup wizard asks for them.
+       *
+       * * `channel` - Channel
+       * * `domain` - Domain
+       * * `opt-outs` - Opt-outs
+       * * `sending-rules` - Sending rules
+       * * `email-template` - Email template
+       * * `first-workflow` - First workflow */
+      key: SetupStepKeyEnum;
+      /** Whether the project has done this step. */
+      done: boolean;
+      /** The step's name, as the app shows it. */
+      title: string;
+      /** What the person does to finish the step. */
+      next_step: string;
+      /** Link to the place in the app where the person does this step. */
+      app_url: string;
+    }
+
+    export interface WorkflowSetupStatus {
+      /** Every messaging setup step, in order. */
+      steps: WorkflowSetupStep[];
+      /** Whether an email workflow can send. Needs a connected email channel on a verified domain, and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
+      ready_to_send_email: boolean;
+      /** Whether email sending is paused for the project, so no email sends even with a verified domain. The person contacts PostHog support to resume it. */
+      email_sending_paused: boolean;
+      /** The first step that is not done, or null when every step is done.
+       *
+       * * `channel` - Channel
+       * * `domain` - Domain
+       * * `opt-outs` - Opt-outs
+       * * `sending-rules` - Sending rules
+       * * `email-template` - Email template
+       * * `first-workflow` - First workflow */
+      next_open_step: SetupStepKeyEnum | null;
+      /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
+      data_suggestions_available: boolean;
+    }
+
     export interface WorkflowStatsRow {
       /** The workflow these counts are for. */
       workflow_id: string;
@@ -127011,6 +127135,17 @@ export namespace Schemas {
      * Case-insensitive workflow name filter. Applied before the worst-50 cap, so it finds workflows the unfiltered response cuts off.
      */
     search?: string;
+    };
+
+    export type HogFlowsSendCalendarRetrieveParams = {
+    /**
+     * End of the shown range, exclusive, as an ISO 8601 datetime. At most 92 days after start.
+     */
+    end: string;
+    /**
+     * Start of the shown range, inclusive, as an ISO 8601 datetime.
+     */
+    start: string;
     };
 
     export type HogFunctionTemplatesListParams = {
