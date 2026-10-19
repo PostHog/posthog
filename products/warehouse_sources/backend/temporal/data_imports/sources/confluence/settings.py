@@ -1,10 +1,13 @@
-from dataclasses import dataclass
 from typing import Optional
 
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import incremental_field
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SortMode
 from products.warehouse_sources.backend.types import IncrementalField
 
 
-@dataclass
+@frozen
 class ConfluenceEndpointConfig:
     name: str
     path: str  # Path relative to the v2 API base, e.g. "/pages"
@@ -14,18 +17,13 @@ class ConfluenceEndpointConfig:
     # like the nested version timestamp). `None` for resources that don't carry
     # a top-level creation timestamp (labels, comments).
     partition_key: Optional[str] = None
+    updated_at_path: tuple[str, ...] | None = None
+    sort_mode: SortMode = "asc"
     limit: int = 250  # v2 list endpoints accept up to 250 results per page
 
 
 # Confluence Cloud REST API v2 top-level list endpoints. All use cursor-based
 # pagination (`_links.next`) and require no parent context to enumerate.
-#
-# We intentionally ship every endpoint as full-refresh: the v2 list endpoints
-# expose a `sort` parameter but NO server-side timestamp filter (there is no
-# `since` / `modified_after` / `created-date>=` query param), so an "incremental"
-# sync would still page through the entire collection every run. Per the
-# implementing-warehouse-sources guidance we only advertise incremental when a
-# genuine server-side filter exists, so all endpoints here are full refresh.
 CONFLUENCE_ENDPOINTS: dict[str, ConfluenceEndpointConfig] = {
     "spaces": ConfluenceEndpointConfig(
         name="spaces",
@@ -36,16 +34,22 @@ CONFLUENCE_ENDPOINTS: dict[str, ConfluenceEndpointConfig] = {
         name="pages",
         path="/pages",
         partition_key="createdAt",
+        updated_at_path=("version", "createdAt"),
+        sort_mode="desc",
     ),
     "blogposts": ConfluenceEndpointConfig(
         name="blogposts",
         path="/blogposts",
         partition_key="createdAt",
+        updated_at_path=("version", "createdAt"),
+        sort_mode="desc",
     ),
     "attachments": ConfluenceEndpointConfig(
         name="attachments",
         path="/attachments",
         partition_key="createdAt",
+        updated_at_path=("version", "createdAt"),
+        sort_mode="desc",
     ),
     "tasks": ConfluenceEndpointConfig(
         name="tasks",
@@ -61,15 +65,21 @@ CONFLUENCE_ENDPOINTS: dict[str, ConfluenceEndpointConfig] = {
     "footer_comments": ConfluenceEndpointConfig(
         name="footer_comments",
         path="/footer-comments",
+        updated_at_path=("version", "createdAt"),
+        sort_mode="desc",
     ),
     "inline_comments": ConfluenceEndpointConfig(
         name="inline_comments",
         path="/inline-comments",
+        updated_at_path=("version", "createdAt"),
+        sort_mode="desc",
     ),
 }
 
 ENDPOINTS = tuple(CONFLUENCE_ENDPOINTS.keys())
 
-# No endpoint supports server-side incremental filtering (see note above), so no
-# endpoint advertises incremental fields.
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [] for name in CONFLUENCE_ENDPOINTS}
+UPDATED_AT_FIELD = incremental_field("updated_at", label="Updated at")
+
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    name: [UPDATED_AT_FIELD] if config.updated_at_path else [] for name, config in CONFLUENCE_ENDPOINTS.items()
+}
