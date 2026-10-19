@@ -297,7 +297,7 @@ the row lists both.
 | docuseal                         | HTTP                        | requests                                                        | ✅                          |
 | docusign                         | HTTP                        | requests                                                        | ✅                          |
 | dodopayments                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
-| doit                             | HTTP                        | requests                                                        | ✅                          |
+| doit                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | donorbox                         | HTTP                        | requests                                                        | ✅                          |
 | doppler                          | HTTP                        | requests                                                        | ✅                          |
 | dovetail                         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -738,6 +738,7 @@ the row lists both.
 | scale_ai                         | HTTP                        | requests                                                        | ✅                          |
 | scaleway                         | HTTP                        | requests                                                        | ✅                          |
 | scalr                            | HTTP                        | requests                                                        | ✅                          |
+| scarf                            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | schematic                        | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | scrunch                          | HTTP                        | requests                                                        | ✅                          |
 | secoda                           | HTTP                        | requests                                                        | ✅                          |
