@@ -15291,6 +15291,21 @@
         },
         "feature_flag": "workflows-mcp-onboarding"
     },
+    "workflows-setup-status": {
+        "description": "Which messaging setup steps the project has done: email channel, verified sending domain, opt-out categories, frequency cap, email template and first workflow. Call it first when a user asks to set up workflows or messaging, or asks to build an email, SMS or push workflow in a project that may not send yet. For each open step, tell the user what it needs and share its app_url, since channel and domain setup happen in the app. An email workflow can be drafted before ready_to_send_email is true, but it cannot send until it is. Automations that only post to Slack or call webhooks need none of these steps. When data_suggestions_available is true, offer workflows-data-suggestions-list once setup is done.",
+        "category": "Workflows",
+        "feature": "workflows",
+        "summary": "Check messaging setup",
+        "title": "Check messaging setup",
+        "required_scopes": ["hog_flow:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "workflows-mcp-onboarding"
+    },
     "workflows-show-email-template": {
         "description": "Render an email template as an inline preview for the user. Call after creating or updating a template, and whenever the user asks to see one. The response carries the final rendered html — read it before describing the result. For fetching a template to edit it, use workflows-get-email-template.",
         "category": "Workflows",

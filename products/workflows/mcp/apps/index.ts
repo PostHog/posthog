@@ -15,3 +15,9 @@ export {
     type WorkflowSendingRulesData,
     type WorkflowSendingRulesViewProps,
 } from './WorkflowSendingRulesView'
+export {
+    WorkflowSetupStatusView,
+    type WorkflowSetupStatusData,
+    type WorkflowSetupStatusViewProps,
+    type WorkflowSetupStep,
+} from './WorkflowSetupStatusView'

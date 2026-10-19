@@ -7,6 +7,9 @@ import {
     type WorkflowDataSuggestionsData,
     WorkflowListView,
     WorkflowSendingRulesView,
+    WorkflowSetupStatusView,
+    type WorkflowSetupStatusData,
+    type WorkflowSetupStep,
     type WorkflowData,
     type WorkflowListData,
     WorkflowView,
@@ -174,6 +177,81 @@ export const SendingRulesWithCap: Story = {
             }}
             onApplyRecommendedCap={() => {}}
             onEngagementEventsChange={() => {}}
+        />
+    ),
+}
+
+const setupStep = (key: string, done: boolean, title: string, nextStep: string, path: string): WorkflowSetupStep => ({
+    key,
+    done,
+    title,
+    next_step: nextStep,
+    app_url: `https://us.posthog.com/project/1${path}`,
+})
+
+const newProjectSetup: WorkflowSetupStatusData = {
+    steps: [
+        setupStep(
+            'channel',
+            true,
+            'Connect an email channel',
+            'Add the address emails send from.',
+            '/workflows/onboarding?path=messaging&step=channel'
+        ),
+        setupStep(
+            'domain',
+            false,
+            'Verify your sending domain',
+            "Add the DNS records shown in the app at the domain's DNS provider, then verify.",
+            '/workflows/onboarding?path=messaging&step=domain'
+        ),
+        setupStep(
+            'opt-outs',
+            false,
+            'Add opt-out categories',
+            'Let people unsubscribe from one kind of message, such as product updates, and keep the rest.',
+            '/workflows/onboarding?path=messaging&step=opt-outs'
+        ),
+        setupStep(
+            'sending-rules',
+            false,
+            'Set a frequency cap',
+            'Limit how many marketing emails one person gets. The recommended cap is 1 email every 2 days.',
+            '/settings/environment-workflows#workflows-frequency-cap'
+        ),
+        setupStep(
+            'email-template',
+            false,
+            'Design your first email',
+            'Save a reusable email template in the library.',
+            '/workflows/library'
+        ),
+        setupStep(
+            'first-workflow',
+            false,
+            'Create your first workflow',
+            'Build a workflow that sends email, SMS or push.',
+            '/workflows/onboarding?path=messaging&step=journey'
+        ),
+    ],
+    ready_to_send_email: false,
+    next_open_step: 'domain',
+    data_suggestions_available: true,
+}
+
+export const SetupStatusInProgress: Story = {
+    render: () => <WorkflowSetupStatusView data={newProjectSetup} />,
+}
+
+export const SetupStatusDone: Story = {
+    render: () => (
+        <WorkflowSetupStatusView
+            data={{
+                ...newProjectSetup,
+                steps: newProjectSetup.steps.map((step) => ({ ...step, done: true })),
+                ready_to_send_email: true,
+                next_open_step: null,
+            }}
         />
     ),
 }
