@@ -79,27 +79,50 @@ pub struct MergeLoop {
     pub person: PersonKey,
 }
 
-/// The first row sits inline because most keys only ever see one.
+/// The first row sits inline because most keys only ever see one; later
+/// rows are indexed by version, so a busy key costs one lookup per arrival.
 #[derive(Debug)]
 struct MappingHistory {
     first: Mapping,
-    more: Vec<Mapping>,
+    more: HashMap<i64, Vec<Mapping>>,
+    latest_version: i64,
 }
 
 impl MappingHistory {
+    fn new(first: Mapping) -> Self {
+        Self {
+            latest_version: first.version,
+            first,
+            more: HashMap::new(),
+        }
+    }
+
     fn rows(&self) -> impl Iterator<Item = &Mapping> {
-        std::iter::once(&self.first).chain(self.more.iter())
+        std::iter::once(&self.first).chain(self.more.values().flatten())
+    }
+
+    /// The rows stored at one version, the first arrival first.
+    fn at_version(&self, version: i64) -> impl Iterator<Item = &Mapping> {
+        let first = (self.first.version == version).then_some(&self.first);
+        first
+            .into_iter()
+            .chain(self.more.get(&version).into_iter().flatten())
     }
 
     /// The highest version; the first arrival among equal versions.
     fn latest(&self) -> &Mapping {
-        let mut latest = &self.first;
-        for row in &self.more {
-            if row.version > latest.version {
-                latest = row;
-            }
+        if self.first.version == self.latest_version {
+            return &self.first;
         }
-        latest
+        self.more
+            .get(&self.latest_version)
+            .and_then(|rows| rows.first())
+            .unwrap_or(&self.first)
+    }
+
+    fn insert(&mut self, mapping: Mapping) {
+        self.latest_version = self.latest_version.max(mapping.version);
+        self.more.entry(mapping.version).or_default().push(mapping);
     }
 }
 
@@ -128,24 +151,19 @@ impl FeedState {
         let mapping = Mapping::from(row);
         let person = PersonKey::new(row.team_id, row.person_uuid);
         let Some(history) = self.mappings.get_mut(&key) else {
-            self.mappings.insert(
-                key,
-                MappingHistory {
-                    first: mapping,
-                    more: Vec::new(),
-                },
-            );
+            self.mappings.insert(key, MappingHistory::new(mapping));
             self.named.entry(person).or_default().rows += 1;
             return None;
         };
-        if history.rows().any(|seen| *seen == mapping) {
+        if history
+            .at_version(mapping.version)
+            .any(|seen| *seen == mapping)
+        {
             return None;
         }
         // A second row already stored at this version was reported then.
         let conflict = {
-            let mut at_version = history
-                .rows()
-                .filter(|seen| seen.version == mapping.version);
+            let mut at_version = history.at_version(mapping.version);
             match (at_version.next(), at_version.next()) {
                 (Some(first), None) => Some(MappingConflict {
                     key: key.clone(),
@@ -156,7 +174,7 @@ impl FeedState {
                 _ => None,
             }
         };
-        history.more.push(mapping);
+        history.insert(mapping);
         self.named.entry(person).or_default().rows += 1;
         conflict
     }
@@ -332,6 +350,18 @@ mod tests {
         assert_eq!(feed.observe_mapping(&row(2, 2, false)), None);
         assert_eq!(feed.observe_mapping(&row(2, 2, true)), None);
         assert_eq!(feed.observe_mapping(&row(1, 3, false)), None);
+        assert_eq!(feed.mapping(&key), Some(&mapping(1, 3, false)));
+        // A tie at the first row's own version is a conflict too.
+        assert_eq!(
+            feed.observe_mapping(&row(2, 1, false)),
+            Some(MappingConflict {
+                key: key.clone(),
+                version: 1,
+                first: mapping(1, 1, false),
+                second: mapping(2, 1, false),
+            })
+        );
+        assert_eq!(feed.observe_mapping(&row(2, 1, false)), None);
         assert_eq!(feed.mapping(&key), Some(&mapping(1, 3, false)));
 
         // The same disagreement read after a higher version is still one.
