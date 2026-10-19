@@ -322,6 +322,7 @@ def record_check_verdict(
     run_id: str | None = None,
     skill_name: str | None = None,
     refusal_reason: str | None = None,
+    lane_can_emit_report: bool | None = None,
 ) -> None:
     """The single persistence funnel: append the result artefact and advance or retire the check.
 
@@ -331,6 +332,7 @@ def record_check_verdict(
     `attribution` and `run_id` name the scout run that decided an `agent` check. A deterministic run
     has neither, so it keeps the `system()` attribution the executor writes under. `skill_name` and
     `refusal_reason` name the scout and the gate when the fleet refused to run an `agent` check.
+    `lane_can_emit_report` says whether that run held `emit_report`, and None when nobody knows.
     """
     now = now or timezone.now()
     # The result's context is best-effort. A stored config can stop parsing part-way through a soak,
@@ -409,7 +411,7 @@ def record_check_verdict(
             ),
             attribution=attribution or ArtefactAttribution.system(),
         )
-        if _should_resurface(current, verdict):
+        if _should_resurface(current, verdict, lane_can_emit_report=lane_can_emit_report):
             baseline = config.baseline_value if config is not None else None
             threshold = _describe_comparison(config.comparison) if config is not None else None
             transaction.on_commit(lambda: resurface_failed_check(current, verdict, baseline, threshold))
@@ -430,19 +432,24 @@ def record_check_verdict(
         )
 
 
-def _should_resurface(check: SignalReportCheck, verdict: CheckVerdict) -> bool:
+def _should_resurface(
+    check: SignalReportCheck, verdict: CheckVerdict, *, lane_can_emit_report: bool | None = None
+) -> bool:
     """Whether this verdict has to become a fresh report, because nothing else will carry it.
 
-    An `agent` check has a scout in the loop that can author one. A `metric_threshold` check has
-    nobody, so a breach on a report the inbox no longer lists is an artefact on a closed item that
-    no reader will open. Only a resolved report qualifies: a breach on a report still being worked
-    lands where the person working it already looks.
+    A `metric_threshold` check has nobody in the loop, so a breach on a report the inbox no longer
+    lists is an artefact on a closed item that no reader will open. An `agent` check has a scout in
+    the loop, and the check brief tells a lane that holds `emit_report` to author the follow-up
+    itself. A lane known to lack `emit_report` cannot, so its verdict takes the metric path. An
+    unknown lane stays with the scout, because a second report for one relapse is a duplicate. Only
+    a resolved report qualifies: a breach on a report still being worked lands where the person
+    working it already looks.
     """
-    return (
-        verdict.outcome == "failed"
-        and check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD
-        and check.report.effective_status == SignalReport.Status.RESOLVED
-    )
+    if verdict.outcome != "failed" or check.report.effective_status != SignalReport.Status.RESOLVED:
+        return False
+    if check.kind == SignalReportCheck.Kind.METRIC_THRESHOLD:
+        return True
+    return check.kind == SignalReportCheck.Kind.AGENT and lane_can_emit_report is False
 
 
 def resurface_failed_check(
