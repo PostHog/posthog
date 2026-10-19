@@ -153,7 +153,7 @@ def removed_overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
         return None
     removed = _reported(ctx, history, effect)
     pinned = tuple(
-        ReachableCondition(number=override.condition_number, pinned_variant=override.variant)
+        ReachableCondition(number=override.condition_number, pinned_variant=override.variant, variant_property=None)
         for override in removed
         if override.condition_number is not None and override.same_audience
     )

@@ -496,9 +496,9 @@ def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
     (one call each, almost all empty) into a handful of calls.
 
     Tradeoff: a customer whose balance was credited and then fully consumed back to 0 has ledger
-    entries but a 0 balance, so we won't fetch their history. This is rare and an accepted cost of
-    avoiding the per-customer fan-out. A missing ``balance`` (unexpected payload shape) is treated as
-    "might have" so we never silently drop data."""
+    entries but a 0 balance, so we won't fetch their history. The `balance_history_all_customers`
+    source setting turns this skip off for accounts where that history matters. A missing ``balance``
+    (unexpected payload shape) is treated as "might have" so we never silently drop data."""
     balance = customer.get("balance")
     return balance is None or balance != 0
 
@@ -748,6 +748,7 @@ def _build_resources(
     client: StripeClient,
     logger: Optional[FilteringBoundLogger] = None,
     client_factory: Optional[ClientFactory] = None,
+    include_zero_balance_customers: bool = False,
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
     """Single source of truth for the resources we sync from Stripe and how they relate.
 
@@ -809,7 +810,7 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
-            parent_has_nested=_customer_might_have_balance_transactions,
+            parent_has_nested=None if include_zero_balance_customers else _customer_might_have_balance_transactions,
         ),
         # Stays on the parent API: one child call per customer with no skip signal, so the
         # listing is a small fraction of the run and reusing the parent table saves ~nothing.
@@ -922,6 +923,7 @@ def get_rows(
     api_version: str,
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
+    include_zero_balance_customers: bool = False,
 ):
     def new_client(on_rate_limited: Optional[RateLimitCallback] = None) -> StripeClient:
         return StripeClient(
@@ -935,7 +937,12 @@ def get_rows(
 
     client = new_client()
     default_params = {"limit": DEFAULT_LIMIT}
-    resources = _build_resources(client, logger=logger, client_factory=new_client)
+    resources = _build_resources(
+        client,
+        logger=logger,
+        client_factory=new_client,
+        include_zero_balance_customers=include_zero_balance_customers,
+    )
 
     batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
@@ -1338,6 +1345,7 @@ def stripe_source(
     team_id: Optional[int] = None,
     source_id: Optional[str] = None,
     use_warehouse_parent: bool = False,
+    include_zero_balance_customers: bool = False,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1378,6 +1386,7 @@ def stripe_source(
             resumable_source_manager=resumable_source_manager,
             api_version=api_version,
             warehouse_parent=warehouse_parent,
+            include_zero_balance_customers=include_zero_balance_customers,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the
