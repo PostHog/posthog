@@ -5,8 +5,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 @config.config
+class SharePointImportFilesConfig(config.Config):
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+    file_pattern: str | None = None
+
+
+@config.config
 class SharePointSourceConfig(config.Config):
     tenant_id: str
     client_id: str
     client_secret: str
     site_urls: str | None = None
+    import_files: SharePointImportFilesConfig | None = None

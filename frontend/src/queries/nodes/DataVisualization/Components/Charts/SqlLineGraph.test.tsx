@@ -238,9 +238,9 @@ describe('SqlLineGraph', () => {
             expect(rightTicks.every((tick) => tick.endsWith('%'))).toBe(true)
         })
 
-        it('hides only the right gutter when the right axis turns tick labels off', async () => {
+        it('hides right-axis ticks while preserving its title', async () => {
             await renderChart({
-                chartSettings: { rightYAxisSettings: { showTicks: false } },
+                chartSettings: { rightYAxisSettings: { showTicks: false, label: 'Conversion rate' } },
                 yData: [
                     ySeries('revenue', [1200, 1400, 1300]),
                     ySeries('conversion', [12, 18, 15], { display: { yAxisPosition: 'right' } }),
@@ -248,7 +248,8 @@ describe('SqlLineGraph', () => {
             })
 
             await waitFor(() => expect(getHogChart().yTicks().length).toBeGreaterThan(0))
-            expect(getHogChart().yRightTicks()).toHaveLength(0)
+            expect(getHogChart().yRightTicks().filter(Boolean)).toHaveLength(0)
+            expect(await screen.findByText('Conversion rate')).toBeInTheDocument()
         })
 
         it('floats only the right axis when its begin-at-zero is off', async () => {
@@ -449,14 +450,15 @@ describe('SqlLineGraph', () => {
             expect(getHogChart().xTicks()).toEqual(expect.arrayContaining(['October', 'November', 'December']))
         })
 
-        it('hides x-axis ticks when showXAxisTicks is false', async () => {
+        it('hides x-axis ticks while preserving its title', async () => {
             renderLine(
-                { yAxis: [{ column: 'pageviews' }], showXAxisTicks: false },
+                { yAxis: [{ column: 'pageviews' }], showXAxisTicks: false, xAxisLabel: 'Signup month' },
                 lineFixture([{ name: 'pageviews', valueAt: (i) => (i + 1) * 100 }])
             )
 
             await screen.findByLabelText(/chart with/i)
-            expect(getHogChart().xTicks()).toHaveLength(0)
+            expect(getHogChart().xTicks().filter(Boolean)).toHaveLength(0)
+            await waitFor(() => expect(getHogChart().xAxisLabel()).toBe('Signup month'))
         })
     })
 
@@ -503,6 +505,11 @@ describe('SqlLineGraph', () => {
                     { label: 'Ceiling', value: 550, displayIfCrossed: true },
                 ],
                 expectedLabels: ['Floor', 'Ceiling'],
+            },
+            {
+                name: 'renders a calculated reference line for each series',
+                goalLines: [{ label: 'Average', value: 0, calculation: 'mean' as const, scope: 'series' as const }],
+                expectedLabels: ['Average · a'],
             },
         ])('$name', async ({ goalLines, expectedLabels }) => {
             renderLine(

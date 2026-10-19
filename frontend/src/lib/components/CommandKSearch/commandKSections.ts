@@ -27,6 +27,7 @@ export type CommandKRow =
     | { kind: 'filter-key'; key: string; filter: FilterDefinition; negated: boolean }
     | { kind: 'filter-value'; key: string; filter: FilterDefinition; option: ValueOption; negated: boolean }
     | { kind: 'message'; key: string; text: string }
+    | { kind: 'skeleton'; key: string }
     | { kind: 'item'; key: string; item: SearchItem; section: CommandKSectionKey }
     | { kind: 'ask-ai'; key: string; question: string }
 
@@ -36,7 +37,11 @@ export interface CommandKSection {
     rows: CommandKRow[]
     /** `stale` keeps the previous query's rows on screen until the new ones land. */
     state: 'ready' | 'loading' | 'stale'
-    skeletonCount: number
+}
+
+export interface ViewAll {
+    item: SearchItem
+    placement: 'lead' | 'trail'
 }
 
 /** What a remote section can render. Which request is in flight lives elsewhere, so starting one never re-renders. */
@@ -73,7 +78,7 @@ const SECTION_LABELS: Record<CommandKSectionKey, string> = {
     'ask-ai': 'PostHog AI',
 }
 
-export const isSelectable = (row: CommandKRow): boolean => row.kind !== 'message'
+export const isSelectable = (row: CommandKRow): boolean => row.kind !== 'message' && row.kind !== 'skeleton'
 
 const itemIdentity = (item: SearchItem): string => {
     const type = item.record?.type
@@ -81,21 +86,40 @@ const itemIdentity = (item: SearchItem): string => {
     return typeof type === 'string' && typeof ref === 'string' && ref ? `${type}:${ref}` : item.id
 }
 
-const itemRows = (section: CommandKSectionKey, items: SearchItem[]): CommandKRow[] =>
-    items.map((item) => ({ kind: 'item', key: `${section}/${itemIdentity(item)}`, item, section }))
+/**
+ * The file system can hold more than one entry for the same object, so a list can repeat an item.
+ * Row keys must be unique, because the highlight and the row DOM ids follow the key. Only the first
+ * row for each key stays, and the limit applies after that.
+ */
+const itemRows = (section: CommandKSectionKey, items: SearchItem[], limit = Infinity): CommandKRow[] => {
+    const rows: CommandKRow[] = []
+    const seen = new Set<string>()
+    for (const item of items) {
+        if (rows.length >= limit) {
+            break
+        }
+        const key = `${section}/${itemIdentity(item)}`
+        if (!seen.has(key)) {
+            seen.add(key)
+            rows.push({ kind: 'item', key, item, section })
+        }
+    }
+    return rows
+}
 
 const readySection = (key: CommandKSectionKey, rows: CommandKRow[]): CommandKSection => ({
     key,
     label: SECTION_LABELS[key],
     rows,
     state: 'ready',
-    skeletonCount: 0,
 })
 
+const skeletonRows = (key: CommandKSectionKey): CommandKRow[] =>
+    Array.from({ length: DEFAULT_SKELETON_ROWS }, (_, index) => ({ kind: 'skeleton', key: `${key}/skeleton-${index}` }))
+
 const loadingSection = (key: CommandKSectionKey): CommandKSection => ({
-    ...readySection(key, []),
+    ...readySection(key, skeletonRows(key)),
     state: 'loading',
-    skeletonCount: DEFAULT_SKELETON_ROWS,
 })
 
 /**
@@ -108,12 +132,12 @@ function remoteSection(source: RemoteSource, slot: RemoteSlot, query: string): C
     const limit = source === 'results' ? RESULTS_LIMIT : SECONDARY_LIMIT
     const current = slot.cache[query]
     if (current) {
-        return current.length > 0 ? readySection(source, itemRows(source, current.slice(0, limit))) : null
+        return current.length > 0 ? readySection(source, itemRows(source, current, limit)) : null
     }
     const displayed = slot.displayedKey !== null ? slot.cache[slot.displayedKey] : undefined
     if (displayed) {
         return displayed.length > 0
-            ? { ...readySection(source, itemRows(source, displayed.slice(0, limit))), state: 'stale' }
+            ? { ...readySection(source, itemRows(source, displayed, limit)), state: 'stale' }
             : null
     }
     return source === 'results' ? loadingSection(source) : null
@@ -176,17 +200,30 @@ export interface SectionsInput {
     localQuery: string
     /** Leads the Settings section when the query asks about the theme. */
     themeItem: SearchItem | null
-    askAiQuestion: string
+    askAiQuestion: string | null
+    viewAll: ViewAll | null
 }
 
 const filterLocal = (source: LocalSource, items: SearchItem[], query: string): SearchItem[] =>
-    (source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)).slice(0, SECONDARY_LIMIT)
+    source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
+
+function withViewAll(results: CommandKSection | null, viewAll: ViewAll | null): CommandKSection | null {
+    if (!viewAll) {
+        return results
+    }
+    const row: CommandKRow = { kind: 'item', key: `results/${viewAll.item.id}`, item: viewAll.item, section: 'results' }
+    const rows = results?.rows ?? []
+    return {
+        ...(results ?? readySection('results', [])),
+        rows: viewAll.placement === 'lead' ? [row, ...rows] : [...rows, row],
+    }
+}
 
 export function buildSections(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
         return [
-            readySection('recents', itemRows('recents', local.recents.slice(0, RECENTS_LIMIT))),
+            readySection('recents', itemRows('recents', local.recents, RECENTS_LIMIT)),
             readySection('starred', itemRows('starred', local.starred)),
             // Tab rows ("Dashboards / Templates") only appear for a search, as in the current palette.
             readySection(
@@ -217,12 +254,15 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
             )
         )
     }
-    sections.push(input.suggestions, remoteSectionFor('results'))
+    sections.push(input.suggestions, withViewAll(remoteSectionFor('results'), input.viewAll))
     if (mode !== 'value' && localQuery) {
         for (const source of LOCAL_SOURCES) {
             const filtered = filterLocal(source, local[source], localQuery)
-            const items = source === 'settings' && input.themeItem ? [input.themeItem, ...filtered] : filtered
-            sections.push(items.length > 0 ? readySection(source, itemRows(source, items)) : null)
+            const themeItem = source === 'settings' ? input.themeItem : null
+            const rows = themeItem
+                ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
+                : itemRows(source, filtered, SECONDARY_LIMIT)
+            sections.push(rows.length > 0 ? readySection(source, rows) : null)
         }
     }
     if (mode !== 'value') {

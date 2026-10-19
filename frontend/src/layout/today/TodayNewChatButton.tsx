@@ -7,11 +7,8 @@ import { Button, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/qu
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { todayShellLogic } from './todayShellLogic'
-
 export function TodayNewChatButton(): JSX.Element {
     const { location } = useValues(router)
-    const { phoneLayout } = useValues(todayShellLogic)
     const starting = location.pathname.endsWith(urls.taskNewSession())
 
     return (
@@ -20,7 +17,7 @@ export function TodayNewChatButton(): JSX.Element {
                 delay={0}
                 render={
                     <Button
-                        size={phoneLayout ? 'icon-lg' : 'icon'}
+                        size="icon"
                         render={<LinkPrimitive to={urls.taskNewSession()} />}
                         aria-current={starting ? 'page' : undefined}
                         className={cn('-me-2 text-muted-foreground', starting && 'bg-fill-selected text-foreground')}

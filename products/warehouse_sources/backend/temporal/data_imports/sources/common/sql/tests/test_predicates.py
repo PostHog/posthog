@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     _STRING_TYPES,
     _TIMESTAMP_TYPES,
     ColumnTypeCategory,
+    RowFilterColumn,
     RowFilterValidationError,
     ValidatedRowFilter,
     classify_column_type,
@@ -190,6 +191,39 @@ class TestValidateAndCoerce:
         with pytest.raises(RowFilterValidationError, match="not supported for filtering"):
             validate_and_coerce_row_filters(
                 [{"column": "geo", "operator": "=", "value": "x"}], _metadata([("geo", "geometry")])
+            )
+
+    @pytest.mark.parametrize(
+        "row_filter, expected_error",
+        [
+            ({"column": "created_at", "operator": ">=", "value": "2024-01-01"}, None),
+            ({"column": "id", "operator": ">=", "value": 1}, "can be filtered on these columns only: created_at"),
+            ({"column": "created_at", "operator": "!=", "value": "2024-01-01"}, "Unsupported operator '!='"),
+        ],
+    )
+    def test_filterable_columns_replace_schema_metadata(
+        self, row_filter: dict[str, object], expected_error: str | None
+    ) -> None:
+        filterable = [RowFilterColumn(name="created_at", data_type="timestamp", operators=(">", ">="))]
+        metadata = _metadata([("id", "integer")])
+        if expected_error is None:
+            result = validate_and_coerce_row_filters([row_filter], metadata, filterable)
+            assert result == [
+                ValidatedRowFilter(
+                    column="created_at",
+                    operator=">=",
+                    value=datetime(2024, 1, 1),
+                    category=ColumnTypeCategory.TIMESTAMP,
+                )
+            ]
+        else:
+            with pytest.raises(RowFilterValidationError, match=expected_error):
+                validate_and_coerce_row_filters([row_filter], metadata, filterable)
+
+    def test_empty_filterable_columns_reject_every_filter(self) -> None:
+        with pytest.raises(RowFilterValidationError, match="these columns only: none"):
+            validate_and_coerce_row_filters(
+                [{"column": "id", "operator": ">", "value": 1}], _metadata([("id", "integer")]), []
             )
 
     def test_filter_at_index_must_be_object(self) -> None:

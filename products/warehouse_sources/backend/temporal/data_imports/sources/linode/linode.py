@@ -1,26 +1,42 @@
 import json
 import dataclasses
-from datetime import date, datetime
-from typing import Any, Optional
+from collections.abc import Callable, Iterable, Iterator
+from datetime import UTC, date, datetime
+from typing import Any, Optional, cast
 
+from requests.exceptions import HTTPError
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
+    RESTClient,
     rest_api_resource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     PageNumberPaginator,
+    SinglePagePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.linode.settings import LINODE_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.linode.settings import (
+    LINODE_ENDPOINTS,
+    LINODE_MONTHLY_TRANSFER,
+    MONTHLY_TRANSFER_LOOKBACK_MONTHS,
+    PAGE_SIZE,
+    LinodeEndpointConfig,
+)
 
 LINODE_BASE_URL = "https://api.linode.com/v4"
-
-# Max allowed page_size is 500 (min 25). Using the max minimizes request count against the 200 req/min
-# paginated-GET rate limit.
-PAGE_SIZE = 500
 
 
 @dataclasses.dataclass
@@ -92,6 +108,14 @@ def linode_source(
 ) -> SourceResponse:
     config = LINODE_ENDPOINTS[endpoint]
 
+    if endpoint == LINODE_MONTHLY_TRANSFER:
+        return _monthly_transfer_source(
+            api_token,
+            config,
+            resumable_source_manager,
+            db_incremental_field_last_value if should_use_incremental_field else None,
+        )
+
     headers = _accept_headers()
     # Attach the X-Filter header for incremental/append endpoints. Honor the user's chosen cursor
     # field, falling back to the endpoint's declared filterable field. On the first sync the watermark
@@ -100,25 +124,26 @@ def linode_source(
         cursor_field = incremental_field or config.incremental_field
         headers["X-Filter"] = json.dumps(_build_x_filter(cursor_field, db_incremental_field_last_value))
 
+    client_config: ClientConfig = {
+        "base_url": LINODE_BASE_URL,
+        "headers": headers,
+        "auth": {"type": "bearer", "token": api_token},
+        # Linode returns {data, page, pages, results}; `pages` is the total page count, so the
+        # paginator stops after the last page rather than paying an extra empty-page request.
+        "paginator": PageNumberPaginator(base_page=1, page_param="page", total_path="pages"),
+    }
+
+    if config.fanout is not None:
+        return _fanout_source(config, endpoint, client_config, team_id, job_id)
+
+    endpoint_config: Endpoint = (
+        {"path": config.path, "data_selector": "$", "paginator": "single_page"}
+        if config.single_object
+        else {"path": config.path, "params": {"page_size": PAGE_SIZE}, "data_selector": "data"}
+    )
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": LINODE_BASE_URL,
-            "headers": headers,
-            "auth": {"type": "bearer", "token": api_token},
-            # Linode returns {data, page, pages, results}; `pages` is the total page count, so the
-            # paginator stops after the last page rather than paying an extra empty-page request.
-            "paginator": PageNumberPaginator(base_page=1, page_param="page", total_path="pages"),
-        },
-        "resources": [
-            {
-                "name": endpoint,
-                "endpoint": {
-                    "path": config.path,
-                    "params": {"page_size": PAGE_SIZE},
-                    "data_selector": "data",
-                },
-            }
-        ],
+        "client": client_config,
+        "resources": [{"name": endpoint, "endpoint": endpoint_config}],
     }
 
     initial_paginator_state: Optional[dict[str, Any]] = None
@@ -143,9 +168,124 @@ def linode_source(
         initial_paginator_state=initial_paginator_state,
     )
 
+    return _make_source_response(config, endpoint, lambda: resource)
+
+
+def _fanout_source(
+    config: LinodeEndpointConfig,
+    endpoint: str,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+) -> SourceResponse:
+    assert config.fanout is not None
+    child_endpoint_extra: Endpoint = (
+        {"data_selector": "$", "paginator": "single_page"} if config.single_object else {"data_selector": "data"}
+    )
+    # No resume state: the parent lists (invoices, LKE clusters, volume quotas) are small, so a
+    # restarted run re-walks them cheaply.
+    dependent_resource = cast(
+        Iterable[Any],
+        build_dependent_resource(
+            endpoint_configs=LINODE_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            parent_endpoint_extra={"data_selector": "data"},
+            child_endpoint_extra=child_endpoint_extra,
+            page_size_param=None if config.single_object else "page_size",
+        ),
+    )
+    return _make_source_response(config, endpoint, lambda: dependent_resource)
+
+
+def _current_month_start() -> datetime:
+    now = datetime.now(UTC)
+    return datetime(now.year, now.month, 1, tzinfo=UTC)
+
+
+def _month_start(value: Any) -> datetime | None:
+    parsed = parse_datetime_value(value)
+    if parsed is None:
+        return None
+    return datetime(parsed.year, parsed.month, 1, tzinfo=UTC)
+
+
+def _add_months(month: datetime, count: int) -> datetime:
+    index = month.year * 12 + month.month - 1 + count
+    return datetime(index // 12, index % 12 + 1, 1, tzinfo=UTC)
+
+
+def _monthly_transfer_source(
+    api_token: str,
+    config: LinodeEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[LinodeResumeConfig],
+    db_incremental_field_last_value: Optional[Any],
+) -> SourceResponse:
+    client = RESTClient(
+        base_url=LINODE_BASE_URL,
+        headers=_accept_headers(),
+        auth=create_auth({"type": "bearer", "token": api_token}),
+    )
+
+    def _list_linodes() -> list[tuple[Any, datetime | None]]:
+        linodes: list[tuple[Any, datetime | None]] = []
+        for page in client.paginate(
+            LINODE_ENDPOINTS["linodes"].path,
+            params={"page_size": PAGE_SIZE},
+            paginator=PageNumberPaginator(base_page=1, page_param="page", total_path="pages"),
+            data_selector="data",
+        ):
+            linodes.extend((linode["id"], _month_start(linode.get("created"))) for linode in page if "id" in linode)
+            # The listing yields no rows to the pipeline, so a long one must not hold up a shutdown.
+            resumable_source_manager.safe_point()
+        return linodes
+
+    def _rows() -> Iterator[dict[str, Any]]:
+        current_month = _current_month_start()
+        first_month = _month_start(db_incremental_field_last_value) or _add_months(
+            current_month, 1 - MONTHLY_TRANSFER_LOOKBACK_MONTHS
+        )
+        linodes = _list_linodes()
+
+        # Month-major order keeps rows ascending on `month_start` across all Linodes, so the
+        # watermark never passes a month that some Linode has not been read for yet.
+        month = first_month
+        while month <= current_month:
+            for linode_id, created_month in linodes:
+                if created_month is not None and created_month > month:
+                    continue
+                path = config.path.format(linode_id=linode_id, year=month.year, month=month.month)
+                try:
+                    for page in client.paginate(path, paginator=SinglePagePaginator(), data_selector="$"):
+                        for stats in page:
+                            yield {
+                                "linode_id": linode_id,
+                                "year": month.year,
+                                "month": month.month,
+                                "month_start": month,
+                                **stats,
+                            }
+                except HTTPError as error:
+                    # The Linode can be deleted between the listing and this request.
+                    if error.response is None or error.response.status_code != 404:
+                        raise
+                    resumable_source_manager.safe_point()
+            month = _add_months(month, 1)
+
+    return _make_source_response(config, LINODE_MONTHLY_TRANSFER, _rows)
+
+
+def _make_source_response(
+    config: LinodeEndpointConfig, endpoint: str, items: Callable[[], Iterable[Any]]
+) -> SourceResponse:
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        items=items,
         primary_keys=config.primary_keys,
         # The X-Filter header orders results ascending on the cursor field, so rows arrive oldest-first
         # and the watermark advances safely after each batch.

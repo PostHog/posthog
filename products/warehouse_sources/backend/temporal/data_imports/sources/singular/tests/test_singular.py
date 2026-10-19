@@ -1,7 +1,8 @@
 import json
 import datetime as dt
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any, cast
+from urllib.parse import parse_qsl
 
 import pytest
 import time_machine
@@ -10,6 +11,17 @@ from unittest import mock
 import requests
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.singular import (
+    SingularSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.singular.settings import HISTORY_DAYS, LOOKUPS
 from products.warehouse_sources.backend.temporal.data_imports.sources.singular.singular import (
     ACCESS_ERROR,
@@ -114,74 +126,139 @@ def _report_batches(
     return list(cast(Iterable[list[dict[str, Any]]], response.items()))
 
 
-@mock.patch(f"{_MODULE}.time.sleep")
-@mock.patch(f"{_MODULE}.make_tracked_session")
+def _envelope(status: int = 200, value: Any = None) -> ScriptedResponse:
+    return ScriptedResponse(
+        status=status, json={"status": 0 if status < 400 else status, "substatus": 0, "value": value}
+    )
+
+
+def _script(
+    rows_by_day: dict[str, list[dict[str, Any]]] | None = None,
+    poll_statuses: list[str] | None = None,
+    create_responses: list[ScriptedResponse] | None = None,
+    download_response: ScriptedResponse | None = None,
+) -> tuple[Callable[[RecordedRequest], ScriptedResponse], list[dict[str, str]]]:
+    created: list[dict[str, str]] = []
+    statuses = list(poll_statuses or ["DONE"])
+    queued = list(create_responses or [])
+    polled_day: list[str] = []
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.method == "POST":
+            if queued:
+                response = queued.pop(0)
+                if response.status >= 400:
+                    return response
+            body = dict(parse_qsl((request.body or b"").decode()))
+            created.append(body)
+            return _envelope(value={"report_id": body["start_date"]})
+        if request.path.endswith("/get_report_status"):
+            polled_day.append(request.param("report_id") or "")
+            status = statuses.pop(0) if len(statuses) > 1 else statuses[0]
+            return _envelope(
+                value={
+                    "status": status,
+                    "report_id": polled_day[-1],
+                    "download_url": _DOWNLOAD_URL if status == "DONE" else None,
+                }
+            )
+        if download_response is not None:
+            return download_response
+        return ScriptedResponse(json={"value": {"results": (rows_by_day or {}).get(polled_day[-1], [])}})
+
+    return respond, created
+
+
+def _run_report(
+    script: Callable[[RecordedRequest], ScriptedResponse],
+    last_value: Any = None,
+    query: SingularReportQuery = _QUERY,
+    resume_state: SingularResumeConfig | None = None,
+) -> DriveResult:
+    config = SingularSourceConfig(
+        api_key=_API_KEY,
+        dimensions=",".join(query.dimensions),
+        metrics=",".join(query.metrics),
+        cohort_metrics=",".join(query.cohort_metrics) or None,
+        cohort_periods=",".join(query.cohort_periods) or None,
+    )
+    return SourceDriver(SingularSource(), config).run(
+        "daily_report",
+        script,
+        resume_state=resume_state,
+        incremental_field="date" if last_value is not None else None,
+        db_incremental_field_last_value=last_value,
+    )
+
+
+def _raised(result: DriveResult, expected: type[BaseException]) -> BaseException:
+    assert isinstance(result.raised, expected), result.raised
+    return result.raised
+
+
+def _post_count(result: DriveResult) -> int:
+    return len([request for request in result.requests if request.method == "POST"])
+
+
+def _poll_count(result: DriveResult) -> int:
+    return len([path for path in result.paths if path.endswith("/get_report_status")])
+
+
+@pytest.fixture
+def _frozen_clock():
+    with time_machine.travel(_NOW, tick=False):
+        yield
+
+
+@pytest.mark.usefixtures("_frozen_clock")
 class TestDailyReport:
-    @pytest.fixture(autouse=True)
-    def _frozen_clock(self):
-        with time_machine.travel(_NOW, tick=False):
-            yield
+    def test_api_key_travels_in_a_header_and_never_in_a_url(self):
+        script, _ = _script()
 
-    def test_api_key_travels_in_a_header_and_never_in_a_url(self, mock_session, _sleep):
-        _wire(mock_session)
+        result = _run_report(script, last_value="2026-06-30")
 
-        _report_batches(last_value="2026-06-30")
+        assert result.session_options[0]["headers"] == {"Authorization": _API_KEY}
+        assert result.requests[0].headers["authorization"] == _API_KEY
+        for request in result.requests:
+            assert _API_KEY not in request.url
+            assert _API_KEY not in (request.body or b"").decode()
 
-        assert mock_session.call_args_list[0].kwargs["headers"] == {"Authorization": _API_KEY}
-        session = mock_session.return_value
-        for call in [*session.post.call_args_list, *session.get.call_args_list]:
-            assert _API_KEY not in call.args[0]
-            assert _API_KEY not in json.dumps(call.kwargs.get("params") or {})
-
-    def test_cohort_fields_are_sent_only_when_set(self, mock_session, _sleep):
-        created = _wire(mock_session)
+    def test_cohort_fields_are_sent_only_when_set(self):
+        script, created = _script()
         query = SingularReportQuery(
             dimensions=("app",), metrics=("adn_cost",), cohort_metrics=("revenue",), cohort_periods=("7d", "30d")
         )
 
-        _report_batches(last_value="2026-06-30", query=query)
+        _run_report(script, last_value="2026-06-30", query=query)
 
         assert created[0]["cohort_metrics"] == "revenue"
         assert created[0]["cohort_periods"] == "7d,30d"
 
-    def test_retried_run_continues_from_the_saved_day(self, mock_session, _sleep):
-        created = _wire(mock_session)
+    def test_retried_run_continues_from_the_saved_day(self):
+        script, created = _script()
 
-        _report_batches(_resume_manager(SingularResumeConfig(next_date="2026-06-29")), last_value="2026-06-01")
+        _run_report(script, last_value="2026-06-01", resume_state=SingularResumeConfig(next_date="2026-06-29"))
 
         assert [body["start_date"] for body in created] == ["2026-06-29", "2026-06-30"]
 
-    def test_polls_until_done_and_reaches_a_safe_point_on_each_wait(self, mock_session, sleep):
-        _wire(
-            mock_session,
-            rows_by_day={"2026-06-30": [{"app": "Invented App", "source": "Example Ads"}]},
-            poll_statuses=["QUEUED", "STARTED", "DONE"],
-        )
-        manager = _resume_manager()
+    def test_report_that_never_finishes_stops_after_the_polling_budget(self):
+        script, _ = _script(poll_statuses=["STARTED"])
 
-        batches = _report_batches(manager, last_value="2026-06-30")
+        result = _run_report(script, last_value="2026-06-30")
 
-        assert len(batches) == 1
-        assert sleep.call_count == 2
-        assert manager.safe_point.call_count == 2
+        error = _raised(result, SingularRetryableError)
+        assert "still STARTED" in str(error)
+        assert _poll_count(result) == REPORT_POLL_MAX_ATTEMPTS
 
-    def test_report_that_never_finishes_stops_after_the_polling_budget(self, mock_session, _sleep):
-        _wire(mock_session, poll_statuses=["STARTED"])
+    def test_failed_report_is_non_retryable_and_keeps_singulars_reason(self):
+        script, _ = _script(poll_statuses=["FAILED"])
 
-        with pytest.raises(SingularRetryableError, match="still STARTED"):
-            _report_batches(last_value="2026-06-30")
+        result = _run_report(script, last_value="2026-06-30")
 
-        polls = [c for c in mock_session.return_value.get.call_args_list if c.args[0].endswith("/get_report_status")]
-        assert len(polls) == REPORT_POLL_MAX_ATTEMPTS
-
-    def test_failed_report_is_non_retryable_and_keeps_singulars_reason(self, mock_session, _sleep):
-        _wire(mock_session, poll_statuses=["FAILED"])
-
-        with pytest.raises(SingularNonRetryableError, match=REPORT_FAILED_ERROR) as raised:
-            _report_batches(last_value="2026-06-30")
-
-        assert "2026-06-30" in str(raised.value)
-        assert error_message_matches(str(raised.value), SingularSource().get_non_retryable_errors())
+        error = _raised(result, SingularNonRetryableError)
+        assert REPORT_FAILED_ERROR in str(error)
+        assert "2026-06-30" in str(error)
+        assert error_message_matches(str(error), SingularSource().get_non_retryable_errors())
 
     @pytest.mark.parametrize(
         "status, vendor_message, expected_prefix",
@@ -199,18 +276,17 @@ class TestDailyReport:
         ],
     )
     def test_rejected_report_request_is_non_retryable_and_quotes_singular(
-        self, mock_session, _sleep, status, vendor_message, expected_prefix
+        self, status, vendor_message, expected_prefix
     ):
-        _wire(mock_session, create_responses=[_response(status, vendor_message)])
+        script, _ = _script(create_responses=[_envelope(status, vendor_message)])
 
-        with pytest.raises(SingularNonRetryableError) as raised:
-            _report_batches(last_value="2026-06-30")
+        result = _run_report(script, last_value="2026-06-30")
 
-        message = str(raised.value)
+        message = str(_raised(result, SingularNonRetryableError))
         assert message.startswith(expected_prefix)
         assert vendor_message in message
         assert error_message_matches(message, SingularSource().get_non_retryable_errors())
-        assert mock_session.return_value.post.call_count == 1
+        assert _post_count(result) == 1
 
     @pytest.mark.parametrize(
         "status, vendor_message, expected_error",
@@ -220,55 +296,62 @@ class TestDailyReport:
         ],
     )
     def test_throttled_or_failing_report_request_stops_after_bounded_retries(
-        self, mock_session, _sleep, status, vendor_message, expected_error
+        self, status, vendor_message, expected_error
     ):
-        _wire(mock_session, create_responses=[_response(status, vendor_message)] * CREATE_MAX_ATTEMPTS)
+        script, _ = _script(create_responses=[_envelope(status, vendor_message)] * CREATE_MAX_ATTEMPTS)
 
-        with pytest.raises(expected_error) as raised:
-            _report_batches(last_value="2026-06-30")
+        result = _run_report(script, last_value="2026-06-30")
 
-        assert mock_session.return_value.post.call_count == CREATE_MAX_ATTEMPTS
+        error = _raised(result, expected_error)
+        assert _post_count(result) == CREATE_MAX_ATTEMPTS
         source = SingularSource()
-        assert error_message_matches(str(raised.value), source.get_non_retryable_errors()) is (status == 429)
-        assert error_message_matches(str(raised.value), source.get_retryable_errors()) is (status != 429)
+        assert error_message_matches(str(error), source.get_non_retryable_errors()) is (status == 429)
+        assert error_message_matches(str(error), source.get_retryable_errors()) is (status != 429)
         if status == 429:
-            assert str(raised.value).startswith(QUOTA_ERROR)
-            assert vendor_message in str(raised.value)
+            assert str(error).startswith(QUOTA_ERROR)
+            assert vendor_message in str(error)
 
-    def test_success_status_with_a_non_json_body_is_retryable(self, mock_session, _sleep):
-        page = _response()
-        page.json.side_effect = ValueError("not JSON")
-        mock_session.return_value.post.side_effect = None
-        mock_session.return_value.post.return_value = page
+    def test_success_status_with_a_non_json_body_is_retryable(self):
+        result = _run_report(always(ScriptedResponse(body=b"<html>maintenance</html>")), last_value="2026-06-30")
 
-        with pytest.raises(SingularRetryableError) as raised:
-            _report_batches(last_value="2026-06-30")
-
+        error = _raised(result, SingularRetryableError)
         source = SingularSource()
-        assert error_message_matches(str(raised.value), source.get_retryable_errors())
-        assert not error_message_matches(str(raised.value), source.get_non_retryable_errors())
+        assert error_message_matches(str(error), source.get_retryable_errors())
+        assert not error_message_matches(str(error), source.get_non_retryable_errors())
 
-    def test_report_request_recovers_from_a_short_throttle(self, mock_session, _sleep):
-        created = _wire(mock_session, create_responses=[_response(429, "Too many requests."), _response(500)])
+    def test_report_request_recovers_from_a_short_throttle(self):
+        script, created = _script(create_responses=[_envelope(429, "Too many requests."), _envelope(500)])
 
-        _report_batches(last_value="2026-06-30")
+        _run_report(script, last_value="2026-06-30")
 
         assert [body["start_date"] for body in created] == ["2026-06-30"]
 
-    def test_failed_download_does_not_leak_the_presigned_url(self, mock_session, _sleep):
-        _wire(mock_session)
-        status_get = mock_session.return_value.get.side_effect
+    def test_failed_download_does_not_leak_the_presigned_url(self):
+        script, _ = _script(download_response=ScriptedResponse(status=403))
 
-        def get(url: str, **kwargs: Any) -> mock.MagicMock:
-            return _file_response(None, status=403) if url == _DOWNLOAD_URL else status_get(url, **kwargs)
+        result = _run_report(script, last_value="2026-06-30")
 
-        mock_session.return_value.get.side_effect = get
+        error = _raised(result, SingularRetryableError)
+        assert "invented-signature" not in str(error)
+        assert not error_message_matches(str(error), SingularSource().get_non_retryable_errors())
 
-        with pytest.raises(SingularRetryableError) as raised:
-            _report_batches(last_value="2026-06-30")
 
-        assert "invented-signature" not in str(raised.value)
-        assert not error_message_matches(str(raised.value), SingularSource().get_non_retryable_errors())
+@mock.patch(f"{_MODULE}.time.sleep")
+@mock.patch(f"{_MODULE}.make_tracked_session")
+@pytest.mark.usefixtures("_frozen_clock")
+def test_polls_until_done_and_reaches_a_safe_point_on_each_wait(mock_session, sleep):
+    _wire(
+        mock_session,
+        rows_by_day={"2026-06-30": [{"app": "Invented App", "source": "Example Ads"}]},
+        poll_statuses=["QUEUED", "STARTED", "DONE"],
+    )
+    manager = _resume_manager()
+
+    batches = _report_batches(manager, last_value="2026-06-30")
+
+    assert len(batches) == 1
+    assert sleep.call_count == 2
+    assert manager.safe_point.call_count == 2
 
 
 class TestReportShaping:
@@ -292,7 +375,6 @@ class TestReportShaping:
             report_rows(body)
 
 
-@mock.patch(f"{_MODULE}.make_tracked_session")
 class TestLookups:
     @pytest.mark.parametrize(
         "endpoint, value, expected_rows",
@@ -315,39 +397,30 @@ class TestLookups:
             ("custom_dimensions", {"custom_dimensions": []}, []),
         ],
     )
-    def test_lookup_reads_its_list_from_one_request(self, mock_session, endpoint, value, expected_rows):
-        mock_session.return_value.get.return_value = _response(value=value)
-
-        response = singular_source(
-            api_key=_API_KEY,
-            api_version="v2.0",
-            endpoint=endpoint,
-            query=_QUERY,
-            logger=mock.MagicMock(),
-            resumable_source_manager=_resume_manager(),
+    def test_lookup_reads_its_list_from_one_request(self, endpoint, value, expected_rows):
+        result = SourceDriver(SingularSource(), SingularSourceConfig(api_key=_API_KEY)).run(
+            endpoint, [_envelope(value=value)]
         )
 
-        assert list(cast(Iterable[Any], response.items())) == expected_rows
-        assert response.primary_keys == [LOOKUPS[endpoint].primary_key]
-        mock_session.return_value.get.assert_called_once()
-        assert mock_session.return_value.get.call_args.args[0] == f"https://api.singular.net{LOOKUPS[endpoint].path}"
+        assert result.items == expected_rows
+        assert result.response is not None
+        assert result.response.primary_keys == [LOOKUPS[endpoint].primary_key]
+        assert result.urls == [f"https://api.singular.net{LOOKUPS[endpoint].path}"]
 
 
-@mock.patch(f"{_MODULE}.make_tracked_session")
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         "response, expected_valid, expected_message_part",
         [
-            (_response(value={"custom_dimensions": []}), True, None),
-            (_response(401, "An invalid API Key was given."), False, AUTH_ERROR),
-            (_response(403, "The request is denied access. Please contact your administrator."), False, ACCESS_ERROR),
+            (_envelope(value={"custom_dimensions": []}), True, None),
+            (_envelope(401, "An invalid API Key was given."), False, AUTH_ERROR),
+            (_envelope(403, "The request is denied access. Please contact your administrator."), False, ACCESS_ERROR),
             (requests.ConnectionError("connection refused"), False, "Could not reach Singular"),
         ],
     )
-    def test_validate_credentials(self, mock_session, response, expected_valid, expected_message_part):
-        mock_session.return_value.get.side_effect = [response]
-
-        is_valid, message = validate_credentials(_API_KEY, "v2.0")
+    def test_validate_credentials(self, response, expected_valid, expected_message_part):
+        with scripted_network(always(response)):
+            is_valid, message = validate_credentials(_API_KEY, "v2.0")
 
         assert is_valid is expected_valid
         if expected_message_part is None:

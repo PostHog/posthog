@@ -123,7 +123,6 @@ import {
   type AssistantUsageLike,
   type BudgetSteerMode,
   type BudgetSteerStage,
-  type BudgetThresholdEvent,
   RunBudgetGuard,
 } from "./session/budget-guard";
 import { getAvailableSlashCommands } from "./session/commands";
@@ -672,10 +671,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private deliverBudgetSteer(
     session: Session,
     sessionId: string,
-    event: BudgetThresholdEvent,
   ): Promise<void> {
     const run = this.budgetSteerTail.then(() =>
-      this.sendBudgetSteer(session, sessionId, event),
+      this.sendBudgetSteer(session, sessionId),
     );
     this.budgetSteerTail = run.catch(() => undefined);
     return run;
@@ -684,13 +682,12 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
   private async sendBudgetSteer(
     session: Session,
     sessionId: string,
-    event: BudgetThresholdEvent,
   ): Promise<void> {
     const guard = session.budgetGuard;
     if (!guard || this.session !== session) return;
     const stage = guard.takePendingSteer();
     if (!stage) return;
-    const summary = `[BudgetGuard] ${stage}: $${event.spentUsd.toFixed(2)} of $${event.capUsd.toFixed(2)} spent, steering the turn`;
+    const summary = `[BudgetGuard] ${stage}: $${guard.spentUsd.toFixed(2)} of $${guard.capUsd.toFixed(2)} spent, steering the turn`;
     this.logger.warn(summary);
     let delivered = false;
     try {
@@ -1824,6 +1821,18 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             ) {
               session.backgroundTurnActive = true;
             }
+            // The SDK can echo a task notification before the previous
+            // background result, so that result clears the flag first. Model
+            // output with no tracked turn still means a background turn runs.
+            if (
+              message.type === "assistant" &&
+              message.parent_tool_use_id === null &&
+              !session.cancelled &&
+              !session.activeTurn &&
+              !session.turnQueue.some((turn) => !turn.settled)
+            ) {
+              session.backgroundTurnActive = true;
+            }
             // A user echo promotes its queued turn (handing off any still-
             // active one first), then drops from the feed. Runs before the
             // cancelled guard so a turn enqueued after a cancel still starts.
@@ -1886,8 +1895,16 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
               const budgetEvent = session.budgetGuard?.recordAssistantMessage(
                 message.message as AssistantUsageLike,
               );
-              if (budgetEvent) {
-                void this.deliverBudgetSteer(session, sessionId, budgetEvent);
+              const ownerTurn =
+                session.activeTurn ??
+                session.turnQueue.find((turn) => !turn.settled);
+              if (
+                budgetEvent ||
+                (message.parent_tool_use_id === null &&
+                  !ownerTurn?.isLocalOnlyCommand &&
+                  session.budgetGuard?.hasRetryableSteer())
+              ) {
+                void this.deliverBudgetSteer(session, sessionId);
               }
               this.stopForBudget(session, sessionId);
               if (message.parent_tool_use_id === null) {
@@ -2560,7 +2577,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
             "side",
           );
           if (event) {
-            void this.deliverBudgetSteer(session, sessionId, event);
+            void this.deliverBudgetSteer(session, sessionId);
           }
           this.stopForBudget(session, sessionId);
         }),
@@ -3058,6 +3075,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
         await new PostHogAPIClient(config).updateTaskRun(taskId, taskRunId, {
           status,
           ...(status === "failed" && message ? { error_message: message } : {}),
+          ...(status === "failed" ? { error_type: "agent_declined" } : {}),
         });
       } catch (error) {
         this.logger.error("finish tool failed to mark run terminal", error);
@@ -3541,11 +3559,25 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     try {
       if (isResume || resolvedModelId !== options.model) {
         startupStep = "model switch";
-        await this.awaitStartupControl(
-          startupStep,
-          this.session.query.setModel(resolvedModelId),
-          startupErrorData,
-        );
+        try {
+          await this.awaitStartupControl(
+            startupStep,
+            this.session.query.setModel(resolvedModelId),
+            startupErrorData,
+          );
+        } catch (modelSwitchError) {
+          startupLogger.warn("Session model switch failed; retrying once", {
+            ...startupErrorData,
+            modelId: resolvedModelId,
+            errorDetail: serializeError(modelSwitchError),
+          });
+          await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+          await this.awaitStartupControl(
+            startupStep,
+            this.session.query.setModel(resolvedModelId),
+            startupErrorData,
+          );
+        }
       }
 
       // Keep thinking enabled by default for effort-capable models (see

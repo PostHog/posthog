@@ -62,7 +62,7 @@ EXPECTED_PERSONS_BATCH_EXPORT_FIELDS = [
 
 TEST_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     BatchExportModel(
-        name="a-custom-model",
+        name="events",
         schema={
             "fields": [
                 {"expression": "event", "alias": "event"},
@@ -436,7 +436,7 @@ async def assert_clickhouse_records_in_snowflake(
                 batch_export_model.schema["values"] if batch_export_model.schema is not None else None
             )
         else:
-            model_name = "custom"
+            model_name = "events"
             fields = batch_export_model["fields"]
             filters = None
             extra_query_parameters = batch_export_model["values"]

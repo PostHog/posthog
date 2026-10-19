@@ -38,8 +38,8 @@ import json
 import asyncio
 import datetime as dt
 import functools
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, ClassVar, Literal
 
@@ -57,7 +57,9 @@ from products.batch_exports.backend.facade.destinations.s3 import (
     S3_SUPPORTED_COMPRESSIONS,
     ConcurrentS3Consumer,
     IntermittentUploadPartTimeoutError,
+    InvalidCredentialsError,
     PolicyStatement,
+    S3IntegrationNotFoundError,
     get_credentials_using_user_aws_role,
     get_s3_integration,
     s3_client,
@@ -81,6 +83,44 @@ logger = structlog.get_logger(__name__)
 
 ParquetCompression = Literal["gzip", "brotli", "lz4", "zstd", "snappy", "none"]
 DEFAULT_COMPRESSION: ParquetCompression = "zstd"
+
+CREDENTIALS_DETAIL = "S3 authentication failed. Check the access key ID and secret, then run the sync again."
+BUCKET_DETAIL = (
+    "The S3 bucket does not exist or is in another region. Check the bucket name and region, then run the sync again."
+)
+PERMISSIONS_DETAIL = (
+    "S3 denied access to the bucket path. Grant s3:PutObject and s3:AbortMultipartUpload on the bucket path, "
+    "then run the sync again."
+)
+ROLE_DETAIL = (
+    "PostHog cannot assume the role. Check the role ARN and the trust policy with the external ID, "
+    "then run the sync again."
+)
+INVALID_PARAMS_DETAIL = (
+    "The destination's S3 configuration is invalid. Check the bucket name, region and prefix, then run the sync again."
+)
+
+
+def _configuration_error_detail(err: Exception) -> str | None:
+    if isinstance(err, InvalidCredentialsError):
+        return ROLE_DETAIL
+    if isinstance(err, botocore.exceptions.ParamValidationError):
+        # Raised by botocore itself, before any request reaches S3, so a retry sends the exact
+        # same invalid parameters and fails identically every time.
+        return INVALID_PARAMS_DETAIL
+    if not isinstance(err, botocore.exceptions.ClientError):
+        return None
+    if err.response.get("ResponseMetadata", {}).get("HTTPStatusCode", 0) >= 500:
+        return None
+    code = err.response.get("Error", {}).get("Code")
+    if code in ("InvalidAccessKeyId", "SignatureDoesNotMatch"):
+        return CREDENTIALS_DETAIL
+    if code == "NoSuchBucket":
+        return BUCKET_DETAIL
+    if code in ("AccessDenied", "AccessDeniedException"):
+        return ROLE_DETAIL if err.operation_name == "AssumeRole" else PERMISSIONS_DETAIL
+    return None
+
 
 # The destination's `config` is an unvalidated JSONField, so whatever a user puts in it reaches
 # pyarrow directly. Anything outside this set fails mid-write, several hundred MiB in.
@@ -253,7 +293,7 @@ class S3DestinationWriter:
     def __init__(self, ctx: DestinationRunContext) -> None:
         self._ctx = ctx
         config = ctx.config or {}
-        self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip("/")
+        self._bucket: str = (config.get("bucket") or config.get("bucket_name") or "").strip().strip("/")
         self._region: str = (config.get("region") or "").strip()
         self._prefix: str = (config.get("prefix") or "").strip("/")
         self._use_virtual_style_addressing = bool(config.get("use_virtual_style_addressing"))
@@ -301,6 +341,16 @@ class S3DestinationWriter:
 
     # --- connection -------------------------------------------------------------------
 
+    @contextmanager
+    def _configuration_errors(self) -> Iterator[None]:
+        try:
+            yield
+        except Exception as err:
+            detail = _configuration_error_detail(err)
+            if detail is not None:
+                raise DestinationConfigurationError(self._ctx.destination_name, detail) from err
+            raise
+
     @asynccontextmanager
     async def _client(self) -> AsyncIterator[S3Client]:
         """Their client, entered so its aiohttp session is closed on the way out.
@@ -310,7 +360,10 @@ class S3DestinationWriter:
         if self._ctx.integration_id is None:
             raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL)
 
-        integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        try:
+            integration = await get_s3_integration(self._ctx.integration_id, self._ctx.team_id)
+        except S3IntegrationNotFoundError as error:
+            raise DestinationConfigurationError(self._ctx.destination_name, MISSING_INTEGRATION_DETAIL) from error
 
         endpoint_url: str | None = None
         refresh_credentials: RefreshCredentials | None = None
@@ -372,6 +425,12 @@ class S3DestinationWriter:
     async def write_batch(
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
+        with self._configuration_errors():
+            return await self._write_batch(batches, ctx)
+
+    async def _write_batch(
+        self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
+    ) -> BatchWriteOutcome:
         first = await anext(batches, None)
         if first is None:
             # No record batches at all. An empty object is not a readable parquet file, so
@@ -399,6 +458,10 @@ class S3DestinationWriter:
         return None if self._compression == "none" else self._compression
 
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
+        with self._configuration_errors():
+            await self._finalize_run(ctx)
+
+    async def _finalize_run(self, ctx: DestinationRunContext) -> None:
         """Write a manifest, which is how a reader tells a finished run from an abandoned one.
 
         It carries no file list. `finalize_run` runs on a writer that may have written none of

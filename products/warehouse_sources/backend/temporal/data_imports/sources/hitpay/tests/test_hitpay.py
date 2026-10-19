@@ -1,32 +1,30 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from unittest import mock
-
 from parameterized import parameterized
-from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     SinglePagePaginator,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.hitpay import HitpaySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.hitpay import (
     HitpayResumeConfig,
     _format_charge_date,
     _paginator_for,
     base_url_for_environment,
-    hitpay_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.settings import (
     HITPAY_ENDPOINTS,
     RECURRING_BILLING_STATUSES,
 )
-
-# RESTClient (and the hand-rolled RecurringBilling client) build their session via
-# make_tracked_session, imported directly into the hitpay module.
-SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.hitpay.make_tracked_session"
-VALIDATE_SESSION_PATCH = SESSION_PATCH
+from products.warehouse_sources.backend.temporal.data_imports.sources.hitpay.source import HitpaySource
 
 
 class TestBaseUrlForEnvironment:
@@ -60,168 +58,83 @@ class TestPaginatorFor:
         assert isinstance(_paginator_for(HITPAY_ENDPOINTS["RecurringBilling"]), SinglePagePaginator)
 
 
-def _response(items: list[dict[str, Any]], *, extra: dict[str, Any] | None = None) -> Response:
+def _driver(platform_api_key: str | None = None) -> SourceDriver:
+    return SourceDriver(
+        HitpaySource(), HitpaySourceConfig(api_key="key", platform_api_key=platform_api_key, environment="production")
+    )
+
+
+def _response(items: list[dict[str, Any]], *, extra: dict[str, Any] | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"data": items}
     if extra:
         body.update(extra)
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
-
-
-def _make_manager(resume_state: HitpayResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    session.headers = {}
-    snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        snapshots.append({"url": request.url, "params": dict(request.params or {})})
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
+    return ScriptedResponse(json=body)
 
 
 class TestHitpaySourcePageNumberEndpoint:
-    @mock.patch(SESSION_PATCH)
-    def test_paginates_until_last_page(self, mock_make_session: mock.MagicMock) -> None:
-        session = mock_make_session.return_value
-        _wire(
-            session,
+    def test_paginates_until_last_page(self) -> None:
+        result = _driver().run(
+            "SubscriptionPlans",
             [
                 _response([{"id": "1"}, {"id": "2"}], extra={"meta": {"last_page": 2}}),
                 _response([{"id": "3"}], extra={"meta": {"last_page": 2}}),
             ],
         )
 
-        rows = _rows(
-            hitpay_source(
-                api_key="key",
-                platform_api_key=None,
-                environment="production",
-                endpoint="SubscriptionPlans",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=None,
-            )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2", "3"]
+        assert result.paths == ["/v1/subscription-plan", "/v1/subscription-plan"]
+        assert result.params("page") == ["1", "2"]
+
+    def test_resumes_from_saved_page(self) -> None:
+        result = _driver().run(
+            "SubscriptionPlans",
+            [_response([{"id": "2"}], extra={"meta": {"last_page": 2}})],
+            resume_state=HitpayResumeConfig(next_page=2),
         )
 
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
-        assert session.send.call_count == 2
-
-    @mock.patch(SESSION_PATCH)
-    def test_resumes_from_saved_page(self, mock_make_session: mock.MagicMock) -> None:
-        session = mock_make_session.return_value
-        snapshots = _wire(session, [_response([{"id": "2"}], extra={"meta": {"last_page": 2}})])
-
-        rows = _rows(
-            hitpay_source(
-                api_key="key",
-                platform_api_key=None,
-                environment="production",
-                endpoint="SubscriptionPlans",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(HitpayResumeConfig(next_page=2)),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=None,
-            )
-        )
-
-        assert [r["id"] for r in rows] == ["2"]
-        assert session.send.call_count == 1
-        assert snapshots[0]["params"]["page"] == 2
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["2"]
+        assert result.params("page") == ["2"]
 
 
 class TestHitpaySourceCursorEndpoint:
-    @mock.patch(SESSION_PATCH)
-    def test_paginates_via_cursor(self, mock_make_session: mock.MagicMock) -> None:
-        session = mock_make_session.return_value
-        _wire(
-            session,
+    def test_paginates_via_cursor(self) -> None:
+        result = _driver().run(
+            "Charges",
             [
                 _response([{"id": "1"}], extra={"meta": {"next_cursor": "abc"}}),
                 _response([{"id": "2"}], extra={"meta": {"next_cursor": None}}),
             ],
         )
 
-        rows = _rows(
-            hitpay_source(
-                api_key="key",
-                platform_api_key=None,
-                environment="production",
-                endpoint="Charges",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=None,
-            )
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2"]
+        assert result.paths == ["/v1/charges", "/v1/charges"]
+        assert result.params("cursor") == [None, "abc"]
+
+    def test_incremental_date_from_sent_when_enabled(self) -> None:
+        result = _driver().run(
+            "Charges",
+            [_response([{"id": "1"}], extra={"meta": {"next_cursor": None}})],
+            incremental_field="created_at",
+            db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
 
-        assert [r["id"] for r in rows] == ["1", "2"]
-        assert session.send.call_count == 2
-
-    @mock.patch(SESSION_PATCH)
-    def test_incremental_date_from_sent_when_enabled(self, mock_make_session: mock.MagicMock) -> None:
-        session = mock_make_session.return_value
-        snapshots = _wire(session, [_response([{"id": "1"}], extra={"meta": {"next_cursor": None}})])
-
-        _rows(
-            hitpay_source(
-                api_key="key",
-                platform_api_key=None,
-                environment="production",
-                endpoint="Charges",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
-            )
-        )
-
-        assert snapshots[0]["params"]["date_from"] == "2026-03-04"
+        assert result.raised is None
+        assert result.params("date_from") == ["2026-03-04"]
 
 
 class TestRecurringBillingFanOut:
-    @mock.patch(SESSION_PATCH)
-    def test_requests_every_status_and_concatenates_rows(self, mock_make_session: mock.MagicMock) -> None:
-        session = mock_make_session.return_value
-        responses = [_response([{"id": status}]) for status in RECURRING_BILLING_STATUSES]
-        snapshots = _wire(session, responses)
-
-        rows = _rows(
-            hitpay_source(
-                api_key="key",
-                platform_api_key="platform-key",
-                environment="production",
-                endpoint="RecurringBilling",
-                team_id=1,
-                job_id="job-1",
-                resumable_source_manager=_make_manager(),
-                should_use_incremental_field=False,
-                db_incremental_field_last_value=None,
-            )
+    def test_requests_every_status_and_concatenates_rows(self) -> None:
+        result = _driver(platform_api_key="platform-key").run(
+            "RecurringBilling", [_response([{"id": status}]) for status in RECURRING_BILLING_STATUSES]
         )
 
-        assert [r["id"] for r in rows] == list(RECURRING_BILLING_STATUSES)
-        assert session.send.call_count == len(RECURRING_BILLING_STATUSES)
-        assert [s["params"]["status"] for s in snapshots] == list(RECURRING_BILLING_STATUSES)
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == list(RECURRING_BILLING_STATUSES)
+        assert result.paths == ["/v1/recurring-billing"] * len(RECURRING_BILLING_STATUSES)
+        assert result.params("status") == list(RECURRING_BILLING_STATUSES)
 
 
 class TestValidateCredentials:
@@ -233,25 +146,19 @@ class TestValidateCredentials:
             ("unreachable", None, False, "Could not connect to HitPay"),
         ]
     )
-    @mock.patch(VALIDATE_SESSION_PATCH)
     def test_validate_credentials(
         self,
         _name: str,
         status_code: int | None,
         expected_valid: bool,
         expected_message_snippet: str | None,
-        mock_make_session: mock.MagicMock,
     ) -> None:
-        session = mock_make_session.return_value
-        if status_code is None:
-            session.get.side_effect = ConnectionError("boom")
-        else:
-            resp = Response()
-            resp.status_code = status_code
-            session.get.return_value = resp
+        script = always(ConnectionError("boom")) if status_code is None else [ScriptedResponse(status=status_code)]
+        with scripted_network(script) as network:
+            is_valid, message = validate_credentials("key", None, "production")
 
-        is_valid, message = validate_credentials("key", None, "production")
-
+        assert {request.path for request in network.requests_log} == {"/v1/account-status"}
+        assert network.requests_log[0].headers["x-business-api-key"] == "key"
         assert is_valid is expected_valid
         if expected_message_snippet is None:
             assert message is None

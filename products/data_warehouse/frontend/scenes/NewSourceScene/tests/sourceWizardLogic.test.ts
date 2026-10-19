@@ -3,6 +3,8 @@ import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -10,20 +12,27 @@ import { captureMarketingCrossSellClick, getMarketingCrossSellAttribution } from
 
 import { ProductIntentContext, ProductKey, WebStatsBreakdown } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import type { AvailableColumn, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
+import type { AvailableColumn, ExternalDataSource, ExternalDataSourceSyncSchema, IncrementalField } from '~/types'
 
 import type { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
+    buildCreateSourcePayload,
     buildKeaFormDefaultFromSourceDetails,
     getDatabaseSchemaPayload,
     getErrorsForFields,
+    isPrefixRequired,
     mergeRestoredSourceFormValues,
     resolveConnectErrorMessage,
     shouldHydrateSourceFromUrl,
     sourceWizardLogic,
     WIZARD_DESTINATION_STEP,
 } from '../sourceWizardLogic'
+
+type Deferred = {
+    resolve: (schemas: ExternalDataSourceSyncSchema[]) => void
+    reject: (error: unknown) => void
+}
 
 function buildSourceConfig(overrides: Partial<SourceConfigResponseApi>): SourceConfigResponseApi {
     // Fills the fields the wizard endpoint always sends but no case here exercises, so each
@@ -145,7 +154,8 @@ describe('sourceWizardLogic', () => {
                     if (category !== 'Databases') {
                         logic.actions.setReturnConfig(
                             '/project/997/marketing?tab=ad-performance',
-                            'Marketing analytics'
+                            'Marketing analytics',
+                            'marketing_analytics_mcp'
                         )
                     }
                     await expectLogic(logic, () => logic.actions.createSource()).toFinishAllListeners()
@@ -154,6 +164,7 @@ describe('sourceWizardLogic', () => {
                         expect.objectContaining({
                             sourceType: source.name,
                             returnLabel: category === 'Databases' ? undefined : 'Marketing analytics',
+                            entry_point: category === 'Databases' ? undefined : 'marketing_analytics_mcp',
                         })
                     )
                     const conversions = jest
@@ -273,6 +284,21 @@ describe('sourceWizardLogic', () => {
         expect(shouldHydrateSourceFromUrl(2, postgresSource, postgresSource, 'warehouse', 'direct')).toBe(true)
     })
 
+    describe('isPrefixRequired', () => {
+        const source = (source_type: string, prefix: string | null): ExternalDataSource =>
+            ({ source_type, prefix }) as ExternalDataSource
+
+        test.each([
+            ['no sources yet', [], false],
+            ['an unprefixed source of the same type', [source('Stripe', null)], true],
+            ['an empty-string prefix on the same type', [source('Stripe', '')], true],
+            ['only prefixed sources of the same type', [source('Stripe', 'eu')], false],
+            ['an unprefixed source of another type', [source('Hubspot', null)], false],
+        ])('with %s', (_, sources, expected) => {
+            expect(isPrefixRequired(sources, 'Stripe')).toBe(expected)
+        })
+    })
+
     describe('resolveConnectErrorMessage', () => {
         it('guides toward ad blockers when a request never reaches the server', () => {
             // A thrown fetch has no HTTP status; without this branch the user only sees "Failed to fetch".
@@ -307,6 +333,27 @@ describe('sourceWizardLogic', () => {
             expect(message).toBeTruthy()
             expect(message).not.toEqual('undefined')
         })
+    })
+
+    describe('buildCreateSourcePayload', () => {
+        beforeEach(() => {
+            featureFlagLogic.mount()
+        })
+
+        it.each([
+            { connector: 'Postgres', flagOn: false, expectedAccessMethod: 'direct' },
+            { connector: 'BigQuery', flagOn: false, expectedAccessMethod: 'warehouse' },
+            { connector: 'BigQuery', flagOn: true, expectedAccessMethod: 'direct' },
+        ])(
+            'keeps direct mode for $connector only when supported (flag on: $flagOn)',
+            ({ connector, flagOn, expectedAccessMethod }) => {
+                featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.BIGQUERY_DIRECT_QUERY]: flagOn })
+
+                const payload = buildCreateSourcePayload({ access_method: 'direct', prefix: 'bq' } as any, connector)
+
+                expect(payload).toMatchObject({ access_method: expectedAccessMethod, source_type: connector })
+            }
+        )
     })
 
     describe('getDatabaseSchemaPayload', () => {
@@ -1593,6 +1640,60 @@ describe('sourceWizardLogic', () => {
 
                 logic.actions.selectConnector(null)
                 expect(logic.values.connectError).toBeNull()
+            } finally {
+                unmount()
+            }
+        })
+
+        const sentrySource = buildSourceConfig({ name: 'Sentry' })
+        const rejectProbe = (d: Deferred): void => d.reject({ status: 400, data: { message: 'Bad key.' } })
+        const resolveProbe = (d: Deferred): void => d.resolve([{ table: 'charges' } as ExternalDataSourceSyncSchema])
+
+        it.each([
+            { outcome: 'rejects', picked: 'another source', switchTo: [sentrySource], settle: rejectProbe },
+            { outcome: 'resolves', picked: 'another source', switchTo: [sentrySource], settle: resolveProbe },
+            {
+                outcome: 'rejects',
+                picked: 'the same source again',
+                switchTo: [sentrySource, stripeSource],
+                settle: rejectProbe,
+            },
+            {
+                outcome: 'resolves',
+                picked: 'the same source again',
+                switchTo: [sentrySource, stripeSource],
+                settle: resolveProbe,
+            },
+        ])('ignores a probe that $outcome after $picked is picked', async ({ switchTo, settle }) => {
+            const deferred = {} as Deferred
+            jest.spyOn(api.externalDataSources, 'database_schema').mockReturnValue(
+                new Promise<ExternalDataSourceSyncSchema[]>((resolve, reject) =>
+                    Object.assign(deferred, { resolve, reject })
+                )
+            )
+            const toastError = jest.spyOn(lemonToast, 'error')
+
+            const logic = sourceWizardLogic({ availableSources: { Stripe: stripeSource, Sentry: sentrySource } })
+            const unmount = logic.mount()
+
+            try {
+                logic.actions.selectConnector(stripeSource)
+                logic.actions.setStep(2)
+                logic.actions.getDatabaseSchemas()
+                for (const source of switchTo) {
+                    logic.actions.selectConnector(source)
+                }
+                expect(logic.values.isLoading).toBe(false)
+                settle(deferred)
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values).toMatchObject({
+                    currentStep: 2,
+                    connectError: null,
+                    databaseSchema: [],
+                    isLoading: false,
+                })
+                expect(toastError).not.toHaveBeenCalled()
             } finally {
                 unmount()
             }

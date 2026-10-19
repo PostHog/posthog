@@ -5,14 +5,21 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.usbea import UsBeaSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.source import UsBeaSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.us_bea.us_bea import (
     UsBeaAuthenticationError,
     UsBeaRequestError,
     UsBeaResponseTooLargeError,
     build_query_url,
     get_data_rows,
-    get_endpoint_rows,
     parse_custom_query_params,
     validate_credentials,
     validate_custom_query,
@@ -30,14 +37,6 @@ def _mock_response(status_code: int = 200, json_data: Any = None) -> MagicMock:
     body = json.dumps(json_data).encode("utf-8") if json_data is not None else b""
     response.iter_content.return_value = iter([body]) if body else iter([])
     return response
-
-
-def _patched_session(*responses: MagicMock):
-    session = MagicMock()
-    session.get.side_effect = list(responses) if len(responses) > 1 else None
-    if len(responses) == 1:
-        session.get.return_value = responses[0]
-    return patch(f"{_MODULE}.make_tracked_session", return_value=session), session
 
 
 def _data_payload(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -141,22 +140,16 @@ class TestUsBea:
 
     def test_get_endpoint_rows_issues_one_call_per_line_code_and_merges(self):
         endpoint = ENDPOINTS["StatePersonalIncomeSummary"]
-        responses = [
-            _mock_response(json_data=_data_payload([{"Code": f"SAINC1-{code}"}])) for code in endpoint.line_codes
-        ]
-        patcher, session = _patched_session(*responses)
+        responses = [ScriptedResponse(json=_data_payload([{"Code": f"SAINC1-{code}"}])) for code in endpoint.line_codes]
 
-        with patcher:
-            batches = list(get_endpoint_rows("user-id", endpoint))
+        result = SourceDriver(UsBeaSource(), UsBeaSourceConfig(api_key="user-id")).run(
+            "StatePersonalIncomeSummary", responses
+        )
 
-        assert session.get.call_count == len(endpoint.line_codes)
-        assert [row for batch in batches for row in batch] == [
-            {"Code": f"SAINC1-{code}"} for code in endpoint.line_codes
-        ]
-        requested_line_codes = [
-            parse_qs(urlparse(call.args[0]).query)["LineCode"][0] for call in session.get.call_args_list
-        ]
-        assert requested_line_codes == list(endpoint.line_codes)
+        assert result.raised is None
+        assert len(result.requests) == len(endpoint.line_codes)
+        assert result.rows == [{"Code": f"SAINC1-{code}"} for code in endpoint.line_codes]
+        assert result.params("LineCode") == list(endpoint.line_codes)
 
     def test_parse_custom_query_params_strips_whitespace_and_ignores_malformed_pairs(self):
         assert parse_custom_query_params(" TableName=T10101 , Frequency=Q ,, garbage ") == {
@@ -193,29 +186,22 @@ class TestUsBea:
         assert error is not None and "missing or invalid" in error
 
     def test_validate_credentials_success(self):
-        response = _mock_response(json_data={"BEAAPI": {"Results": {"Parameter": []}}})
-        patcher, _ = _patched_session(response)
-
-        with patcher:
+        with scripted_network([ScriptedResponse(json={"BEAAPI": {"Results": {"Parameter": []}}})]) as network:
             valid, error = validate_credentials("user-id")
+
+        assert network.requests_log[0].param("method") == "GetParameterList"
 
         assert (valid, error) == (True, None)
 
     def test_validate_credentials_rejects_invalid_user_id(self):
-        response = _mock_response(json_data=_error_payload("1", "Invalid Request - Invalid API UserId."))
-        patcher, _ = _patched_session(response)
-
-        with patcher:
+        with scripted_network([ScriptedResponse(json=_error_payload("1", "Invalid Request - Invalid API UserId."))]):
             valid, error = validate_credentials("bad-id")
 
         assert valid is False
         assert error is not None and "missing or invalid" in error
 
     def test_validate_credentials_handles_network_failure(self):
-        session = MagicMock()
-        session.get.side_effect = ConnectionError("boom")
-
-        with patch(f"{_MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(ConnectionError("boom"))):
             valid, error = validate_credentials("user-id")
 
         assert valid is False

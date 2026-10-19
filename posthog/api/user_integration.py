@@ -59,11 +59,17 @@ from posthog.api.user_integration_codex import (
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user import User
-from posthog.models.user_integration import GitHubInstallRequest, UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import (
+    NEEDS_REAUTHORIZATION_Q,
+    GitHubInstallRequest,
+    UserGitHubIntegration,
+    UserIntegration,
+)
 from posthog.permissions import APIScopePermission, TimeSensitiveActionPermission
 from posthog.rate_limit import CodexConnectUserThrottle, UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
@@ -122,6 +128,16 @@ class UserGitHubIntegrationItemSerializer(serializers.Serializer):
             "`unavailable` means the App was uninstalled or suspended on GitHub and PostHog can no longer "
             "mint tokens for it; `connected` otherwise."
         ),
+    )
+    needs_reauthorization = serializers.BooleanField(
+        help_text=(
+            "True when GitHub rejected the stored credentials and PostHog dropped them. The installation is "
+            "still on GitHub, but PostHog cannot act as the user until they authorize it again."
+        ),
+    )
+    needs_reauthorization_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the stored credentials stopped working, or null while they still work.",
     )
     created_at = serializers.DateTimeField(help_text="When this integration row was created.")
 
@@ -355,6 +371,17 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
             raise exceptions.NotFound()
         return user
 
+    def _get_connected_github_integration(self, installation_id: str) -> UserIntegration:
+        # A flagged row still holds the installation token, but its owner's GitHub authorization is gone.
+        integration = (
+            UserIntegration.objects.filter(user=self._get_user(), kind="github", integration_id=installation_id)
+            .exclude(NEEDS_REAUTHORIZATION_Q)
+            .first()
+        )
+        if integration is None:
+            raise exceptions.NotFound("No GitHub integration found for this installation.")
+        return integration
+
     def _team_github_installation_ids(self, user: User) -> set[str]:
         """Installation IDs for the current team's GitHub integrations (for ``uses_shared_installation``)."""
         team = user.current_team
@@ -423,7 +450,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         results: list[dict[str, Any]] = []
         for integration in integrations:
             if integration.kind == "github":
-                UserGitHubIntegration(integration).ensure_account_name()
+                UserGitHubIntegration(
+                    integration, source="user_integrations_api", priority=Priority.NORMAL
+                ).ensure_account_name()
                 results.append(
                     _serialize_github_integration(
                         integration,
@@ -481,13 +510,14 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         query_serializer = GitHubReposQuerySerializer(data=request.query_params)
         query_serializer.is_valid(raise_exception=True)
 
-        integration = UserIntegration.objects.filter(
-            user=self._get_user(), kind="github", integration_id=installation_id
-        ).first()
-        if integration is None:
-            raise exceptions.NotFound("No GitHub integration found for this installation.")
+        integration = self._get_connected_github_integration(installation_id)
 
-        return Response(github_repos_page(UserGitHubIntegration(integration), query_serializer.validated_data))
+        return Response(
+            github_repos_page(
+                UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.CRITICAL),
+                query_serializer.validated_data,
+            )
+        )
 
     @extend_schema(
         summary="Refresh repositories for a personal GitHub installation",
@@ -497,13 +527,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     @action(methods=["POST"], detail=False, url_path=r"github/(?P<installation_id>\d+)/repos/refresh")
     def github_repos_refresh(self, request: Request, installation_id: str, **_kwargs) -> Response:
         """Refresh repositories accessible to a specific GitHub installation."""
-        integration = UserIntegration.objects.filter(
-            user=self._get_user(), kind="github", integration_id=installation_id
-        ).first()
-        if integration is None:
-            raise exceptions.NotFound("No GitHub integration found for this installation.")
+        integration = self._get_connected_github_integration(installation_id)
 
-        github = UserGitHubIntegration(integration)
+        github = UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.CRITICAL)
         try:
             repositories = github.sync_repository_cache(
                 min_refresh_interval_seconds=GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS
@@ -540,13 +566,9 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         validate_github_repository_name(repo)
 
-        integration = UserIntegration.objects.filter(
-            user=self._get_user(), kind="github", integration_id=installation_id
-        ).first()
-        if integration is None:
-            raise exceptions.NotFound("No GitHub integration found for this installation.")
+        integration = self._get_connected_github_integration(installation_id)
 
-        github = UserGitHubIntegration(integration)
+        github = UserGitHubIntegration(integration, source="github_branch_picker", priority=Priority.CRITICAL)
         branches, default_branch, has_more = github.list_cached_branches(
             repo,
             search=search,
@@ -936,7 +958,11 @@ def _has_unlinked_github_installations(user: User) -> bool | None:
         return None
 
     github_installation_ids = {str(installation["id"]) for installation in installations}
-    linked_ids = set(UserIntegration.objects.filter(user=user, kind="github").values_list("integration_id", flat=True))
+    linked_ids = set(
+        UserIntegration.objects.filter(user=user, kind="github")
+        .exclude(NEEDS_REAUTHORIZATION_Q)
+        .values_list("integration_id", flat=True)
+    )
     return bool(github_installation_ids - linked_ids)
 
 
@@ -967,7 +993,11 @@ def _attempt_app_oauth_fast_path(
     team_installation_id = _team_github_installation_id(team)
     if team_installation_id is None:
         return None
-    if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
+    if (
+        UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id)
+        .exclude(NEEDS_REAUTHORIZATION_Q)
+        .exists()
+    ):
         return None
     github_callback_state.store_unified_authorize_state(
         GitHubAuthorizeState(
@@ -989,7 +1019,7 @@ def _serialize_github_integration(
     installation_reference_counts: dict[str, int],
 ) -> dict[str, Any]:
     """Build the response payload for a single GitHub UserIntegration."""
-    github = UserGitHubIntegration(integration)
+    github = UserGitHubIntegration(integration, source="user_integrations_api", priority=Priority.NORMAL)
     # Mirrors github_destroy's uninstall_if_last_reference: any other row, team or personal, keeps the
     # App installed on GitHub after this one is deleted. The precomputed map counts every reference
     # for the installation including this row, so more than one means another row still shares it.
@@ -1006,6 +1036,8 @@ def _serialize_github_integration(
         "uses_shared_installation": integration.integration_id in team_integration_installation_ids,
         "installation_shared": installation_shared,
         "installation_status": "unavailable" if github.installation_unavailable() else "connected",
+        "needs_reauthorization": github.needs_reauthorization,
+        "needs_reauthorization_at": github.needs_reauthorization_at,
         "created_at": integration.created_at,
     }
 

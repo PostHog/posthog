@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
@@ -11,7 +12,7 @@ from products.workflows.backend.services.audience_v2 import (
     get_dedupe_audience_count_v2,
     get_person_audience_count_v2,
 )
-from products.workflows.backend.services.batch_audience import get_batch_audience_count
+from products.workflows.backend.services.batch_audience import get_batch_audience_person_ids
 
 FILTERS = {"properties": [{"key": "subscribed", "type": "person", "value": ["true"], "operator": "exact"}]}
 
@@ -142,7 +143,7 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         assert (result.affected, result.total) == (3, 6)
 
-    def test_dedupe_count_matches_v1(self):
+    def test_dedupe_count_matches_deduped_audience_size(self):
         # Duplicate emails (case/whitespace variants) collapse to one send group; persons
         # without an email keep their own group. Small data exercises the exact fallback.
         emails = ["Dup@X.com", " dup@x.com ", "b@x.com", None, ""]
@@ -155,8 +156,12 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 4
+        assert result.affected == len(get_batch_audience_person_ids(self.team, FILTERS, dedupe_key="email")) == 4
         assert result.total == 5
+
+    def test_dedupe_count_rejects_unsupported_dedupe_key(self):
+        with pytest.raises(ValueError, match="Unsupported dedupe_key"):
+            get_dedupe_audience_count_v2(self.team, FILTERS, "sms")
 
     def test_dedupe_count_is_zero_when_no_person_matches(self):
         _create_person(team=self.team, distinct_ids=["user-1"], properties={"subscribed": "false", "email": "a@x.com"})
@@ -164,7 +169,7 @@ class TestAudienceV2(ClickhouseTestMixin, BaseTest):
 
         result = get_dedupe_audience_count_v2(self.team, FILTERS, "email")
 
-        assert result.affected == get_batch_audience_count(self.team, FILTERS, dedupe_key="email") == 0
+        assert result.affected == 0
 
     def test_sampled_dedupe_count_extrapolates_by_modulus(self):
         for i in range(3):

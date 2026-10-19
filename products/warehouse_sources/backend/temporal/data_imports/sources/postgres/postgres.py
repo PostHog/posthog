@@ -60,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.cursor import SourceCursorManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    SSH_HANDSHAKE_EOF_ERROR as _SSH_HANDSHAKE_EOF_ERROR,
     open_ssh_tunnel,
     pinned_host_kwargs,
 )
@@ -75,6 +76,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.batching import (
     EXTRACT_BATCH_MAX_BYTES,
     fetch_row_batches,
+    page_rows_after_worker_deaths,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.implementation import (
     SQLSourceImplementation,
@@ -327,6 +329,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # ("password authentication failed", "SASL authentication failed"), and exclude the volatile
     # millisecond value.
     "authentication did not complete within",
+    # A Neon-style proxy reports its own internal round trip to the control plane (used to route,
+    # authenticate, or wake the compute while establishing the connection) failing with the bare,
+    # generic "ERROR: Control plane request failed" — unlike the specific, actionable control-plane
+    # rejections already handled in `get_non_retryable_errors` (exceeded quota, allow-listed IP,
+    # disabled branch, ...), which all carry their own detailed wording. The generic form means the
+    # round trip itself broke (a transient blip reaching the control plane), not that it returned a
+    # customer-fixable rejection, so a fresh connect after backoff typically succeeds — the same
+    # transient class as the scale-to-zero wake timeout above.
+    "control plane request failed",
     # Supavisor authenticates a tenant with no static user record by running an `auth_query` against
     # the tenant's own backend database to fetch/cache the password secret used to validate the
     # client's credentials. If that secret isn't cached yet (e.g. right after Supavisor starts
@@ -1408,6 +1419,18 @@ def _is_pooler_login_cooldown_error(error: BaseException) -> bool:
     return "server login has been failing" in message and "server_login_retry" in message
 
 
+def _is_activity_cancelled(error: BaseException) -> bool:
+    """True when `error` is Temporal cancelling the activity, not a genuine query failure.
+
+    Temporal can inject a `temporalio.exceptions.CancelledError` (an `Exception` subclass) into
+    whatever statement is running when the activity is cancelled or hits its
+    `start_to_close_timeout` — here, typically the catalog query inside a best-effort metadata
+    probe. Match on the type name rather than importing temporalio into this module, mirroring
+    `sync_lock._is_cancellation`.
+    """
+    return type(error).__name__ == "CancelledError"
+
+
 def _rls_active_from_conn(
     connection: psycopg.Connection,
     schema: str | None,
@@ -1491,6 +1514,9 @@ def _rls_active_from_conn(
         # `_xmin_capable_tables_from_conn`, which already degrades quietly for it). A pooler
         # login-retry cooldown (e.g. a duckgres-backed source's own metadata store momentarily
         # can't log in) is the same self-healing shape — see `_is_pooler_login_cooldown_error`.
+        # Temporal cancelling the activity mid-probe (user cancelled the sync, or the activity hit
+        # its `start_to_close_timeout`) is the same shape too: the sync is ending regardless of
+        # what this best-effort lookup returns, so there's nothing to fix here.
         # Still capture genuinely unexpected failures.
         if (
             not connection.closed
@@ -1500,6 +1526,7 @@ def _rls_active_from_conn(
             and not _is_unsupported_statement_timeout_error(e)
             and not _is_statement_timeout_error(e)
             and not _is_pooler_login_cooldown_error(e)
+            and not _is_activity_cancelled(e)
         ):
             capture_exception(e)
         return {}
@@ -1875,6 +1902,18 @@ def get_foreign_keys(
         return _foreign_keys_from_conn(connection, schema, names)
 
 
+def _get_connection_functions(cursor: psycopg.Cursor, query: str) -> list[str]:
+    try:
+        cursor.execute(query)
+        functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
+        return [fn for fn in functions if not is_dangerous_table_function(fn)]
+    except Exception as error:
+        # Even a failed SELECT aborts PostgreSQL's transaction; reset it before the next catalog query.
+        cursor.connection.rollback()
+        capture_exception(error)
+        return []
+
+
 def get_connection_metadata(
     host: str,
     database: str,
@@ -1901,42 +1940,42 @@ def get_connection_metadata(
             is_duckdb = "duckdb" in version.lower() or "duckgres" in version.lower()
 
             function_source = "duckdb_functions" if is_duckdb else "pg_proc"
-            available_functions: list[str] = []
-            available_table_functions: list[str] = []
-
-            try:
-                if is_duckdb:
-                    cursor.execute("SELECT DISTINCT function_name FROM duckdb_functions()")
-                else:
-                    cursor.execute("SELECT DISTINCT proname FROM pg_proc WHERE pg_function_is_visible(oid)")
-                available_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
-            except Exception as error:
-                capture_exception(error)
-
-            try:
-                if is_duckdb:
-                    cursor.execute(
-                        "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
-                    )
-                else:
-                    # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
-                    # which is how Postgres exposes table functions in pg_proc.
-                    cursor.execute(
-                        "SELECT DISTINCT proname FROM pg_proc "
-                        "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'"
-                    )
-                available_table_functions = _normalize_function_names([row[0] for row in cursor.fetchall()])
-            except Exception as error:
-                capture_exception(error)
-
-            available_functions = [fn for fn in available_functions if not is_dangerous_table_function(fn)]
-            available_table_functions = [fn for fn in available_table_functions if not is_dangerous_table_function(fn)]
-
-            return {
+            metadata: dict[str, Any] = {
                 "database": current_database,
                 "version": version,
                 "engine": "duckdb" if is_duckdb else "postgres",
                 "function_source": function_source,
+            }
+            if is_duckdb:
+                available_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT function_name FROM duckdb_functions()"
+                )
+                available_table_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT function_name FROM duckdb_functions() WHERE function_type = 'table'"
+                )
+            else:
+                available_functions = _get_connection_functions(
+                    cursor, "SELECT DISTINCT proname FROM pg_proc WHERE pg_function_is_visible(oid)"
+                )
+                # prokind='f' excludes aggregates/windows/procedures; proretset=true selects set-returning fns,
+                # which is how Postgres exposes table functions in pg_proc.
+                available_table_functions = _get_connection_functions(
+                    cursor,
+                    "SELECT DISTINCT proname FROM pg_proc "
+                    "WHERE pg_function_is_visible(oid) AND proretset = true AND prokind = 'f'",
+                )
+                try:
+                    cursor.execute(
+                        "SELECT n.nspname FROM pg_extension e "
+                        "JOIN pg_namespace n ON n.oid = e.extnamespace WHERE e.extname = 'pgcrypto'"
+                    )
+                    extension = cursor.fetchone()
+                    metadata["pgcrypto_schema"] = extension[0] if extension else None
+                except Exception as error:
+                    capture_exception(error)
+
+            return {
+                **metadata,
                 "available_functions": available_functions,
                 "available_table_functions": available_table_functions,
             }
@@ -3512,6 +3551,16 @@ def _get_table(
                 table=table_name,
                 error=str(e),
             )
+            # `cursor.connection.transaction()` rolls back the BEGIN it opened when the probe
+            # raises, but psycopg only logs and swallows a rollback that itself fails (e.g. the
+            # client-side deadline above canceled the probe mid-flight) instead of raising —
+            # silently leaving the session `InFailedSqlTransaction`. Clear it defensively so every
+            # later statement on this connection (the read-replica check, primary key lookup, the
+            # actual read) doesn't fail as a downstream symptom of this best-effort probe.
+            try:
+                cursor.connection.rollback()
+            except Exception:
+                pass
 
     columns = []
     for name, data_type, nullable, numeric_precision_candidate, numeric_scale_candidate in metadata_rows:
@@ -3584,16 +3633,6 @@ def _get_table(
     return Table(name=table_name, parents=(schema,), columns=columns, type=table_type)
 
 
-# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
-# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
-# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
-# only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty
-# `str()`, matching no non-retryable rule and retrying forever. `_tunnel_with_handshake_translation`
-# turns it into this stable, classifiable message (see `PostgresSource.get_non_retryable_errors`) —
-# same gateway-configuration class as a wrapped "Could not establish session to SSH gateway".
-_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
-
-
 @contextmanager
 def _tunnel_with_handshake_translation(
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
@@ -3633,6 +3672,7 @@ def postgres_source(
     is_xmin: bool = False,
     xmin_cursor: Optional[SourceCursorManager[XminCursor]] = None,
     activity_attempt: int = 1,
+    worker_deaths: int = 0,
     resumable_source_manager: Optional[ResumableSourceManager[KeysetResumeState]] = None,
 ) -> SourceResponse:
     table_name = table_names[0]
@@ -4433,10 +4473,18 @@ def postgres_source(
                 try:
                     # A page is one statement and it is resident in full, so it is sized like any
                     # other fetch. A batch then spans as many pages as its byte budget holds.
+                    # A seek page is also a round trip, so only a run of wide rows shrinks it, and
+                    # a worker death halves it. A LIMIT/OFFSET walk is the fallback on a replica
+                    # that cancels reads, and it scans its whole offset on every page, so it keeps
+                    # the more careful sizing and its page.
+                    seeks = keyset_primary_keys is not None
                     for rows in fetch_row_batches(
                         fetch_page,
                         max_rows=chunk_size,
-                        max_page_rows=fetch_page_rows,
+                        max_page_rows=(
+                            page_rows_after_worker_deaths(fetch_page_rows, worker_deaths) if seeks else fetch_page_rows
+                        ),
+                        size_pages_by_average=seeks,
                     ):
                         batch_last_key = keyset_key_of(rows[-1]) if keyset_primary_keys is not None else None
 

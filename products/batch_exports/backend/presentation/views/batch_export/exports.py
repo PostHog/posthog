@@ -42,7 +42,8 @@ from posthog.security.url_validation import (
 from posthog.temporal.common.client import sync_connect
 
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
+from products.batch_exports.backend.facade import api as batch_exports_api
+from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters, UnsupportedDestinationTestError
 from products.batch_exports.backend.filters import SUPPORTED_FILTER_TYPES_DISPLAY, validate_batch_export_filters
 from products.batch_exports.backend.hogql_source import (
     UnsupportedHogQLQueryError,
@@ -58,7 +59,6 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportDestination,
     BatchExportSource,
 )
-from products.batch_exports.backend.presentation.views.destination_tests import get_destination_test
 from products.batch_exports.backend.presentation.views.utils import (
     HOGQL_MODIFIERS_HELP_TEXT,
     HogQLModifiersField,
@@ -106,6 +106,13 @@ class BatchExportUnpauseRequestSerializer(serializers.Serializer):
     )
 
 
+class DestinationTestStepRequestSerializer(serializers.Serializer):
+    step = serializers.IntegerField(
+        default=0,
+        help_text="Index of the connection test step to run. Steps start at 0.",
+    )
+
+
 class BatchExportRequestSerializer(serializers.Serializer):
     """Request body for create/partial_update on BatchExportViewSet.
 
@@ -140,6 +147,25 @@ class BatchExportRequestSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text=HOGQL_MODIFIERS_HELP_TEXT,
+    )
+    primary_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'",
+    )
+    version_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.",
+    )
+    incremental_mode = serializers.ChoiceField(
+        choices=BatchExport.IncrementalMode.choices,
+        default=serializers.CreateOnlyDefault(BatchExport.IncrementalMode.APPEND),  # type: ignore[arg-type]
+        help_text="How this batch export handles incremental updates.",
     )
     filters = serializers.JSONField(
         required=False,
@@ -273,6 +299,25 @@ class BatchExportSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=HOGQL_MODIFIERS_HELP_TEXT,
     )
+    primary_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'.",
+    )
+    version_key = serializers.ListField(
+        child=serializers.CharField(allow_null=False, allow_blank=False),
+        required=False,
+        allow_null=True,
+        allow_empty=False,
+        help_text="The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.",
+    )
+    incremental_mode = serializers.ChoiceField(
+        choices=BatchExport.IncrementalMode.choices,
+        default=serializers.CreateOnlyDefault(BatchExport.IncrementalMode.APPEND),  # type: ignore[arg-type]
+        help_text="How this batch export handles incremental updates.",
+    )
     timezone = serializers.ChoiceField(
         choices=TIMEZONES,
         required=False,
@@ -312,6 +357,9 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "latest_runs",
             "hogql_query",
             "hogql_modifiers",
+            "primary_key",
+            "version_key",
+            "incremental_mode",
             "schema",
             "filters",
             "timezone",
@@ -336,6 +384,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
 
         self._validate_attribute_only_supported_for_model(attrs, name="filters", model=BatchExport.Model.EVENTS)
         self._validate_attribute_only_supported_for_model(attrs, name="hogql_modifiers", model=BatchExport.Model.HOGQL)
+
+        # Pre-defined models have these values hard-coded, only HogQL allows user input
+        self._validate_attribute_only_supported_for_model(attrs, name="primary_key", model=BatchExport.Model.HOGQL)
+        self._validate_attribute_only_supported_for_model(attrs, name="version_key", model=BatchExport.Model.HOGQL)
 
         # TODO: Once these teams are migrated, remove this.
         if model == BatchExport.Model.EVENTS and (hogql_query := attrs.get("hogql_query")) is not None:
@@ -457,9 +509,44 @@ class BatchExportSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         hogql_modifiers = self._get_hogql_modifiers(attrs)
         try:
-            validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=hogql_modifiers)
+            parsed = validate_hogql_query_for_batch_export(hogql_query, team, user=user, modifiers=hogql_modifiers)
         except UnsupportedHogQLQueryError as e:
             raise serializers.ValidationError({"hogql_query": str(e)}) from e
+
+        # NOTE: Should be populated after a successful preparation
+        assert isinstance(parsed.type, (ast.SelectQueryType, ast.SelectSetQueryType))
+        output_columns = set(parsed.type.columns)
+
+        saved_incremental_mode = self.instance.incremental_mode if self.instance is not None else None
+        incremental_mode = attrs.get("incremental_mode", saved_incremental_mode)
+
+        saved_primary_key = source.primary_key if source is not None else None
+        primary_key = set(attrs.get("primary_key", saved_primary_key) or ())
+
+        if not primary_key and incremental_mode == BatchExport.IncrementalMode.MERGE:
+            raise serializers.ValidationError(
+                {"primary_key": "'primary_key' is required when 'incremental_mode' is 'MERGE'"}
+            )
+
+        missing_primary_key = primary_key - output_columns
+
+        if missing_primary_key:
+            raise serializers.ValidationError(
+                {
+                    "primary_key": f"'primary_key' contains columns that are not present in the query: {', '.join(missing_primary_key)}"
+                }
+            )
+
+        saved_version_key = source.version_key if source is not None else None
+        version_key = set(attrs.get("version_key", saved_version_key) or ())
+        missing_version_key = version_key - output_columns
+
+        if missing_version_key:
+            raise serializers.ValidationError(
+                {
+                    "version_key": f"'version_key' contains columns that are not present in the query: {','.join(missing_version_key)}"
+                }
+            )
 
     def _get_hogql_modifiers(self, attrs: dict[str, typing.Any]) -> HogQLQueryModifiers | None:
         if "hogql_modifiers" in attrs:
@@ -552,6 +639,24 @@ class BatchExportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("offset_hour is not applicable for non-daily/weekly intervals")
 
         return offset_hour
+
+    def validate_primary_key(self, primary_key: list[str] | None) -> list[str] | None:
+        """Validate primary key contains no duplicates."""
+        if not primary_key:
+            return primary_key
+
+        if not len(set(primary_key)) == len(primary_key):
+            raise serializers.ValidationError("'primary_key' contains duplicate column names.")
+        return primary_key
+
+    def validate_version_key(self, version_key: list[str] | None) -> list[str] | None:
+        """Validate version key contains no duplicates."""
+        if not version_key:
+            return version_key
+
+        if not len(set(version_key)) == len(version_key):
+            raise serializers.ValidationError("'version_key' contains duplicate column names.")
+        return version_key
 
     def validate_filters(self, filters):
         try:
@@ -868,10 +973,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
         model = validated_data["model"]
         hogql_query = validated_data.pop("hogql_query", None)
         hogql_modifiers = validated_data.pop("hogql_modifiers", None)
+        primary_key = validated_data.pop("primary_key", None)
+        version_key = validated_data.pop("version_key", None)
 
         source = None
         if model == BatchExport.Model.HOGQL:
-            source = BatchExportSource(team_id=team_id, hogql_query=hogql_query, hogql_modifiers=hogql_modifiers)
+            source = BatchExportSource(
+                team_id=team_id,
+                hogql_query=hogql_query,
+                hogql_modifiers=hogql_modifiers,
+                primary_key=primary_key,
+                version_key=version_key,
+            )
         elif hogql_query is not None:
             # TODO: Migrate batch exports using a HogQL query to HogQL model.
             validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
@@ -990,10 +1103,12 @@ class BatchExportSerializer(serializers.ModelSerializer):
     def update(self, batch_export: BatchExport, validated_data: dict) -> BatchExport:
         """Update a BatchExport."""
         destination_data = validated_data.pop("destination", None)
-        hogql_query_provided = "hogql_query" in validated_data
-        hogql_query = validated_data.pop("hogql_query", None)
-        hogql_modifiers_provided = "hogql_modifiers" in validated_data
-        hogql_modifiers = validated_data.pop("hogql_modifiers", None)
+
+        missing = object()
+        hogql_query = validated_data.pop("hogql_query", missing)
+        hogql_modifiers = validated_data.pop("hogql_modifiers", missing)
+        primary_key = validated_data.pop("primary_key", missing)
+        version_key = validated_data.pop("version_key", missing)
 
         user = self.context["request"].user
         if not isinstance(user, User):
@@ -1016,18 +1131,26 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 batch_export.destination.integration = integration
 
             if batch_export.model == BatchExport.Model.HOGQL:
-                if hogql_query is not None or hogql_modifiers_provided:
+                hogql_attributes = (hogql_query, hogql_modifiers, primary_key, version_key)
+                if any(attr is not missing for attr in hogql_attributes):
                     source = batch_export.source or BatchExportSource(team_id=batch_export.team_id)
-                    if hogql_query is not None:
+
+                    if hogql_query is not missing:
                         source.hogql_query = hogql_query
-                    if hogql_modifiers_provided:
+                    if hogql_modifiers is not missing:
                         source.hogql_modifiers = hogql_modifiers
+                    if primary_key is not missing:
+                        source.primary_key = primary_key
+                    if version_key is not missing:
+                        source.version_key = version_key
+
                     source.save()
                     batch_export.source = source
-            elif hogql_query is not None:
-                validated_data["schema"] = self.serialize_hogql_query_to_batch_export_schema(hogql_query)
-            elif hogql_query_provided:
-                validated_data["schema"] = None
+
+            elif hogql_query is not missing:
+                validated_data["schema"] = (
+                    self.serialize_hogql_query_to_batch_export_schema(hogql_query) if hogql_query is not None else None
+                )
 
             batch_export.destination.save()
             batch_export = super().update(batch_export, validated_data)
@@ -1152,6 +1275,27 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         """
         delete_batch_export(instance)
 
+    def _parse_destination_test_step(self, request: request.Request) -> int:
+        step_serializer = DestinationTestStepRequestSerializer(data=request.data)
+        step_serializer.is_valid(raise_exception=True)
+        request.data.pop("step", None)
+        return step_serializer.validated_data["step"]
+
+    def _run_destination_test_step(self, serializer: serializers.BaseSerializer, step: int) -> response.Response:
+        destination = serializer.validated_data["destination"]
+        integration: Integration | None = destination.get("integration")
+        try:
+            result = batch_exports_api.run_destination_test_step(
+                self.team_id,
+                destination_type=destination["type"],
+                config=destination["config"],
+                integration_id=integration.id if integration else None,
+                step=step,
+            )
+        except UnsupportedDestinationTestError:
+            raise ValidationError(f"Connection tests aren't available for {destination['type']} destinations.")
+        return response.Response(dataclasses.asdict(result))
+
     @action(methods=["GET"], detail=False, required_scopes=["batch_export:read"])
     def test(self, request: request.Request, *args, **kwargs) -> response.Response:
         destination = request.query_params.get("destination", None)
@@ -1159,42 +1303,24 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             return response.Response(status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            destination_test = get_destination_test(destination=destination)
-        except ValueError:
+            destination_test = batch_exports_api.describe_destination_test(destination)
+        except UnsupportedDestinationTestError:
             return response.Response(status=status.HTTP_404_NOT_FOUND)
 
-        return response.Response(destination_test.as_dict())
+        return response.Response(dataclasses.asdict(destination_test))
 
     @action(methods=["POST"], detail=False, required_scopes=["batch_export:write"])
     def run_test_step_new(self, request: request.Request, *args, **kwargs) -> response.Response:
-        test_step = request.data.pop("step", 0)
+        test_step = self._parse_destination_test_step(request)
 
         serializer = self.get_serializer(data=request.data)
         _ = serializer.is_valid(raise_exception=True)
 
-        destination_test = get_destination_test(
-            destination=serializer.validated_data["destination"]["type"],
-        )
-        test_configuration = serializer.validated_data["destination"]["config"]
-
-        # if we have an integration, add its config and sensitive_config to test_configuration
-        integration: Integration | None = serializer.validated_data["destination"].get("integration")
-        if integration:
-            test_configuration = {
-                **test_configuration,
-                **integration.config,
-                **integration.sensitive_config,
-                "integration": integration,
-            }
-
-        destination_test.configure(**test_configuration)
-
-        result = destination_test.run_step(test_step)
-        return response.Response(result.as_dict())
+        return self._run_destination_test_step(serializer, test_step)
 
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
-        test_step = request.data.pop("step", 0)
+        test_step = self._parse_destination_test_step(request)
 
         batch_export = self.get_object()
 
@@ -1211,22 +1337,4 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)
 
-        destination_test = get_destination_test(
-            destination=serializer.validated_data["destination"]["type"],
-        )
-        test_configuration = serializer.validated_data["destination"]["config"]
-
-        # if we have an integration, add its config and sensitive_config to test_configuration
-        integration: Integration | None = serializer.validated_data["destination"].get("integration")
-        if integration:
-            test_configuration = {
-                **test_configuration,
-                **integration.config,
-                **integration.sensitive_config,
-                "integration": integration,
-            }
-
-        destination_test.configure(**test_configuration)
-
-        result = destination_test.run_step(test_step)
-        return response.Response(result.as_dict())
+        return self._run_destination_test_step(serializer, test_step)

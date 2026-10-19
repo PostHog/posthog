@@ -128,12 +128,43 @@ class WarehouseSuggestionStatusSerializer(DataclassSerializer):
         }
 
 
+@extend_schema_serializer(component_name="WarehouseSuggestionEvidence")
+class SuggestionEvidenceSerializer(serializers.Serializer):
+    days_with_data = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "Days of the 30-day usage window that PostHog has read history for. It counts days with reads in any "
+            "project, so it shows how much history exists, not how active this project is."
+        ),
+    )
+    human_requests = serializers.IntegerField(
+        required=False, help_text="Queries people ran that read the subject in the usage window."
+    )
+    human_users = serializers.IntegerField(required=False, help_text="Distinct people who ran those queries.")
+    human_days = serializers.IntegerField(required=False, help_text="Days on which people read the subject.")
+    background_requests = serializers.IntegerField(
+        required=False,
+        help_text="Queries PostHog ran on its own that read the subject, such as cache warming and alerts.",
+    )
+    requests_by_surface = serializers.DictField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="Queries people ran per place they ran them, such as sql_editor, dashboard, insight or mcp.",
+    )
+    last_read_at = serializers.DateTimeField(
+        required=False,
+        help_text="When any query last read the subject, including queries PostHog ran on its own.",
+    )
+
+
 @extend_schema_serializer(component_name="WarehouseSuggestion")
 class WarehouseSuggestionSerializer(DataclassSerializer):
     payload = SuggestionPayloadField(
         read_only=True, help_text="What accepting this suggestion would create or change. Shape depends on kind."
     )
-    evidence = JsonObjectField(help_text="The usage numbers that led to this suggestion.")
+    evidence = SuggestionEvidenceSerializer(
+        help_text="The read counts that led to this suggestion. A field is missing when the subject had no reads."
+    )
     created_asset = JsonObjectField(
         allow_null=True, help_text="What accepting this suggestion created. Null until accepted."
     )
@@ -172,7 +203,6 @@ class WarehouseSuggestionSerializer(DataclassSerializer):
             "evidence_window_start": {"help_text": "Start of the usage window the evidence covers."},
             "evidence_window_end": {"help_text": "End of the usage window the evidence covers."},
             "last_seen_at": {"help_text": "When the daily job last found evidence for this suggestion."},
-            "score": {"help_text": "How strongly the evidence supports the suggestion. Higher comes first."},
             "surfaced_at": {"help_text": "When the suggestion was first shown. Null while it waits for a slot."},
             "reviewed_at": {"help_text": "When the suggestion was accepted or dismissed."},
             "dismissal_note": {"help_text": "Free-text note left when dismissing."},
@@ -188,6 +218,9 @@ class WarehouseSuggestionListQuerySerializer(serializers.Serializer):
     )
     status = serializers.ChoiceField(
         choices=WarehouseSuggestionStatus.choices, required=False, help_text="Only return suggestions in this status."
+    )
+    subject_id = serializers.UUIDField(
+        required=False, help_text="Only return suggestions about the view or table with this ID."
     )
 
 

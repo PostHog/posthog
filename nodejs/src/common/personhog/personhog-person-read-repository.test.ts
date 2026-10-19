@@ -166,6 +166,7 @@ describe('PersonHogPersonReadRepository', () => {
             ['Aborted', Code.Aborted],
             ['Internal', Code.Internal],
             ['Unknown', Code.Unknown],
+            ['Canceled', Code.Canceled],
         ])('retries on %s and succeeds', async (_name, code) => {
             const { client, handlers } = createMockClientAndHandlers()
             let callCount = 0
@@ -196,7 +197,6 @@ describe('PersonHogPersonReadRepository', () => {
             ['FailedPrecondition', Code.FailedPrecondition],
             ['OutOfRange', Code.OutOfRange],
             ['DataLoss', Code.DataLoss],
-            ['Canceled', Code.Canceled],
         ])('does not retry on %s', async (_name, code) => {
             const { client, handlers } = createMockClientAndHandlers()
             handlers.getPersonsByDistinctIds.mockImplementation(() => {

@@ -51,6 +51,21 @@ export interface SignalTeamConfigApi {
     /** Per-repository base branch overrides for auto-started inbox PRs, keyed by 'organization/repository'. The branch is what the auto-PR targets; omit a repo (or send {}) to keep targeting the repo default branch. */
     autostart_base_branches?: SignalTeamConfigApiAutostartBaseBranches
     /**
+     * Project-level instructions added to every scout run, alongside project instructions and the scout's own brief. Blank uses project instructions only.
+     * @maxLength 20000
+     */
+    scout_instructions?: string
+    /**
+     * Project-level instructions for the dedicated signal report research stage. Other agent roles do not receive them. Blank uses project instructions only.
+     * @maxLength 20000
+     */
+    research_instructions?: string
+    /**
+     * Project-level instructions for agents implementing signal reports. Other agent roles do not receive them. Blank uses project instructions only.
+     * @maxLength 20000
+     */
+    implementation_instructions?: string
+    /**
      * Connected GitHub, GitLab, Linear, or Jira integration that self-driving opens a tracker issue in for each pull request it makes. Null turns tracker issues off, which is the default.
      * @nullable
      */
@@ -87,6 +102,471 @@ export interface SignalTeamConfigApi {
     readonly updated_at: string
 }
 
+export interface InboxSummaryPullRequestApi {
+    /** GitHub repository in owner/name format. */
+    repository: string
+    /** GitHub pull request number. */
+    number: number
+    /** URL of the GitHub pull request. */
+    url: string
+}
+
+export interface InboxSummaryPersonApi {
+    /** Stable GitHub user ID. */
+    id: number
+    /** Current GitHub login from the participant snapshot. */
+    login: string
+}
+
+export interface InboxSummaryApi {
+    /** Inclusive start of the rolling seven-day period. */
+    period_start: string
+    /** Exclusive end of the rolling seven-day period. */
+    period_end: string
+    /** Distinct verified Self-driving implementation PRs merged in the period. */
+    merged_pr_count: number
+    /**
+     * Distinct human approvers and mergers, or null while incomplete.
+     * @nullable
+     */
+    people_count: number | null
+    /** Whether every counted PR has a complete participant snapshot. */
+    participation_complete: boolean
+    /** Verified Self-driving implementation PRs merged in the period. */
+    pull_requests: InboxSummaryPullRequestApi[]
+    /**
+     * Distinct human approvers and mergers, or null while participation is incomplete.
+     * @nullable
+     */
+    people: InboxSummaryPersonApi[] | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `started` - Started
+ * * `skipped` - Unavailable
+ * * `failed` - Failed
+ */
+export type InboxOnboardingJobStatusEnumApi =
+    (typeof InboxOnboardingJobStatusEnumApi)[keyof typeof InboxOnboardingJobStatusEnumApi]
+
+export const InboxOnboardingJobStatusEnumApi = {
+    Pending: 'pending',
+    Started: 'started',
+    Skipped: 'skipped',
+    Failed: 'failed',
+} as const
+
+export interface InboxOnboardingJobsApi {
+    /** Dispatch status of the first general scout run.
+     *
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed */
+    scout: InboxOnboardingJobStatusEnumApi
+    /** Dispatch status of personalized scout recommendations.
+     *
+     * * `pending` - Pending
+     * * `started` - Started
+     * * `skipped` - Unavailable
+     * * `failed` - Failed */
+    recommendations: InboxOnboardingJobStatusEnumApi
+}
+
+/**
+ * * `signals` - Signals
+ * * `scouts` - Scouts
+ * * `github` - GitHub
+ */
+export type InboxOnboardingStepEnumApi = (typeof InboxOnboardingStepEnumApi)[keyof typeof InboxOnboardingStepEnumApi]
+
+export const InboxOnboardingStepEnumApi = {
+    Signals: 'signals',
+    Scouts: 'scouts',
+    Github: 'github',
+} as const
+
+/**
+ * * `session_replay` - Session replay
+ * * `llm_analytics` - LLM analytics
+ * * `github` - GitHub
+ * * `linear` - Linear
+ * * `jira` - Jira
+ * * `zendesk` - Zendesk
+ * * `conversations` - Conversations
+ * * `error_tracking` - Error tracking
+ * * `pganalyze` - pganalyze
+ * * `signals_scout` - Signals scout
+ * * `signals_check` - Report check
+ * * `logs` - Logs
+ * * `health_checks` - Health checks
+ * * `endpoints` - Endpoints
+ * * `replay_vision` - Replay Vision
+ * * `analytics` - Product analytics
+ * * `freshdesk` - Freshdesk
+ * * `freshservice` - Freshservice
+ * * `front` - Front
+ * * `gorgias` - Gorgias
+ * * `kustomer` - Kustomer
+ * * `dixa` - Dixa
+ * * `plain` - Plain
+ * * `gitlab` - GitLab
+ * * `gitea` - Gitea
+ * * `shortcut` - Shortcut
+ * * `sentry` - Sentry
+ * * `rollbar` - Rollbar
+ * * `bugsnag` - Bugsnag
+ * * `honeybadger` - Honeybadger
+ * * `raygun` - Raygun
+ * * `snyk` - Snyk
+ * * `sonarqube` - SonarQube
+ * * `semgrep` - Semgrep
+ * * `rapid7_insightvm` - Rapid7 InsightVM
+ * * `featurebase` - Featurebase
+ * * `frill` - Frill
+ * * `aha` - Aha
+ * * `uservoice` - UserVoice
+ * * `productboard` - Productboard
+ * * `canny` - Canny
+ * * `asknicely` - AskNicely
+ * * `retently` - Retently
+ * * `appfigures` - Appfigures
+ * * `appfollow` - AppFollow
+ * * `judgeme_reviews` - Judge.me
+ * * `intercom` - Intercom
+ * * `hubspot` - HubSpot
+ * * `engineering_analytics` - Engineering analytics
+ * * `google_search_console` - Google Search Console
+ */
+export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
+
+export const SignalSourceProductEnumApi = {
+    SessionReplay: 'session_replay',
+    LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Jira: 'jira',
+    Zendesk: 'zendesk',
+    Conversations: 'conversations',
+    ErrorTracking: 'error_tracking',
+    Pganalyze: 'pganalyze',
+    SignalsScout: 'signals_scout',
+    SignalsCheck: 'signals_check',
+    Logs: 'logs',
+    HealthChecks: 'health_checks',
+    Endpoints: 'endpoints',
+    ReplayVision: 'replay_vision',
+    Analytics: 'analytics',
+    Freshdesk: 'freshdesk',
+    Freshservice: 'freshservice',
+    Front: 'front',
+    Gorgias: 'gorgias',
+    Kustomer: 'kustomer',
+    Dixa: 'dixa',
+    Plain: 'plain',
+    Gitlab: 'gitlab',
+    Gitea: 'gitea',
+    Shortcut: 'shortcut',
+    Sentry: 'sentry',
+    Rollbar: 'rollbar',
+    Bugsnag: 'bugsnag',
+    Honeybadger: 'honeybadger',
+    Raygun: 'raygun',
+    Snyk: 'snyk',
+    Sonarqube: 'sonarqube',
+    Semgrep: 'semgrep',
+    Rapid7Insightvm: 'rapid7_insightvm',
+    Featurebase: 'featurebase',
+    Frill: 'frill',
+    Aha: 'aha',
+    Uservoice: 'uservoice',
+    Productboard: 'productboard',
+    Canny: 'canny',
+    Asknicely: 'asknicely',
+    Retently: 'retently',
+    Appfigures: 'appfigures',
+    Appfollow: 'appfollow',
+    JudgemeReviews: 'judgeme_reviews',
+    Intercom: 'intercom',
+    Hubspot: 'hubspot',
+    EngineeringAnalytics: 'engineering_analytics',
+    GoogleSearchConsole: 'google_search_console',
+} as const
+
+/**
+ * * `session_analysis_cluster` - Session analysis cluster
+ * * `evaluation_report` - Evaluation report
+ * * `issue` - Issue
+ * * `ticket` - Ticket
+ * * `issue_created` - Issue created
+ * * `issue_reopened` - Issue reopened
+ * * `issue_spiking` - Issue spiking
+ * * `cross_source_issue` - Cross source issue
+ * * `alert_state_change` - Alert state change
+ * * `health_issue` - Health issue
+ * * `endpoint_execution_failed` - Endpoint execution failed
+ * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+ * * `scanner_finding` - Scanner finding
+ * * `anomaly_investigation` - Anomaly investigation
+ * * `feedback` - Feedback
+ * * `review` - Review
+ * * `ci_flaky_check` - CI flaky check
+ * * `ci_broken_default_branch` - CI broken default branch
+ * * `ci_duration_regression` - CI duration regression
+ * * `search_opportunity` - Search opportunity
+ */
+export type SignalSourceConfigSourceTypeEnumApi =
+    (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
+
+export const SignalSourceConfigSourceTypeEnumApi = {
+    SessionAnalysisCluster: 'session_analysis_cluster',
+    EvaluationReport: 'evaluation_report',
+    Issue: 'issue',
+    Ticket: 'ticket',
+    IssueCreated: 'issue_created',
+    IssueReopened: 'issue_reopened',
+    IssueSpiking: 'issue_spiking',
+    CrossSourceIssue: 'cross_source_issue',
+    AlertStateChange: 'alert_state_change',
+    HealthIssue: 'health_issue',
+    EndpointExecutionFailed: 'endpoint_execution_failed',
+    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
+    ScannerFinding: 'scanner_finding',
+    AnomalyInvestigation: 'anomaly_investigation',
+    Feedback: 'feedback',
+    Review: 'review',
+    CiFlakyCheck: 'ci_flaky_check',
+    CiBrokenDefaultBranch: 'ci_broken_default_branch',
+    CiDurationRegression: 'ci_duration_regression',
+    SearchOpportunity: 'search_opportunity',
+} as const
+
+export interface InboxOnboardingSourceApi {
+    /** Source product selected during setup.
+     *
+     * * `session_replay` - Session replay
+     * * `llm_analytics` - LLM analytics
+     * * `github` - GitHub
+     * * `linear` - Linear
+     * * `jira` - Jira
+     * * `zendesk` - Zendesk
+     * * `conversations` - Conversations
+     * * `error_tracking` - Error tracking
+     * * `pganalyze` - pganalyze
+     * * `signals_scout` - Signals scout
+     * * `signals_check` - Report check
+     * * `logs` - Logs
+     * * `health_checks` - Health checks
+     * * `endpoints` - Endpoints
+     * * `replay_vision` - Replay Vision
+     * * `analytics` - Product analytics
+     * * `freshdesk` - Freshdesk
+     * * `freshservice` - Freshservice
+     * * `front` - Front
+     * * `gorgias` - Gorgias
+     * * `kustomer` - Kustomer
+     * * `dixa` - Dixa
+     * * `plain` - Plain
+     * * `gitlab` - GitLab
+     * * `gitea` - Gitea
+     * * `shortcut` - Shortcut
+     * * `sentry` - Sentry
+     * * `rollbar` - Rollbar
+     * * `bugsnag` - Bugsnag
+     * * `honeybadger` - Honeybadger
+     * * `raygun` - Raygun
+     * * `snyk` - Snyk
+     * * `sonarqube` - SonarQube
+     * * `semgrep` - Semgrep
+     * * `rapid7_insightvm` - Rapid7 InsightVM
+     * * `featurebase` - Featurebase
+     * * `frill` - Frill
+     * * `aha` - Aha
+     * * `uservoice` - UserVoice
+     * * `productboard` - Productboard
+     * * `canny` - Canny
+     * * `asknicely` - AskNicely
+     * * `retently` - Retently
+     * * `appfigures` - Appfigures
+     * * `appfollow` - AppFollow
+     * * `judgeme_reviews` - Judge.me
+     * * `intercom` - Intercom
+     * * `hubspot` - HubSpot
+     * * `engineering_analytics` - Engineering analytics
+     * * `google_search_console` - Google Search Console */
+    source_product: SignalSourceProductEnumApi
+    /** Signal type selected during setup.
+     *
+     * * `session_analysis_cluster` - Session analysis cluster
+     * * `evaluation_report` - Evaluation report
+     * * `issue` - Issue
+     * * `ticket` - Ticket
+     * * `issue_created` - Issue created
+     * * `issue_reopened` - Issue reopened
+     * * `issue_spiking` - Issue spiking
+     * * `cross_source_issue` - Cross source issue
+     * * `alert_state_change` - Alert state change
+     * * `health_issue` - Health issue
+     * * `endpoint_execution_failed` - Endpoint execution failed
+     * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
+     * * `scanner_finding` - Scanner finding
+     * * `anomaly_investigation` - Anomaly investigation
+     * * `feedback` - Feedback
+     * * `review` - Review
+     * * `ci_flaky_check` - CI flaky check
+     * * `ci_broken_default_branch` - CI broken default branch
+     * * `ci_duration_regression` - CI duration regression
+     * * `search_opportunity` - Search opportunity */
+    source_type: SignalSourceConfigSourceTypeEnumApi
+    /** Whether this source should be enabled at activation. */
+    enabled: boolean
+}
+
+/**
+ * * `canonical` - canonical
+ * * `custom` - custom
+ */
+export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
+
+export const ScoutOriginEnumApi = {
+    Canonical: 'canonical',
+    Custom: 'custom',
+} as const
+
+export interface ScoutSuggestionProposedConfigApi {
+    /**
+     * Suggested five-field cron schedule in the project timezone, or null for an interval.
+     * @nullable
+     */
+    run_cron_schedule?: string | null
+    /**
+     * Suggested minutes between runs when no cron is given; null means the daily default.
+     * @nullable
+     */
+    run_interval_minutes?: number | null
+    /** Whether the suggested scout should write to the inbox (false = dry run). */
+    emit: boolean
+}
+
+/**
+ * * `high` - high
+ * * `medium` - medium
+ * * `low` - low
+ */
+export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
+
+export const ConfidenceTierEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+export interface ScoutSuggestionItemApi {
+    /** Stable id of this suggestion within the batch; use it to dismiss. */
+    id: string
+    /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
+     *
+     * * `canonical` - canonical
+     * * `custom` - custom */
+    kind: ScoutOriginEnumApi
+    /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
+    skill_name: string
+    /** Short sentence-case title: what the scout watches. */
+    title: string
+    /** Project-specific evidence for this suggestion, in prose. */
+    why_here: string
+    /** Custom only: the one-line description the scout would be created with. */
+    description: string
+    /** Custom only: the complete skill body the scout would be created with. */
+    draft_body: string
+    /** Suggested schedule and emit posture. */
+    proposed_config: ScoutSuggestionProposedConfigApi
+    /** True when nothing in the current fleet covers this. */
+    gap: boolean
+    /** The producer's confidence.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high */
+    confidence: ConfidenceTierEnumApi
+}
+
+export interface InboxOnboardingDraftApi {
+    /** Step to resume after returning.
+     *
+     * * `signals` - Signals
+     * * `scouts` - Scouts
+     * * `github` - GitHub */
+    step: InboxOnboardingStepEnumApi
+    /** Staged signal source choices. */
+    sources: InboxOnboardingSourceApi[]
+    /**
+     * Existing enabled scanners selected to emit signals.
+     * @maxItems 100
+     */
+    scanner_ids: string[]
+    /** Selected scout suggestion drafts. */
+    suggestions: ScoutSuggestionItemApi[]
+    /**
+     * Scouts enabled by an unfinished activation, retained to undo later deselections.
+     * @maxItems 50
+     * @items.maxLength 200
+     */
+    activation_scouts?: string[]
+    /** Opt in to automatically creating pull requests. */
+    automatic_implementation: boolean
+    /** Lowest priority to implement automatically; P1 includes P0 and P1.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    implementation_priority: AutonomyPriorityEnumApi
+}
+
+/**
+ * * `control` - Control
+ * * `test-ui` - Focused steps
+ * * `test-github` - Activate and explore
+ */
+export type InboxOnboardingVariantEnumApi =
+    (typeof InboxOnboardingVariantEnumApi)[keyof typeof InboxOnboardingVariantEnumApi]
+
+export const InboxOnboardingVariantEnumApi = {
+    Control: 'control',
+    TestUi: 'test-ui',
+    TestGithub: 'test-github',
+} as const
+
+export interface InboxOnboardingStateApi {
+    /** Background work started by quick activation. */
+    jobs?: InboxOnboardingJobsApi
+    /** Saved setup choices, without activating them. */
+    draft: InboxOnboardingDraftApi | null
+    /**
+     * When verified setup completed.
+     * @nullable
+     */
+    completed_at: string | null
+    /** Variant recorded at the first eligible impression.
+     *
+     * * `control` - Control
+     * * `test-ui` - Focused steps
+     * * `test-github` - Activate and explore */
+    variant: InboxOnboardingVariantEnumApi | null
+}
+
+export interface InboxOnboardingExposureApi {
+    /** Assigned experiment variant at the eligible Inbox impression.
+     *
+     * * `control` - Control
+     * * `test-ui` - Focused steps
+     * * `test-github` - Activate and explore */
+    variant: InboxOnboardingVariantEnumApi
+}
+
 export interface PauseStateResponseApi {
     /**
      * The timestamp the pipeline is paused until, or null if not paused/not running.
@@ -116,17 +596,6 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
-/**
- * * `potential` - Potential
- * * `candidate` - Candidate
- * * `in_progress` - In Progress
- * * `pending_input` - Pending Input
- * * `ready` - Ready
- * * `resolved` - Resolved
- * * `failed` - Failed
- * * `deleted` - Deleted
- * * `suppressed` - Suppressed
- */
 export type SignalReportStatusEnumApi = (typeof SignalReportStatusEnumApi)[keyof typeof SignalReportStatusEnumApi]
 
 export const SignalReportStatusEnumApi = {
@@ -135,6 +604,7 @@ export const SignalReportStatusEnumApi = {
     InProgress: 'in_progress',
     PendingInput: 'pending_input',
     Ready: 'ready',
+    Monitoring: 'monitoring',
     Resolved: 'resolved',
     Failed: 'failed',
     Deleted: 'deleted',
@@ -387,6 +857,16 @@ export interface ReportSourceSuggestionApi {
     reason: string
 }
 
+export type SignalReportSuppressionSourceEnumApi =
+    (typeof SignalReportSuppressionSourceEnumApi)[keyof typeof SignalReportSuppressionSourceEnumApi]
+
+export const SignalReportSuppressionSourceEnumApi = {
+    Dismissed: 'dismissed',
+    SafetyJudge: 'safety_judge',
+    NotActionable: 'not_actionable',
+    System: 'system',
+} as const
+
 export type SignalReportAssignmentPrStateEnumApi =
     (typeof SignalReportAssignmentPrStateEnumApi)[keyof typeof SignalReportAssignmentPrStateEnumApi]
 
@@ -607,7 +1087,7 @@ export const SignalReportBillingExemptReasonEnumApi = {
 } as const
 
 /**
- * Outcome head name to its calibrated probability. Empty when the served model skipped the report.
+ * Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users.
  */
 export type ReportRankingApiScores = { [key: string]: number }
 
@@ -617,17 +1097,17 @@ export type ReportRankingApiScores = { [key: string]: number }
 export type ReportRankingApiLifts = { [key: string]: number }
 
 export interface ReportRankingApi {
-    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
+    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users. */
     served_key: string
-    /** Feature family of the served model. */
+    /** Feature family of the served model. Empty for non-staff users. */
     model_name: string
-    /** Training partition of the served model, as `YYYY-MM-DD`. */
+    /** Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users. */
     model_version: string
-    /** Version of the serving manifest that chose the model. */
+    /** Version of the serving manifest that chose the model. Empty for non-staff users. */
     manifest_version: string
     /** When the scoring sweep scored the report. */
     scored_at: string
-    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
+    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users. */
     scores: ReportRankingApiScores
     /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
     lifts: ReportRankingApiLifts
@@ -645,7 +1125,13 @@ export interface SignalReportListApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /**
+     * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_started_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
@@ -687,6 +1173,13 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly dismissal_note: string | null
+    /** Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view. */
+    readonly suppression_source: SignalReportSuppressionSourceEnumApi | null
+    /**
+     * The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.
+     * @nullable
+     */
+    readonly suppression_explanation: string | null
     /**
      * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
      * @nullable
@@ -745,8 +1238,13 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
+    /**
+     * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
+     * @nullable
+     */
+    readonly inbox_merge_key: number | null
 }
 
 export interface PaginatedSignalReportListListApi {
@@ -756,6 +1254,11 @@ export interface PaginatedSignalReportListListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportListApi[]
+    /**
+     * The ranker that ordered the page when sort=recommended: priority, or open, action or fixed for that head of the served ranking model. Null for every other sort. Each row's inbox_merge_key belongs to this ranker.
+     * @nullable
+     */
+    ranker?: string | null
 }
 
 /**
@@ -866,7 +1369,13 @@ export interface SignalReportApi {
     readonly summary: string | null
     /** The opening of `summary` as plain text on one line: the text before its first section heading, with chart links removed and other links reduced to their text. At most 450 characters. */
     readonly summary_lead: string
+    /** Current report status. Monitoring reads as resolved when its rollout is disabled. */
     readonly status: SignalReportStatusEnumApi
+    /**
+     * Original implementation-complete time for this Monitoring period, null before entry. Present only when Monitoring is enabled.
+     * @nullable
+     */
+    readonly monitoring_started_at?: string | null
     readonly total_weight: number
     readonly signal_count: number
     readonly signals_at_run: number
@@ -908,6 +1417,13 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly dismissal_note: string | null
+    /** Who or what suppressed the report. Null unless status is suppressed. `dismissed`: a person or agent dismissed it, it was merged into another report, or its pull request closed without merging; dismissal_reason says which when one was given. `safety_judge`: the safety judge marked it unsafe. `not_actionable`: the actionability judge marked it not actionable. `system`: suppressed by the pipeline for another reason. Every value except `dismissed` is a verdict nobody has reviewed, listed by the `held_back` inbox view. */
+    readonly suppression_source: SignalReportSuppressionSourceEnumApi | null
+    /**
+     * The judge's explanation when suppression_source is `safety_judge` or `not_actionable`. Null otherwise, or when the judge gave none.
+     * @nullable
+     */
+    readonly suppression_explanation: string | null
     /**
      * `organization/repository` the report's work targets, from the latest repo-selection artefact (when present). Lets list cards show repository context without a per-card fetch.
      * @nullable
@@ -966,7 +1482,7 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
 }
 
@@ -1017,6 +1533,88 @@ export interface SignalReportDeletionStatusApi {
     report_id: string
 }
 
+/**
+ * * `get_it_merged` - Get it merged
+ * * `suggested_prompt` - Suggested prompt
+ */
+export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[keyof typeof ReportTaskActionKindEnumApi]
+
+export const ReportTaskActionKindEnumApi = {
+    GetItMerged: 'get_it_merged',
+    SuggestedPrompt: 'suggested_prompt',
+} as const
+
+/**
+ * One report action that starts an agent run, with whether the report offers it now.
+ */
+export interface SignalReportTaskActionApi {
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /** Whether a run of this action can start now. */
+    available: boolean
+    /**
+     * Why the action cannot start now. Null when `available` is true.
+     * @nullable
+     */
+    disabled_reason: string | null
+    /**
+     * Position of the prompt in the report's suggested prompts. Null for other actions.
+     * @nullable
+     */
+    suggested_prompt_index: number | null
+    /** The message the run gets as its first request. */
+    text: string
+}
+
+export interface SignalReportTaskActionListResponseApi {
+    /** Every action the report has, available or not, in a stable order. */
+    results: SignalReportTaskActionApi[]
+}
+
+export interface SignalReportTaskActionRunRequestApi {
+    /** The action to run. Use a value from the actions list.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /**
+     * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
+     * @minimum 0
+     */
+    suggested_prompt_index?: number
+}
+
+export interface SignalReportTaskActionRunResponseApi {
+    /** The task the action created. It is linked to the report. */
+    task_id: string
+    /**
+     * The background run that started, if one did.
+     * @nullable
+     */
+    run_id: string | null
+    /** Link to the task in PostHog. */
+    task_url: string
+    /**
+     * Why the run did not start. Null when it started. The task exists either way.
+     * @nullable
+     */
+    run_error: string | null
+}
+
+export interface SignalReportTaskActionErrorApi {
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error message. */
+    detail: string
+    /** For `report_action_run_active`: the task of the run that is still working. */
+    task_id?: string
+    /** For `report_action_run_active`: the run that is still working. */
+    run_id?: string
+}
+
 export interface SignalReportClaimApi {
     /** Active claim ID returned by an earlier call. Stale claims are rejected. */
     claim_id?: string
@@ -1038,19 +1636,20 @@ export interface SignalReportClaimApi {
  * * `positive` - positive
  * * `negative` - negative
  */
-export type SentimentEnumApi = (typeof SentimentEnumApi)[keyof typeof SentimentEnumApi]
+export type SignalReportFeedbackSentimentEnumApi =
+    (typeof SignalReportFeedbackSentimentEnumApi)[keyof typeof SignalReportFeedbackSentimentEnumApi]
 
-export const SentimentEnumApi = {
+export const SignalReportFeedbackSentimentEnumApi = {
     Positive: 'positive',
     Negative: 'negative',
 } as const
 
 export interface SignalReportFeedbackRequestApi {
-    /** The rating left on the report: 'positive' (thumbs up) or 'negative' (thumbs down).
+    /** The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.
      *
      * * `positive` - positive
      * * `negative` - negative */
-    sentiment: SentimentEnumApi
+    sentiment: SignalReportFeedbackSentimentEnumApi | null
     /**
      * Free-form note explaining the rating. Capped at 4000 characters. Optional — a bare thumb carries none. When present and the report was authored by a scout, the note is forwarded to that scout as a steering note.
      * @maxLength 4000
@@ -1061,6 +1660,16 @@ export interface SignalReportFeedbackRequestApi {
 export interface SignalReportFeedbackResponseApi {
     /** Whether the note was forwarded to the report's authoring scout as a steering note. False when the report has no resolvable authoring scout, or the caller lacks scout-steering access. */
     forwarded: boolean
+}
+
+export interface SignalReportFeedbackStateApi {
+    /** The report rating: 'positive' (thumbs up), 'negative' (thumbs down), or null to clear it.
+     *
+     * * `positive` - positive
+     * * `negative` - negative */
+    sentiment: SignalReportFeedbackSentimentEnumApi | null
+    /** The current user's saved note, or an empty string. */
+    note: string
 }
 
 export interface SignalReportMergeRequestApi {
@@ -1353,6 +1962,17 @@ export interface PullRequestReviewCommentReactionCreateApi {
  */
 export interface PullRequestReviewCommentReactionCreateResponseApi {
     readonly reaction: PullRequestCommentReactionApi
+}
+
+export interface SignalReportPriorityUpdateApi {
+    /** New report priority, from P0 (critical) to P4 (minimal).
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority: AutonomyPriorityEnumApi
 }
 
 export interface SignalReportRefundRequestApi {
@@ -1958,6 +2578,8 @@ export const LogsAlertStateChangeSignalExtraThresholdOperatorEnumApi = {
 
 export type LogsAlertStateChangeSignalExtraApiFilters = { [key: string]: unknown }
 
+export type LogsAlertStateChangeSignalExtraApiGroupLabels = { [key: string]: string } | null
+
 export interface LogsAlertStateChangeSignalExtraApi {
     alert_id: string
     alert_name: string
@@ -1969,6 +2591,7 @@ export interface LogsAlertStateChangeSignalExtraApi {
     consecutive_failures: number
     filters: LogsAlertStateChangeSignalExtraApiFilters
     url: string
+    group_labels?: LogsAlertStateChangeSignalExtraApiGroupLabels
 }
 
 export interface ReplayVisionScannerFindingSignalExtraApi {
@@ -2114,7 +2737,7 @@ export interface KustomerConversationSignalExtraApi {
     status: string | null
     priority: string | null
     tags: unknown[]
-    createdAt: string | null
+    created_at: string | null
 }
 
 export interface DixaConversationSignalExtraApi {
@@ -2128,7 +2751,7 @@ export interface PlainThreadSignalExtraApi {
     status: string | null
     priority: string | null
     labels: unknown[]
-    createdAt: string | null
+    created_at: string | null
 }
 
 export interface GitlabIssueSignalExtraApi {
@@ -2158,8 +2781,8 @@ export interface SentryIssueSignalExtraApi {
     level: string | null
     status: string | null
     permalink: string | null
-    shortId: string | null
-    firstSeen: string | null
+    short_id: string | null
+    first_seen: string | null
 }
 
 export interface RollbarItemSignalExtraApi {
@@ -2189,9 +2812,9 @@ export interface HoneybadgerFaultSignalExtraApi {
 
 export interface RaygunErrorGroupSignalExtraApi {
     status: string | null
-    applicationUrl: string | null
-    lastOccurredAt: string | null
-    createdAt: string | null
+    application_url: string | null
+    last_occurred_at: string | null
+    created_at: string | null
 }
 
 export interface SnykScannerFindingSignalExtraApi {
@@ -2207,7 +2830,7 @@ export interface SonarqubeScannerFindingSignalExtraApi {
     status: string | null
     component: string | null
     rule: string | null
-    creationDate: string | null
+    creation_date: string | null
 }
 
 export interface SemgrepScannerFindingSignalExtraApi {
@@ -2229,7 +2852,7 @@ export interface FeaturebaseFeedbackSignalExtraApi {
     status: string | null
     tags: unknown[]
     upvotes: string | null
-    createdAt: string | null
+    created_at: string | null
 }
 
 export interface FrillFeedbackSignalExtraApi {
@@ -2257,15 +2880,15 @@ export interface UservoiceFeedbackSignalExtraApi {
 export interface ProductboardFeedbackSignalExtraApi {
     state: string | null
     tags: unknown[]
-    displayUrl: string | null
-    createdAt: string | null
+    display_url: string | null
+    created_at: string | null
 }
 
 export interface CannyFeedbackSignalExtraApi {
     status: string | null
     tags: unknown[]
     score: string | null
-    voteCount: string | null
+    vote_count: string | null
     url: string | null
     created: string | null
 }
@@ -2280,10 +2903,10 @@ export interface AsknicelyFeedbackSignalExtraApi {
 
 export interface RetentlyFeedbackSignalExtraApi {
     score: string | null
-    ratingCategory: string | null
-    feedbackTopics: unknown[]
+    rating_category: string | null
+    feedback_topics: unknown[]
     resolved: string | null
-    createdDate: string | null
+    created_date: string | null
 }
 
 export interface AppfiguresReviewSignalExtraApi {
@@ -2419,6 +3042,13 @@ export interface NoMatchMetadataApi {
 export type SignalMatchMetadataApi = MatchedMetadataApi | NoMatchMetadataApi
 
 export interface SignalNodeApi {
+    /**
+     * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked signals.
+     * @nullable
+     */
+    readonly total_spend: number | null
+    /** Pipeline stages with generations whose spend could not be accounted for. Cleared when accounting recovers. */
+    readonly spend_accounting_failed_stages: readonly string[]
     /** ClickHouse document id of the signal. */
     signal_id: string
     /** The signal's human-readable description. */
@@ -2821,6 +3451,26 @@ export const SignalReportCheckStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
+
+export const ThresholdScalingEnumApi = {
+    Linear: 'linear',
+    Fixed: 'fixed',
+} as const
+
+export interface MonitoringMetricConfigApi {
+    /**
+     * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
+     * @maximum 527040
+     * @exclusiveMinimum 0
+     */
+    reference_period_minutes: number
+    /** How the target applies to a measurement from Monitoring start to the observation time. `linear` multiplies the target by elapsed minutes / reference_period_minutes and requires an additive event count or property sum. `fixed` keeps the target unchanged, including for rates and averages. This definition does not enable Monitoring execution. */
+    threshold_scaling: ThresholdScalingEnumApi
+    /** The actual period measured by baseline_value, in minutes. Required when a baseline is supplied. */
+    baseline_period_minutes?: number | null
+}
+
 export type CheckComparisonOperatorEnumApi =
     (typeof CheckComparisonOperatorEnumApi)[keyof typeof CheckComparisonOperatorEnumApi]
 
@@ -2909,6 +3559,8 @@ export interface MetricThresholdConfigApi {
     metric_id?: string | null
     /** Live InsightVizNode wrapping one TrendsQuery: supplied by the caller, or copied from the named metric when the check is created. `dateRange.date_from` must be a relative window such as `-13d`, and `date_to` must be empty, so the check measures the days before each run rather than the days before it was written. The query must produce exactly one output series: use one event or action series, or combine up to ten of them with exactly one formula. Use no breakdown and no compare mode. A `trendsFilter.display` of `Metric` turns compare mode on, so `metricShowChange` is switched off for you unless `metricSummary` is `latest`, which keeps compare mode off already. */
     query?: MetricThresholdConfigApiQuery
+    /** Optional Monitoring measurement definition, available only with the organization's Monitoring rollout. Measurements cover Monitoring start through the observation time. Omit for existing whole-window checks. */
+    monitoring?: MonitoringMetricConfigApi | null
     /** What the measured value must satisfy to pass. */
     comparison: CheckComparisonApi
     /** The value observed when the check was written, recorded on each result for context. */
@@ -2970,6 +3622,22 @@ export const SignalReportCheckOutcomeEnumApi = {
     Inconclusive: 'inconclusive',
 } as const
 
+/**
+ * * `awaiting_data` - Awaiting Data
+ * * `unmeasurable` - Unmeasurable
+ * * `needs_manual_verification` - Needs Manual Verification
+ * * `no_fix_to_measure` - No Fix To Measure
+ */
+export type SignalReportCheckInconclusiveReasonEnumApi =
+    (typeof SignalReportCheckInconclusiveReasonEnumApi)[keyof typeof SignalReportCheckInconclusiveReasonEnumApi]
+
+export const SignalReportCheckInconclusiveReasonEnumApi = {
+    AwaitingData: 'awaiting_data',
+    Unmeasurable: 'unmeasurable',
+    NeedsManualVerification: 'needs_manual_verification',
+    NoFixToMeasure: 'no_fix_to_measure',
+} as const
+
 export interface SignalReportCheckApi {
     readonly id: string
     /** Short label for the expectation, e.g. `Checkout 500s stay below 10 a day`. */
@@ -3024,6 +3692,13 @@ export interface SignalReportCheckApi {
      * * `errored` - Errored
      * * `inconclusive` - Inconclusive */
     readonly last_outcome: SignalReportCheckOutcomeEnumApi | null
+    /** Why the most recent run could not settle the claim. Set only when `last_outcome` is `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`.
+     *
+     * * `awaiting_data` - Awaiting Data
+     * * `unmeasurable` - Unmeasurable
+     * * `needs_manual_verification` - Needs Manual Verification
+     * * `no_fix_to_measure` - No Fix To Measure */
+    readonly last_outcome_reason: SignalReportCheckInconclusiveReasonEnumApi | null
     /**
      * When the `agent` check's scout run started, cleared as soon as a verdict is recorded. A non-null value is what tells a reader the check is running rather than waiting, because dispatch also pushes `next_run_at` out to the result window. Always null on a `metric_threshold` check, which is measured in the tick that collects it.
      * @nullable
@@ -3133,9 +3808,9 @@ export interface SignalReportBulkStateResponseApi {
 }
 
 export interface SignalReportsForYouResponseApi {
-    /** The open, actionable reports that matter most to the current user, best first: reports waiting for their input, reports they claimed, reports naming them as a reviewer, then P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
+    /** One page of the open, actionable reports that matter most to the current user, in the inbox priority order: priority, then status, then most recently updated. They are reports waiting for their input, reports they claimed, reports naming them as a reviewer, and P0 reports that nobody owns unless `include_unowned` is false. The Today briefing ranks reports the same way. */
     results: SignalReportListApi[]
-    /** How many open reports are for the current user: the reports in `results`, plus the other open, actionable reports that name them as a reviewer. Counted over the same set as `results`, so it follows `include_unowned` too. */
+    /** How many open, actionable reports are for the current user, on every page together, without the `exclude` ids. Counted over the same set as `results`, so it follows `include_unowned` too. */
     count: number
 }
 
@@ -3270,6 +3945,17 @@ export interface LLMSkillFileInputApi {
     content_type?: string
 }
 
+/**
+ * * `read_only` - Read only
+ * * `support_notes` - Support notes
+ */
+export type ToolPresetEnumApi = (typeof ToolPresetEnumApi)[keyof typeof ToolPresetEnumApi]
+
+export const ToolPresetEnumApi = {
+    ReadOnly: 'read_only',
+    SupportNotes: 'support_notes',
+} as const
+
 export interface SignalScoutSlackDestinationApi {
     /**
      * ID of the Slack integration whose bot posts this scout's findings and reports.
@@ -3357,10 +4043,28 @@ export interface SignalScoutConfigOptionsApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 10
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 12
      */
     write_scopes?: string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked?: boolean
+    /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    allowed_mcp_tools?: string[] | null
+    /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+     *
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes */
+    tool_preset?: ToolPresetEnumApi
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -3428,17 +4132,6 @@ export interface SignalScoutSkillSummaryApi {
     /** Server-managed report tools granted to this scout. */
     readonly allowed_tools: readonly string[]
 }
-
-/**
- * * `canonical` - canonical
- * * `custom` - custom
- */
-export type ScoutOriginEnumApi = (typeof ScoutOriginEnumApi)[keyof typeof ScoutOriginEnumApi]
-
-export const ScoutOriginEnumApi = {
-    Canonical: 'canonical',
-    Custom: 'custom',
-} as const
 
 export type ScoutRoleEnumApi = (typeof ScoutRoleEnumApi)[keyof typeof ScoutRoleEnumApi]
 
@@ -3582,6 +4275,29 @@ export const SignalScoutConfigManagedByEnumApi = {
     Background: 'background',
 } as const
 
+export type ScoutPrecheckQuerySourceEnumApi =
+    (typeof ScoutPrecheckQuerySourceEnumApi)[keyof typeof ScoutPrecheckQuerySourceEnumApi]
+
+export const ScoutPrecheckQuerySourceEnumApi = {
+    Config: 'config',
+    SkillDefault: 'skill_default',
+    Off: 'off',
+} as const
+
+/**
+ * * `run` - Run
+ * * `skip` - Skip
+ * * `error` - Error
+ */
+export type SignalScoutConfigPrecheckOutcomeEnumApi =
+    (typeof SignalScoutConfigPrecheckOutcomeEnumApi)[keyof typeof SignalScoutConfigPrecheckOutcomeEnumApi]
+
+export const SignalScoutConfigPrecheckOutcomeEnumApi = {
+    Run: 'run',
+    Skip: 'skip',
+    Error: 'error',
+} as const
+
 /**
  * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
@@ -3677,10 +4393,52 @@ export interface SignalScoutConfigApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 10
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 12
      */
     readonly write_scopes: readonly string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    readonly lifecycle_locked: boolean
+    /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    readonly allowed_mcp_tools: readonly string[] | null
+    /**
+     * Preset used to select the saved tool list, custom for an explicit list, or null when unrestricted.
+     * @nullable
+     */
+    readonly tool_preset: string | null
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
+     * @nullable
+     */
+    readonly precheck_query: string | null
+    /** True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null. */
+    readonly precheck_disabled: boolean
+    /**
+     * The pre-check query the next scheduled run uses: `precheck_query`, or the default the scout's skill ships. Null when no pre-check runs.
+     * @nullable
+     */
+    readonly effective_precheck_query: string | null
+    /** Where `effective_precheck_query` comes from: `config` (this scout's `precheck_query`), `skill_default` (the default its skill ships), or `off` (no pre-check runs). */
+    readonly precheck_query_source: ScoutPrecheckQuerySourceEnumApi
+    /**
+     * When a scheduled run last evaluated this scout's pre-check. A skipped run writes no run row, so this stays recent while `last_run_at` ages. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_at: string | null
+    /** The outcome of the latest scheduled pre-check: `run` (the query found something new), `skip` (nothing new, so the run did not start), or `error` (the query failed and the run started). Null if no pre-check has run.
+     *
+     * * `run` - Run
+     * * `skip` - Skip
+     * * `error` - Error */
+    readonly last_precheck_outcome: SignalScoutConfigPrecheckOutcomeEnumApi | null
+    /**
+     * How many rows the latest scheduled pre-check returned, at most 50. Null if no pre-check has run.
+     * @nullable
+     */
+    readonly last_precheck_row_count: number | null
     /**
      * When the coordinator last dispatched this scout. Null if it has never run.
      * @nullable
@@ -3799,10 +4557,28 @@ export interface SignalScoutConfigCreateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 10
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 12
      */
     write_scopes?: string[]
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked?: boolean
+    /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    allowed_mcp_tools?: string[] | null
+    /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+     *
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes */
+    tool_preset?: ToolPresetEnumApi
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
     /** Whether this scout runs on its schedule. Defaults to true. */
     enabled?: boolean
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
@@ -3940,15 +4716,90 @@ export interface PatchedSignalScoutConfigUpdateApi {
      */
     repositories?: string[]
     /**
-     * Extra write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. Empty (the default) means the scout reads the project and writes only what every scout may write: notebooks, its findings, and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant. Applies from the scout's next run.
-     * @maxItems 10
+     * Write access granted to this one scout, as scope strings. The grantable set is `alert:write`, `annotation:write`, `canvas:write`, `customer_task:write`, `dashboard:write`, `hog_flow_proposal:write`, `insight:write`, `llm_skill:write`, `notebook:write`, `replay_scanner:write`, `warehouse_table:write`, `warehouse_view:write`. A new scout starts with `notebook:write` when this field is omitted. Empty means the scout reads the project and writes only its findings and its own memory. Each scope is project-wide and object-level, so a scout holding `dashboard:write` can update or delete any dashboard in the project, not only ones it made. Grant only what this scout maintains. Only the person the scout's runs act as (whoever authored it) or a project admin can set it, and a scoped API key must itself carry each scope it grants. A dry run (`emit=false`) never holds the grant, and a run that acts as a project member other than the author holds only the default scopes. Applies from the scout's next run.
+     * @maxItems 12
      */
     write_scopes?: string[]
+    /**
+     * Optional HogQL `SELECT` a scheduled run evaluates before it starts. When it returns no rows, or one row with one false value (`false`, `0`, null or empty), the run is skipped: no sandbox, no model call, and no run row. Any other result starts the run, and the scout reads the rows. A query error also starts the run. Use `{since}` (the start of the last run that ran, or when the scout was created) and `{now}` to look only at what is new, e.g. `SELECT count() FROM events WHERE event = '$exception' AND timestamp > {since}`. To run at least once a week however quiet it is, add `OR {since} < {now} - INTERVAL 7 DAY` to the condition. Only scheduled runs evaluate it: a manual or workflow run always starts. `{interval_minutes}` is the gap between two scheduled runs, so a backstop can follow the schedule: `{since} < {now} - toIntervalMinute(greatest(1440, 2 * {interval_minutes}))` runs at least daily and never more often than every two intervals. The query stops after 10 seconds and reads at most 50 rows. Try a query with `scout-config-precheck-test` before you save it. Null or blank uses the default pre-check the scout's skill ships, if any. To turn every pre-check off, set `precheck_disabled`.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
+    /** True turns off the pre-check, both `precheck_query` and the default the skill ships, so every scheduled run starts. False (the default) uses `precheck_query`, or the skill default when that is null. */
+    precheck_disabled?: boolean
     /**
      * Optional id of the canonical scout suggestion this request turns on. It records that the scout came from that suggestion. An id this project's batch does not hold is ignored.
      * @maxLength 64
      */
     suggestion_id?: string
+    /** Opt-in guard on this scout's lifecycle. Off by default, so anyone with scout write access may pause, resume, switch the scout to dry run, or delete it. On, only the person the scout's runs act as or a project admin may do any of those, or change this flag. Use it on a scout whose output people depend on: `signal_scout:write` is a project-wide scope held by people and by unattended agents alike, and a resume has to pass the project's enabled-scout maximum that a pause does not, so a bulk pause is not undone in one step. The lock never stops an automatic pause, such as the inactivity sweep or the repeated-failure breaker. */
+    lifecycle_locked?: boolean
+    /**
+     * Exact MCP tool names selected for this scout, excluding its built-in run context tools. Null means no tool restriction; an empty list selects no additional tools. Write access is derived from selected write tools. Clearing to null preserves the last write scopes. Send this field or tool_preset, never both. Requires the scouts-tool-access feature flag.
+     * @nullable
+     */
+    allowed_mcp_tools?: string[] | null
+    /** Expand this named preset into a saved tool list. Later preset changes do not alter the saved list. Send this field or allowed_mcp_tools, never both. Requires the scouts-tool-access feature flag.
+     *
+     * * `read_only` - Read only
+     * * `support_notes` - Support notes */
+    tool_preset?: ToolPresetEnumApi
+}
+
+export interface SignalScoutPrecheckTestRequestApi {
+    /**
+     * HogQL `SELECT` to try, with the same `{since}`, `{now}` and `{interval_minutes}` placeholders a saved pre-check gets. Omit it, or pass null or blank, to try the scout's effective query: its own `precheck_query`, or the default its skill ships.
+     * @maxLength 10000
+     * @nullable
+     */
+    precheck_query?: string | null
+}
+
+/**
+ * * `rows` - Rows
+ * * `no_rows` - No Rows
+ * * `false_value` - False Value
+ * * `query_error` - Query Error
+ */
+export type ScoutPrecheckReasonEnumApi = (typeof ScoutPrecheckReasonEnumApi)[keyof typeof ScoutPrecheckReasonEnumApi]
+
+export const ScoutPrecheckReasonEnumApi = {
+    Rows: 'rows',
+    NoRows: 'no_rows',
+    FalseValue: 'false_value',
+    QueryError: 'query_error',
+} as const
+
+export interface SignalScoutPrecheckTestApi {
+    /** Whether a scheduled run that started now would run the scout. False means it would skip the run. */
+    would_run: boolean
+    /** Why: `rows` (the query found rows), `no_rows` (it found none, so the run is skipped), `false_value` (it returned one false value, so the run is skipped), or `query_error` (the query failed, so the run starts as if there were no pre-check).
+     *
+     * * `rows` - Rows
+     * * `no_rows` - No Rows
+     * * `false_value` - False Value
+     * * `query_error` - Query Error */
+    reason: ScoutPrecheckReasonEnumApi
+    /** The value bound to `{since}`: the start of the last run that ran, or when the scout was created. */
+    since: string
+    /** The value bound to `{now}`. */
+    now: string
+    /** The value bound to `{interval_minutes}`: the scout's rolling interval, or for a cron schedule the gap in minutes between the fire times around now. */
+    interval_minutes: number
+    /** How many rows the query returned, at most 50. */
+    row_count: number
+    /** The column names of the result, in order. */
+    columns: string[]
+    /** The rows as the scout reads them: one JSON object per line, cut before the text passes the size limit. Empty when the query returned no rows or failed. */
+    rows_text: string
+    /**
+     * Why the query failed, when it failed. A syntax or schema error is given as written; other failures read as a general message. Null when the query ran.
+     * @nullable
+     */
+    error: string | null
+    /** The member scheduled runs check the query as, when that is not you. The test runs with your access, so a table you can read can still fail on a scheduled run, and the run then starts as if there were no pre-check. Null when scheduled runs check it as you. */
+    readonly acting_user: UserBasicApi | null
 }
 
 /**
@@ -4178,6 +5029,7 @@ export type TrialComparisonOutcomeStatusEnumApi =
 export const TrialComparisonOutcomeStatusEnumApi = {
     Winner: 'winner',
     Tie: 'tie',
+    Provisional: 'provisional',
     Inconclusive: 'inconclusive',
 } as const
 
@@ -4274,19 +5126,6 @@ export const TrialCriterionVerdictVerdictEnumApi = {
     Fail: 'fail',
     Unknown: 'unknown',
     NotApplicable: 'not_applicable',
-} as const
-
-/**
- * * `high` - high
- * * `medium` - medium
- * * `low` - low
- */
-export type ConfidenceTierEnumApi = (typeof ConfidenceTierEnumApi)[keyof typeof ConfidenceTierEnumApi]
-
-export const ConfidenceTierEnumApi = {
-    High: 'high',
-    Medium: 'medium',
-    Low: 'low',
 } as const
 
 export interface TrialCriterionEvidenceApi {
@@ -4465,6 +5304,8 @@ export interface ScoutTrialComparisonApi {
      * * `failed` - failed
      * * `unknown` - unknown */
     status: ScoutTrialComparisonStatusEnumApi
+    /** Whether this finished trial is hidden from the default history. */
+    archived: boolean
     /**
      * Sanitized comparison error, if any.
      * @nullable
@@ -4474,11 +5315,23 @@ export interface ScoutTrialComparisonApi {
     evaluation: ScoutTrialEvaluationApi | null
 }
 
+export interface ScoutTrialComparisonArchiveRequestApi {
+    /** Saved comparison identity. */
+    comparison_id: string
+    /** Hide a finished trial from history, or restore it without rerunning it. */
+    archived: boolean
+}
+
 export interface ScoutTrialComparisonHistoryApi {
     /** This operator's most recent saved comparisons. */
     results: ScoutTrialComparisonApi[]
     /** Whether more comparisons exist than the requested limit. */
     has_more: boolean
+    /**
+     * Cursor for the next page, or null on the last page.
+     * @nullable
+     */
+    next_cursor: string | null
 }
 
 export interface ScoutTrialComparisonQueryApi {
@@ -4767,6 +5620,15 @@ export interface ScoutToolCatalogueEntryApi {
     feature_entitlement: string | null
 }
 
+export interface ScoutToolPresetApi {
+    /** Preset identifier accepted when saving a scout config. */
+    name: string
+    /** Human-readable preset name. */
+    label: string
+    /** Exact tool names expanded on save. A preset with non-holdable tools cannot be saved. */
+    tools: string[]
+}
+
 /**
  * A scope preset a scout run can be dispatched with.
  */
@@ -4783,6 +5645,8 @@ export interface ScoutScopePresetApi {
 export interface ScoutToolCatalogueApi {
     /** Every catalogued MCP tool, ordered by name. Tools that a successor has replaced are left out. */
     tools: ScoutToolCatalogueEntryApi[]
+    /** Tool selections expanded and validated on save. */
+    tool_presets: ScoutToolPresetApi[]
     /** The scope presets a scout run can be dispatched with, and the scopes each one resolves to. */
     presets: ScoutScopePresetApi[]
     /** The write scopes a person can grant to one scout from its settings. A scope outside this set can never be added to a scout's token. */
@@ -5580,8 +6444,7 @@ export interface ProjectProfileInventoryApi {
 /**
  * Top-level `payload` shape on a `SignalProjectProfile` row.
  *
- * v1 carries `inventory` only. Phase 7 will add `deltas`, `activity_notes`, and
- * `narrative` slots — they're absent (not null) in v1 responses.
+ * Carries `inventory` only.
  */
 export interface ProjectProfilePayloadApi {
     /** Deterministic snapshot of what's true about the project. */
@@ -5592,9 +6455,9 @@ export interface ProjectProfilePayloadApi {
  * Wire shape for the project profile returned by `signals-scout-harness-project-profile-list`.
  *
  * Read this once at the start of a run (after `skill-get`) to orient on the team. Cache
- * is per-team with a soft TTL (`PROFILE_TTL`); the response always reflects either the
- * latest cached profile or a freshly-built one if the cache was stale or the caller passed
- * `force_refresh=true`.
+ * is per-team with a soft TTL (`PROFILE_TTL`). The internal scout token gets a fresh
+ * profile, built on a stale cache or `force_refresh=true`. Other callers get the newest
+ * stored profile, with `stale=true` when it is past `expires_at`.
  *
  * `summary` leads the response and `payload` trails it: the inventory runs to tens of
  * kilobytes, so a client that truncates a long tool result would otherwise cut off the emit
@@ -5609,6 +6472,8 @@ export interface ProjectProfileApi {
     computed_at: string
     /** ISO-8601 timestamp after which the profile is considered stale. */
     expires_at: string
+    /** True when the profile is past `expires_at`. Only read-only callers get a stale profile. Read `computed_at` to see how old it is, and verify a detail live when its age matters. */
+    stale: boolean
     /** Schema version of the inventory builder. Bumps invalidate older cached rows. */
     source_version: string
     /** Structured profile content. v1 has `inventory` only. Omitted when `summary_only=true`. */
@@ -5845,10 +6710,11 @@ export type SignalScoutRunSummaryApiMetadataDerived = {
     has_chart: boolean
     has_self_validation: boolean
     has_structured_output: boolean
+    has_not_in_use_closeout: boolean
 }
 
 /**
- * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+ * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
  */
 export type SignalScoutRunSummaryApiMetadata = {
     harness_prompt_version?: string
@@ -5893,6 +6759,11 @@ export const RunStatusEnumApi = {
  * Status and timestamps flow from the linked `tasks.TaskRun`.
  */
 export interface SignalScoutRunSummaryApi {
+    /**
+     * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
+     * @nullable
+     */
+    readonly total_spend: number | null
     /** UUID of the bridge row. */
     run_id: string
     /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
@@ -5952,7 +6823,7 @@ export interface SignalScoutRunSummaryApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
-    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
     metadata: SignalScoutRunSummaryApiMetadata
 }
 
@@ -5963,10 +6834,11 @@ export type SignalScoutRunDetailApiMetadataDerived = {
     has_chart: boolean
     has_self_validation: boolean
     has_structured_output: boolean
+    has_not_in_use_closeout: boolean
 }
 
 /**
- * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
+ * Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed.
  */
 export type SignalScoutRunDetailApiMetadata = {
     harness_prompt_version?: string
@@ -5992,6 +6864,11 @@ export type SignalScoutRunDetailApiMetadata = {
  * LLMA token-cost join) can land here without bloating the list response.
  */
 export interface SignalScoutRunDetailApi {
+    /**
+     * Accounted customer spend in USD cents, including fractional cents. May be partial; null for untracked runs.
+     * @nullable
+     */
+    readonly total_spend: number | null
     /** UUID of the bridge row. */
     run_id: string
     /** Canonical skill name the run executed (e.g. `signals-scout-general`). */
@@ -6051,25 +6928,9 @@ export interface SignalScoutRunDetailApi {
     emitted_report_ids: string[]
     /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
     edited_report_ids: string[]
-    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, and `has_self_validation`. Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
+    /** Scout-owned per-run context, in two regions. Top-level keys are stamped by the runner at run start. Always present: `harness_prompt_version` (id of the harness prompt build the run was given), `report_channel` (which report tools the run held: `none`, `emit`, `edit`, or `both`), `skill_origin` (`canonical` or `custom`), `github_guidance` (whether the run got the GitHub evidence section), and `business_knowledge_maintained` (whether the run got the business-knowledge section: the product flag is on and the team's knowledge base looks maintained) — the provenance set that says which instructions the run actually got, so runs are only compared against runs of the same shape. Present only when the run departed from a default: `model`, `runtime_adapter`, and `reasoning_effort` (routing overrode the agent-server default), `network_access` (`full` when the scout's config lifted the trusted-domain network restriction for this run), `write_scopes` (the extra write access the run's token carried, when the scout was granted any), and `triggered_by` (`manual` or `workflow` when the run was fired off-schedule; absent means the run came from the coordinator's schedule). The nested `derived` object is the harness's own map of boolean run dimensions, computed server-side at finalize: `has_emit_report`, `has_edit_report`, `has_self_improvement`, `has_chart`, `has_self_validation`, `has_structured_output`, and `has_not_in_use_closeout` (the run wrote a `not-in-use:` scratchpad entry and produced no report, finding, or structured output). Use `derived` to answer 'what kind of run was this?' instead of parsing the `summary` prose. Note the flags describe the reports the run authored as they stand now, so charts attached to someone else's report via an edit are not counted. A missing `derived` object is unknown, not all-false: the run predates the field, never finalized, or its stamp failed. */
     metadata: SignalScoutRunDetailApiMetadata
 }
-
-/**
- * * `awaiting_data` - Awaiting Data
- * * `unmeasurable` - Unmeasurable
- * * `needs_manual_verification` - Needs Manual Verification
- * * `no_fix_to_measure` - No Fix To Measure
- */
-export type SignalReportCheckInconclusiveReasonEnumApi =
-    (typeof SignalReportCheckInconclusiveReasonEnumApi)[keyof typeof SignalReportCheckInconclusiveReasonEnumApi]
-
-export const SignalReportCheckInconclusiveReasonEnumApi = {
-    AwaitingData: 'awaiting_data',
-    Unmeasurable: 'unmeasurable',
-    NeedsManualVerification: 'needs_manual_verification',
-    NoFixToMeasure: 'no_fix_to_measure',
-} as const
 
 /**
  * Request body for `scout-check-record-result`: the verdict on one dispatched report check.
@@ -6900,6 +7761,11 @@ export interface ScoutCheckSummaryApi {
      * @nullable
      */
     last_outcome: string | null
+    /**
+     * Why the most recent run was `inconclusive`: `awaiting_data`, `unmeasurable`, `needs_manual_verification`, or `no_fix_to_measure`. Null on any other outcome.
+     * @nullable
+     */
+    last_outcome_reason: string | null
     /** Where the check is in its run cycle. `waiting_on_report`: pending, no fix to measure yet. `paused`: active, but its report is suppressed or its horizon passed, so nothing runs it. `scheduled`: active, not due yet. `due`: due now, so a run on the check's scout may record the verdict. `queued`: a run was dispatched and has not started. `running`: the dispatched run started and has time left. `stale`: the dispatched run recorded nothing in its window, so the coordinator dispatches again. Any other value is the terminal status. */
     run_state: string
     /** True while an `agent` check waits on a dispatched run to record its verdict. */
@@ -7108,51 +7974,6 @@ export const SignalScoutSuggestionSetStatusEnumApi = {
     LowActivity: 'low_activity',
 } as const
 
-export interface ScoutSuggestionProposedConfigApi {
-    /**
-     * Suggested five-field cron schedule in the project timezone, or null for an interval.
-     * @nullable
-     */
-    run_cron_schedule?: string | null
-    /**
-     * Suggested minutes between runs when no cron is given; null means the daily default.
-     * @nullable
-     */
-    run_interval_minutes?: number | null
-    /** Whether the suggested scout should write to the inbox (false = dry run). */
-    emit: boolean
-}
-
-export interface ScoutSuggestionItemApi {
-    /** Stable id of this suggestion within the batch; use it to dismiss. */
-    id: string
-    /** `canonical`: enable a PostHog-authored scout that exists but is off. `custom`: create a drafted scout.
-     *
-     * * `canonical` - canonical
-     * * `custom` - custom */
-    kind: ScoutOriginEnumApi
-    /** The scout's `signals-scout-*` skill name (existing for canonical, proposed for custom). */
-    skill_name: string
-    /** Short sentence-case title: what the scout watches. */
-    title: string
-    /** Project-specific evidence for this suggestion, in prose. */
-    why_here: string
-    /** Custom only: the one-line description the scout would be created with. */
-    description: string
-    /** Custom only: the complete skill body the scout would be created with. */
-    draft_body: string
-    /** Suggested schedule and emit posture. */
-    proposed_config: ScoutSuggestionProposedConfigApi
-    /** True when nothing in the current fleet covers this. */
-    gap: boolean
-    /** The producer's confidence.
-     *
-     * * `low` - low
-     * * `medium` - medium
-     * * `high` - high */
-    confidence: ConfidenceTierEnumApi
-}
-
 export interface ScoutSuggestionSetApi {
     /** `fresh`: current batch. `stale`: the fleet changed since it was generated, or the batch aged past the refresh window. `failed`: the last refresh failed (items are the prior batch, if any). `empty`: nothing to suggest yet. `low_activity`: the project was too quiet to scan, so nothing was generated.
      *
@@ -7179,161 +8000,6 @@ export interface ScoutSuggestionRefreshApi {
     /** The dispatched refresh workflow id. */
     workflow_id: string
 }
-
-/**
- * * `session_replay` - Session replay
- * * `llm_analytics` - LLM analytics
- * * `github` - GitHub
- * * `linear` - Linear
- * * `jira` - Jira
- * * `zendesk` - Zendesk
- * * `conversations` - Conversations
- * * `error_tracking` - Error tracking
- * * `pganalyze` - pganalyze
- * * `signals_scout` - Signals scout
- * * `signals_check` - Report check
- * * `logs` - Logs
- * * `health_checks` - Health checks
- * * `endpoints` - Endpoints
- * * `replay_vision` - Replay Vision
- * * `analytics` - Product analytics
- * * `freshdesk` - Freshdesk
- * * `freshservice` - Freshservice
- * * `front` - Front
- * * `gorgias` - Gorgias
- * * `kustomer` - Kustomer
- * * `dixa` - Dixa
- * * `plain` - Plain
- * * `gitlab` - GitLab
- * * `gitea` - Gitea
- * * `shortcut` - Shortcut
- * * `sentry` - Sentry
- * * `rollbar` - Rollbar
- * * `bugsnag` - Bugsnag
- * * `honeybadger` - Honeybadger
- * * `raygun` - Raygun
- * * `snyk` - Snyk
- * * `sonarqube` - SonarQube
- * * `semgrep` - Semgrep
- * * `rapid7_insightvm` - Rapid7 InsightVM
- * * `featurebase` - Featurebase
- * * `frill` - Frill
- * * `aha` - Aha
- * * `uservoice` - UserVoice
- * * `productboard` - Productboard
- * * `canny` - Canny
- * * `asknicely` - AskNicely
- * * `retently` - Retently
- * * `appfigures` - Appfigures
- * * `appfollow` - AppFollow
- * * `judgeme_reviews` - Judge.me
- * * `intercom` - Intercom
- * * `hubspot` - HubSpot
- * * `engineering_analytics` - Engineering analytics
- * * `google_search_console` - Google Search Console
- */
-export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
-
-export const SignalSourceProductEnumApi = {
-    SessionReplay: 'session_replay',
-    LlmAnalytics: 'llm_analytics',
-    Github: 'github',
-    Linear: 'linear',
-    Jira: 'jira',
-    Zendesk: 'zendesk',
-    Conversations: 'conversations',
-    ErrorTracking: 'error_tracking',
-    Pganalyze: 'pganalyze',
-    SignalsScout: 'signals_scout',
-    SignalsCheck: 'signals_check',
-    Logs: 'logs',
-    HealthChecks: 'health_checks',
-    Endpoints: 'endpoints',
-    ReplayVision: 'replay_vision',
-    Analytics: 'analytics',
-    Freshdesk: 'freshdesk',
-    Freshservice: 'freshservice',
-    Front: 'front',
-    Gorgias: 'gorgias',
-    Kustomer: 'kustomer',
-    Dixa: 'dixa',
-    Plain: 'plain',
-    Gitlab: 'gitlab',
-    Gitea: 'gitea',
-    Shortcut: 'shortcut',
-    Sentry: 'sentry',
-    Rollbar: 'rollbar',
-    Bugsnag: 'bugsnag',
-    Honeybadger: 'honeybadger',
-    Raygun: 'raygun',
-    Snyk: 'snyk',
-    Sonarqube: 'sonarqube',
-    Semgrep: 'semgrep',
-    Rapid7Insightvm: 'rapid7_insightvm',
-    Featurebase: 'featurebase',
-    Frill: 'frill',
-    Aha: 'aha',
-    Uservoice: 'uservoice',
-    Productboard: 'productboard',
-    Canny: 'canny',
-    Asknicely: 'asknicely',
-    Retently: 'retently',
-    Appfigures: 'appfigures',
-    Appfollow: 'appfollow',
-    JudgemeReviews: 'judgeme_reviews',
-    Intercom: 'intercom',
-    Hubspot: 'hubspot',
-    EngineeringAnalytics: 'engineering_analytics',
-    GoogleSearchConsole: 'google_search_console',
-} as const
-
-/**
- * * `session_analysis_cluster` - Session analysis cluster
- * * `evaluation_report` - Evaluation report
- * * `issue` - Issue
- * * `ticket` - Ticket
- * * `issue_created` - Issue created
- * * `issue_reopened` - Issue reopened
- * * `issue_spiking` - Issue spiking
- * * `cross_source_issue` - Cross source issue
- * * `alert_state_change` - Alert state change
- * * `health_issue` - Health issue
- * * `endpoint_execution_failed` - Endpoint execution failed
- * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
- * * `scanner_finding` - Scanner finding
- * * `anomaly_investigation` - Anomaly investigation
- * * `feedback` - Feedback
- * * `review` - Review
- * * `ci_flaky_check` - CI flaky check
- * * `ci_broken_default_branch` - CI broken default branch
- * * `ci_duration_regression` - CI duration regression
- * * `search_opportunity` - Search opportunity
- */
-export type SignalSourceConfigSourceTypeEnumApi =
-    (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
-
-export const SignalSourceConfigSourceTypeEnumApi = {
-    SessionAnalysisCluster: 'session_analysis_cluster',
-    EvaluationReport: 'evaluation_report',
-    Issue: 'issue',
-    Ticket: 'ticket',
-    IssueCreated: 'issue_created',
-    IssueReopened: 'issue_reopened',
-    IssueSpiking: 'issue_spiking',
-    CrossSourceIssue: 'cross_source_issue',
-    AlertStateChange: 'alert_state_change',
-    HealthIssue: 'health_issue',
-    EndpointExecutionFailed: 'endpoint_execution_failed',
-    EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
-    ScannerFinding: 'scanner_finding',
-    AnomalyInvestigation: 'anomaly_investigation',
-    Feedback: 'feedback',
-    Review: 'review',
-    CiFlakyCheck: 'ci_flaky_check',
-    CiBrokenDefaultBranch: 'ci_broken_default_branch',
-    CiDurationRegression: 'ci_duration_regression',
-    SearchOpportunity: 'search_opportunity',
-} as const
 
 export type SignalSourceSyncStatusEnumApi =
     (typeof SignalSourceSyncStatusEnumApi)[keyof typeof SignalSourceSyncStatusEnumApi]
@@ -7512,7 +8178,7 @@ export type SignalsReportsListParams = {
      */
     offset?: number
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400.
      */
     ordering?: string
     /**
@@ -7536,7 +8202,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, last_updated, newest, or oldest. Ignored when ordering is supplied.
+     * Inbox sort preset: priority, recommended, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fixed head of the served ranking model with unscored and stale reports in priority order after the scored ones. The response's ranker field names the one used.
      */
     sort?: string
     /**
@@ -7576,7 +8242,7 @@ export type SignalsReportsListParams = {
      */
     use_priority_preference?: boolean
     /**
-     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment.
+     * Apply an inbox view: actionable, needs_input, needs_decision, monitoring, resolved, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, actionability, and implementation-PR filters. needs_decision also includes failed reports without a judgment. dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent dismissed, merged, or whose pull request closed without merging; held_back holds the ones the safety or actionability judge suppressed before anyone saw them. Each row's suppression_source says which.
      */
     view?: string
 }
@@ -7676,7 +8342,12 @@ export type SignalsReportsAvailableReviewersRetrieve200 = {
 
 export type SignalsReportsForYouRetrieveParams = {
     /**
-     * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, and they rank above everything else, so a surface that only shows a person's own work passes false. Defaults to true.
+     * Report ids to leave out of `results` and `count`, for example the reports a briefing already shows, as repeated parameters or comma-separated. The other reports keep their order.
+     * @maxItems 20
+     */
+    exclude?: string[]
+    /**
+     * Whether to include P0 reports that nobody owns. These belong to the project rather than to one person, so a surface that only shows a person's own work passes false. Defaults to true.
      */
     include_unowned?: boolean
     /**
@@ -7685,6 +8356,11 @@ export type SignalsReportsForYouRetrieveParams = {
      * @maximum 20
      */
     limit?: number
+    /**
+     * How many reports of the ranked list to skip, after `exclude` is applied. Pages of the same query are slices of one ranked list. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type SignalsReportsPrCiStatusesParams = {
@@ -7708,6 +8384,16 @@ export type SignalsScoutConfigListParams = {
 }
 
 export type SignalsScoutConfigTrialComparisonHistoryParams = {
+    /**
+     * Cursor returned by the previous history page. Omit to read the newest trials.
+     * @minLength 1
+     * @pattern ^[0-9]{19}-[0-9a-f-]{36}\.json$
+     */
+    cursor?: string
+    /**
+     * Include archived trials in the history.
+     */
+    include_archived?: boolean
     /**
      * Maximum number of recent private runs to return.
      * @minimum 1
@@ -7755,11 +8441,12 @@ export type SignalsScoutConfigTrialSetupParams = {
 
 export type SignalsScoutConfigSyncParams = {
     /**
-     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. Omitted means unknown.
+     * Which surface asked for the materialization, recorded on the `signals_scout_fleet_synced` analytics event so a fleet a person's tab-open delivered is separable from one the coordinator was going to deliver anyway. The onboarding surface creates new configs disabled until the user activates them. Omitted means unknown.
      *
      * * `roster` - roster
      * * `desktop` - desktop
      * * `wizard` - wizard
+     * * `onboarding` - onboarding
      * @minLength 1
      */
     surface?: SignalsScoutConfigSyncSurface
@@ -7772,6 +8459,7 @@ export const SignalsScoutConfigSyncSurface = {
     Roster: 'roster',
     Desktop: 'desktop',
     Wizard: 'wizard',
+    Onboarding: 'onboarding',
 } as const
 
 export type SignalsScoutMembersListParams = {
@@ -7941,6 +8629,12 @@ export type SignalsScoutRunsRecentPerScoutParams = {
      * @maximum 100
      */
     per_scout_limit?: number
+    /**
+     * Return only this scout's runs. Omit to cover every configured scout. A single-scout page passes it so it does not wait on the probes of the rest of the fleet.
+     * @minLength 1
+     * @maxLength 255
+     */
+    skill_name?: string
 }
 
 export type SignalsScoutReportCheckListParams = {

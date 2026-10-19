@@ -7,7 +7,11 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.egress.github.transport import GitHubRateLimitError
 
-from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_depot_job_log, fetch_job_log
+from products.engineering_analytics.backend.logic.job_logs.fetcher import (
+    fetch_bounded_job_log,
+    fetch_depot_job_log,
+    fetch_job_log,
+)
 
 _URL = "https://api.github.com/repos/PostHog/posthog/actions/jobs/123/logs"
 _DEPOT_URL = "https://api.depot.dev/depot.ci.v1.CIService/GetJobAttemptLogs"
@@ -57,6 +61,26 @@ def test_caps_log_but_keeps_failure_tail(requests_mock):
     assert "##[error]the real failure" in result
     assert "log truncated" in result
     assert len(result.encode()) < len(body.encode())
+
+
+@pytest.mark.parametrize(
+    "bounds, truncated",
+    [
+        ({}, False),
+        ({"max_read_bytes": 1000}, True),
+        ({"deadline_seconds": 0}, True),
+    ],
+)
+def test_bounded_fetch_stops_the_download_and_reports_a_partial_log(requests_mock, bounds, truncated):
+    # A person waits on this read, so a large or slow log must stop early and say that it is partial.
+    body = "noise line\n" * 20_000
+    requests_mock.get(_URL, status_code=200, text=body)
+
+    log = fetch_bounded_job_log("PostHog/posthog", 123, "tok", **bounds)
+
+    assert log is not None
+    assert log.truncated is truncated
+    assert (len(log.text) < len(body)) is truncated
 
 
 @pytest.mark.parametrize(

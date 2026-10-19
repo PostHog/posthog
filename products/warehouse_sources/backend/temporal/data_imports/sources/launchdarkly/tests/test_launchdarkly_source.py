@@ -1,6 +1,10 @@
 import pytest
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.launchdarkly import (
     LaunchDarklySourceConfig,
 )
@@ -12,11 +16,6 @@ class TestLaunchDarklySource:
         self.source = LaunchDarklySource()
         self.team_id = 123
         self.config = LaunchDarklySourceConfig(access_token="api-token")
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["flags"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "flags"
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
@@ -31,12 +30,14 @@ class TestLaunchDarklySource:
             (None, None, False),
         ],
     )
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.launchdarkly.source.validate_launchdarkly_credentials"
-    )
-    def test_validate_credentials_status_mapping(self, mock_validate, status, schema_name, expected_valid):
-        mock_validate.return_value = status
-
-        is_valid, _error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
+    def test_validate_credentials_status_mapping(
+        self, status: int | None, schema_name: str | None, expected_valid: bool
+    ) -> None:
+        answer = ConnectionError("unreachable") if status is None else ScriptedResponse(status=status)
+        with scripted_network(always(answer)) as network:
+            is_valid, _error = self.source.validate_credentials(self.config, self.team_id, schema_name=schema_name)
 
         assert is_valid is expected_valid
+        assert {request.path for request in network.requests_log} == {
+            "/api/v2/projects" if schema_name == "flags" else "/api/v2/caller-identity"
+        }

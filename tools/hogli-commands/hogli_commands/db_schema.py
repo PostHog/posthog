@@ -283,6 +283,13 @@ def _artifact_from_api(raw: Mapping[str, object]) -> SchemaArtifact | None:
     if not isinstance(workflow_run, Mapping):
         return None
     try:
+        # A pull request run from a fork uploads its artifacts to this repository, and the
+        # fork's branch can also be named master. Only a run on this repository's own
+        # branch can supply the schema that is loaded into the database.
+        if _require_type(workflow_run.get("head_repository_id"), int) != _require_type(
+            workflow_run.get("repository_id"), int
+        ):
+            return None
         return SchemaArtifact(
             id=_require_type(raw.get("id"), int),
             name=_require_type(raw.get("name"), str),

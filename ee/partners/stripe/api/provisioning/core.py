@@ -19,16 +19,17 @@ from django.utils.http import url_has_allowed_host_and_scheme
 
 import structlog
 
+from posthog.accessible_teams import AccessibleTeams
 from posthog.api.authentication import password_reset_token_generator
 from posthog.event_usage import report_user_signed_up
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
-from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team.team import Team
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.user import User
-from posthog.models.utils import generate_random_token_personal, mask_key_value
+from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.tasks.email import send_provisioning_welcome
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -50,6 +51,13 @@ logger = structlog.get_logger(__name__)
 
 # Label used in the welcome email and default organization name.
 PARTNER_LABEL = "Stripe"
+
+EMAIL_NOT_VERIFIED_MESSAGE = (
+    "Stripe hasn't verified this email address. Verify it with Stripe to link an existing PostHog account."
+)
+ACCOUNT_NOT_LINKABLE_MESSAGE = (
+    "PostHog can't link this account. If you think this is a mistake, contact PostHog support."
+)
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +219,21 @@ def handle_existing_user(
     requested_team_id: int | None,
     code_challenge: str,
     code_challenge_method: str,
+    kyc_email_verified: bool | None,
 ) -> dict[str, Any]:
-    """Silently mint an auth code for an existing account."""
+    """Silently mint an auth code for an existing account.
+
+    The refusals run before team resolution because resolving a team can create a project.
+    """
+    if kyc_email_verified is False:
+        capture_provisioning_event("account_request", "email_not_verified", region=region, kyc_email_verified=False)
+        raise SpecError("requires_kyc", EMAIL_NOT_VERIFIED_MESSAGE, request_id=request_id, status=403)
+    if not user.is_active:
+        capture_provisioning_event(
+            "account_request", "user_inactive", region=region, kyc_email_verified=kyc_email_verified
+        )
+        raise SpecError("forbidden", ACCOUNT_NOT_LINKABLE_MESSAGE, request_id=request_id, status=403)
+
     team = resolve_team_for_existing_user(user, requested_team_id)
     if team is None:
         capture_provisioning_event("account_request", "error", error_code="team_resolution_failed")
@@ -229,7 +250,9 @@ def handle_existing_user(
         code_challenge_method=code_challenge_method,
     )
 
-    capture_provisioning_event("account_request", "existing_user", region=region, team_id=team.id)
+    capture_provisioning_event(
+        "account_request", "existing_user", region=region, team_id=team.id, kyc_email_verified=kyc_email_verified
+    )
 
     return {"id": request_id, "type": "oauth", "oauth": {"code": code}}
 
@@ -257,16 +280,28 @@ def handle_new_user(
     # (500) where the spec calls for a 400 invalid_request.
     org_name = configuration.get("organization_name") or f"{PARTNER_LABEL} ({email})"
 
+    try:
+        stripe_app = get_stripe_oauth_app()
+    except StripeOAuthAppMissingError:
+        capture_provisioning_event("account_request", "error", error_code="oauth_app_missing")
+        raise SpecError("server_error", "OAuth application is not configured", request_id=request_id, status=500)
+
     # The signup access rules do not apply here. Stripe's provisioning spec defines no refusal for a new
     # account, and Stripe keeps a valid card on file for every account it provisions.
     try:
-        organization, team, user = User.objects.bootstrap(
-            organization_name=org_name,
-            email=email,
-            password=None,
-            first_name=first_name,
-            is_email_verified=False,
-        )
+        with transaction.atomic():
+            organization, team, user = User.objects.bootstrap(
+                organization_name=org_name,
+                email=email,
+                password=None,
+                first_name=first_name,
+                is_email_verified=False,
+            )
+            OrganizationProvisioning.objects.create(
+                organization=organization,
+                partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+                application=stripe_app,
+            )
     except IntegrityError:
         existing = EmailLookupHandler.get_user_by_email(email, is_active=None)
         if existing:
@@ -280,11 +315,14 @@ def handle_new_user(
                 None,
                 code_challenge,
                 code_challenge_method,
+                data["kyc_email_verified"],
             )
         capture_provisioning_event("account_request", "creation_failed", region=region)
         raise SpecError("account_creation_failed", "Failed to create account", request_id=request_id, status=500)
 
-    capture_provisioning_event("account_request", "new_user", region=region, team_id=team.id)
+    capture_provisioning_event(
+        "account_request", "new_user", region=region, team_id=team.id, kyc_email_verified=data["kyc_email_verified"]
+    )
 
     # Emit the standard signup event so provisioned accounts flow into the shared
     # signup / activation / billing analyses, segmentable by client.
@@ -659,23 +697,20 @@ def maybe_create_provisioned_pat(
     # target only provisioned keys - scope alone is ambiguous with keys a user
     # created via /api/personal_api_keys/ carrying the same team/org scope.
     try:
-        api_key_value = generate_random_token_personal()
         label_base = f"{label_prefix} - {team.name}" if label_prefix else team.name
         # PersonalAPIKey.label is stored as a CharField(max_length=40); cap the
         # final string to match so we never violate the column constraint.
         label = label_base[:PROVISIONED_PAT_LABEL_MAX_LENGTH]
 
-        PersonalAPIKey.objects.create(
-            user=user,
+        minted = mint_personal_api_key(
+            user,
             label=label,
-            secure_value=hash_key_value(api_key_value),
-            mask_value=mask_key_value(api_key_value),
             scopes=pat_scopes,
-            scoped_teams=[team.id],
-            scoped_organizations=[str(team.organization_id)],
+            teams=AccessibleTeams.for_user(user, [team.id]),
+            organization_ids=[str(team.organization_id)],
         )
 
-        return api_key_value
+        return minted.value
     except Exception:
         capture_exception(additional_properties={"user_id": user.id, "team_id": team.id})
         return None

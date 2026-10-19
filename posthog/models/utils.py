@@ -226,6 +226,16 @@ def hash_key_value(
     return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
+# Mirrors CredentialNodeValue in PostHog/ai-gateway; a change here without its twin breaks the join silently.
+AI_CREDENTIAL_HEX_LENGTH = 32
+
+
+def ai_credential_value(secure_value: str) -> str:
+    """The value the AI gateway stamps as $ai_credential on a key's generations: sha256 over the
+    stored sha256$<hex> hash (the gateway's credential fingerprint), first 32 hex characters."""
+    return hashlib.sha256(secure_value.encode()).hexdigest()[:AI_CREDENTIAL_HEX_LENGTH]
+
+
 def int_to_base(number: int, base: int, *, alphabet: Optional[str] = None) -> str:
     if alphabet is None:
         if base > 62:
@@ -575,4 +585,10 @@ class ActivityDetailEncoder(json.JSONEncoder):
                 "model": obj.model,
                 "provider_key_id": str(obj.provider_key_id) if obj.provider_key_id else None,
             }
+        if isinstance(obj, models.Model):
+            # `changes_between` puts the related instance of a relation field into the change.
+            # Without this fallback each model with no branch above makes the write raise, and the
+            # deferred writer drops the row. The id identifies the instance and copies none of its
+            # fields, which can hold credentials.
+            return {"id": obj.pk}
         return json.JSONEncoder.default(self, obj)

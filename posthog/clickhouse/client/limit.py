@@ -1,5 +1,6 @@
 import time
 import uuid
+import random
 import dataclasses
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -116,6 +117,7 @@ class RateLimit:
     allow_team_bypass: bool = True
     get_time: Callable[[], float] = lambda: time.time()
     sleep: Callable[[float], None] = lambda d: sleep(d)
+    retry_jitter: bool = False
 
     @contextmanager
     def run(self, *args, **kwargs):
@@ -206,6 +208,10 @@ class RateLimit:
                     product=product_label,
                 ).inc()
                 wait_sec = backoff(count)
+                if self.retry_jitter:
+                    # Spread retries so released slots do not sit idle between synchronized polls.
+                    wait_sec = random.uniform(wait_sec / 2, wait_sec)
+                wait_sec = min(wait_sec, max(0.0, wait_deadline - self.get_time()))
                 self.sleep(wait_sec)
                 wait_total += wait_sec
                 tag_queries(rate_limit_wait_ms=int(1000 * wait_total))
@@ -247,6 +253,7 @@ __APP_CONCURRENT_QUERY_PER_ORG: Optional[RateLimit] = None
 __APP_CONCURRENT_DASHBOARD_QUERIES_PER_ORG: Optional[RateLimit] = None
 __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __EVENTS_LIST_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
+__LOGS_API_CONCURRENT_QUERY_PER_TEAM: Optional[RateLimit] = None
 __LLM_ANALYTICS_CONCURRENT_QUERIES: Optional[RateLimit] = None
 
 
@@ -274,6 +281,7 @@ def get_api_team_rate_limiter():
             # p20 duration for a query is 133ms, p25 is 164ms, p50 is 458ms, there's a 20% chance that after 134ms
             # the slot is free.
             retry=0.134,
+            retry_jitter=True,
             # The default timeout for an API query on ClickHouse is 10s. p99 duration is 19s,
             # 15 seconds should be enough for some other query to finish. If the query cannot get a slot in this period,
             # the user should contact us about increasing the quota.
@@ -369,6 +377,33 @@ def get_materialized_endpoints_rate_limiter():
             retry_timeout=30.0,
         )
     return __MATERIALIZED_ENDPOINTS_CONCURRENT_QUERY_PER_TEAM
+
+
+def get_logs_api_team_rate_limiter() -> RateLimit:
+    """
+    Limits the number of concurrent logs API requests per team made with a personal API key.
+    Every logs query shares one ClickHouse user on the logs cluster, and that user has a server-side
+    concurrency cap. A script that sends a burst of requests can fill the cap and cause refused
+    queries for logs alerting and for other teams' log searches.
+    """
+    global __LOGS_API_CONCURRENT_QUERY_PER_TEAM
+
+    if __LOGS_API_CONCURRENT_QUERY_PER_TEAM is None:
+        __LOGS_API_CONCURRENT_QUERY_PER_TEAM = RateLimit(
+            max_concurrency=3,
+            limit_name="logs_api_per_team",
+            get_task_name=lambda *args, **kwargs: f"logs_api:query:per-team:{kwargs.get('team_id')}",
+            get_task_id=lambda *args, **kwargs: kwargs.get("task_id") or generate_short_id(),
+            # A slot is held for a whole request. The longest request is patterns_diff, which runs six sequential
+            # queries (three per window) of up to 60 seconds each, the default max_execution_time. The ttl must
+            # outlast that, or the slot expires while the request still queries ClickHouse. A worker that dies
+            # without releasing its slot keeps it for the full ttl, so the ttl stays close to that bound.
+            ttl=450,
+            retry=0.134,
+            # A waiting request holds a web worker, so a burst gets a quick 429 instead of a long queue.
+            retry_timeout=2.0,
+        )
+    return __LOGS_API_CONCURRENT_QUERY_PER_TEAM
 
 
 def get_events_list_rate_limiter():

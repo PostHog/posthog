@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -36,6 +37,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class OpinionStageSource(ResumableSource[OpinionStageSourceConfig, OpinionStageResumeConfig]):
+    codebase_detection = detect(env=("^(OPINION_STAGE|OPINIONSTAGE)_",), script_hosts=("www.opinionstage.com",))
+
     supported_versions = ("v2",)
     default_version = "v2"
 
@@ -54,7 +57,7 @@ class OpinionStageSource(ResumableSource[OpinionStageSourceConfig, OpinionStageR
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Enter your Opinion Stage personal API key to pull your interactive content data into the PostHog Data warehouse.
 
-You can find your API key on your account settings page in [Opinion Stage](https://www.opinionstage.com/). The key grants read access to your items (quizzes, surveys, and forms) via the Public Result API.
+You can find your API key on your account settings page in [Opinion Stage](https://www.opinionstage.com/). The key grants read access to your items (quizzes, surveys, and forms), their questions, and their responses via the Public Result API.
 """,
             iconPath="/static/services/opinion_stage.png",
             docsUrl="https://posthog.com/docs/cdp/sources/opinion-stage",

@@ -1,35 +1,36 @@
 from datetime import UTC, date, datetime
-from typing import Any, Optional
+from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.everhour import (
     EARLIEST_FROM_DATE,
     EVERHOUR_BASE_URL,
     EverhourResumeConfig,
-    _build_initial_urls,
     _date_window,
     _format_date,
     _with_query,
-    everhour_source,
-    get_rows,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.settings import (
     ENDPOINTS,
     EVERHOUR_ENDPOINTS,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.everhour.source import EverhourSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.everhour import (
+    EverhourSourceConfig,
+)
 
-EVERHOUR_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.everhour.everhour"
 
-
-def _make_manager(resume_state: Optional[EverhourResumeConfig] = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
+def _driver() -> SourceDriver:
+    return SourceDriver(EverhourSource(), EverhourSourceConfig(api_key="key"))
 
 
 def _items(start: int, count: int) -> list[dict[str, Any]]:
@@ -68,102 +69,115 @@ class TestDateWindow:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize("status_code, expected", [(200, True), (401, False), (403, False), (500, False)])
-    @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
-    def test_status_mapping(self, mock_session: mock.MagicMock, status_code: int, expected: bool) -> None:
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.get.return_value = response
-        assert validate_credentials("key") is expected
+    def test_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code))) as network:
+            assert validate_credentials("key") is expected
 
-    @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
-    def test_swallows_exceptions(self, mock_session: mock.MagicMock) -> None:
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
+        assert {request.path for request in network.requests_log} == {"/users/me"}
+
+    def test_swallows_exceptions(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))) as network:
+            assert validate_credentials("key") is False
+
+        assert {request.path for request in network.requests_log} == {"/users/me"}
 
 
 class TestBuildInitialUrls:
     @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
     def test_time_records_bakes_in_date_window(self) -> None:
-        window = _date_window(
-            EVERHOUR_ENDPOINTS["time_records"], should_use_incremental_field=True, db_incremental_field_last_value=None
+        result = _driver().run(
+            "time_records",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=True,
         )
-        urls = _build_initial_urls(EVERHOUR_ENDPOINTS["time_records"], window, {}, mock.MagicMock(), mock.MagicMock())
-        assert len(urls) == 1
-        assert "limit=50" in urls[0]
-        assert f"from={EARLIEST_FROM_DATE}" in urls[0]
-        assert "to=2026-06-15" in urls[0]
+        assert result.raised is None
+        assert result.paths == ["/time-records"]
+        assert result.requests[0].param("limit") == "50"
+        assert result.requests[0].param("from") == EARLIEST_FROM_DATE
+        assert result.requests[0].param("to") == "2026-06-15"
 
-    @mock.patch(f"{EVERHOUR_MODULE}._iter_all_items")
-    def test_project_fan_out_one_url_per_project(self, mock_iter_items: mock.MagicMock) -> None:
-        mock_iter_items.return_value = iter([{"id": "p1"}, {"id": "p2"}])
-        urls = _build_initial_urls(EVERHOUR_ENDPOINTS["tasks"], None, {}, mock.MagicMock(), mock.MagicMock())
-        assert urls == [
-            f"{EVERHOUR_BASE_URL}/projects/p1/tasks?limit=100",
-            f"{EVERHOUR_BASE_URL}/projects/p2/tasks?limit=100",
-        ]
+    def test_project_fan_out_one_url_per_project(self) -> None:
+        result = _driver().run(
+            "tasks",
+            [
+                ScriptedResponse(json=[{"id": "p1"}, {"id": "p2"}]),
+                ScriptedResponse(json=[]),
+                ScriptedResponse(json=[]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/projects", "/projects/p1/tasks", "/projects/p2/tasks"]
+        assert result.params("limit") == ["100", "100", "100"]
 
 
 class TestGetRows:
-    @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
-    @mock.patch(f"{EVERHOUR_MODULE}._build_initial_urls")
-    @mock.patch(f"{EVERHOUR_MODULE}._fetch_page")
-    def test_fan_out_drains_parents_and_injects_project_id(
-        self, mock_fetch: mock.MagicMock, mock_build_urls: mock.MagicMock, _mock_session: mock.MagicMock
+    @pytest.mark.parametrize(
+        "endpoint, child_path, expected_rows",
+        [
+            ("tasks", "tasks", [{"id": "a", "project_id": "ev:1"}, {"id": "b", "project_id": "as:2"}]),
+            ("custom_fields", "fields", [{"id": "a", "project_id": "ev:1"}, {"id": "b", "project_id": "as:2"}]),
+            ("sections", "sections", [{"id": "a"}, {"id": "b"}]),
+        ],
+    )
+    def test_project_fan_out_drains_parents(
+        self, endpoint: str, child_path: str, expected_rows: list[dict[str, Any]]
     ) -> None:
-        mock_build_urls.return_value = [
-            f"{EVERHOUR_BASE_URL}/projects/p1/tasks?limit=100",
-            f"{EVERHOUR_BASE_URL}/projects/p2/tasks?limit=100",
-        ]
-        mock_fetch.side_effect = [[{"id": "a"}], [{"id": "b"}]]
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json=[{"id": "ev:1"}, {"id": "as:2"}]),
+                ScriptedResponse(json=[{"id": "a"}]),
+                ScriptedResponse(json=[{"id": "b"}]),
+            ],
+        )
 
-        manager = _make_manager()
-        batches = list(get_rows("key", "tasks", mock.MagicMock(), manager))
-
-        rows = [item for batch in batches for item in batch]
-        assert rows == [
-            {"id": "a", "project_id": "p1"},
-            {"id": "b", "project_id": "p2"},
-        ]
+        assert result.raised is None
+        assert result.rows == expected_rows
         # After draining the first parent, state advances to the second parent URL.
-        saved = manager.save_state.call_args.args[0]
-        assert saved.current_url == f"{EVERHOUR_BASE_URL}/projects/p2/tasks?limit=100"
+        saved = result.saved_states[0]
+        assert saved.current_url == f"{EVERHOUR_BASE_URL}/projects/as:2/{child_path}?limit=100"
         assert saved.remaining_urls == []
+        assert result.paths == ["/projects", f"/projects/ev:1/{child_path}", f"/projects/as:2/{child_path}"]
 
-    @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
-    @mock.patch(f"{EVERHOUR_MODULE}._fetch_page")
-    def test_resumes_from_saved_state(self, mock_fetch: mock.MagicMock, _mock_session: mock.MagicMock) -> None:
-        mock_fetch.return_value = _items(0, 1)
+    def test_resumes_from_saved_state(self) -> None:
         resume_url = f"{EVERHOUR_BASE_URL}/clients?limit=100"
-        manager = _make_manager(EverhourResumeConfig(remaining_urls=[], current_url=resume_url, current_offset=200))
-
-        list(get_rows("key", "clients", mock.MagicMock(), manager))
+        result = _driver().run(
+            "clients",
+            [ScriptedResponse(json=_items(0, 1))],
+            resume_state=EverhourResumeConfig(remaining_urls=[], current_url=resume_url, current_offset=200),
+        )
 
         # The first fetch must continue from the saved offset, not start over.
-        assert "offset=200" in mock_fetch.call_args_list[0].args[0]
+        assert result.raised is None
+        assert result.paths == ["/clients"]
+        assert result.params("offset") == ["200"]
 
-    @mock.patch(f"{EVERHOUR_MODULE}.make_tracked_session")
-    @mock.patch(f"{EVERHOUR_MODULE}._build_initial_urls")
-    @mock.patch(f"{EVERHOUR_MODULE}._fetch_page")
-    def test_rows_without_an_id_paginate_on_their_own_key(
-        self, mock_fetch: mock.MagicMock, mock_build_urls: mock.MagicMock, _mock_session: mock.MagicMock
-    ) -> None:
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_rows_without_an_id_paginate_on_their_own_key(self) -> None:
         # Timecards carry no `id`, so the pagination guard has to key on (user, date) instead.
-        mock_build_urls.return_value = [f"{EVERHOUR_BASE_URL}/timecards?limit=100"]
         first_page = [{"user": u, "date": "2026-06-01", "workTime": 3600} for u in range(100)]
-        mock_fetch.side_effect = [first_page, [{"user": 0, "date": "2026-06-02", "workTime": 3600}]]
+        result = _driver().run(
+            "timecards",
+            [
+                ScriptedResponse(json=first_page),
+                ScriptedResponse(json=[{"user": 0, "date": "2026-06-02", "workTime": 3600}]),
+            ],
+        )
 
-        manager = _make_manager()
-        rows = [row for batch in get_rows("key", "timecards", mock.MagicMock(), manager) for row in batch]
-
-        assert len(rows) == 101
-        assert "offset=100" in mock_fetch.call_args_list[1].args[0]
+        assert result.raised is None
+        assert len(result.rows) == 101
+        assert result.params("offset") == ["0", "100"]
 
 
 class TestEverhourSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = EVERHOUR_ENDPOINTS[endpoint]
-        response = everhour_source("key", endpoint, mock.MagicMock(), _make_manager())
+        result = _driver().run(endpoint, always(ScriptedResponse(json=[])))
+        assert result.raised is None
+        response = result.response
+        assert response is not None
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys

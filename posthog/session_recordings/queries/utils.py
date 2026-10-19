@@ -73,6 +73,7 @@ NEGATIVE_OPERATORS = [
     PropertyOperator.NOT_ICONTAINS,
     PropertyOperator.NOT_STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT,
     # PropertyOperator.NOT_BETWEEN, # in the schema but not used anywhere
     # PropertyOperator.NOT_IN,  # COHORT operator we don't need to handle it explicitly
 ]
@@ -86,13 +87,19 @@ INVERSE_OPERATOR_FOR = {
     PropertyOperator.NOT_STARTS_WITH: PropertyOperator.STARTS_WITH,
     PropertyOperator.NOT_ENDS_WITH: PropertyOperator.ENDS_WITH,
     PropertyOperator.NOT_BETWEEN: PropertyOperator.BETWEEN,
+    PropertyOperator.IS_CLEANED_PATH_NOT_EXACT: PropertyOperator.IS_CLEANED_PATH_EXACT,
 }
 
 
 def is_event_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     p_key = getattr(p, "key", "")
-    return p_type == "event" or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+    # Element filters read `elements_chain_*` columns, which exist only on the events table.
+    return (
+        p_type == "event"
+        or p_type == "element"
+        or (p_type == "hogql" and bool(re.search(r"(?<!person\.)properties\.", p_key)))
+    )
 
 
 def is_person_property(p: AnyPropertyFilter) -> bool:

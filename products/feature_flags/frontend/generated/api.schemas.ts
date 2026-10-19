@@ -648,7 +648,7 @@ export interface FeatureFlagApi {
     tags?: unknown[]
     evaluation_contexts?: unknown[]
     /**
-     * Legacy dashboard of saved usage insights for this flag, or null if it has none. New flags show usage charts inline instead. The dashboard creation endpoint is deprecated and will be removed after September 25, 2026.
+     * Legacy dashboard of saved usage insights for this flag, or null if it has none. Usage charts are on the flag's Usage tab. The API does not create these dashboards.
      * @nullable
      */
     readonly usage_dashboard: number | null
@@ -1628,11 +1628,15 @@ export interface CohortApi {
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
 export interface CreateStaticCohortForFlagResponseApi {
-    /** The new static cohort. It fills with the people the flag matches in the background, so it starts with is_calculating true. */
+    /** The new static cohort. It fills with the people the flag matches in the background, so is_calculating is usually still true in this response. */
     readonly cohort: CohortApi
 }
 
@@ -1892,7 +1896,7 @@ export interface BulkDeleteFiltersApi {
     active?: ActiveEnumApi
     /** Filter to flags created by a specific user ID. */
     created_by_id?: number
-    /** Search by feature flag key or name (case-insensitive). */
+    /** Search by feature flag key or name (case-insensitive). Spaces, underscores, and hyphens count as the same separator. */
     search?: string
     /** Filter by flag type.
      *
@@ -2371,7 +2375,9 @@ export type OrgFeatureFlagsKeysParams = {
 
 export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
-     * Name of the evaluation context to restore to suggestions.
+     * Name of the evaluation context to hide from (POST) or restore to (DELETE) the flag editor's suggestion list. Case-insensitive and whitespace-trimmed.
+     * @minLength 1
+     * @maxLength 255
      */
     context_name: string
 }
@@ -2449,7 +2455,7 @@ export type FeatureFlagsListParams = {
      */
     offset?: number
     /**
-     * Search by feature flag key or name. Case insensitive.
+     * Search by feature flag key or name. Case insensitive. Spaces, underscores, and hyphens count as the same separator.
      */
     search?: string
     /**

@@ -22,7 +22,6 @@ from prometheus_client import Counter
 
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
-from posthog.ph_client import feature_enabled_or_false
 
 from products.tasks.backend.logic.services.gateway_model_pin import DESKTOP_AGENT_MODELS, FREE_TIER_MODELS
 
@@ -82,6 +81,23 @@ DESKTOP_GATEWAY_MINTS = Counter(
     "PostHog Desktop gateway token mints, by outcome (ok/rate_limited/refused/unreachable/malformed)",
     labelnames=["outcome"],
 )
+
+# Which mint refused: the Desktop endpoint or a sandbox run's.
+GatewayRefusalSurface = Literal["desktop", "sandbox"]
+
+
+def record_gateway_token_refusal(surface: GatewayRefusalSurface, reason: str, *, ai_product: str) -> None:
+    try:
+        client = posthoganalytics.default_client
+        if client is None:
+            return
+        client.metrics.count(
+            "tasks.gateway_token.refused",
+            1,
+            attributes={"surface": surface, "ai_product": ai_product, "reason": reason},
+        )
+    except Exception:
+        pass
 
 
 def _team_credit_refusal(team_id: int, bucket: str) -> str | None:
@@ -168,27 +184,6 @@ def posthog_code_plan(team: "Team") -> PosthogCodePlan:
 
 def plan_allowed_models(plan: PosthogCodePlan) -> list[str]:
     return list(DESKTOP_AGENT_MODELS) if plan == "paid" else list(FREE_TIER_MODELS)
-
-
-def desktop_rollout_enabled(
-    organization: "Organization", team: "Team", distinct_id: str | None = None, email: str | None = None
-) -> bool:
-    """The rollout flag, targeted on the org. A flag outage reads as off, which keeps both legs on legacy."""
-    organization_id = str(organization.id)
-    try:
-        return feature_enabled_or_false(
-            settings.DESKTOP_GATEWAY_ROLLOUT_FLAG,
-            distinct_id or organization_id,
-            groups={"organization": organization_id, "project": str(team.id)},
-            # Always sent: the stored person email is client-writable ($set).
-            person_properties={"email": email or ""},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    except Exception:
-        logger.warning("desktop_gateway_token: rollout flag unavailable, treating as off", exc_info=True)
-        return False
 
 
 def posthog_code_billing_synced(organization: "Organization") -> bool:

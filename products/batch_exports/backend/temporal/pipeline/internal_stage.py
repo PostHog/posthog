@@ -51,8 +51,8 @@ from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
     BatchExportModel,
-    BatchExportSchema,
     afetch_last_run_records_completed,
+    migrate_batch_export_model,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.errors import MissingRequiredInputsError
@@ -296,8 +296,6 @@ class BatchExportInsertIntoInternalStageInputs:
     batch_export_model: BatchExportModel | None = None
     is_workflows: bool = False
     on_demand: bool = False
-    # TODO: Remove after updating existing batch exports
-    batch_export_schema: BatchExportSchema | None = None
     destination_default_fields: list[BatchExportField] | None = None
 
     @property
@@ -313,7 +311,6 @@ class BatchExportInsertIntoInternalStageInputs:
             "run_id": self.run_id,
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
-            "batch_export_schema": self.batch_export_schema,
             "destination_default_fields": self.destination_default_fields,
         }
 
@@ -372,6 +369,7 @@ async def insert_into_internal_stage_activity(
         logger.info("Computed staging partitions", num_partitions=num_partitions)
 
         try:
+            model = migrate_batch_export_model(inputs.batch_export_model)
             (
                 _,
                 record_batch_model,
@@ -381,8 +379,7 @@ async def insert_into_internal_stage_activity(
                 extra_query_parameters,
             ) = await database_sync_to_async(resolve_batch_exports_model)(
                 inputs.team_id,
-                inputs.batch_export_model,
-                inputs.batch_export_schema,
+                model,
                 inputs.batch_export_id,
                 is_backfill=inputs.backfill_details is not None,
             )
@@ -806,6 +803,9 @@ async def _write_batch_export_record_batches_to_internal_stage(
         else:
             query = query_or_model
             query_settings = {}
+
+        if str(team_id) in settings.BATCH_EXPORT_ARROW_COMPRESSION_TEAM_IDS:
+            query_settings["output_format_arrow_compression_method"] = settings.BATCH_EXPORT_ARROW_COMPRESSION_METHOD
 
         base_s3_staging_folder = get_base_s3_staging_folder(
             batch_export_id=batch_export_id,

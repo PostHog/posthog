@@ -33,9 +33,11 @@ def _normalize_base_url(api_url: str) -> str:
     Users copy the URL straight from their ActiveCampaign developer settings, which
     is the bare account host (e.g. https://youraccount.api-us1.com). We tolerate a
     trailing slash or an accidentally-pasted `/api/3` and re-append the version path
-    ourselves so the configured base is always consistent.
+    ourselves so the configured base is always consistent. A bare host gets `https://`.
     """
     url = api_url.strip().rstrip("/")
+    if url and "://" not in url:
+        url = f"https://{url}"
     if url.endswith("/api/3"):
         url = url[: -len("/api/3")]
     return url
@@ -161,7 +163,11 @@ def active_campaign_source(
 def validate_credentials(api_url: str, api_key: str) -> tuple[bool, str | None]:
     base_url = _normalize_base_url(api_url)
     if not base_url.startswith("https://"):
-        return False, "ActiveCampaign API URL must start with https://"
+        return (
+            False,
+            "Your ActiveCampaign API URL must start with https://. Copy it from Settings > Developer in "
+            "ActiveCampaign, then try again.",
+        )
 
     # Defense-in-depth SSRF check (the Smokescreen egress proxy is the load-bearing
     # control): reject localhost, cloud-metadata hosts, internal domains, and private

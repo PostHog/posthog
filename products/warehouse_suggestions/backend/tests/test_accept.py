@@ -197,6 +197,11 @@ class TestAcceptSuggestion(APIBaseTest):
                 status.HTTP_200_OK,
             ),
             (
+                "per_kind_scopes_a_cli_key_carries",
+                ["data_catalog_approval:write", "warehouse_view:write"],
+                status.HTTP_200_OK,
+            ),
+            (
                 "no_view_write_scope",
                 ["warehouse_objects:write", "data_catalog_approval:write"],
                 status.HTTP_403_FORBIDDEN,
