@@ -869,6 +869,107 @@ type Story = StoryObj<{}>
 
 export const Home: Story = {}
 
+export const HomeWithWaysToUse: Story = {
+    parameters: { pageUrl: `${urls.projectHomepage()}?ways_to_use=1` },
+}
+
+export const NarrowWindowWithWaysToUse: Story = {
+    parameters: {
+        pageUrl: `${urls.projectHomepage()}?ways_to_use=1`,
+        testOptions: { viewport: { width: 800, height: 900 } },
+    },
+}
+
+export const PhoneWidthWithWaysToUse: Story = {
+    parameters: {
+        pageUrl: `${urls.projectHomepage()}?ways_to_use=1`,
+        testOptions: { viewport: { width: 390, height: 844 } },
+    },
+}
+
+const WAYS_TO_USE_WELCOME = {
+    organization_name: 'Hedgebox',
+    inviter: { name: 'Mira Okafor', email: 'mira@example.com' },
+    team_members: [
+        { name: 'Mira Okafor', email: 'mira@example.com', avatar: null, role: 'admin', last_active: 'today' },
+        { name: 'Theo Lind', email: 'theo@example.com', avatar: null, role: 'member', last_active: 'this_week' },
+        { name: 'Ana Ruiz', email: 'ana@example.com', avatar: null, role: 'member', last_active: 'today' },
+    ],
+    recent_activity: [
+        {
+            type: 'Insight.created',
+            actor_name: 'Theo Lind',
+            entity_name: 'Weekly signups by plan',
+            entity_url: '/insights/abc123',
+            timestamp: '2026-10-15T09:00:00Z',
+        },
+        {
+            type: 'FeatureFlag',
+            actor_name: 'Ana Ruiz',
+            entity_name: 'new-checkout-flow',
+            entity_url: '/feature_flags/12',
+            timestamp: '2026-10-14T09:00:00Z',
+        },
+    ],
+    popular_dashboards: [
+        { id: 1, name: 'Product health', description: '', team_id: 997, url: '/dashboard/1' },
+        { id: 2, name: 'Growth funnel', description: '', team_id: 997, url: '/dashboard/2' },
+    ],
+    products_in_use: ['product_analytics', 'session_replay', 'error_tracking'],
+    suggested_next_steps: [],
+    is_organization_first_user: false,
+}
+
+const waysToUseInviteeMocks = (integrations: Record<string, unknown>[] = []): ReturnType<typeof mswDecorator> =>
+    mswDecorator({
+        get: {
+            '/api/organizations/@current/welcome/current/': WAYS_TO_USE_WELCOME,
+            '/api/environments/:team_id/integrations/': {
+                results: integrations,
+                next: null,
+                count: integrations.length,
+            },
+            '/api/projects/:team_id/integrations/': { results: integrations, next: null, count: integrations.length },
+        },
+    })
+
+export const InviteeWithWaysToUse: Story = {
+    decorators: [waysToUseInviteeMocks()],
+    parameters: { pageUrl: `${urls.projectHomepage()}?ways_to_use=invitee` },
+}
+
+export const InviteeWithWaysToUseSecondStep: Story = {
+    decorators: [waysToUseInviteeMocks()],
+    parameters: { pageUrl: `${urls.projectHomepage()}?ways_to_use=invitee` },
+    play: async ({ canvasElement }) => {
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await body.findByText('Next'))
+        await body.findByText('In the web app')
+    },
+}
+
+export const InviteeWithWaysToUseSlackConnected: Story = {
+    decorators: [
+        waysToUseInviteeMocks([
+            { id: 1, kind: 'slack', display_name: 'Hedgebox', config: {}, created_at: '2026-10-01T09:00:00Z' },
+        ]),
+    ],
+    parameters: { pageUrl: `${urls.projectHomepage()}?ways_to_use=invitee` },
+    play: async ({ canvasElement }) => {
+        const body = within(canvasElement.ownerDocument.body)
+        await userEvent.click(await body.findByText('Next'))
+        await body.findByText('Connected')
+    },
+}
+
+export const InviteeWithWaysToUsePhoneWidth: Story = {
+    decorators: [waysToUseInviteeMocks()],
+    parameters: {
+        pageUrl: `${urls.projectHomepage()}?ways_to_use=invitee`,
+        testOptions: { viewport: { width: 390, height: 844 } },
+    },
+}
+
 export const HomeWithSampleReports: Story = {
     parameters: { pageUrl: `${urls.projectHomepage()}?sample=1` },
 }

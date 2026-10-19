@@ -24,6 +24,8 @@ import { InviteModal } from 'scenes/settings/organization/InviteModal'
 import { PreviewingCustomCssModal } from 'scenes/themes/PreviewingCustomCssModal'
 import { MaybeWelcomeDialog } from 'scenes/welcome/WelcomeDialog'
 
+import { TodayWaysToUseDialog } from '~/layout/today/waysToUse/TodayWaysToUseDialog'
+
 import { composeTicketLogic } from 'products/conversations/frontend/components/ComposeTicket/composeTicketLogic'
 import { logsViewerModalLogic } from 'products/logs/frontend/components/LogsViewer/LogsViewerModal/logsViewerModalLogic'
 import { traceDialogLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogLogic'
@@ -108,6 +110,7 @@ export function GlobalModals(): JSX.Element {
             <MaybeWelcomeDialog />
             <MaybeProductPushWelcome />
             <MaybePhaiOnboarding />
+            <TodayWaysToUseDialog />
             {shouldRenderComposeTicketModal ? (
                 <Suspense fallback={null}>
                     <ComposeTicketModal />
