@@ -5,26 +5,19 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from posthog.dataclasses import frozen
+from posthog.schema import MetricsDashboardVariable, MetricsDashboardVariableSelection, MetricsDashboardVariableSource
 
-_REFERENCE = re.compile(
-    r"\$\{(?P<braced>[A-Za-z0-9_]+)(?::(?P<braced_format>[A-Za-z0-9_]+))?\}"
-    r"|\[\[(?P<bracketed>[A-Za-z0-9_]+)(?::(?P<bracketed_format>[A-Za-z0-9_]+))?\]\]"
-    r"|\$(?P<plain>[A-Za-z0-9_]+)"
+from products.metrics.backend.variables import (
+    VARIABLE_NAME,
+    Substitution,
+    Variable,
+    referenced_names,
+    substitute_promql,
 )
-# The range rewrite handles these, so the substitution must leave them in place.
-GRAFANA_RANGE_VARIABLES = frozenset({"__rate_interval", "__interval", "__range", "__range_s", "__range_ms", "__auto"})
-_REGEX_SPECIAL = set("\\^$.|?*+()[]{}")
+
 _SKIPPED_TYPES = frozenset({"datasource", "adhoc", "groupby"})
 ALL_VALUE = "$__all"
-
-
-@frozen
-class Variable:
-    values: tuple[str, ...]
-    is_all: bool
-    all_value: str | None
-    options: tuple[str, ...]
+_PROMQL_VARIABLE_QUERY = re.compile(r"^\s*(label_values|label_names|metrics|query_result)\s*\(", re.IGNORECASE)
 
 
 def _strings(value: Any) -> tuple[str, ...]:
@@ -37,18 +30,69 @@ def _strings(value: Any) -> tuple[str, ...]:
     return ()
 
 
-def regex_escape(value: str) -> str:
-    # The value lands inside a double-quoted PromQL string, so each regex escape needs a doubled backslash.
-    return "".join(f"\\\\{char}" if char in _REGEX_SPECIAL else char for char in value)
+def _query_text(item: dict[str, Any]) -> str:
+    query = item.get("query")
+    if isinstance(query, dict):
+        query = query.get("query")
+    return query.strip() if isinstance(query, str) else ""
+
+
+def _regex(item: dict[str, Any]) -> str | None:
+    regex = item.get("regex")
+    if not isinstance(regex, str) or not regex.strip():
+        return None
+    return regex.strip()
+
+
+def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Variable) -> MetricsDashboardVariable | None:
+    """The dashboard variable that keeps a Grafana variable live. None when it cannot stay live."""
+    if not VARIABLE_NAME.match(name):
+        return None
+    custom_values: list[str] | None = None
+    query: str | None = None
+    if kind == "query":
+        query = _query_text(item)
+        if not _PROMQL_VARIABLE_QUERY.match(query):
+            return None
+        source = MetricsDashboardVariableSource.PROMQL
+    elif kind == "custom":
+        custom_values = (
+            list(variable.options)
+            or [part.strip() for part in _query_text(item).split(",") if part.strip()]
+            or list(variable.values)
+        )
+        source = MetricsDashboardVariableSource.CUSTOM
+    elif kind in ("textbox", "constant"):
+        source = MetricsDashboardVariableSource.TEXTBOX
+    else:
+        return None
+    label = item.get("label")
+    return MetricsDashboardVariable(
+        name=name,
+        label=label if isinstance(label, str) and label else None,
+        source=source,
+        customValues=custom_values,
+        query=query,
+        regex=_regex(item) if kind == "query" else None,
+        multi=bool(item.get("multi")) or None,
+        includeAll=bool(item.get("includeAll")) or None,
+        allValue=variable.all_value,
+        current=MetricsDashboardVariableSelection(
+            values=list(variable.options if variable.is_all and not variable.values else variable.values),
+            all=variable.is_all or None,
+        ),
+    )
 
 
 class TemplateVariables:
-    def __init__(self, variables: dict[str, Variable]) -> None:
+    def __init__(self, variables: dict[str, Variable], live: dict[str, MetricsDashboardVariable] | None = None) -> None:
         self._variables = variables
+        self._live = live or {}
 
     @classmethod
     def from_templating(cls, items: Any) -> TemplateVariables:
         variables: dict[str, Variable] = {}
+        live: dict[str, MetricsDashboardVariable] = {}
         for item in items if isinstance(items, list) else []:
             if not isinstance(item, dict) or not isinstance(item.get("name"), str):
                 continue
@@ -70,53 +114,47 @@ class TemplateVariables:
             )
             all_value = item.get("allValue") if isinstance(item.get("allValue"), str) else None
             is_all = ALL_VALUE in values or (current.get("text") == "All" and bool(item.get("includeAll")))
-            variables[item["name"]] = Variable(
+            variable = Variable(
                 values=tuple(value for value in values if value != ALL_VALUE),
                 is_all=is_all,
                 all_value=all_value or None,
                 options=options,
             )
-        return cls(variables)
+            variables[item["name"]] = variable
+            if definition := _live_definition(item["name"], kind, item, variable):
+                live[item["name"]] = definition
+        return cls(variables, live)
 
     def summary(self) -> dict[str, str]:
         return {
             name: "All" if variable.is_all else ", ".join(variable.values) for name, variable in self._variables.items()
         }
 
-    def substitute(self, expr: str) -> tuple[str, list[str]]:
+    def definitions(self) -> list[MetricsDashboardVariable]:
+        """The variables that the imported dashboard keeps live, in the Grafana order.
+
+        A variable query keeps its references to live variables. The others, such as an interval,
+        get their saved values, because the dashboard does not define them.
+        """
+        return [
+            definition.model_copy(
+                update={"query": substitute_promql(definition.query, self._variables, keep=self._live).text}
+            )
+            if definition.query
+            else definition
+            for definition in self._live.values()
+        ]
+
+    def substitute(self, expr: str) -> Substitution:
         """Replace variable references with their saved values. Also returns the names it could not resolve."""
-        unresolved: list[str] = []
+        return substitute_promql(expr, self._variables)
 
-        def replace(match: re.Match[str]) -> str:
-            name = match.group("braced") or match.group("bracketed") or match.group("plain")
-            value_format = match.group("braced_format") or match.group("bracketed_format")
-            # A numeric reference such as $1 is a regex group in label_replace, not a variable.
-            if name in GRAFANA_RANGE_VARIABLES or name.isdigit():
-                return match.group(0)
-            variable = self._variables.get(name)
-            if variable is None or (not variable.values and not variable.is_all):
-                unresolved.append(name)
-                return match.group(0)
-            return self._format(variable, value_format)
+    def template(self, expr: str) -> str | None:
+        """Keep references to live variables and put in the saved values of the others.
 
-        return _REFERENCE.sub(replace, expr), list(dict.fromkeys(unresolved))
-
-    @staticmethod
-    def _format(variable: Variable, value_format: str | None) -> str:
-        if variable.is_all:
-            if variable.all_value is not None:
-                return variable.all_value
-            if not variable.options:
-                return ".*"
-            values = variable.options
-            value_format = value_format or "regex"
-        else:
-            values = variable.values
-        if value_format in ("raw", "text", "csv"):
-            return ",".join(values)
-        if value_format == "pipe":
-            return "|".join(values)
-        if value_format == "regex" or len(values) > 1:
-            escaped = [regex_escape(value) for value in values]
-            return f"({'|'.join(escaped)})" if len(escaped) > 1 else escaped[0]
-        return values[0]
+        None when the expression refers to no live variable, or to a variable that has no saved value.
+        """
+        if not any(name in self._live for name in referenced_names(expr)):
+            return None
+        substitution = substitute_promql(expr, self._variables, keep=self._live)
+        return None if substitution.unresolved else substitution.text
