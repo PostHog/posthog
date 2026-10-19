@@ -1,5 +1,6 @@
 from typing import cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfig, AwsIamAccessAnalyzerResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_IAM_ACCESS_ANALYZER|AWSIAMACCESSANALYZER)_",),
+        npm=("@aws-sdk/client-accessanalyzer",),
+        cargo=("aws-sdk-accessanalyzer",),
+        go=("github.com/aws/aws-sdk-go-v2/service/accessanalyzer",),
+        maven=("software.amazon.awssdk:accessanalyzer", "com.amazonaws:aws-java-sdk-accessanalyzer"),
+        rubygems=("aws-sdk-accessanalyzer",),
+    )
+
     lists_tables_without_credentials = True
     supported_versions = (API_VERSION,)
     default_version = API_VERSION
@@ -111,13 +121,14 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
             name=ExternalDataSourceType.AWSIAMACCESSANALYZER,
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="AWS IAM Access Analyzer",
-            caption="""Sync access analyzers, findings, and archive rules from one AWS region.
+            caption="""Sync access analyzers, findings, archive rules, analyzed resources, finding details, and finding recommendations from one AWS region.
 
-Grant `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindings`, and `access-analyzer:ListArchiveRules` for the tables you select.
+Grant `access-analyzer:ListAnalyzers`, `access-analyzer:ListFindings`, `access-analyzer:ListArchiveRules`, `access-analyzer:ListAnalyzedResources`, `access-analyzer:GetFinding`, and `access-analyzer:GetFindingRecommendation` for the tables you select.
 Enter an access key ID and secret access key. Add a session token for temporary credentials.
 Temporary credentials expire, so update them before later syncs.
 
-All tables use full refresh. The API does not support a date-range filter for findings.""",
+All tables use full refresh. The API does not support a date-range filter for findings.
+Finding recommendations only include recommendations that you already generated in AWS. The sync does not generate new ones.""",
             iconPath="/static/services/aws_iam_access_analyzer.png",
             docsUrl=API_DOCS_URL,
             releaseStatus=ReleaseStatus.ALPHA,

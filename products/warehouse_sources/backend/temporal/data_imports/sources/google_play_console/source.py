@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -53,6 +54,13 @@ def _service_account_key(config: GooglePlayConsoleSourceConfig) -> ServiceAccoun
 
 @SourceRegistry.register
 class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, GooglePlayConsoleResumeConfig]):
+    codebase_detection = detect(
+        env=("^(GOOGLE_PLAY_CONSOLE|GOOGLEPLAYCONSOLE)_",),
+        npm=("@googleapis/androidpublisher",),
+        maven=("com.google.apis:google-api-services-androidpublisher",),
+        rubygems=("google-apis-androidpublisher_v3",),
+    )
+
     supported_versions = ("v1beta1",)
     default_version = "v1beta1"
     api_docs_url = "https://developers.google.com/play/developer/reporting"

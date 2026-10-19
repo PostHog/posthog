@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -41,6 +42,8 @@ _SCOPE_REQUIRED_MESSAGE = (
 
 @SourceRegistry.register
 class CrossrefSource(ResumableSource[CrossrefSourceConfig, CrossrefResumeConfig]):
+    codebase_detection = detect(env=("^CROSSREF_",), pypi=("habanero", "crossrefapi"))
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://github.com/CrossRef/rest-api-doc"
 
@@ -57,7 +60,7 @@ class CrossrefSource(ResumableSource[CrossrefSourceConfig, CrossrefResumeConfig]
             releaseStatus=ReleaseStatus.ALPHA,
             caption="""Crossref's API is free and public — no API key needed. Add a contact email to get routed to Crossref's faster "polite pool".
 
-The Works table covers Crossref's full DOI registry (160 million+ records), so set a member ID, funder ID, or journal ISSN below to scope which works sync. The Members, Funders, Types, and Licenses tables always sync in full.
+The Works table covers Crossref's full DOI registry (160 million+ records), so set a member ID, funder ID, or journal ISSN below to scope which works sync. The Members, Funders, Types, Licenses, and Journals tables always sync in full.
 """,
             iconPath="/static/services/crossref.png",
             docsUrl="https://posthog.com/docs/cdp/sources/crossref",

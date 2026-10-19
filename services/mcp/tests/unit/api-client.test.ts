@@ -5,10 +5,42 @@ import { MCP_CLIENT_IP_HEADERS, verifySignedClientIp } from '@/lib/client-ip-sig
 import { USER_AGENT, getUserAgent } from '@/lib/constants'
 import { PostHogTransportError } from '@/lib/errors'
 import { getToolByName } from '@/shared/test-utils'
+import { GENERATED_TOOLS as PROXY_TOOLS } from '@/tools/generated/proxy-records'
 import { GENERATED_TOOLS } from '@/tools/generated/skills'
 import type { Context } from '@/tools/types'
 
 describe('ApiClient', () => {
+    it('validates the resource path of a generated tool before fetching', async () => {
+        const send = vi.fn().mockResolvedValue(new Response('{}'))
+        vi.stubGlobal('fetch', send)
+        const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+        const context = { api: client, stateManager: { getOrgID: async () => 'example' } } as unknown as Context
+        const tool = getToolByName(PROXY_TOOLS, 'proxy-delete')
+        try {
+            await expect(tool.handler(context, tool.schema.parse({ id: '..' }))).rejects.toThrow('Invalid API path')
+            expect(send).not.toHaveBeenCalled()
+        } finally {
+            vi.unstubAllGlobals()
+        }
+    })
+
+    it.each(['.', '..', '%2e', '.%2e', '%2e.', '%2e%2e', ''])(
+        'rejects invalid resource segment case %# before sending',
+        async (id) => {
+            const send = vi.fn().mockResolvedValue(new Response('{}'))
+            vi.stubGlobal('fetch', send)
+            const client = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
+            try {
+                await expect(
+                    client.request({ method: 'DELETE', path: `/api/organizations/example/proxy_records/${id}/` })
+                ).rejects.toThrow('Invalid API path')
+                expect(send).not.toHaveBeenCalled()
+            } finally {
+                vi.unstubAllGlobals()
+            }
+        }
+    )
+
     it.each([200, 403, 500])('reads privacy only from the API response before handling status %s', async (status) => {
         const shared = new ApiClient({ apiToken: 'test-token', baseUrl: 'https://example.com' })
         const suppress = vi.fn()

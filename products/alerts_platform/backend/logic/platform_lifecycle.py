@@ -5,24 +5,42 @@ and every write to these rows, stays here. A source never holds one of these mod
 """
 
 from collections.abc import Collection, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Final
+from uuid import UUID
 
-from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db import connection, transaction
+from django.db.models import Q, QuerySet
+from django.utils import timezone as django_timezone
 
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.alerts_platform.backend.facade.contracts import (
+    CheckFailure,
+    Grouping,
+    GroupingMode,
+    GroupOutcome,
+    HandbackRefusal,
+    InstanceCheckState,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
     PlatformAlertUpsert,
+    PlatformHandback,
+    PlatformOwnershipHandover,
     source_condition,
 )
-from products.alerts_platform.backend.facade.platform_metrics import increment_history_rows_dropped, safe_record
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.facade.platform_metrics import (
+    increment_groups_over_cap,
+    increment_history_rows_dropped,
+    increment_instances_reaped,
+    safe_record,
+)
 from products.alerts_platform.backend.facade.scheduling import (
     advance_schedule,
     compute_shard_offset_seconds,
+    compute_team_shard_offset_seconds,
     to_recurrence_interval,
     validate_and_normalize_schedule_start_time,
 )
@@ -36,58 +54,200 @@ def due_q(moment: datetime) -> Q:
     return Q(next_check_at__lte=moment) | Q(next_check_at__isnull=True)
 
 
-def _existing_alerts(team_id: int, configurations: Sequence[PlatformAlertConfiguration]) -> dict[str, PlatformAlert]:
-    """The runtime rows that exist. A configuration with none has never been evaluated.
+def _instances_by_configuration(
+    team_id: int, configurations: Sequence[PlatformAlertConfiguration]
+) -> dict[str, list[PlatformAlert]]:
+    """Every runtime row each configuration has. A configuration with none has never been evaluated."""
+    found: dict[str, list[PlatformAlert]] = {}
+    rows = PlatformAlert.objects.for_team(team_id).filter(configuration__in=configurations).order_by("grouping_key")
+    for alert in rows:
+        found.setdefault(str(alert.configuration_id), []).append(alert)
+    return found
 
-    The grouping key is empty until a source groups its results, so today this is the whole of
-    an alert's state and a real key needs no new table.
-    """
-    return {
-        str(alert.configuration_id): alert
-        for alert in PlatformAlert.objects.for_team(team_id).filter(configuration__in=configurations, grouping_key="")
+
+@frozen
+class _InstanceKey:
+    configuration_id: str
+    grouping_key: str
+
+
+def _instances(team_id: int, keys: Collection[_InstanceKey]) -> dict[_InstanceKey, PlatformAlert]:
+    rows = PlatformAlert.objects.for_team(team_id).filter(
+        configuration_id__in={key.configuration_id for key in keys},
+        grouping_key__in={key.grouping_key for key in keys},
+    )
+    found = {
+        _InstanceKey(configuration_id=str(row.configuration_id), grouping_key=row.grouping_key): row for row in rows
     }
+    # The filter crosses every configuration with every key, so it can return pairs nobody asked for.
+    return {key: row for key, row in found.items() if key in keys}
 
 
-def _alerts_for_write(team_id: int, configurations: Sequence[PlatformAlertConfiguration]) -> dict[str, PlatformAlert]:
-    """The runtime rows, creating any configuration that has none yet."""
-    existing = _existing_alerts(team_id, configurations)
-    missing = [c for c in configurations if str(c.id) not in existing]
+def _alerts_for_write(
+    team_id: int, configurations: Sequence[PlatformAlertConfiguration], wanted: Collection[_InstanceKey]
+) -> dict[_InstanceKey, PlatformAlert]:
+    """Every runtime row these configurations have, plus a new one for each wanted group with room.
+
+    One read serves the existing rows, the counts the cap needs, and the empty-key row a failure
+    states. A group past `max_instances` gets no row, and so no write and no history. A source admits
+    groups before it reports them, so this is the backstop for one that did not.
+    """
+    loaded = {
+        _InstanceKey(configuration_id=configuration_id, grouping_key=alert.grouping_key): alert
+        for configuration_id, alerts in _instances_by_configuration(team_id, configurations).items()
+        for alert in alerts
+    }
+    by_id = {str(configuration.id): configuration for configuration in configurations}
+    held: dict[str, int] = {}
+    for key in loaded:
+        held[key.configuration_id] = held.get(key.configuration_id, 0) + 1
+    missing: list[_InstanceKey] = []
+    over_cap: dict[str, int] = {}
+    for key in wanted:
+        if key in loaded:
+            continue
+        configuration = by_id[key.configuration_id]
+        if held.get(key.configuration_id, 0) >= Grouping.from_stored(configuration.grouping).max_instances:
+            over_cap[configuration.source_kind] = over_cap.get(configuration.source_kind, 0) + 1
+            continue
+        held[key.configuration_id] = held.get(key.configuration_id, 0) + 1
+        missing.append(key)
+    for source_kind, count in over_cap.items():
+        safe_record(increment_groups_over_cap, source_kind, count)
     if missing:
         # ignore_conflicts leans on the unique constraint, so a concurrent cycle creating the
         # same row is not an error. `for_team` because these models are fail-closed and a
         # Temporal activity has no ambient scope; the rows still carry `team_id` themselves,
         # because a queryset filter does not propagate into row creation.
         PlatformAlert.objects.for_team(team_id).bulk_create(
-            [PlatformAlert(team_id=team_id, configuration=c, grouping_key="") for c in missing],
+            [
+                PlatformAlert(team_id=team_id, configuration=by_id[key.configuration_id], grouping_key=key.grouping_key)
+                for key in missing
+            ],
             ignore_conflicts=True,
         )
-        existing.update(_existing_alerts(team_id, missing))
-    return existing
+        loaded.update(_instances(team_id, missing))
+    return loaded
 
 
-def suppressed() -> Exists:
-    """Configurations a runtime state holds back.
+def _at_rest(now: datetime) -> Q:
+    """Rows that hold a slot and nothing else, as `InstanceCheckState.at_rest` reads an instance."""
+    return Q(state=PlatformAlert.State.NOT_FIRING) & (Q(snooze_until__isnull=True) | Q(snooze_until__lte=now))
+
+
+# Long enough that a group which resolves and fires again inside a day keeps its cooldown.
+REAP_AFTER: Final = timedelta(hours=24)
+
+
+def _reap(
+    team_id: int,
+    configurations: Sequence[PlatformAlertConfiguration],
+    now: datetime,
+    *,
+    returned: Collection[_InstanceKey],
+) -> None:
+    """Deletes instances that hold a slot and nothing else, so a stale group frees its place.
+
+    Only an instance that is not firing, not muted, and that no check returned for longer than both
+    `REAP_AFTER` and its cooldown. A configuration whose checks fail returns no groups, so its
+    instances look unseen without being gone. The caller passes only configurations whose check
+    succeeded.
+    """
+    # An ungrouped configuration's one instance is returned by every check, so it has nothing to reap.
+    healthy = {str(c.id): c for c in configurations if Grouping.from_stored(c.grouping).mode != GroupingMode.SINGLE}
+    if not healthy:
+        return
+    candidates = (
+        PlatformAlert.objects.for_team(team_id)
+        .filter(_at_rest(now), configuration_id__in=list(healthy), last_seen_at__lt=now - REAP_AFTER)
+        .values_list("id", "configuration_id", "grouping_key", "last_seen_at")
+    )
+    reaped: dict[str, list[UUID]] = {}
+    for alert_id, configuration_id, grouping_key, last_seen_at in candidates:
+        if _InstanceKey(configuration_id=str(configuration_id), grouping_key=grouping_key) in returned:
+            continue
+        configuration = healthy[str(configuration_id)]
+        if configuration.snooze_until is not None and configuration.snooze_until > now:
+            continue
+        if last_seen_at is None or last_seen_at >= now - timedelta(minutes=configuration.cooldown_minutes):
+            continue
+        reaped.setdefault(configuration.source_kind, []).append(alert_id)
+    for source_kind, ids in reaped.items():
+        PlatformAlert.objects.for_team(team_id).filter(id__in=ids).delete()
+        safe_record(increment_instances_reaped, source_kind, len(ids))
+
+
+def _evict(
+    team_id: int,
+    configurations: Sequence[PlatformAlertConfiguration],
+    by_id: dict[str, PlatformAlertOutcome],
+    now: datetime,
+) -> None:
+    """Deletes the resting instances a check evicted, so the groups that took their slots pass the cap.
+
+    The filter repeats the check's notion of at rest, because the row may have changed since the
+    check read it, and deleting a firing or muted instance would lose its state.
+    """
+    doomed: dict[str, Q] = {}
+    for configuration in configurations:
+        evicted = by_id[str(configuration.id)].evicted
+        if not evicted or Grouping.from_stored(configuration.grouping).mode == GroupingMode.SINGLE:
+            continue
+        if configuration.snooze_until is not None and configuration.snooze_until > now:
+            continue
+        doomed[configuration.source_kind] = doomed.get(configuration.source_kind, Q()) | Q(
+            configuration_id=configuration.id, grouping_key__in=evicted
+        )
+    for source_kind, rows in doomed.items():
+        deleted, _ = PlatformAlert.objects.for_team(team_id).filter(rows, _at_rest(now)).delete()
+        if deleted:
+            safe_record(increment_instances_reaped, source_kind, deleted)
+
+
+def suppressed() -> Q:
+    """Configurations a check status holds back.
 
     BROKEN only. A mute holds an announcement rather than a check, so a snoozed alert is
     discovered and evaluated like any other and its state keeps tracking reality.
 
-    The state lives on `PlatformAlert`, so discovery and the batch read both reach for this
-    rather than each writing the predicate out. If the two disagreed, a broken alert would be
-    dispatched by one and dropped by the other, every tick, in silence.
-
-    Excluded as one `Exists` rather than as a lookup across the relation. Django splits an
-    excluded multi-valued lookup into a subquery per leaf, which lets the conditions match
-    different alert rows once a source writes a real grouping key, and buries them where
-    Postgres cannot lift them into an anti-join.
+    Discovery and the batch read both reach for this rather than each writing the predicate out.
+    If the two disagreed, a broken alert would be dispatched by one and dropped by the other,
+    every tick, in silence.
     """
-    # `unscoped` because the subquery runs without ambient scope in both callers, and it is
-    # correlated to a configuration the outer query has already scoped, so the foreign key keeps
-    # it inside that team.
-    return Exists(
-        PlatformAlert.objects.unscoped().filter(
-            configuration=OuterRef("pk"), grouping_key="", state=PlatformAlert.State.BROKEN
-        )
+    return Q(check_status=PlatformAlertConfiguration.CheckStatus.BROKEN)
+
+
+def _due(team_id: int, source_kind: str, cutoff: datetime) -> QuerySet[PlatformAlertConfiguration]:
+    return (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(enabled=True, source_kind=source_kind)
+        .filter(due_q(cutoff))
+        .exclude(suppressed())
     )
+
+
+def due_check_ids(
+    team_id: int, source_kind: str, slot: str, cutoff: datetime, *, exclude: Collection[str] = (), limit: int
+) -> tuple[str, ...]:
+    """The first `limit` due ids of one batch key, in id order, without reading their runtime rows.
+
+    For a source that admits ids in rounds. A round reads only ids, so a large batch does not
+    reload every configuration and its alert row each time a check finishes.
+    """
+    rows = (
+        _due(team_id, source_kind, cutoff)
+        .exclude(id__in=list(exclude))
+        .order_by("id")
+        .values_list("id", "next_check_at")
+    )
+    ids: list[str] = []
+    for configuration_id, next_check_at in rows.iterator():
+        if slot_of(next_check_at, cutoff) != slot:
+            continue
+        ids.append(str(configuration_id))
+        if len(ids) == limit:
+            break
+    return tuple(ids)
 
 
 def due_checks(
@@ -98,12 +258,7 @@ def due_checks(
     `configuration_ids` narrows the batch to those rows, for a source that evaluates one check at
     a time and must still read nothing the batch would not.
     """
-    due = (
-        PlatformAlertConfiguration.objects.for_team(team_id)
-        .filter(enabled=True, source_kind=source_kind)
-        .filter(due_q(cutoff))
-        .exclude(suppressed())
-    )
+    due = _due(team_id, source_kind, cutoff)
     if configuration_ids is not None:
         due = due.filter(id__in=list(configuration_ids))
     # Ordered so a retried attempt keeps the same alerts under any downstream cap.
@@ -112,11 +267,11 @@ def due_checks(
     if not configurations:
         return ()
 
-    alerts = _existing_alerts(team_id, configurations)
-    return tuple(_check(c, alerts.get(str(c.id))) for c in configurations)
+    instances = _instances_by_configuration(team_id, configurations)
+    return tuple(_check(c, instances.get(str(c.id), [])) for c in configurations)
 
 
-def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> PlatformAlertCheckInput:
+def _check(c: PlatformAlertConfiguration, alerts: Sequence[PlatformAlert]) -> PlatformAlertCheckInput:
     return PlatformAlertCheckInput(
         id=c.id,
         team_id=c.team_id,
@@ -130,10 +285,24 @@ def _check(c: PlatformAlertConfiguration, alert: PlatformAlert | None) -> Platfo
         next_check_at=c.next_check_at,
         consecutive_failures=c.consecutive_failures,
         legacy_configuration_id=c.legacy_configuration_id,
+        check_status=c.check_status,
+        snooze_until=c.snooze_until,
+        instances=tuple(_composed(c, alert) for alert in alerts),
+        grouping=Grouping.from_stored(c.grouping),
+        owned_by_platform=c.owner == PlatformAlertConfiguration.Owner.PLATFORM,
+    )
+
+
+def _composed(configuration: PlatformAlertConfiguration, alert: PlatformAlert | None) -> InstanceCheckState:
+    return InstanceCheckState.composed(
+        grouping_key=alert.grouping_key if alert else "",
         state=alert.state if alert else PlatformAlert.State.NOT_FIRING.value,
-        last_notified_at=alert.last_notified_at if alert else None,
+        check_status=configuration.check_status,
+        configuration_snooze_until=configuration.snooze_until,
         snooze_until=alert.snooze_until if alert else None,
+        last_notified_at=alert.last_notified_at if alert else None,
         firing_started_at=alert.firing_started_at if alert else None,
+        last_seen_at=alert.last_seen_at if alert else None,
     )
 
 
@@ -154,10 +323,11 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     a source's copy would cost Temporal payload on every batch.
 
     One path can write a configuration between an evaluation and its record, so the snapshot is
-    evaluation-time by convention rather than by construction: `upsert_configuration`, reached
-    only through a hand-run backfill command, and only for a configuration already copied whose
-    source row changed since. The row then states the new condition beside a verdict measured
-    against the old one. Carry the snapshot on the outcome if that stops being acceptable.
+    evaluation-time by convention rather than by construction: a hand-run backfill's
+    `upsert_configuration`, for a configuration already copied whose source row changed since. The
+    row then states the new condition beside a verdict measured against the old one. Carry the
+    snapshot on the outcome if that stops being acceptable. A logs evaluation also upserts a drifted
+    copy, but before it evaluates, so its snapshot matches its verdict.
 
     The source's bound is flattened in beside the platform's own fields, so a reader finds it at
     the top level whatever shape the source gives it.
@@ -165,39 +335,49 @@ def _condition_snapshot(configuration: PlatformAlertConfiguration) -> dict[str, 
     return {
         **source_condition(configuration.source_config),
         "evaluation_periods": configuration.evaluation_periods,
+        "check_interval_minutes": configuration.check_interval_minutes,
         "datapoints_to_alarm": configuration.datapoints_to_alarm,
         "cooldown_minutes": configuration.cooldown_minutes,
     }
 
 
+# The `alert_id` of a history row that belongs to the check rather than to a group. The column is in
+# the table's sort key, which rejects Nullable, so the nil UUID stands in for "no instance".
+CONFIGURATION_ROW_ALERT_ID: Final = UUID(int=0)
+
+
 def _event_row(
     configuration: PlatformAlertConfiguration,
-    alert: PlatformAlert,
     outcome: PlatformAlertOutcome,
+    verdict: GroupOutcome | CheckFailure,
+    *,
+    alert: PlatformAlert | None,
     previous_state: str,
     now: datetime,
 ) -> PlatformAlertEventRow:
+    group = verdict if isinstance(verdict, GroupOutcome) else None
     return PlatformAlertEventRow(
         team_id=configuration.team_id,
+        source_kind=configuration.source_kind,
         configuration_id=configuration.id,
-        alert_id=alert.id,
-        grouping_key=alert.grouping_key,
+        alert_id=alert.id if alert else CONFIGURATION_ROW_ALERT_ID,
+        grouping_key=alert.grouping_key if alert else "",
         evaluation_key=outcome.evaluation_key,
-        kind=outcome.kind.value,
+        kind=verdict.kind.value,
         alert_name=configuration.name,
         previous_state=previous_state,
-        state=outcome.new_state,
+        state=verdict.new_state,
         # The whole episode, ended or not. A resolve names the firing it closed, which is what a
         # thread key needs and what the alert row no longer holds.
-        episode_started_at=outcome.firing_episode.started_at if outcome.firing_episode else None,
-        value=outcome.value,
-        labels=outcome.labels,
+        episode_started_at=verdict.firing_episode.started_at if verdict.firing_episode else None,
+        value=group.value if group else None,
+        labels=group.labels if group else {},
         condition_snapshot=_condition_snapshot(configuration),
         source_config_snapshot=configuration.source_config,
         query_duration_ms=outcome.query_duration_ms,
         error_message=outcome.error_message,
         consecutive_failures=outcome.consecutive_failures,
-        muted_notification=outcome.muted_notification,
+        muted_notification=verdict.muted_notification,
         occurred_at=now,
     )
 
@@ -205,7 +385,39 @@ def _event_row(
 def _record_history(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> None:
     recorded = insert_events(team_id, rows)
     if recorded < len(rows):
-        safe_record(increment_history_rows_dropped, len(rows) - recorded)
+        # One batch holds one source's checks.
+        safe_record(increment_history_rows_dropped, rows[0].source_kind, len(rows) - recorded)
+
+
+def _shard_offset_seconds(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> int:
+    if outcome.schedule_group is None:
+        return compute_shard_offset_seconds(configuration.id, configuration.check_interval_minutes)
+    return compute_team_shard_offset_seconds(
+        configuration.team_id, configuration.check_interval_minutes, group=outcome.schedule_group
+    )
+
+
+_CHECK_STATUSES: Final = frozenset(PlatformAlertConfiguration.CheckStatus.values) - {
+    PlatformAlertConfiguration.CheckStatus.OK.value
+}
+
+
+def _check_status(configuration: PlatformAlertConfiguration, outcome: PlatformAlertOutcome) -> str:
+    """BROKEN over ERRORED over OK, because a check is as bad as its worst verdict.
+
+    A failure that the policy rides through leaves the status where it was, so only the machine's
+    ERRORED or BROKEN moves it.
+    """
+    if outcome.failure is not None:
+        failed = outcome.failure.new_state
+        return failed if failed in _CHECK_STATUSES else configuration.check_status
+    if outcome.skipped:
+        return configuration.check_status
+    states = {group.new_state for group in outcome.groups}
+    for status in (PlatformAlertConfiguration.CheckStatus.BROKEN, PlatformAlertConfiguration.CheckStatus.ERRORED):
+        if status.value in states:
+            return status.value
+    return PlatformAlertConfiguration.CheckStatus.OK.value
 
 
 def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now: datetime) -> int:
@@ -232,12 +444,33 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
     by_id = {str(o.configuration_id): o for o in outcomes}
 
     with transaction.atomic():
+        # Locked in a fixed order, so an ownership handover waits for this write or this write
+        # re-reads the row after it and finds it no longer due.
         configurations = list(
-            PlatformAlertConfiguration.objects.for_team(team_id).filter(id__in=by_id).filter(due_q(now))
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .filter(id__in=by_id)
+            .filter(due_q(now))
+            .order_by("id")
         )
         if not configurations:
             return 0
-        alerts = _alerts_for_write(team_id, configurations)
+        # In outcome order, because the source put the groups it most wants kept first.
+        returned = [
+            _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
+            for configuration in configurations
+            for group in by_id[str(configuration.id)].groups
+        ]
+        healthy = [
+            configuration
+            for configuration in configurations
+            if _check_status(configuration, by_id[str(configuration.id)]) == PlatformAlertConfiguration.CheckStatus.OK
+        ]
+        # Before the cap is counted, so a slot a stale or evicted group held is free for a new one this check.
+        _reap(team_id, healthy, now, returned=frozenset(returned))
+        _evict(team_id, healthy, by_id, now)
+        alerts = _alerts_for_write(team_id, configurations, returned)
+        touched: list[PlatformAlert] = []
         # One read for the batch. Every configuration in it belongs to this team, and a
         # calendar recurrence resolves its anchor against the team's zone.
         team_timezone = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() or "UTC"
@@ -245,17 +478,49 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         rows: list[PlatformAlertEventRow] = []
         for configuration in configurations:
             outcome = by_id[str(configuration.id)]
-            alert = alerts[str(configuration.id)]
-            # Before the row is mutated, so the history row keeps the state the check found.
-            rows.append(_event_row(configuration, alert, outcome, alert.state, now))
-            episode = outcome.firing_episode
-            # The row holds the firing the alert is in, so a check that ended one clears it. The
-            # ended firing stays on the history row instead.
-            alert.firing_started_at = episode.started_at if episode and not episode.ended else None
-            alert.state = outcome.new_state
-            if outcome.notified:
-                alert.last_notified_at = now
+            for group in outcome.groups:
+                alert = alerts.get(
+                    _InstanceKey(configuration_id=str(configuration.id), grouping_key=group.grouping_key)
+                )
+                if alert is None:
+                    continue
+                touched.append(alert)
+                alert.last_seen_at = now
+                # Before either row is mutated, so the history row keeps the state the check found.
+                rows.append(
+                    _event_row(
+                        configuration,
+                        outcome,
+                        group,
+                        alert=alert,
+                        previous_state=_composed(configuration, alert).state,
+                        now=now,
+                    )
+                )
+                if group.notified:
+                    alert.last_notified_at = now
+                if group.new_state in _CHECK_STATUSES:
+                    continue
+                episode = group.firing_episode
+                # The row holds the firing the alert is in, so a check that ended one clears it. The
+                # ended firing stays on the history row instead.
+                alert.firing_started_at = episode.started_at if episode and not episode.ended else None
+                alert.state = group.new_state
 
+            if outcome.failure is not None:
+                # The empty-key row, so a failure row states the state an ungrouped check found.
+                ungrouped = alerts.get(_InstanceKey(configuration_id=str(configuration.id), grouping_key=""))
+                rows.append(
+                    _event_row(
+                        configuration,
+                        outcome,
+                        outcome.failure,
+                        alert=None,
+                        previous_state=_composed(configuration, ungrouped).state,
+                        now=now,
+                    )
+                )
+            configuration.check_status = _check_status(configuration, outcome)
             configuration.consecutive_failures = outcome.consecutive_failures
             if outcome.disable:
                 configuration.enabled = False
@@ -267,16 +532,15 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
                 tz_name=team_timezone,
                 now=now,
                 configuration_id=configuration.id,
-                shard_offset_seconds=compute_shard_offset_seconds(
-                    configuration.id, configuration.check_interval_minutes
-                ),
+                shard_offset_seconds=_shard_offset_seconds(configuration, outcome),
             )
 
+        # Batched, because a grouped check writes a row per group rather than one per configuration.
         PlatformAlert.objects.for_team(team_id).bulk_update(
-            list(alerts.values()), ["state", "last_notified_at", "firing_started_at"]
+            touched, ["state", "last_notified_at", "firing_started_at", "last_seen_at"], batch_size=500
         )
         PlatformAlertConfiguration.objects.for_team(team_id).bulk_update(
-            configurations, ["consecutive_failures", "enabled", "next_check_at"]
+            configurations, ["check_status", "consecutive_failures", "enabled", "next_check_at"]
         )
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
@@ -285,9 +549,14 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
 
 
 _CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
+_REVIVE_FENCE: Final = timedelta(minutes=1)
+_ADMISSION_LOCK_SQL: Final = {
+    True: "SELECT pg_advisory_xact_lock(hashtext(%s))",
+    False: "SELECT pg_advisory_xact_lock_shared(hashtext(%s))",
+}
 
 
-def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
+def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -> bool:
     """Copies one source configuration in. Returns True when it created a row.
 
     Keyed on the row it came from, so a second run updates rather than duplicates.
@@ -299,6 +568,9 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
 
     The recurrence is checked here rather than where the schedule advances, because an
     unparseable unit or anchor raised there would fail a whole batch of unrelated checks.
+
+    `revive` says the source alert was just created or turned back on, which resets the copy
+    even when it stayed enabled, for example a BROKEN copy that discovery skips.
     """
     if upsert.recurrence_unit is not None:
         to_recurrence_interval(upsert.recurrence_unit)
@@ -325,6 +597,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             "datapoints_to_alarm": upsert.datapoints_to_alarm,
             "cooldown_minutes": upsert.cooldown_minutes,
             "schedule_restriction": upsert.schedule_restriction,
+            # Reached by a backfill run, which re-admits a copy an operator switched off.
+            "switched_off_at": None,
+            # A source's snooze mutes the whole alert. State is left alone because a muted alert
+            # keeps tracking reality.
+            "snooze_until": upsert.snooze_until,
         }
         if (
             existing is None
@@ -333,24 +610,222 @@ def upsert_configuration(upsert: PlatformAlertUpsert) -> bool:
             or any(existing[key] != defaults[key] for key in _CADENCE_FIELDS)
         ):
             defaults["next_check_at"] = upsert.next_check_at
+        # A copy that comes back on starts clean, as a source's own enable does. The state it was
+        # switched off in is stale, and a firing kept from then would end in a resolve for an
+        # episode nobody was told about.
+        revived = existing is not None and upsert.enabled and (revive or not existing["enabled"])
+        if revived:
+            defaults["consecutive_failures"] = 0
+            defaults["check_status"] = PlatformAlertConfiguration.CheckStatus.OK
+            # After any check already running, so an outcome it read before the source came back
+            # on, such as a stop, finds the row no longer due and records nothing.
+            defaults["next_check_at"] = max(
+                upsert.next_check_at or django_timezone.now(), django_timezone.now() + _REVIVE_FENCE
+            )
         configuration, created = PlatformAlertConfiguration.objects.unscoped().update_or_create(
             legacy_configuration_id=upsert.legacy_configuration_id, defaults=defaults
         )
-        alert = _alerts_for_write(upsert.team_id, [configuration])[str(configuration.id)]
-        # State is left alone because a muted alert keeps tracking reality.
-        alert.snooze_until = upsert.snooze_until
-        alert.save(update_fields=["snooze_until"])
+        if revived:
+            PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
+                state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None
+            )
     return created
 
 
-def disable_configurations(source_kind: str, *, team_id: int | None = None) -> int:
-    """Switches off a source's copies, or one team's, and returns how many it switched off.
+def upsert_if_running(upsert: PlatformAlertUpsert, *, revive: bool = False) -> None:
+    """Copies one configuration in when its team already runs that source here.
+
+    A copy the platform owns is the production alert, so it always follows its source, including
+    back on after the source turns it off. Otherwise a team runs a source here while any of its
+    parallel-run copies of that source is enabled. A team the backfill left out of its sample, or one
+    `disable_configurations` switched off, gets nothing, and neither does a copy an operator switched
+    off by name, so a write in the source never widens a sample or undoes an operator's switch-off.
+    """
+    with transaction.atomic():
+        _hold_admission(upsert.source_kind.value, exclusive=False)
+        team_copies = PlatformAlertConfiguration.objects.for_team(upsert.team_id).filter(
+            source_kind=upsert.source_kind.value
+        )
+        existing = team_copies.filter(legacy_configuration_id=upsert.legacy_configuration_id).first()
+        if existing is not None and existing.owner == PlatformAlertOwner.PLATFORM:
+            upsert_configuration(upsert, revive=revive)
+            return
+        running = team_copies.filter(owner=PlatformAlertOwner.SOURCE, enabled=True).exists()
+        switched_off = existing is not None and existing.switched_off_at is not None
+        if running and not switched_off:
+            upsert_configuration(upsert, revive=revive)
+
+
+def _hold_admission(source_kind: str, *, exclusive: bool) -> None:
+    """Orders admitting a copy against an operator's switch-off, so neither reads the other half done.
+
+    An admission shares the lock, so admissions never wait on each other. A switch-off takes it
+    alone, so it waits for admissions in flight and a later admission sees the copies off.
+    """
+    with connection.cursor() as cursor:
+        cursor.execute(_ADMISSION_LOCK_SQL[exclusive], [f"alerts-platform-admission:{source_kind}"])
+
+
+def refresh_settings(team_id: int, configuration_id: UUID, upsert: PlatformAlertUpsert) -> None:
+    """Writes a source's current settings onto its copy, so history and messages state what a check
+    evaluated.
+
+    Settings only. The schedule, `enabled` and the alert rows stay as they are, so an evaluation can
+    call this before it decides and a retried attempt still finds the same checks due.
+    """
+    PlatformAlertConfiguration.objects.for_team(team_id).filter(id=configuration_id).update(
+        name=upsert.name,
+        source_config=upsert.source_config,
+        evaluation_periods=upsert.evaluation_periods,
+        datapoints_to_alarm=upsert.datapoints_to_alarm,
+        cooldown_minutes=upsert.cooldown_minutes,
+        schedule_restriction=upsert.schedule_restriction,
+        # `update()` skips `auto_now`.
+        updated_at=django_timezone.now(),
+    )
+
+
+# Firing episodes are keyed per stack, so a firing alert stays with its source until it resolves.
+_HANDOVER_STATES: Final = frozenset(
+    {PlatformAlertState.NOT_FIRING, PlatformAlertState.ERRORED, PlatformAlertState.BROKEN}
+)
+_HANDOVER_FENCE: Final = timedelta(minutes=1)
+
+
+def take_ownership(handover: PlatformOwnershipHandover) -> bool:
+    """Makes the platform the owner of a copied alert, carrying on from the source's state.
+
+    The second writer of an alert's state beside `record_outcomes`. The caller holds the source's
+    row lock and writes the source's owner in the same transaction, so both rows change together.
+    Returns False, changing nothing, when the copy is inside a firing of its own: a team on live
+    delivery can have one open while its source is quiet, and replacing it would orphan the incident.
+    Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied.
+    """
+    if handover.state not in _HANDOVER_STATES:
+        raise ValueError(f"an alert in state {handover.state} stays with its source until it resolves")
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(handover.team_id)
+            .select_for_update()
+            .get(legacy_configuration_id=handover.legacy_configuration_id)
+        )
+        key = _InstanceKey(configuration_id=str(configuration.id), grouping_key="")
+        alert = _alerts_for_write(handover.team_id, [configuration], [key])[key]
+        # A failing check status means the machine already ended the firing the row still holds.
+        live_firing = alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None
+        if live_firing and configuration.check_status == PlatformAlertConfiguration.CheckStatus.OK:
+            return False
+        # ERRORED and BROKEN are the configuration's check status, so the instance starts at rest.
+        failing = handover.state in (PlatformAlertState.ERRORED, PlatformAlertState.BROKEN)
+        configuration.check_status = (
+            handover.state.value if failing else PlatformAlertConfiguration.CheckStatus.OK.value
+        )
+        configuration.owner = PlatformAlertOwner.PLATFORM
+        configuration.owner_changed_at = handover.at
+        configuration.consecutive_failures = handover.consecutive_failures
+        # A platform check that started before the handover records only rows still due, so a
+        # schedule after the handover keeps it from recording over the carried state.
+        configuration.next_check_at = max(handover.next_check_at, handover.at + _HANDOVER_FENCE)
+        configuration.save(
+            update_fields=["owner", "owner_changed_at", "consecutive_failures", "next_check_at", "check_status"]
+        )
+
+        alert.state = PlatformAlertState.NOT_FIRING if failing else handover.state
+        alert.firing_started_at = None
+        alert.last_notified_at = handover.last_notified_at
+        alert.save(update_fields=["state", "firing_started_at", "last_notified_at"])
+    return True
+
+
+def give_back_ownership(
+    *, team_id: int, legacy_configuration_id: UUID, at: datetime
+) -> PlatformHandback | HandbackRefusal:
+    """Hands a copied alert back to its source, or says why the platform keeps it.
+
+    The caller holds the source's row lock and writes the source's owner and state in the same
+    transaction. Raises `PlatformAlertConfiguration.DoesNotExist` when the alert was never copied,
+    and `ValueError` when the platform does not own it, because both owners change together.
+    """
+    with transaction.atomic():
+        configurations = PlatformAlertConfiguration.objects.for_team(team_id).select_for_update()
+        configuration = configurations.get(legacy_configuration_id=legacy_configuration_id)
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise ValueError("the platform does not own this alert, so its owner disagrees with its source's")
+        alerts = list(PlatformAlert.objects.for_team(team_id).filter(configuration=configuration))
+        if configuration.recurrence_unit is not None or any(alert.grouping_key for alert in alerts):
+            return HandbackRefusal.NOT_PORTABLE
+        alert = alerts[0] if alerts else None
+        if alert is not None and (alert.state == PlatformAlertState.FIRING or alert.firing_started_at is not None):
+            return HandbackRefusal.FIRING
+        # The same rule discovery reads, so an alert discovery skips is never waited on. A check
+        # advances `next_check_at` when it records, so a row not due under this lock has no
+        # platform check between reading the alert and recording it.
+        if configurations.filter(pk=configuration.pk, enabled=True).filter(due_q(at)).exclude(suppressed()).exists():
+            return HandbackRefusal.CHECK_DUE
+
+        handback = PlatformHandback(
+            state=PlatformAlertState(_composed(configuration, alert).state),
+            last_notified_at=alert.last_notified_at if alert is not None else None,
+            consecutive_failures=configuration.consecutive_failures,
+            next_check_at=configuration.next_check_at,
+        )
+        configuration.owner = PlatformAlertOwner.SOURCE
+        configuration.owner_changed_at = at
+        # A check can still be running for a copy that is disabled or not due, and it records only
+        # rows still due, so this keeps it from recording and delivering after the handback.
+        configuration.next_check_at = max(configuration.next_check_at or at, at + _HANDOVER_FENCE)
+        configuration.save(update_fields=["owner", "owner_changed_at", "next_check_at"])
+        return handback
+
+
+def reset_broken(*, team_id: int, legacy_configuration_id: UUID, at: datetime) -> int | None:
+    """Clears a broken alert the platform owns so the next tick checks it again, from rest.
+
+    Returns the failure count it cleared, or None when the alert is not broken. Discovery skips a
+    broken alert, so without this it never runs again. The caller holds the source's row lock.
+    """
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id)
+            .select_for_update()
+            .get(legacy_configuration_id=legacy_configuration_id)
+        )
+        if configuration.owner != PlatformAlertOwner.PLATFORM:
+            raise ValueError("the platform does not own this alert, so its source resets it")
+        if configuration.check_status != PlatformAlertConfiguration.CheckStatus.BROKEN:
+            return None
+        cleared = configuration.consecutive_failures
+        configuration.check_status = PlatformAlertConfiguration.CheckStatus.OK
+        configuration.consecutive_failures = 0
+        configuration.next_check_at = at
+        configuration.save(update_fields=["check_status", "consecutive_failures", "next_check_at"])
+        # A failed check keeps a firing so a recovery continues it. A reset starts clean instead, or
+        # the next breach would find the old episode open and announce nothing.
+        PlatformAlert.objects.for_team(team_id).filter(configuration=configuration).update(
+            state=PlatformAlertState.NOT_FIRING.value, firing_started_at=None
+        )
+    return cleared
+
+
+def disable_configurations(
+    source_kind: str, *, team_id: int | None = None, legacy_configuration_ids: Collection[UUID] | None = None
+) -> int:
+    """Switches off a source's parallel-run copies, or one team's, or the copies of named source
+    alerts, and returns how many it switched off.
 
     Rows, state and history stay, so a comparison can still read what ran. Discovery and the batch
     read both skip a disabled row, so no new check starts after this. Checks already running finish.
     """
-    # Cross-team on purpose, for an operator stopping a whole source at once.
-    rows = PlatformAlertConfiguration.objects.unscoped().filter(source_kind=source_kind, enabled=True)
-    if team_id is not None:
-        rows = rows.filter(team_id=team_id)
-    return rows.update(enabled=False)
+    with transaction.atomic():
+        _hold_admission(source_kind, exclusive=True)
+        # Cross-team on purpose, for an operator stopping a whole source at once. Only copies the
+        # source still owns: once the platform owns an alert, its copy is the production alert, and
+        # switching it off would silence real notifications rather than stop a parallel check.
+        rows = PlatformAlertConfiguration.objects.unscoped().filter(
+            source_kind=source_kind, enabled=True, owner=PlatformAlertOwner.SOURCE
+        )
+        if team_id is not None:
+            rows = rows.filter(team_id=team_id)
+        if legacy_configuration_ids is not None:
+            rows = rows.filter(legacy_configuration_id__in=legacy_configuration_ids)
+        return rows.update(enabled=False, switched_off_at=django_timezone.now())

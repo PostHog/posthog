@@ -8,7 +8,6 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section } from '../components/Section'
 import { StatCard } from '../components/StatCard'
 import { TeamQuarantinedTestsTable } from '../components/TeamQuarantinedTestsTable'
@@ -24,6 +23,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
         trunkQuarantineTestsByTeam,
         expandedTrunkQuarantineTeams,
         sourceId,
+        scopeRepo,
     } = useValues(engineeringAnalyticsLogic)
     const { loadTrunkQuarantine, toggleTrunkQuarantineTeam } = useActions(engineeringAnalyticsLogic)
 
@@ -39,7 +39,7 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
             key: 'ownerTeam',
             render: (_, row) => (
                 <Link
-                    to={withCurrentScope(urls.engineeringAnalyticsTeam(row.ownerTeam), sourceId)}
+                    to={withCurrentScope(urls.engineeringAnalyticsTeam(row.ownerTeam, scopeRepo), sourceId)}
                     className="font-semibold"
                     data-attr="engineering-analytics-quarantine-team-link"
                 >
@@ -191,7 +191,6 @@ function TrunkQuarantineDebtBoard(): JSX.Element {
 export function EngineeringAnalyticsTests(): JSX.Element {
     return (
         <div className="flex flex-col gap-8">
-            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <TrunkQuarantineDebtBoard />
         </div>
     )

@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
 if TYPE_CHECKING:
@@ -16,6 +17,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -107,6 +109,116 @@ class StripeSource(
     WebhookSource[StripeSourceConfig],
     OAuthMixin,
 ):
+    codebase_detection = detect(
+        env=(
+            "^STRIPE_(SECRET|API)_KEY$",
+            "^STRIPE_PUBLISHABLE_KEY$",
+            "^STRIPE_WEBHOOK_SECRET$",
+            "^NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY$",
+            "^STRIPE_KEY$",
+            "^STRIPE_SECRET$",
+            "^STRIPE_(LIVE|TEST)_SECRET_KEY$",
+            "^STRIPE_DEVICE_NAME$",
+        ),
+        script_hosts=("js.stripe.com", "connect-js.stripe.com", "crypto-js.stripe.com", "checkout.stripe.com"),
+        npm=(
+            "stripe",
+            "@stripe/stripe-js",
+            "@stripe/react-stripe-js",
+            "@stripe/stripe-react-native",
+            "@stripe/connect-js",
+            "@stripe/react-connect-js",
+            "@stripe/terminal-js",
+            "@stripe/stripe-terminal-react-native",
+            "@stripe/stripe-identity-react-native",
+            "@stripe/crypto",
+            "@stripe/agent-toolkit",
+            "@stripe/ai-sdk",
+            "@stripe/token-meter",
+            "@stripe/mcp",
+            "@stripe/link-cli",
+            "@stripe/cli",
+            "@stripe/sync-engine",
+            "@stripe/sync-integration-supabase",
+            "@stripe/ui-extension-sdk",
+            "@stripe/extensibility-sdk",
+            "@stripe/scripts",
+            "@stripe/firestore-stripe-payments",
+            "react-stripe-elements",
+            "tipsi-stripe",
+            "ngx-stripe",
+            "@vue-stripe/vue-stripe",
+            "svelte-stripe",
+        ),
+        pypi=("stripe", "stripe-agent-toolkit", "dj-stripe"),
+        cargo=(
+            "async-stripe",
+            "async-stripe-billing",
+            "async-stripe-checkout",
+            "async-stripe-connect",
+            "async-stripe-core",
+            "async-stripe-fraud",
+            "async-stripe-issuing",
+            "async-stripe-misc",
+            "async-stripe-payment",
+            "async-stripe-product",
+            "async-stripe-terminal",
+            "async-stripe-treasury",
+            "async-stripe-webhook",
+            "async-stripe-client-core",
+            "stripe-rust",
+        ),
+        cocoapods=(
+            "Stripe",
+            "StripePaymentSheet",
+            "StripePayments",
+            "StripeApplePay",
+            "StripePaymentsUI",
+            "StripeIdentity",
+            "StripeFinancialConnections",
+            "StripeConnect",
+            "StripeCardScan",
+            "StripeCryptoOnramp",
+            "StripeIssuing",
+            "StripeTerminal",
+        ),
+        composer=("stripe/stripe-php", "laravel/cashier"),
+        go=("github.com/stripe/stripe-go",),
+        hex=("stripity_stripe",),
+        maven=(
+            "com.stripe:stripe-java",
+            "com.stripe:stripe-android",
+            "com.stripe:paymentsheet",
+            "com.stripe:payments-core",
+            "com.stripe:financial-connections",
+            "com.stripe:financial-connections-lite",
+            "com.stripe:identity",
+            "com.stripe:connect",
+            "com.stripe:crypto-onramp",
+            "com.stripe:link",
+            "com.stripe:stripecardscan",
+            "com.stripe:payment-method-messaging",
+            "com.stripe:stripe-wechatpay",
+            "com.stripe:stripe-android-issuing-push-provisioning",
+            "com.stripe:stripeterminal",
+            "com.stripe:stripeterminal-taptopay",
+            "com.stripe:stripeterminal-localmobile",
+            "com.stripe:stripeterminal-ktx",
+            "com.stripe:stripeterminal-appsondevices",
+        ),
+        pub=(
+            "flutter_stripe",
+            "flutter_stripe_web",
+            "stripe_js",
+            "stripe_checkout",
+            "stripe_platform_interface",
+            "stripe_android",
+            "stripe_ios",
+        ),
+        rubygems=("stripe", "stripe_event"),
+        swiftpm=("github.com/stripe/stripe-ios", "github.com/stripe/stripe-terminal-ios"),
+    )
+
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     has_managed_hogql_schema = True  # canonical Stripe schema in external_table_definitions
 
@@ -210,6 +322,13 @@ class StripeSource(
                         placeholder="acct_...",
                         caption="Leave blank in most cases, including when connecting with OAuth. Only set this if you use a Stripe Connect platform key and want to sync a specific connected account. You can find it under Account details in your [Stripe account settings](https://dashboard.stripe.com/settings/account).",
                         secret=False,
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="balance_history_all_customers",
+                        label="Sync balance history for every customer",
+                        caption="By default, the CustomerBalanceTransaction table only includes customers whose balance isn't zero. Turn this on to also include customers whose balance went back to zero. The sync then makes one Stripe request per customer, so it takes longer.",
+                        default=False,
+                        fields=[],
                     ),
                 ],
             ),
@@ -450,21 +569,19 @@ If automatic creation failed with a permissions error, the fix depends on how yo
                 "Couldn't reach Stripe to validate your credentials. This is usually temporary. Please try again in a few minutes.",
             )
         except StripeValidationError as e:
-            # Non-403, non-transient failures (e.g. an unexpected schema or response error) are not
-            # configuration issues, so surface the underlying Stripe message verbatim — the cause
-            # isn't obvious from the resource name. Transient 5xx/connection/rate-limit failures are
-            # handled by the StripeTransientError branch above. Fold any 403s collected before the
-            # unknown error into the same toast. Guard against empty / whitespace-only error strings
-            # so we never crash the response path while reporting a different error.
-            def _first_line(msg: str) -> str:
-                lines = (msg or "").splitlines()
-                return lines[0][:200] if lines else "(no detail)"
-
-            details = "; ".join(f"{name}: {_first_line(msg)}" for name, msg in e.errors.items())
-            message = f"Stripe validation failed — {details}"
-            if e.missing_permissions:
-                message += f". Additionally lacks permissions for {', '.join(e.missing_permissions.keys())}"
-            return False, message
+            # Non-403, non-transient failures. Stripe's own text names request parameters the user
+            # never controls, so map known rejections to their curated copy and send the rest to
+            # error tracking behind a generic next step.
+            for msg in e.errors.values():
+                for pattern, friendly in self.get_non_retryable_errors().items():
+                    if friendly and pattern in msg:
+                        return False, friendly
+            capture_exception(e, {"stripe_errors": e.errors, "missing_permissions": e.missing_permissions})
+            return (
+                False,
+                "Stripe couldn't read your account with this API key. Check that the account is active in "
+                "your Stripe dashboard or contact Stripe support, then reconnect.",
+            )
         except ValueError as e:
             # `_get_api_key` raises ValueError for deterministic config problems (missing API key,
             # missing integration ID, missing access token). The user-facing wording already lives
@@ -603,6 +720,9 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # conversion that declares a parent without threading these silently keeps polling
             # the parent API while the fan-out telemetry reports otherwise.
             use_warehouse_parent=inputs.fanout_warehouse_reuse,
+            include_zero_balance_customers=bool(
+                config.balance_history_all_customers and config.balance_history_all_customers.enabled
+            ),
         )
 
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:

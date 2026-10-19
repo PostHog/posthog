@@ -158,6 +158,11 @@ KAFKA_PATH_ROW = SourceEvent(label="kafka_path_row", team_id=TEAM_ONE, age=timed
 KAFKA_ROW_IN_ITS_EVENT_SECOND = SourceEvent(
     label="kafka_row_in_its_event_second", team_id=TEAM_ONE, age=timedelta(0), properties={}
 )
+# Its own label gives it its own uuid and distinct_id. Two copies of one event would share the sort key.
+# A merge would then collapse them.
+SECOND_KAFKA_ROW_IN_ITS_EVENT_SECOND = replace(
+    KAFKA_ROW_IN_ITS_EVENT_SECOND, label="second_kafka_row_in_its_event_second"
+)
 
 SAME_UUID_OTHER_TEAM = replace(INSIDE_RECENT, team_id=TEAM_TWO)
 
@@ -254,7 +259,10 @@ def seed_kafka_path_row(
 
 
 def stored_rows(cluster: ClickhouseCluster) -> Counter[StoredRow]:
-    labels = {event.uuid: event.label for event in [*SOURCE_EVENTS, KAFKA_ROW_IN_ITS_EVENT_SECOND]}
+    labels = {
+        event.uuid: event.label
+        for event in [*SOURCE_EVENTS, KAFKA_ROW_IN_ITS_EVENT_SECOND, SECOND_KAFKA_ROW_IN_ITS_EVENT_SECOND]
+    }
 
     def select(client: Client) -> list[tuple[UUID, str, str, str, UUID, str, datetime, str, int]]:
         # The driver returns a naive datetime unless the column type names a time zone.
@@ -480,11 +488,12 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
 ) -> None:
     now = datetime.now(UTC)
     on_first_copied_day = replace(INSIDE_RECENT, age=age_at_noon(now, days_ago=2))
-    kafka_row_on_first_copied_day = replace(KAFKA_ROW_IN_ITS_EVENT_SECOND, age=on_first_copied_day.age)
     seed_source_events(cluster, now, [on_first_copied_day])
     seed_kafka_path_row(cluster, now)
-    for partition, offset in [(0, 1), (1, 0)]:
-        seed_kafka_path_row(cluster, now, kafka_row_on_first_copied_day, partition, offset, delivery_delay=timedelta(0))
+    kafka_rows = [(KAFKA_ROW_IN_ITS_EVENT_SECOND, 0, 1), (SECOND_KAFKA_ROW_IN_ITS_EVENT_SECOND, 1, 0)]
+    for event, partition, offset in kafka_rows:
+        on_day = replace(event, age=on_first_copied_day.age)
+        seed_kafka_path_row(cluster, now, on_day, partition, offset, delivery_delay=timedelta(0))
     instance = dagster.DagsterInstance.ephemeral()
     copy_day = ShardBackfill.copy_day
 
@@ -503,12 +512,13 @@ def test_backfill_names_the_day_when_a_blocking_run_starts_during_its_copy(
     assert failure.step_failure_data.error is not None
     message = failure.step_failure_data.error.message
     assert "started while" in message
-    assert stored_rows(cluster) == Counter({copied(on_first_copied_day): 1, forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
+    forked_rows = [forked(event) for event, _, _ in kafka_rows]
+    assert stored_rows(cluster) == Counter([copied(on_first_copied_day), *forked_rows])
 
     [repair_delete] = re.findall(r"`(DELETE FROM [^`]+)`", message)
     cluster.map_one_host_per_shard(lambda client: client.execute(repair_delete)).result()
 
-    assert stored_rows(cluster) == Counter({forked(KAFKA_ROW_IN_ITS_EVENT_SECOND): 2})
+    assert stored_rows(cluster) == Counter(forked_rows)
 
 
 @pytest.mark.parametrize(

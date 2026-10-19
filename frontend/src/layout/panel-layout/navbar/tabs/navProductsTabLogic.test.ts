@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
@@ -10,7 +10,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -19,7 +18,6 @@ import { ActivityTab } from '~/types'
 
 import { DecideRequestApi } from 'products/ml_inference/frontend/generated/api.schemas'
 
-import { customProductsLogic } from '../../ProjectTree/customProductsLogic'
 import { getDefaultTreeData, getDefaultTreeProducts } from '../../ProjectTree/defaultTree'
 import { projectTreeDataLogic } from '../../ProjectTree/projectTreeDataLogic'
 import { projectTreeLogic } from '../../ProjectTree/projectTreeLogic'
@@ -137,24 +135,6 @@ describe('navProductsTabLogic', () => {
         expect(navProductsTabLogic.values).toMatchObject({ allProductsCollapsible: true, allProductsVisible: true })
     })
 
-    it.each([
-        [true, 1],
-        [false, 0],
-    ])('reloads stars after custom products reload with the simple sidebar %s', async (enabled, expectedLoads) => {
-        const list = jest.fn(() => [200, { results: [] }])
-        useMocks({ get: { '/api/projects/:team_id/file_system_shortcut/': list } })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIMPLE_SIDEPANEL]: enabled })
-        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-        list.mockClear()
-
-        await expectLogic(navProductsTabLogic, () =>
-            customProductsLogic.actions.loadCustomProductsSuccess([])
-        ).toFinishAllListeners()
-        await expectLogic(projectTreeDataLogic).toFinishAllListeners()
-
-        expect(list).toHaveBeenCalledTimes(expectedLoads)
-    })
-
     it('fills in the link of product stars the backend created without one', async () => {
         const results = [
             { id: 'backend-star', path: 'Session replay', type: 'session_replay' },
@@ -225,71 +205,32 @@ describe('navProductsTabLogic', () => {
     })
 
     it.each([
-        ['saves', 200, false, true],
-        ['keeps the dialog and choices after a failed save', 500, true, false],
-    ])('starred setup starts from custom products and %s', async (_name, status, staysOpen, completed) => {
+        ['closes after a successful save', 200, false],
+        ['keeps the dialog and choices after a failed save', 500, true],
+    ])('customize sidebar %s', async (_name, status, staysOpen) => {
         const bulkUpdate = jest.fn(() => [status, status === 200 ? [] : { detail: 'Try again' }])
-        const updateUser = jest.fn(async ({ request }: { request: Request }) => {
-            updateUser.body = await request.json()
-            return [200, { ...MOCK_DEFAULT_USER, ...(updateUser.body as object) }]
-        }) as jest.Mock & { body?: unknown }
-        userLogic.mount()
-        userLogic.actions.loadUserSuccess({
-            ...MOCK_DEFAULT_USER,
-            ui_configuration: { version: 1, sidebar: { density: 'compact' } },
-        })
-        useMocks({
-            post: { '/api/projects/:team_id/file_system_shortcut/bulk_update/': bulkUpdate },
-            patch: { '/api/users/@me/': updateUser },
-        })
+        useMocks({ post: { '/api/projects/:team_id/file_system_shortcut/bulk_update/': bulkUpdate } })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
         ])
-        customProductsLogic.actions.loadCustomProductsSuccess([
-            { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
-            { id: '2', product_path: 'Removed product', enabled: true, created_at: '', updated_at: '' },
-        ])
 
-        navProductsTabLogic.actions.openStarredSetup()
-        expect([...navProductsTabLogic.values.draftStarredPaths].sort()).toEqual([
-            'Product analytics',
-            'Session replay',
-        ])
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
         navProductsTabLogic.actions.setDraftStarred('Feature flags', true)
-        navProductsTabLogic.actions.setAllProductsOpen(true)
 
         await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.saveStarredProducts())
             .toDispatchActions([staysOpen ? 'saveStarredProductsFailure' : 'saveStarredProductsSuccess'])
             .toFinishAllListeners()
             .toMatchValues({ customizeSidebarOpen: staysOpen, starredProductsSaving: false })
-        expect(updateUser).toHaveBeenCalledTimes(completed ? 1 : 0)
-        expect(navProductsTabLogic.values.allProductsOpen).toBe(!completed)
-        expect(updateUser.body).toEqual(
-            completed
-                ? {
-                      ui_configuration: {
-                          version: 1,
-                          sidebar: { density: 'compact', starred_products_setup_completed: true },
-                      },
-                  }
-                : undefined
-        )
         expect(navProductsTabLogic.values.draftStarredPaths.has('Feature flags')).toBe(true)
-        expect(customProductsLogic.values.customProducts).toHaveLength(2)
     })
-    it('clean slate unstars every product, keeps folders, and completes setup in one save', async () => {
+
+    it('unselect all also removes stars the dialog cannot list', async () => {
         const bulkUpdate = jest.fn(async ({ request }: { request: Request }) => {
             bulkUpdate.body = await request.json()
             return [200, [{ id: 'folder', path: 'Research', type: 'folder', ref: 'Research' }]]
         }) as jest.Mock & { body?: unknown }
-        const updateUser = jest.fn(() => [200, MOCK_DEFAULT_USER])
-        useMocks({
-            post: { '/api/projects/:team_id/file_system_shortcut/bulk_update/': bulkUpdate },
-            patch: { '/api/users/@me/': updateUser },
-        })
-        userLogic.mount()
-        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, ui_configuration: null })
+        useMocks({ post: { '/api/projects/:team_id/file_system_shortcut/bulk_update/': bulkUpdate } })
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'folder', path: 'Research', type: 'folder', ref: 'Research' },
@@ -297,28 +238,22 @@ describe('navProductsTabLogic', () => {
             // Listed in the sidebar but not in the dialog, like a product the user lost access to.
             { id: 'activity', path: 'Activity', type: 'activity', href: urls.activity(ActivityTab.ExploreEvents) },
         ])
-        customProductsLogic.actions.loadCustomProductsSuccess([
-            { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
-        ])
-        navProductsTabLogic.actions.openStarredSetup()
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
+        navProductsTabLogic.actions.unselectAllStarred()
 
-        await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.startWithCleanSlate())
+        await expectLogic(navProductsTabLogic, () => navProductsTabLogic.actions.saveStarredProducts())
             .toDispatchActions(['saveStarredProductsSuccess'])
             .toFinishAllListeners()
             .toMatchValues({ customizeSidebarOpen: false })
         expect(bulkUpdate.body).toEqual({ add: [], remove_ids: ['analytics', 'activity'] })
-        expect(updateUser).toHaveBeenCalledTimes(1)
     })
 
-    it('unselects every star, including preselected custom products, until the dialog reopens', async () => {
+    it('unselects every star until the dialog reopens', async () => {
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadShortcutsSuccess([
             { id: 'analytics', path: 'Product analytics', type: 'product_analytics', href: '/insights' },
         ])
-        customProductsLogic.actions.loadCustomProductsSuccess([
-            { id: '1', product_path: 'Session replay', enabled: true, created_at: '', updated_at: '' },
-        ])
-        navProductsTabLogic.actions.openStarredSetup()
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
         navProductsTabLogic.actions.setDraftStarred('Logs', true)
         expect(navProductsTabLogic.values.hasDraftStarredChanges).toBe(true)
         navProductsTabLogic.actions.setDraftStarred('Logs', false)
@@ -330,11 +265,8 @@ describe('navProductsTabLogic', () => {
         expect([...navProductsTabLogic.values.draftStarredPaths]).toEqual(['Logs'])
 
         navProductsTabLogic.actions.setCustomizeSidebarOpen(false)
-        navProductsTabLogic.actions.openStarredSetup()
-        expect([...navProductsTabLogic.values.draftStarredPaths].sort()).toEqual([
-            'Product analytics',
-            'Session replay',
-        ])
+        navProductsTabLogic.actions.setCustomizeSidebarOpen(true)
+        expect([...navProductsTabLogic.values.draftStarredPaths]).toEqual(['Product analytics'])
     })
 
     it.each([
@@ -464,10 +396,6 @@ describe('navProductsTabLogic', () => {
             'Web analytics',
             'SQL editor',
         ])
-        navProductsTabLogic.actions.openStarredSetup()
-        expect(navProductsTabLogic.values.customizeProductGroups.map((group) => group.label)).not.toContain(
-            SUGGESTED_GROUP_LABEL
-        )
         expect(
             (navProductsTabLogic.values.appMatchGroups?.matching.length ?? 0) +
                 (navProductsTabLogic.values.appMatchGroups?.other.length ?? 0)

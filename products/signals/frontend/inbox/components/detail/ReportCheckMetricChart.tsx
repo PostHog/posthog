@@ -1,6 +1,9 @@
 import { useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 
@@ -14,6 +17,13 @@ import {
     reportMetricChartType,
     reportMetricSeriesPoints,
 } from '../../utils/reportMetrics'
+import {
+    monitoringChartMarkers,
+    monitoringChartPoints,
+    monitoringChartQuery,
+    monitoringChartTargetLines,
+    type ReportMonitoringChartWindow,
+} from '../../utils/reportMonitoringChart'
 import { ReportObservationChart } from './ReportObservationChart'
 
 export function ReportCheckMetricChart({
@@ -23,6 +33,7 @@ export function ReportCheckMetricChart({
     goalGrain,
     goalBounds,
     version,
+    monitoring,
 }: {
     reportId: string
     metric: ReportMetricApi
@@ -30,21 +41,27 @@ export function ReportCheckMetricChart({
     goalGrain: 'whole_window' | 'per_interval'
     goalBounds?: { lower: number; upper: number } | null
     version: string
+    monitoring?: ReportMonitoringChartWindow
 }): JSX.Element {
+    const { timezone } = useValues(teamLogic)
+    const [observedAt] = useState(() => Date.now())
+    const chartQuery = monitoring ? monitoringChartQuery(query, monitoring, observedAt) : query
     const props: DataNodeLogicProps = {
         key: `ReportMetricSeries.${reportId}.${metric.metric_id}.${version}`,
-        query,
+        query: chartQuery,
         dataNodeCollectionId: `report-metrics-${reportId}`,
         autoLoad: true,
     }
     const { response, responseError, responseLoading } = useValues(dataNodeLogic(props))
-    const points = reportMetricSeriesPoints(response)
+    const responsePoints = reportMetricSeriesPoints(response)
+    const points =
+        responsePoints && monitoring ? monitoringChartPoints(responsePoints, observedAt, timezone) : responsePoints
     const aggregateQuery = asReportMetricAggregateQuery(metric.query)
     const aggregateProps: DataNodeLogicProps = {
         key: `FollowUpCheckTotal.${reportId}.${metric.metric_id}.${version}`,
         query: aggregateQuery?.source ?? query,
         dataNodeCollectionId: `report-metrics-${reportId}`,
-        autoLoad: goalGrain === 'whole_window' && aggregateQuery !== null,
+        autoLoad: !monitoring && goalGrain === 'whole_window' && aggregateQuery !== null,
     }
     const {
         response: aggregateResponse,
@@ -73,10 +90,25 @@ export function ReportCheckMetricChart({
                 metric={metric}
                 points={points}
                 type={reportMetricChartType(metric)}
-                interval={query.interval}
-                goalValue={goalGrain === 'per_interval' ? (goal ?? undefined) : undefined}
+                interval={chartQuery.interval}
+                markers={
+                    monitoring ? monitoringChartMarkers(points.labels, monitoring, observedAt, timezone) : undefined
+                }
+                goalLines={
+                    monitoring
+                        ? monitoringChartTargetLines({
+                              metric,
+                              monitoring,
+                              interval: chartQuery.interval,
+                              labels: points.labels,
+                              timezone,
+                              bounds: goalBounds,
+                          })
+                        : undefined
+                }
+                goalValue={!monitoring && goalGrain === 'per_interval' ? (goal ?? undefined) : undefined}
             />
-            {goalGrain === 'whole_window' && targets.length > 0 && (
+            {!monitoring && goalGrain === 'whole_window' && targets.length > 0 && (
                 <div className="text-xs text-secondary">
                     <div className="mb-1 flex justify-between">
                         <span>

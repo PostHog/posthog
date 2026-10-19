@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { mswDecorator } from '~/mocks/browser'
 import type { MockSignature, Mocks } from '~/mocks/utils'
 
+import { pageHistoryLogic } from '../../history/pageHistoryLogic'
 import { heatmapLogic } from './heatmapLogic'
 
 const generatingSaved = {
@@ -381,4 +382,137 @@ export const EmptyWithSimilarUrls: Story = {
             )
         ),
     ],
+}
+
+const historyScreenshot = (label: string): string => {
+    const newer = label.includes('Current') || Number(label.slice(-2)) >= 19
+    const title = newer ? 'New collection' : 'Weekly offers'
+    const textX = newer ? 540 : 90
+    const circleX = newer ? 240 : 780
+    return `data:image/svg+xml;utf8,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1000"><rect width="1024" height="1000" fill="white"/><text x="50" y="55" font-family="sans-serif" font-size="24" fill="#252525">MarketDemo</text><text x="780" y="55" font-family="sans-serif" font-size="16" fill="#555">Shop · Offers</text><rect x="50" y="105" width="924" height="260" rx="8" fill="${newer ? '#efdfc8' : '#e0eedc'}"/><text x="${textX}" y="185" font-family="sans-serif" font-size="38" fill="#252525">${title}</text><text x="${textX}" y="225" font-family="sans-serif" font-size="18" fill="#555">${label}</text><rect x="${textX}" y="265" width="190" height="48" rx="4" fill="${newer ? '#734821' : '#245b32'}"/><text x="${textX + 18}" y="295" font-family="sans-serif" font-size="17" fill="white">Explore collection</text><circle cx="${circleX}" cy="235" r="80" fill="${newer ? '#ae997b' : '#86a870'}"/><rect x="50" y="400" width="290" height="280" rx="8" fill="#eeeDE5"/><rect x="367" y="400" width="290" height="280" rx="8" fill="#eeeDE5"/><rect x="684" y="400" width="290" height="280" rx="8" fill="#eeeDE5"/><text x="70" y="640" font-family="sans-serif" font-size="20" fill="#252525">Seasonal favourites</text><text x="385" y="640" font-family="sans-serif" font-size="20" fill="#252525">Everyday essentials</text><text x="703" y="640" font-family="sans-serif" font-size="20" fill="#252525">Something different</text></svg>`)}`
+}
+const historySaved = {
+    ...generatingSaved,
+    id: 102,
+    short_id: 'hm_history',
+    name: 'Home page',
+    source: 'server',
+    status: 'completed',
+    has_content: true,
+    target_widths: [1024],
+    snapshots: [{ width: 1024, has_content: true }],
+}
+const historyCaptures = Array.from({ length: 21 }, (_, index) => {
+    const date = `2024-01-${String(index + 1).padStart(2, '0')}`
+    const failed = index === 17
+    return {
+        id: `cap-${index + 1}`,
+        captured_on: date,
+        captured_at: `${date}T02:40:00Z`,
+        width: 1024,
+        timezone: 'UTC',
+        day_start: `${date}T00:00:00Z`,
+        day_end: `2024-01-${String(index + 2).padStart(2, '0')}T00:00:00Z`,
+        expires_at: '2024-04-01T00:00:00Z',
+        revision: `capture-${index}`,
+        latest_request: null,
+        thumbnail_url: failed ? null : historyScreenshot(date),
+        trigger: index === 19 ? 'manual' : 'scheduled',
+        status: failed ? 'failed' : 'ok',
+        failure_cause: failed ? 'page_http_status' : null,
+        page_status: failed ? 503 : 200,
+        content_url: failed ? null : historyScreenshot(date),
+    }
+})
+const pageHistoryDecorators = [
+    mswDecorator({
+        get: {
+            '/api/projects/:team_id/saved': { results: [historySaved], count: 1 },
+            '/api/projects/:team_id/saved/hm_history/': historySaved,
+            '/api/projects/:team_id/saved/hm_history/screenshot_history/': {
+                width: 1024,
+                retention_days: 90,
+                storage_available: true,
+                results: historyCaptures,
+            },
+            '/api/projects/:team_id/heatmaps/': {
+                results: [
+                    { pointer_relative_x: 0.2, pointer_target_fixed: false, pointer_y: 380, count: 64 },
+                    { pointer_relative_x: 0.5, pointer_target_fixed: false, pointer_y: 380, count: 41 },
+                    { pointer_relative_x: 0.8, pointer_target_fixed: false, pointer_y: 380, count: 27 },
+                ],
+                count: 3,
+                next: null,
+                previous: null,
+            },
+        },
+    }),
+]
+export const PageHistory: Story = {
+    parameters: {
+        pageUrl: urls.heatmap('hm_history'),
+        featureFlags: [FEATURE_FLAGS.HEATMAPS_PAGE_HISTORY],
+        mockDate: '2024-01-21T12:00:00Z',
+        testOptions: { waitForLoadersToDisappear: false },
+    },
+    decorators: pageHistoryDecorators,
+    render: () => <HistoryAfterLoad />,
+}
+
+function HistoryAfterLoad({
+    initialCapture,
+    browserOpen = false,
+}: {
+    initialCapture?: string
+    browserOpen?: boolean
+}): JSX.Element {
+    const scene = heatmapLogic({ id: 'hm_history' })
+    const { savedSettings, loading } = useValues(scene)
+    const historyLogic = pageHistoryLogic({ id: 'hm_history' })
+    const { history } = useValues(historyLogic)
+    const configured = useRef(false)
+    useEffect(() => {
+        if (savedSettings && !loading && !configured.current) {
+            configured.current = true
+            scene.actions.setScreenshotUrl(historyScreenshot('Current view'))
+        }
+    }, [savedSettings, loading, scene])
+    const selected = useRef(false)
+    useEffect(() => {
+        if (history && !selected.current && initialCapture) {
+            selected.current = true
+            historyLogic.actions.selectCapture(initialCapture)
+            if (browserOpen) {
+                historyLogic.actions.setHistoryExpanded(true)
+            }
+        }
+    }, [browserOpen, history, historyLogic, initialCapture])
+    return <App />
+}
+
+export const HistoricalDay: Story = { ...PageHistory, render: () => <HistoryAfterLoad initialCapture="cap-17" /> }
+export const HistoricalDayNarrow: Story = {
+    ...HistoricalDay,
+    decorators: [
+        ...pageHistoryDecorators,
+        (Story) => (
+            <Narrow>
+                <Story />
+            </Narrow>
+        ),
+    ],
+    parameters: {
+        ...PageHistory.parameters,
+        testOptions: { waitForLoadersToDisappear: true, viewport: loadedNarrowViewport },
+    },
+}
+
+export const PageHistoryBrowser: Story = {
+    ...HistoricalDay,
+    render: () => <HistoryAfterLoad initialCapture="cap-17" browserOpen />,
+}
+
+export const PageHistoryBrowserNarrow: Story = {
+    ...HistoricalDayNarrow,
+    render: () => <HistoryAfterLoad initialCapture="cap-17" browserOpen />,
 }

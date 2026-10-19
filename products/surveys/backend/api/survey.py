@@ -82,7 +82,13 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.ownership import FLAG_OWNER_SURVEY, assert_flag_available_for
 from products.product_analytics.backend.facade.models import Insight
-from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
+from products.surveys.backend.models import (
+    MAX_ITERATION_COUNT,
+    MAX_ITERATION_FREQUENCY_DAYS,
+    Survey,
+    SurveyResponseArchive,
+    ensure_question_ids,
+)
 from products.surveys.backend.responses import (
     SurveyRates,
     SurveyStats,
@@ -126,6 +132,7 @@ SURVEY_APPEARANCE_HTML_FIELDS = (
     "introScreenHeader",
     "introScreenDescription",
     "introScreenButtonText",
+    "backButtonText",
 )
 SURVEY_QUESTION_HTML_FIELDS = (
     "question",
@@ -305,6 +312,7 @@ class GeneratedSurveyRootTranslationSerializer(serializers.Serializer):
     introScreenButtonText = serializers.CharField(
         required=False, allow_blank=True, help_text="Translated intro screen button text."
     )
+    backButtonText = serializers.CharField(required=False, allow_blank=True, help_text="Translated back button text.")
 
 
 class GeneratedSurveyQuestionTranslationSerializer(serializers.Serializer):
@@ -1246,7 +1254,38 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Conditions must be an object")
 
+        self._require_viewer_access_to_added_actions(value)
         return value
+
+    def _require_viewer_access_to_added_actions(self, conditions: dict) -> None:
+        actions_condition = conditions.get("actions")
+        if not isinstance(actions_condition, dict) or not isinstance(self.context["request"].user, User):
+            return
+
+        action_ids: set[int] | None
+        try:
+            action_ids = {
+                int(value["id"])
+                for value in actions_condition.get("values") or []
+                if isinstance(value, dict) and value.get("id") is not None
+            }
+        except (TypeError, ValueError, OverflowError):
+            action_ids = None
+        # Postgres rejects an id outside the bigint range in a query, so check the range before the lookup.
+        if action_ids is None or not all(0 < action_id < 2**63 for action_id in action_ids):
+            raise serializers.ValidationError("Each action in the survey conditions needs a valid id.")
+
+        added_actions = Action.objects.filter(team__project_id=self.context["project_id"], id__in=action_ids)
+        if self.instance is not None:
+            added_actions = added_actions.exclude(id__in=self.instance.actions.values("id"))
+        denied_ids = self.context["view"].user_access_control.denied_object_ids(
+            "action", [(str(action.id), action.team_id, action.created_by_id) for action in added_actions], "viewer"
+        )
+        if denied_ids:
+            raise serializers.ValidationError(
+                f"You don't have viewer access to action(s) {', '.join(denied_ids)}. "
+                "Remove them from the survey conditions, or ask for access."
+            )
 
     def validate_targeting_flag_filters(self, value):
         if value is None:
@@ -1656,7 +1695,13 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
                         f"Feature flag variant '{linked_flag_variant}' specified but the linked feature flag has no variants"
                     )
         elif linked_flag_variant and not linked_flag_id:
-            raise serializers.ValidationError("linkedFlagVariant can only be used when a linked_flag_id is specified")
+            if self.instance is None:
+                raise serializers.ValidationError(
+                    "linkedFlagVariant can only be used when a linked_flag_id is specified"
+                )
+            if "linked_flag_id" in data or not self.instance.linked_flag_id:
+                # Deleting the flag sets linked_flag to NULL but keeps the variant, so drop it instead of blocking every save.
+                data["conditions"] = {key: value for key, value in conditions.items() if key != "linkedFlagVariant"}
 
         if (
             self.context["request"].method == "POST"
@@ -2291,7 +2336,7 @@ class SurveySerializerCreateUpdateOnlySchema(SurveySerializerCreateUpdateOnly):
         required=False,
         allow_null=True,
         min_value=1,
-        max_value=365,
+        max_value=MAX_ITERATION_FREQUENCY_DAYS,
         help_text="For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling.",
     )
     enable_partial_responses = serializers.BooleanField(
@@ -2339,6 +2384,10 @@ class SurveyFilterSet(FilterSet):
     created_by = django_filters.NumberFilter(
         field_name="created_by_id",
         label="Filter surveys by the ID of the user who created them.",
+    )
+    linked_flag_id = django_filters.NumberFilter(
+        field_name="linked_flag_id",
+        label="Filter surveys by the ID of the feature flag they are linked to.",
     )
     status = django_filters.ChoiceFilter(
         choices=[("draft", "Draft"), ("running", "Running"), ("complete", "Complete")],

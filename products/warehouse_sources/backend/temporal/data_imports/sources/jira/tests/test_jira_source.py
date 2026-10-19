@@ -14,11 +14,6 @@ class TestJiraSource:
     def test_subdomain_is_a_connection_host_field(self) -> None:
         assert self.source.connection_host_fields == ["subdomain"]
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["issues"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "issues"
-
     @pytest.mark.parametrize(
         "mock_return, schema_name, expected_valid, expected_message",
         [

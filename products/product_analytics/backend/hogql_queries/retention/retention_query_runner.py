@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from functools import cached_property
 from math import ceil
 from typing import Any, Literal, Optional, cast
 
@@ -46,7 +47,6 @@ from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
@@ -393,8 +393,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             else DEFAULT_INTERVAL
         )
 
+        date_range = self.query.dateRange
+        if self.is_24h_window_calculation and date_range and date_range.excludeIncompletePeriods:
+            # Rolling 24-hour windows end mid-day, so clipping at the period boundary would drop completed returns
+            date_range = date_range.model_copy(update={"excludeIncompletePeriods": None})
+
         return QueryDateRangeWithIntervals(
-            date_range=self.query.dateRange,
+            date_range=date_range,
             total_intervals=total_intervals,
             team=self.team,
             interval=interval,
@@ -408,17 +413,13 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             return action.get_step_events()
         return [entity.id] if isinstance(entity.id, str) else [None]
 
-    def events_where_clause(
-        self,
-        is_first_occurrence_matching_filters: bool,
-        is_first_ever_occurrence: bool = False,
-        entities: list[RetentionEntity] | None = None,
-    ):
-        """Event filters for both start and return events, or just `entities` for a per-arm scan."""
-        events_where = []
+    @cached_property
+    def global_property_filters(self) -> tuple[ast.Expr, ...]:
+        """The query's global property filters, then the team's test account filters when the query turns them on."""
+        filters: list[ast.Expr] = []
 
         if self.query.properties is not None and self.query.properties != []:
-            events_where.append(property_to_expr(self.query.properties, self.team))
+            filters.append(property_to_expr(self.query.properties, self.team))
 
         if (
             self.query.filterTestAccounts
@@ -426,7 +427,18 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             and len(self.team.test_account_filters) > 0
         ):
             for prop in self.team.test_account_filters:
-                events_where.append(property_to_expr(prop, self.team))
+                filters.append(property_to_expr(prop, self.team))
+
+        return tuple(filters)
+
+    def events_where_clause(
+        self,
+        is_first_occurrence_matching_filters: bool,
+        is_first_ever_occurrence: bool = False,
+        entities: list[RetentionEntity] | None = None,
+    ):
+        """Event filters for both start and return events, or just `entities` for a per-arm scan."""
+        events_where = list(self.global_property_filters)
 
         if not is_first_occurrence_matching_filters and not is_first_ever_occurrence:
             # when it's recurring, we only have to grab events for the period, rather than events for all time

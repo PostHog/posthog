@@ -10,7 +10,8 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
-from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoUserError
+from requests.exceptions import ConnectTimeout, ReadTimeout
+from trino.exceptions import HttpError, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 from trino.types import NamedRowTuple
 
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
@@ -27,7 +28,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trino.trin
     TRINO_ACCESS_CONTROL_UNAVAILABLE_ERROR,
     TRINO_ACCESS_DENIED_ERROR,
     TRINO_AUTHENTICATION_ERROR,
+    TRINO_CONNECT_TIMEOUT_ERROR,
     TRINO_CREDENTIALS_REQUIRE_TLS_VERIFICATION_ERROR,
+    TRINO_DISCOVERY_TIMEOUT_ERROR,
+    TRINO_READ_TIMEOUT_ERROR,
     DiscoveredTrinoTable,
     TrinoColumn,
     TrinoImplementation,
@@ -85,6 +89,7 @@ def test_connect_trino_uses_tracked_session_and_closes_resources() -> None:
     ("host", "port", "use_ssl", "verify_ssl", "expected_trust_env"),
     [
         ("trino.dw.us.postwh.com", 443, True, True, False),
+        ("trino.dw.eu.postwh.com", 443, True, True, False),
         ("TRINO.DW.DEV.POSTWH.COM.", 443, True, True, False),
         ("trino.example.com", 443, True, True, True),
         ("other.dw.us.postwh.com", 443, True, True, True),
@@ -196,6 +201,47 @@ def test_trino_error_to_message_preserves_tls_verification_action() -> None:
 )
 def test_trino_error_to_message_explains_access_failures(raw_error: str, expected: str) -> None:
     assert trino_error_to_message(RuntimeError(raw_error)) == expected
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [
+        (
+            ConnectTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Max retries exceeded"),
+            TRINO_CONNECT_TIMEOUT_ERROR,
+        ),
+        (
+            ReadTimeout("HTTPSConnectionPool(host='trino.example.com', port=443): Read timed out."),
+            TRINO_READ_TIMEOUT_ERROR,
+        ),
+    ],
+    ids=["connect_timeout", "read_timeout"],
+)
+def test_validate_credentials_hides_the_host_when_the_driver_times_out(timeout: Exception, expected: str) -> None:
+    with patch("trino.client.TrinoRequest.post", side_effect=timeout):
+        assert TrinoSource().validate_credentials(_config(), team_id=1) == (False, expected)
+
+
+@pytest.mark.parametrize(
+    ("timeout", "expected"),
+    [
+        (ReadTimeout("Read timed out. (read timeout=60)"), TRINO_DISCOVERY_TIMEOUT_ERROR),
+        (ConnectTimeout("Max retries exceeded"), TRINO_CONNECT_TIMEOUT_ERROR),
+    ],
+    ids=["read_timeout", "connect_timeout"],
+)
+def test_get_schemas_explains_a_timeout_the_driver_wrapped(timeout: Exception, expected: str) -> None:
+    source = TrinoSource()
+
+    with (
+        patch("trino.client.TrinoRequest.post", side_effect=timeout),
+        pytest.raises(TrinoSchemaDiscoveryError) as raised,
+    ):
+        source.get_schemas(_config(), team_id=1)
+
+    message, is_expected_source_error = _classify_refresh_schemas_error(source, raised.value)
+    assert message == expected
+    assert is_expected_source_error is True
 
 
 def _trino_external_error(message: str) -> TrinoExternalError:
@@ -639,6 +685,24 @@ def test_build_pipeline_fails_permanently_when_the_table_is_gone() -> None:
     assert error_message_matches(str(raised.value), TrinoSource().get_non_retryable_errors())
 
 
+def test_worker_node_communication_failures_are_classified_as_retryable() -> None:
+    message = (
+        "Encountered too many errors talking to a worker node. The node may have crashed or be "
+        "under too much load. This is probably a transient issue, so please retry your query in a "
+        "few minutes. (getting task status http://10.0.0.5:8080/v1/task/x - 38 failures)"
+    )
+
+    assert error_message_matches(message, TrinoSource().get_retryable_errors())
+
+
+def test_query_not_found_is_classified_as_retryable() -> None:
+    # The exact wrapping `trino.dbapi.Cursor.fetchone()` does for the driver's `HttpError` on a 404
+    # response, which is what a later page fetch sees once the coordinator no longer holds the query.
+    message = "error 404: b'Error 404 Not Found: Query not found'"
+
+    assert error_message_matches(message, TrinoSource().get_retryable_errors())
+
+
 def test_build_pipeline_refuses_a_disallowed_host_before_connecting() -> None:
     with (
         patch(f"{_TRINO_MODULE}.connect_trino") as mock_connect,
@@ -717,6 +781,22 @@ def test_get_schemas_advertises_incremental_fields_per_table() -> None:
     )
 
 
+def _trino_query_error(message: str) -> TrinoQueryError:
+    # Resource-exhaustion failures carry an errorType the client doesn't special-case
+    # ("INSUFFICIENT_RESOURCES", neither "EXTERNAL" nor "USER_ERROR"), so the driver raises the
+    # base TrinoQueryError rather than a USER/EXTERNAL subclass.
+    return TrinoQueryError(
+        {
+            "message": message,
+            "errorName": "GENERIC_INSUFFICIENT_RESOURCES",
+            "errorCode": 65540,
+            "errorType": "INSUFFICIENT_RESOURCES",
+            "failureInfo": {},
+        },
+        "20260902_120000_00000_abcde",
+    )
+
+
 def _trino_user_error(name: str, message: str) -> TrinoUserError:
     return TrinoUserError(
         {"message": message, "errorName": name, "errorCode": 1, "errorType": "USER_ERROR", "failureInfo": {}},
@@ -733,8 +813,21 @@ def _trino_user_error(name: str, message: str) -> TrinoUserError:
         (_trino_user_error("COLUMN_NOT_FOUND", "line 1:8: Column 'gone' cannot be resolved"), True),
         (_trino_external_error("Failed to query OPA backend"), False),
         (TrinoConnectionError("failed to execute: ('Connection aborted.', ConnectionResetError(104))"), False),
+        (_trino_query_error("Query exceeded distributed total memory limit of 2.64TB"), True),
+        # Deliberately retryable, not a regression: this depends on a worker's free disk at that
+        # moment, shared by every query Trino schedules there, so it can clear on its own.
+        (_trino_query_error("No free or healthy space available for spill"), False),
     ],
-    ids=["access_denied", "unauthorized", "table_not_found", "column_not_found", "opa_unavailable", "connection_reset"],
+    ids=[
+        "access_denied",
+        "unauthorized",
+        "table_not_found",
+        "column_not_found",
+        "opa_unavailable",
+        "connection_reset",
+        "query_memory_limit",
+        "spill_space_exhausted",
+    ],
 )
 def test_sync_failures_are_classified_for_retry(error: Exception, is_permanent: bool) -> None:
     with pytest.raises(Exception) as raised:
