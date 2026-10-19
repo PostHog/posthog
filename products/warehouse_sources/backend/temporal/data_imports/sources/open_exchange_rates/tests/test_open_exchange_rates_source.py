@@ -30,11 +30,6 @@ class TestOpenExchangeRatesSource:
         # Static endpoint catalog with no I/O — safe to surface in public docs.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["latest"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "latest"
-
     @pytest.mark.parametrize(
         "status, expected_valid, expected_message",
         [

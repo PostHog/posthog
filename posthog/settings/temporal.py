@@ -336,6 +336,9 @@ SIGNUP_ENRICHMENT_TASK_QUEUE = _set_temporal_task_queue(
 # workflow execution timeout closes them.
 CANVAS_BUILD_TASK_QUEUE = _set_temporal_task_queue(os.getenv("CANVAS_BUILD_TASK_QUEUE", "general-purpose-task-queue"))
 EXPERIMENTS_RECALCULATION_TASK_QUEUE = _set_temporal_task_queue("experiments-recalculation-task-queue")
+EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE = _set_temporal_task_queue(
+    "experiments-recalculation-activity-task-queue"
+)
 HEALTH_CHECK_TASK_QUEUE = _set_temporal_task_queue("health-check-task-queue")
 DUCKLAKE_TASK_QUEUE = _set_temporal_task_queue("ducklake-task-queue")
 TASKS_TASK_QUEUE = _set_temporal_task_queue("tasks-task-queue")

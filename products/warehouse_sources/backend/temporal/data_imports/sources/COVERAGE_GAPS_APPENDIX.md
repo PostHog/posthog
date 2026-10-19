@@ -747,11 +747,11 @@ Today (7): `advertiser_report`, `max_ad_revenue`, `max_ad_unit_revenue`, `max_co
 
 Diffed against: <https://support.applovin.com/en/growth/promoting-your-apps/api/axon-campaign-management-api>
 
-- [ ] `User-Level Ad Revenue (GET /max/userAdRevenueReport)` — connects user and impression revenue to product activity for attribution and lifetime value analysis (high)
-- [ ] `Campaigns (GET /manage/v1/campaign/list)` — resolves campaign_id_external through hashed_id and adds campaign status, targeting, and budgets (high)
-- [ ] `Creative sets (GET /manage/v1/creative_set/list)` — describes creative content and targeting for campaign performance analysis (medium)
+- [x] `User-Level Ad Revenue (GET /max/userAdRevenueReport)` — connects user and impression revenue to product activity for attribution and lifetime value analysis (high)
+- [x] `Campaigns (GET /manage/v1/campaign/list)` — resolves campaign_id_external through hashed_id and adds campaign status, targeting, and budgets (high)
+- [x] `Creative sets (GET /manage/v1/creative_set/list)` — describes creative content and targeting for campaign performance analysis (medium)
 - [ ] `Assets (GET /manage/v1/asset/list)` — identifies the images, videos, and playable assets used in creative sets (medium)
-- [ ] `Campaign operation logs (GET /manage/v1/operation_logs/campaign)` — explains performance changes after campaign edits, pauses, and budget changes (medium)
+- [x] `Campaign operation logs (GET /manage/v1/operation_logs/campaign)` — explains performance changes after campaign edits, pauses, and budget changes (medium)
 
 Note: Compared collection GET operations in the official Campaign Management API reference with the reporting endpoint map. Also checked https://support.applovin.com/en/max/reporting-apis/user-level-ad-revenue-api for user and impression revenue exports. Campaign reads need a separate key; revenue exports need application and date requests, followed by CSV downloads. Excluded uploads, writes, and report column choices.
 
@@ -977,14 +977,14 @@ Note: This is a webhook-ingestion source (the directory contains webhook_templat
 
 ## Auth0 — gaps
 
-Today (9): `actions`, `clients`, `connections`, `log_streams`, `logs`, `organizations`, `resource_servers`, `roles`, `users`
+Today (13): `actions`, `clients`, `connections`, `log_streams`, `logs`, `organization_member_roles`, `organization_members`, `organizations`, `resource_servers`, `roles`, `user_roles`, `user_sessions`, `users`
 
 Diffed against: <https://raw.githubusercontent.com/auth0/node-auth0/master/reference.md>
 
-- [ ] `Organization members (GET /api/v2/organizations/{id}/members)` — connects existing users and organizations for customer membership and account adoption analysis (high)
-- [ ] `User roles (GET /api/v2/users/{id}/roles)` — connects existing users to role IDs for access and user segment analysis (high)
-- [ ] `Organization member roles (GET /api/v2/organizations/{id}/members/{user_id}/roles)` — shows which roles each user holds within each customer organization (high)
-- [ ] `User sessions (GET /api/v2/users/{user_id}/sessions)` — measures active sessions and connects authentication activity to devices and application clients (high)
+- [x] `Organization members (GET /api/v2/organizations/{id}/members)` — connects existing users and organizations for customer membership and account adoption analysis (high)
+- [x] `User roles (GET /api/v2/users/{id}/roles)` — connects existing users to role IDs for access and user segment analysis (high)
+- [x] `Organization member roles (GET /api/v2/organizations/{id}/members/{user_id}/roles)` — shows which roles each user holds within each customer organization (high)
+- [x] `User sessions (GET /api/v2/users/{user_id}/sessions)` — measures active sessions and connects authentication activity to devices and application clients (high)
 - [ ] `User permissions (GET /api/v2/users/{id}/permissions)` — tracks direct permission assignments and their resource servers for access analysis (medium)
 - [ ] `Role permissions (GET /api/v2/roles/{id}/permissions)` — explains the permissions granted by each existing role (medium)
 - [ ] `Organization invitations (GET /api/v2/organizations/{id}/invitations)` — measures pending and expired invitations during customer organization onboarding (medium)

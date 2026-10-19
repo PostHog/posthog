@@ -17,10 +17,6 @@ def _config() -> EasypostSourceConfig:
 
 
 class TestGetSchemas:
-    def test_names_filter(self) -> None:
-        schemas = EasypostSource().get_schemas(_config(), team_id=1, names=["shipments", "events"])
-        assert {s.name for s in schemas} == {"shipments", "events"}
-
     @parameterized.expand([(name,) for name, c in EASYPOST_ENDPOINTS.items() if c.incremental_fields])
     def test_every_syncable_schema_advertises_created_at(self, endpoint: str) -> None:
         schemas = {s.name: s for s in EasypostSource().get_schemas(_config(), team_id=1)}

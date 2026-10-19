@@ -102,7 +102,7 @@ export const dataRetentionBannerLogic = kea<dataRetentionBannerLogicType>([
                         return null
                     }
                     const retention = await eventsRetentionRetrieve(String(values.currentTeamId))
-                    return retention.retention_months ?? null
+                    return retention?.retention_months ?? null
                 },
             },
         ],
