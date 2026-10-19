@@ -1,5 +1,6 @@
 import { Box, type DOMElement, Text } from "ink";
 import { memo, type ReactElement, type RefObject } from "react";
+import type { ChatScope } from "../prefs";
 import type { Indicator, SidebarRow } from "../sidebar";
 import { posthogOrange, selectionBackground } from "../theme";
 import { todayGlyph } from "../today";
@@ -24,6 +25,23 @@ const Label = ({
 export const SIDEBAR_WIDTH = 31;
 // Narrowed with Ctrl+B: the logo's coloured stripes and a cell either side.
 export const NARROW_SIDEBAR_WIDTH = 5;
+
+// The tabs row: "My chats", a gap, then "All chats"; a click on a tab picks it by column.
+export const TABS = ["My chats", "All chats"] as const;
+export const TAB_GAP = 2;
+export const ALL_TAB_COLUMN = TABS[0].length + TAB_GAP;
+
+const Tabs = ({ scope }: { scope: ChatScope }): ReactElement => (
+  <Text>
+    <Text bold={scope === "mine"} dimColor={scope !== "mine"}>
+      {TABS[0]}
+    </Text>
+    {" ".repeat(TAB_GAP)}
+    <Text bold={scope === "all"} dimColor={scope !== "all"}>
+      {TABS[1]}
+    </Text>
+  </Text>
+);
 
 // Blank rows under the header; clicks on the sidebar skip them.
 export const HEADER_GAP = 1;
@@ -82,6 +100,8 @@ function Row({
       );
     case "section":
       return <Label text={row.label} />;
+    case "tabs":
+      return <Tabs scope={row.scope} />;
     case "today":
       return (
         <Text wrap="truncate-end">
@@ -124,6 +144,7 @@ function Row({
           <Text backgroundColor={selected ? selectionBackground() : undefined}>
             {row.title}
           </Text>
+          {row.author && <Text dimColor> · {row.author}</Text>}
         </Text>
       );
     case "loading":
@@ -172,7 +193,9 @@ function NarrowRow({
         </Text>
       );
     case "section":
-      return <Label text={row.label === "Pinned" ? "Pin" : "All"} />;
+      return <Label text="Pin" />;
+    case "tabs":
+      return <Label text={row.scope === "mine" ? "Me" : "All"} />;
     case "today":
       return (
         <Text

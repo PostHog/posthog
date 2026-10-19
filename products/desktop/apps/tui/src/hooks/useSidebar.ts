@@ -2,7 +2,7 @@ import type { Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useMemo, useState } from "react";
 import { focusSidebar, type LayoutState } from "../layout";
 import type { LocalAgent } from "../local";
-import type { PinnedChat } from "../prefs";
+import type { ChatScope, PinnedChat } from "../prefs";
 import {
   activateRow,
   cursorIndex,
@@ -41,6 +41,7 @@ export function useSidebar({
   titles,
   showToday,
   pinned,
+  scope,
 }: {
   layout: LayoutState;
   setLayout: Dispatch<SetStateAction<LayoutState>>;
@@ -56,6 +57,7 @@ export function useSidebar({
   titles: Map<string, string>;
   showToday: boolean;
   pinned: PinnedChat[];
+  scope: ChatScope;
 }): SidebarState {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The cursor follows a row's identity, since previewing a chat can move rows.
@@ -75,6 +77,7 @@ export function useSidebar({
         local: { active: localActive, running: new Set(localSessions.keys()) },
         showToday,
         pinned,
+        scope,
       }),
     [
       layout,
@@ -90,6 +93,7 @@ export function useSidebar({
       titles,
       showToday,
       pinned,
+      scope,
     ],
   );
   const selectedIndex = cursorIndex(rows, selected);

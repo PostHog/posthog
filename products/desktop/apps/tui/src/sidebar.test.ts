@@ -46,6 +46,8 @@ const labels = (rows: ReturnType<typeof sidebarRows>): string[] =>
         return `# ${row.label}`;
       case "section":
         return `## ${row.label}`;
+      case "tabs":
+        return row.scope === "mine" ? "## All chats" : "## All chats (team)";
       case "today":
         return "Today";
       case "gap":
@@ -212,6 +214,40 @@ describe("sidebarRows", () => {
       "New chat",
     ]);
     expect(selectionKey(rows[4])).toBe("task:b");
+  });
+
+  it("names who started each chat on the All chats tab, except the user's own", () => {
+    const by = (id: number, first_name: string) =>
+      ({
+        id,
+        first_name,
+        email: `${first_name}@example.com`,
+      }) as Task["created_by"];
+    const rows = sidebarRows({
+      layout: initialLayout(),
+      work: page({
+        me: 7,
+        tasks: [
+          { ...task("a"), created_by: by(7, "Me") },
+          { ...task("b"), created_by: by(8, "Sam") },
+        ],
+      }),
+      collapsed: new Set(),
+      working: new Set(),
+      scope: "all",
+    });
+    expect(labels(rows).slice(3)).toEqual([
+      "## All chats (team)",
+      "New chat",
+      "Task a",
+      "Task b",
+    ]);
+    expect(rows.map((row) => row.kind === "task" && row.author)).toContain(
+      "Sam",
+    );
+    expect(
+      rows.filter((row) => row.kind === "task" && row.author),
+    ).toHaveLength(1);
   });
 
   it("puts each workspace above Chats with a gap after it", () => {

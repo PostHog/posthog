@@ -2,6 +2,7 @@ import type { Task } from "@posthog/shared";
 import { useEffect, useRef, useState } from "react";
 import { messageOf } from "../errors";
 import { LEGACY_PREFIX } from "../localChats";
+import type { ChatScope } from "../prefs";
 import type { CloudRuns } from "../runs";
 import type { WorkPage } from "../sidebar";
 import { findTask, type WorkList } from "../work";
@@ -33,6 +34,7 @@ export function useWorkList({
   fresh,
   openTaskIds,
   onRefresh,
+  scope = "mine",
 }: {
   work: WorkList | undefined;
   runs: CloudRuns | undefined;
@@ -41,20 +43,30 @@ export function useWorkList({
   // Tasks that must keep a title and a transcript even when the recent page does not list them.
   openTaskIds: string[];
   onRefresh: () => void;
+  // Whose chats the list holds; a switch starts the list over from its first page.
+  scope?: ChatScope;
 }): WorkListState {
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [page, setPage] = useState<WorkPage>(EMPTY_PAGE);
   const [known, setKnown] = useState<Map<string, Task>>(new Map());
+
+  const scopeShown = useRef(scope);
+  useEffect(() => {
+    if (scopeShown.current === scope) return;
+    scopeShown.current = scope;
+    setPage(EMPTY_PAGE);
+    setLimit(PAGE_SIZE);
+  }, [scope]);
 
   useEffect(() => {
     if (!work) return;
     let cancelled = false;
     const refresh = (): void => {
       onRefresh();
-      work.listRecent(limit).then(
-        ({ tasks, hasMore }) => {
+      work.listRecent(limit, scope).then(
+        ({ tasks, hasMore, me }) => {
           if (!cancelled) {
-            setPage({ tasks, hasMore, loadingMore: false, error: null });
+            setPage({ tasks, hasMore, me, loadingMore: false, error: null });
           }
         },
         (error: unknown) => {
@@ -74,7 +86,7 @@ export function useWorkList({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [work, limit, onRefresh]);
+  }, [work, limit, scope, onRefresh]);
 
   // Preloads each listed cloud run's recent messages, one at a time, so opening one shows them at once.
   const prefetched = useRef(new Set<string>());

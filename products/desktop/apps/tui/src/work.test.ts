@@ -53,6 +53,16 @@ describe("WorkList", () => {
     },
   );
 
+  it("lists the whole team's tasks on the All chats tab", async () => {
+    const { api, requests } = fakeApi(3);
+
+    const page = await new WorkList(api).listRecent(10, "all");
+
+    expect(page.me).toBe(7);
+    const list = requests.find((url) => url.pathname.endsWith("/tasks/"));
+    expect(list?.searchParams.has("created_by")).toBe(false);
+  });
+
   it("searches my tasks for a term", async () => {
     const { api, requests } = fakeApi(3);
 

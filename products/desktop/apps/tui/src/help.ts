@@ -55,7 +55,10 @@ export const HELP: HelpGroup[] = [
       },
       { keys: "↑ ↓", does: "Step through the sidebar's chats" },
       { keys: "Ctrl+P", does: "Pin or unpin the chat above the workspaces" },
-      { keys: "← →", does: "Fold or unfold the workspace a chat sits in" },
+      {
+        keys: "← →",
+        does: "Fold or unfold the workspace a chat sits in; under the tabs, switch My chats and All chats",
+      },
     ],
   },
   {

@@ -49,7 +49,7 @@ import type { McpClient } from "../mcp";
 import { type PiControl, runModel } from "../models";
 import type { MouseEvents } from "../mouse";
 import { openUrl } from "../openUrl";
-import { loadPrefs, savePrefs } from "../prefs";
+import { type ChatScope, loadPrefs, savePrefs } from "../prefs";
 import type { AgentPrompt } from "../prompts";
 import type { CloudRuns } from "../runs";
 import { startingOptions } from "../starting";
@@ -142,6 +142,13 @@ export function App({
     () => loadPrefs().narrowSidebar,
   );
   const [pinned, setPinned] = useState(() => loadPrefs().pinnedChats);
+  const [scope, setScope] = useState(() => loadPrefs().chatScope);
+  const switchScope = (next: ChatScope): void => {
+    if (next === scope) return;
+    track("chat scope switched", { scope: next });
+    setScope(next);
+    savePrefs({ chatScope: next });
+  };
   // Bumped when the terminal turns light or dark, so everything draws again in its colours.
   const [, setThemeVersion] = useState(0);
   // Names given with /rename, shown at once and kept until the work list shows them too.
@@ -228,6 +235,7 @@ export function App({
       ...pinned.map((chat) => chat.id),
     ],
     onRefresh: refreshLocalActive,
+    scope,
   });
 
   // The search opens from a callback only, so the send hook reaches it through a ref: the search needs the turns,
@@ -398,6 +406,7 @@ export function App({
     titles,
     showToday,
     pinned,
+    scope,
   });
   const caughtUp = [...titles].filter(
     ([taskId, title]) => taskOf(taskId)?.title === title,
@@ -466,6 +475,7 @@ export function App({
     navigate: sidebar.navigate,
     setNavigating: sidebar.setNavigating,
     setCollapsed: sidebar.setCollapsed,
+    setScope: switchScope,
     setLayout,
     chatIn,
     chats: allChats,
@@ -533,6 +543,7 @@ export function App({
       setPinned(next);
       savePrefs({ pinnedChats: next });
     },
+    toggleScope: () => switchScope(scope === "mine" ? "all" : "mine"),
     repoPickerKey: repoPicker.onKey,
     notice,
   });
