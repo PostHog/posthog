@@ -46,12 +46,14 @@ from posthog.temporal.usage_report.types import (
 )
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
+    LOGS_DISTINCT_PATTERNS_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
     QUERY_CONCURRENCY,
-    QUERY_PATCH_IDS,
+    SANDBOX_COMPUTE_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
-    _queries_for_applied_patches,
+    _queries_for_logs_distinct_patterns_patch,
+    _queries_for_sandbox_compute_patch,
     build_context,
 )
 from posthog.usage_counters import (
@@ -63,20 +65,18 @@ from posthog.usage_counters import (
 )
 
 
-def test_new_queries_are_versioned_for_existing_histories() -> None:
-    gated = {spec.name: spec.patch_id for spec in QUERIES if spec.patch_id is not None}
+def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
+    assert SANDBOX_COMPUTE_QUERY_NAME not in [spec.name for spec in _queries_for_sandbox_compute_patch(False)]
+    assert SANDBOX_COMPUTE_QUERY_NAME in [spec.name for spec in _queries_for_sandbox_compute_patch(True)]
 
-    assert {"sandbox_compute_usage", "teams_with_logs_distinct_patterns_in_period"} <= gated.keys()
-    assert set(gated.values()) <= set(QUERY_PATCH_IDS)
-    assert QUERY_PATCH_IDS[:2] == (
-        "usage-report-sandbox-compute-query-2026-08",
-        "usage-report-logs-distinct-patterns-query-2026-10",
-    )
-    assert {spec.name for spec in _queries_for_applied_patches(set())}.isdisjoint(gated)
-    sandbox_only = {spec.name for spec in _queries_for_applied_patches({QUERY_PATCH_IDS[0]})}
-    assert "sandbox_compute_usage" in sandbox_only
-    assert "teams_with_logs_distinct_patterns_in_period" not in sandbox_only
-    assert _queries_for_applied_patches(set(QUERY_PATCH_IDS)) == QUERIES
+
+def test_logs_distinct_patterns_query_is_versioned_for_existing_histories() -> None:
+    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME not in [
+        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, False)
+    ]
+    assert LOGS_DISTINCT_PATTERNS_QUERY_NAME in [
+        spec.name for spec in _queries_for_logs_distinct_patterns_patch(QUERIES, True)
+    ]
 
 
 @parameterized.expand(

@@ -3757,9 +3757,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         team_id = self.org_1_team_1.id
         other_team_id = self.org_1_team_2.id
 
-        def row(
-            team: int, bucket: datetime, version: int, pattern: str, service: str = "api", severity: str = "info"
-        ) -> str:
+        def row(team: int, bucket: datetime, version: int, pattern: str, service: str = "api", severity: str = "info"):
             return json.dumps(
                 {
                     "team_id": team,
@@ -3786,7 +3784,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             row(team_id, end, 6, "after"),
             row(other_team_id, begin, 5, "x"),
         ]
-        sync_execute("INSERT INTO logs_pattern_buckets_distributed FORMAT JSONEachRow\n" + "\n".join(rows))
+        sync_execute(f"INSERT INTO {LOGS_PATTERN_BUCKETS_TABLE} FORMAT JSONEachRow\n" + "\n".join(rows))
 
         assert dict(get_teams_with_logs_distinct_patterns_in_period(begin, end)) == {team_id: 2, other_team_id: 1}
 

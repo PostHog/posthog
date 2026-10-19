@@ -396,7 +396,8 @@ class UsageReportCounters:
     android_logs_records_in_period: int
     flutter_logs_records_in_period: int
     ruby_logs_records_in_period: int
-    # Report-only, so it does not feed any billed field.
+    # Distinct log patterns, a measure of how varied a team's logs are. Report-only: it tells real
+    # usage apart from a test ping and does not feed any billed field.
     logs_distinct_patterns_in_period: int
 
     # Distributed Tracing (APM). apm_tracing_mb_in_period is report-only, like logs_mb_in_period.
@@ -2656,8 +2657,8 @@ def get_teams_with_logs_distinct_patterns_in_period(
     sent in the period. A period that spans a masker change counts only the newer version's
     patterns, which undercounts that one day instead of counting each shape twice.
 
-    `uniq` keeps memory bounded for a team that emits a very large number of shapes, and it is
-    exact for small counts.
+    `uniq` keeps memory bounded for a team that emits a very large number of shapes. It is exact
+    for small counts, which is where a test ping and real usage differ.
     """
     with tags_context(product=Product.LOGS, feature=Feature.USAGE_REPORT):
         return sync_execute(
