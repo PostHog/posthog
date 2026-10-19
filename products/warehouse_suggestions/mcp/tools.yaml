@@ -25,8 +25,8 @@ tools:
             certified or deprecated in the data catalog. Materialize suggestions turn on materialization for the view on
             the proposed schedule, which adds a recurring compute cost; pass refresh_interval_seconds to use another
             schedule. They also apply the payload's refresh_mode: incremental refreshes read only new rows by
-            incremental_key and update rows by unique_key, full refreshes rebuild the whole table. A 409 means the
-            view changed since the suggestion was made and its keys no longer apply. Requires human typed confirmation.
+            incremental_key and update rows by unique_key, full refreshes rebuild the whole table. A 409 means the view
+            changed since the suggestion was made and its keys no longer apply. Requires human typed confirmation.
         confirmed_action:
             message: >
                 About to accept warehouse suggestion '{id}'. This applies the change it proposes to the view or table.
