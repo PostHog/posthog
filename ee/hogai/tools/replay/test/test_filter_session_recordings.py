@@ -247,6 +247,8 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("Found 1 recording", result_text)
         # Follow-up tools such as a scan take this id, and the model sees only this text.
         self.assertIn(f"session_id={session_id}", result_text)
+        # The SDK sets session and distinct ids, so the metadata has to sit inside the untrusted-data fence.
+        self.assertIn("<recordings>", result_text)
         self.assertIn("User: user_1", result_text)
         self.assertIn("https://example.com/page1", result_text)
         self.assertIn("10 clicks", result_text)
