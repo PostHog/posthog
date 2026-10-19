@@ -158,6 +158,8 @@ from products.workflows.backend.facade.tasks import (
     poll_ses_reputation_findings,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
+    refresh_new_email_senders,
+    refresh_settled_email_senders,
     sweep_workflow_email_deliverability,
 )
 
@@ -336,6 +338,22 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         update_team_event_volumes.s(),
         name="team event volume update",
         expires_seconds=12 * 3600,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        refresh_new_email_senders.s(),
+        name="refresh new workflow email senders",
+        expires_seconds=60,
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        refresh_settled_email_senders.s(),
+        name="refresh settled workflow email senders",
+        expires_seconds=300,
     )
 
     # SES tenant reputation reconciliation - daily at 6:30 AM UTC. EventBridge events are the

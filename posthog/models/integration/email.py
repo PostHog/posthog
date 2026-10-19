@@ -4,7 +4,9 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import F, Func, JSONField, Q, Value
 from django.dispatch import receiver
+from django.utils import timezone
 
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from free_email_domains import whitelist as free_email_domains_list
@@ -18,6 +20,23 @@ from . import model
 
 if TYPE_CHECKING:
     from products.workflows.backend.facade.contracts import EmailDomainVerification
+
+
+VERIFICATION_REQUESTED_AT = "verification_requested_at"
+
+
+def _with_config_key(key: str, value: object) -> Func:
+    return Func(
+        F("config"),
+        Value([key]),
+        Value(value, output_field=JSONField()),
+        function="jsonb_set",
+        output_field=JSONField(),
+    )
+
+
+def mark_verification_requested(senders: "models.QuerySet[model.Integration]") -> int:
+    return senders.update(config=_with_config_key(VERIFICATION_REQUESTED_AT, int(timezone.now().timestamp())))
 
 
 class EmailIntegration:
@@ -81,6 +100,7 @@ class EmailIntegration:
                     "name": name,
                     "provider": provider,
                     "verified": True if provider == "maildev" else False,
+                    VERIFICATION_REQUESTED_AT: int(timezone.now().timestamp()),
                 },
                 "created_by": created_by,
             },
@@ -125,6 +145,38 @@ class EmailIntegration:
 
         return self.integration
 
+    def apply_verification(self, verification_result: "EmailDomainVerification") -> "EmailDomainVerification":
+        if verification_result.get("status") == "success":
+            verified_ids = self._mark_matching_senders_verified()
+            if verified_ids:
+                reload_integrations_on_workers(self.integration.team_id, verified_ids)
+        return verification_result
+
+    def _mark_matching_senders_verified(self) -> list[int]:
+        with transaction.atomic():
+            verified_ids = list(self._matching_senders().select_for_update().values_list("id", flat=True))
+            model.Integration.objects.filter(id__in=verified_ids).update(config=_with_config_key("verified", True))
+            if self.integration.id in verified_ids:
+                from products.workflows.backend.facade.api import (
+                    set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
+                )
+
+                set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
+        return verified_ids
+
+    def _matching_senders(self) -> "models.QuerySet[model.Integration]":
+        mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
+        matching_mail_from = Q(config__mail_from_subdomain=mail_from_subdomain)
+        if mail_from_subdomain == "feedback":
+            matching_mail_from |= Q(config__mail_from_subdomain__isnull=True)
+        return model.Integration.objects.filter(
+            matching_mail_from,
+            team_id=self.integration.team_id,
+            kind="email",
+            config__domain=self.integration.config.get("domain"),
+            config__provider=self.integration.config.get("provider", "ses"),
+        )
+
     def verify(self) -> "EmailDomainVerification":
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
@@ -152,29 +204,9 @@ class EmailIntegration:
         else:
             raise ValueError(f"Invalid provider: {provider}")
 
-        if verification_result.get("status") == "success":
-            # We can validate all other integrations with the same domain and provider
-            all_integrations_for_domain = model.Integration.objects.filter(
-                team_id=self.integration.team_id,
-                kind="email",
-                config__domain=domain,
-                config__provider=provider,
-            )
-            for integration in all_integrations_for_domain:
-                integration.config["verified"] = True
-                integration.save()
-
-            reload_integrations_on_workers(
-                self.integration.team_id, [integration.id for integration in all_integrations_for_domain]
-            )
-
-            from products.workflows.backend.facade.api import (
-                set_default_email_sender_if_unset,  # noqa: PLC0415 — keeps the workflows facade off the model import path
-            )
-
-            set_default_email_sender_if_unset(self.integration.team_id, self.integration.id)
-
-        return verification_result
+        if verification_result.get("status") != "success":
+            mark_verification_requested(model.Integration.objects.filter(id=self.integration.id))
+        return self.apply_verification(verification_result)
 
 
 @receiver(models.signals.post_delete, sender=model.Integration)
