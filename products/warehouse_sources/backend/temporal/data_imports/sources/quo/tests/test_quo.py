@@ -261,6 +261,56 @@ class TestDatedVersion:
         assert result.requests == []
 
 
+class TestContactNotes:
+    @pytest.mark.parametrize("api_version", [QUO_API_VERSION_V1, QUO_API_VERSION_2026_03_30])
+    def test_fans_out_over_contacts_on_the_dated_wire(self, api_version):
+        result = _source(
+            "contact_notes",
+            [
+                _dated_page([{"id": "CT1"}, {"id": "CT2"}], next_cursor="c2"),
+                _dated_page([{"id": "N1"}], next_cursor="n2"),
+                _dated_page([{"id": "N2"}]),
+                _dated_page([]),
+                _dated_page([{"id": "CT3"}]),
+                # CT3 was deleted after the contacts page was read.
+                ScriptedResponse(status=404, json={"message": "Not Found"}),
+            ],
+            api_version=api_version,
+        )
+
+        assert result.raised is None
+        assert [(row["contactId"], row["id"]) for row in result.rows] == [("CT1", "N1"), ("CT1", "N2")]
+        assert result.paths == [
+            "/contacts",
+            "/contacts/CT1/notes",
+            "/contacts/CT1/notes",
+            "/contacts/CT2/notes",
+            "/contacts",
+            "/contacts/CT3/notes",
+        ]
+        assert result.params("after") == [None, None, "n2", None, "c2", None]
+        assert {request.headers["quo-api-version"] for request in result.requests} == {"2026-03-30"}
+        assert result.saved_states == [QuoResumeConfig(page_token="c2", api_version="2026-03-30")]
+
+    @pytest.mark.parametrize(
+        "resume_state, expected_after",
+        [
+            (QuoResumeConfig(page_token="c5", api_version="2026-03-30"), "c5"),
+            (QuoResumeConfig(page_token="tok5"), None),
+        ],
+    )
+    def test_resumes_from_the_saved_contacts_page(self, resume_state, expected_after):
+        result = _source(
+            "contact_notes",
+            [_dated_page([{"id": "CT9"}]), _dated_page([{"id": "N9"}])],
+            resume_state=resume_state,
+        )
+
+        assert result.paths[0] == "/contacts"
+        assert result.params("after")[0] == expected_after
+        assert [row["id"] for row in result.rows] == ["N9"]
+
+
 class TestQuoSourceResponse:
     def test_unknown_endpoint_raises_unknown_resource(self):
         result = _source("not_a_table", [])

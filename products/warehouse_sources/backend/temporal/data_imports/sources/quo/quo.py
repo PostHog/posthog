@@ -1,12 +1,16 @@
 from collections.abc import Callable, Iterable, Iterator
 from typing import Any, Optional
+from urllib.parse import quote
 
 from requests import Session
 
 from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    default_request_timeout,
+    make_tracked_session,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
@@ -20,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.quo.settings import (
     DATED_ENDPOINTS_BY_VERSION,
+    QUO_2026_03_30_ENDPOINTS,
+    QUO_API_VERSION_2026_03_30,
     QUO_API_VERSION_HEADER,
     QUO_API_VERSION_V1,
     QUO_BASE_URL,
@@ -100,20 +106,29 @@ def _build_dated_params(
     return params
 
 
-def _paginate(session: Session, path: str, params: dict[str, Any]) -> Iterator[list[dict[str, Any]]]:
-    """Yield pages of `data` rows, following the `nextPageToken` cursor until it runs out."""
+def _paginate(
+    session: Session,
+    path: str,
+    params: dict[str, Any],
+    cursor_param: str = "pageToken",
+    cursor_path: str = "nextPageToken",
+    skip_not_found: bool = False,
+) -> Iterator[list[dict[str, Any]]]:
+    """Yield pages of `data` rows, following the body cursor until it runs out."""
     page_token: Optional[str] = None
     while True:
         page_params = dict(params)
         if page_token is not None:
-            page_params["pageToken"] = page_token
+            page_params[cursor_param] = page_token
         response = session.get(f"{QUO_BASE_URL}{path}", params=page_params)
+        if skip_not_found and response.status_code == 404:
+            return
         response.raise_for_status()
         body = response.json()
         rows = body.get("data") or []
         if rows:
             yield rows
-        page_token = body.get("nextPageToken")
+        page_token = body.get(cursor_path)
         if not page_token:
             return
 
@@ -148,6 +163,65 @@ def _fan_out_rows(api_key: str, config: QuoEndpointConfig, params: dict[str, Any
             yield from _paginate(
                 session, config.path, {**params, "phoneNumberId": phone_number_id, "participants": participants}
             )
+
+
+def _contact_notes_rows(
+    api_key: str,
+    config: QuoEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[QuoResumeConfig],
+) -> Iterator[list[dict[str, Any]]]:
+    """Fan contact notes out over the dated contacts list.
+
+    The resume cursor is the contacts page in progress, staged before any of its notes are yielded,
+    so a resumed run reads at most one page of contacts again and merge dedupes the repeated notes.
+    """
+    session = make_tracked_session(
+        headers={**_auth_headers(api_key), QUO_API_VERSION_HEADER: QUO_API_VERSION_2026_03_30},
+        redact_values=(api_key,),
+    )
+    contacts = QUO_2026_03_30_ENDPOINTS["contacts"]
+
+    contacts_cursor: Optional[str] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.api_version == QUO_API_VERSION_2026_03_30:
+            contacts_cursor = resume.page_token
+
+    while True:
+        params: dict[str, Any] = {"limit": contacts.page_size}
+        if contacts_cursor is not None:
+            params["after"] = contacts_cursor
+        response = session.get(f"{QUO_BASE_URL}{contacts.path}", params=params, timeout=default_request_timeout())
+        response.raise_for_status()
+        body = response.json()
+        if contacts_cursor is not None:
+            resumable_source_manager.save_state(
+                QuoResumeConfig(page_token=contacts_cursor, api_version=QUO_API_VERSION_2026_03_30)
+            )
+        resumable_source_manager.safe_point()
+
+        for contact in body.get("data") or []:
+            contact_id = contact.get("id")
+            if not contact_id:
+                continue
+            yielded = False
+            # A contact deleted after the contacts page was read answers 404; its notes are gone too.
+            for notes in _paginate(
+                session,
+                config.path.replace("{contactId}", quote(contact_id, safe="")),
+                {"limit": config.page_size},
+                cursor_param="after",
+                cursor_path="nextCursor",
+                skip_not_found=True,
+            ):
+                yield [{**note, "contactId": contact_id} for note in notes]
+                yielded = True
+            if not yielded:
+                resumable_source_manager.safe_point()
+
+        contacts_cursor = body.get("nextCursor")
+        if not contacts_cursor:
+            return
 
 
 def _rest_source(
@@ -219,7 +293,7 @@ def _source_response(endpoint: str, config: QuoEndpointConfig, items: Callable[[
     return SourceResponse(
         name=endpoint,
         items=items,
-        primary_keys=[config.primary_key],
+        primary_keys=list(config.primary_keys),
         # Quo lists return newest-first and the fan-out restarts per conversation, so rows never
         # arrive globally ascending. "desc" defers the watermark commit to the end of a
         # successful sync instead of checkpointing it mid-run.
@@ -246,6 +320,11 @@ def quo_source(
     config = schema_for_resource(QUO_ENDPOINTS, endpoint)
     dated_endpoints = _dated_endpoints(api_version)
     dated_config = dated_endpoints.get(endpoint) if dated_endpoints is not None else None
+
+    if config.fan_out_over_contacts:
+        return _source_response(
+            endpoint, config, lambda: _contact_notes_rows(api_key, config, resumable_source_manager)
+        )
 
     last_value = db_incremental_field_last_value if should_use_incremental_field else None
     cursor_field = incremental_field or (config.incremental_fields[0]["field"] if config.incremental_fields else None)
