@@ -19,6 +19,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_activities im
     check_experiment_exposures,
     discover_scheduled_recalculation_candidates,
     start_scheduled_recalculation,
+    wait_for_scheduled_recalculation,
 )
 from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
     ScheduledExperimentRecalculationWorkflow,
@@ -45,6 +46,7 @@ EXPERIMENT_SCHEDULED_RECALCULATION_ACTIVITIES = [
     discover_scheduled_recalculation_candidates,
     check_experiment_exposures,
     start_scheduled_recalculation,
+    wait_for_scheduled_recalculation,
 ]
 
 WORKFLOWS = [
@@ -87,4 +89,5 @@ __all__ = [
     "sample_experiment_canary_targets",
     "start_scheduled_recalculation",
     "update_recalculation_progress",
+    "wait_for_scheduled_recalculation",
 ]

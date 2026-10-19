@@ -1,8 +1,8 @@
 """Activities for the scheduled experiment recalculation workflow.
 
 Each one wraps `scheduled_recalculation_logic` and reports its outcome to product analytics.
-Every activity is fire and forget: a failure skips one experiment and never stops the batch,
-because the recalculation workflow it starts owns its own retries and error reporting.
+A failure skips one experiment and never stops the batch, because the recalculation workflow
+it starts owns its own retries and error reporting.
 """
 
 from typing import Any
@@ -12,9 +12,12 @@ from django.db import close_old_connections
 import structlog
 import posthoganalytics
 import temporalio.activity
+from temporalio.client import WorkflowFailureError
 
 from posthog.event_usage import groups
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
@@ -183,3 +186,22 @@ def _start_scheduled_recalculation_sync(experiment_id: int, hour: int) -> Schedu
 async def start_scheduled_recalculation(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
     """Create the recalculation row and dispatch its workflow, unless a recent or active run exists."""
     return await _start_scheduled_recalculation_sync(experiment_id, hour)
+
+
+@temporalio.activity.defn
+async def wait_for_scheduled_recalculation(recalculation_id: str) -> None:
+    """Return once a started run's workflow has finished, whatever its outcome.
+
+    The run records its own outcome on its row, so a failed or cancelled run is not an error here.
+    """
+    from products.experiments.backend.recalculation import (  # noqa: PLC0415 — breaks that cycle
+        metrics_recalculation_workflow_id,
+    )
+
+    client = await async_connect()
+    handle = client.get_workflow_handle(metrics_recalculation_workflow_id(recalculation_id))
+    async with Heartbeater(factor=4):
+        try:
+            await handle.result()
+        except WorkflowFailureError:
+            pass

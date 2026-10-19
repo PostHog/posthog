@@ -1,5 +1,7 @@
 import uuid
-from datetime import timedelta
+import asyncio
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
@@ -15,6 +17,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.recalculation import _STALE_RECALC_THRESHOLD
 from products.experiments.backend.temporal.models import ScheduledRecalculationStartResult
 from products.experiments.backend.temporal.scheduled_recalculation_activities import (
     discover_scheduled_recalculation_candidates,
@@ -24,9 +27,16 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     ScheduledRecalculationDiscovery,
 )
 from products.experiments.backend.temporal.scheduled_recalculation_workflow import (
+    RUN_START_WINDOW,
+    RUN_WAIT_TIMEOUT,
+    SCHEDULE_INTERVAL,
+    START_ACTIVITY_MAX_ATTEMPTS,
+    START_ACTIVITY_TIMEOUT,
     ScheduledExperimentRecalculationWorkflow,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+WORKFLOW_MODULE = "products.experiments.backend.temporal.scheduled_recalculation_workflow"
 
 
 def _candidates(*experiment_ids: int) -> list[ScheduledRecalculationCandidate]:
@@ -35,15 +45,25 @@ def _candidates(*experiment_ids: int) -> list[ScheduledRecalculationCandidate]:
     ]
 
 
-async def _run(discover, exposures, start, hour: int = 2) -> dict:
+async def _no_wait(recalculation_id: str) -> None:
+    return None
+
+
+def _started(experiment_id: int) -> ScheduledRecalculationStartResult:
+    return ScheduledRecalculationStartResult(
+        experiment_id=experiment_id, started=True, recalculation_id=str(uuid.uuid4())
+    )
+
+
+async def _run(discover, exposures, start, hour: int = 2, wait=_no_wait) -> dict:
     @activity.defn(name="discover_scheduled_recalculation_candidates")
     async def discover_activity() -> ScheduledRecalculationDiscovery:
         return ScheduledRecalculationDiscovery(hour=hour, candidates=discover(hour))
 
-    return await _execute(discover_activity, exposures, start)
+    return await _execute(discover_activity, exposures, start, wait)
 
 
-async def _execute(discover_activity, exposures, start) -> dict:
+async def _execute(discover_activity, exposures, start, wait=_no_wait) -> dict:
     @activity.defn(name="check_experiment_exposures")
     async def exposures_activity(experiment_id: int, hour: int) -> bool:
         return exposures(experiment_id)
@@ -52,13 +72,17 @@ async def _execute(discover_activity, exposures, start) -> dict:
     async def start_activity(experiment_id: int, hour: int) -> ScheduledRecalculationStartResult:
         return start(experiment_id)
 
+    @activity.defn(name="wait_for_scheduled_recalculation")
+    async def wait_activity(recalculation_id: str) -> None:
+        await wait(recalculation_id)
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         task_queue = f"test-{uuid.uuid4()}"
         async with Worker(
             env.client,
             task_queue=task_queue,
             workflows=[ScheduledExperimentRecalculationWorkflow],
-            activities=[discover_activity, exposures_activity, start_activity],
+            activities=[discover_activity, exposures_activity, start_activity, wait_activity],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             return await env.client.execute_workflow(
@@ -71,7 +95,7 @@ async def _execute(discover_activity, exposures, start) -> dict:
 @pytest.mark.asyncio
 async def test_no_candidates_returns_zeroes():
     result = await _run(lambda hour: [], lambda eid: True, lambda eid: None)
-    assert result == {"hour": 2, "candidates": 0, "started": 0, "skipped": 0}
+    assert result == {"hour": 2, "candidates": 0, "started": 0, "skipped": 0, "deferred": 0}
 
 
 @pytest.mark.asyncio
@@ -89,6 +113,66 @@ async def test_every_candidate_starts():
     assert result["started"] == 3
     assert result["skipped"] == 0
     assert sorted(started) == [1, 2, 3]
+
+
+@pytest.mark.asyncio
+async def test_runs_in_flight_never_exceed_the_cap():
+    running = 0
+    peak = 0
+
+    def start(experiment_id: int) -> ScheduledRecalculationStartResult:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        return _started(experiment_id)
+
+    async def wait(recalculation_id: str) -> None:
+        nonlocal running
+        await asyncio.sleep(0.01)
+        running -= 1
+
+    with patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", 3):
+        result = await _run(lambda hour: _candidates(*range(1, 13)), lambda eid: True, start, wait=wait)
+
+    assert result["started"] == 12
+    assert peak <= 3
+
+
+def _clock_advancing_by(step: timedelta) -> Callable[[], datetime]:
+    current = datetime(2026, 10, 18, 6, 30, tzinfo=UTC)
+
+    def now() -> datetime:
+        nonlocal current
+        reading = current
+        current += step
+        return reading
+
+    return now
+
+
+@pytest.mark.asyncio
+async def test_experiments_left_after_the_start_window_are_deferred():
+    started: list[int] = []
+
+    def start(experiment_id: int) -> ScheduledRecalculationStartResult:
+        started.append(experiment_id)
+        return _started(experiment_id)
+
+    with (
+        patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", 1),
+        patch(f"{WORKFLOW_MODULE}.temporalio.workflow.now", _clock_advancing_by(RUN_START_WINDOW * 0.6)),
+    ):
+        result = await _run(lambda hour: _candidates(1, 2, 3), lambda eid: True, start)
+
+    assert started == [1]
+    assert result == {"hour": 2, "candidates": 3, "started": 1, "skipped": 2, "deferred": 2}
+
+
+def test_last_run_ends_before_the_next_hourly_firing():
+    worst_case = RUN_START_WINDOW + START_ACTIVITY_TIMEOUT * START_ACTIVITY_MAX_ATTEMPTS + RUN_WAIT_TIMEOUT
+
+    assert RUN_WAIT_TIMEOUT >= _STALE_RECALC_THRESHOLD
+    assert worst_case < SCHEDULE_INTERVAL
 
 
 @pytest.mark.asyncio
