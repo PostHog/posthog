@@ -23,7 +23,7 @@ export function QuillSuggestionItem({
             data-attr="metrics-suggested-dashboard"
             description={suggestion.reason || `${suggestion.panel_count} charts`}
         >
-            {suggestion.name}
+            <span className="truncate max-w-80">{suggestion.name}</span>
             {openingId === suggestion.id ? (
                 <Spinner className="ml-auto" />
             ) : created ? (

@@ -92,7 +92,7 @@ export function QuillMetricsDashboardActions(): JSX.Element | null {
                                             ) : (
                                                 <IconWarning className="text-danger" />
                                             )}
-                                            {dashboardImport.dashboard_name}
+                                            <span className="truncate max-w-80">{dashboardImport.dashboard_name}</span>
                                         </DropdownMenuItem>
                                     ))}
                                 </DropdownMenuGroup>
