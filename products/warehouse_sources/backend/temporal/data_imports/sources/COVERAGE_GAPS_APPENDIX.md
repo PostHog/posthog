@@ -2712,12 +2712,12 @@ Today (12): `appointment_types`, `attendees`, `businesses`, `group_appointments`
 
 Diffed against: <https://docs.api.cliniko.com/_bundle/openapi.json?download>
 
-- [ ] `Billable items (GET /v1/billable_items)` — resolve invoice item links to service codes, catalog prices, and item categories (high)
-- [ ] `Patient cases (GET /v1/patient_cases)` — resolve appointment case links and analyze treatment episodes, session limits, and case closure (high)
-- [ ] `Contacts (GET /v1/contacts)` — resolve patient referring doctor links and compare referral performance (high)
+- [x] `Billable items (GET /v1/billable_items)` — resolve invoice item links to service codes, catalog prices, and item categories (high)
+- [x] `Patient cases (GET /v1/patient_cases)` — resolve appointment case links and analyze treatment episodes, session limits, and case closure (high)
+- [x] `Contacts (GET /v1/contacts)` — resolve patient referring doctor links and compare referral performance (high)
 - [ ] `Concession types (GET /v1/concession_types)` — resolve patient concession links to discount categories (high)
 - [ ] `Product suppliers (GET /v1/product_suppliers)` — resolve product supplier IDs and analyze stock by supplier (high)
-- [ ] `Users (GET /v1/users)` — resolve practitioner user links and identify staff responsible for clinic activity (high)
+- [x] `Users (GET /v1/users)` — resolve practitioner user links and identify staff responsible for clinic activity (high)
 - [ ] `Referral source types (GET /v1/referral_source_types)` — resolve referral source type links to named acquisition categories (high)
 - [ ] `Daily availabilities (GET /v1/daily_availabilities)` — compare recurring practitioner capacity with booked appointments to measure utilization (high)
 - [ ] `Stock adjustments (GET /v1/stock_adjustments)` — explain stock changes through sales, corrections, and replenishment activity (medium)
