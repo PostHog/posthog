@@ -4331,12 +4331,12 @@ Today (7): `ledger_entries`, `listings`, `receipts`, `reviews`, `shop`, `shop_se
 
 Diffed against: <https://www.etsy.com/openapi/generated/oas/3.0.0.json>
 
-- [ ] `Seller taxonomy nodes (GET /v3/application/seller-taxonomy/nodes)` — resolve taxonomy_id on listings to product categories and their hierarchy (high)
-- [ ] `Listing inventory (GET /v3/application/listings/batch/inventory)` — resolve transaction product_id values and analyze variant SKUs, prices, and stock quantities (high)
+- [x] `Seller taxonomy nodes (GET /v3/application/seller-taxonomy/nodes)` — resolve taxonomy_id on listings to product categories and their hierarchy (high)
+- [x] `Listing inventory (GET /v3/application/listings/batch/inventory)` — resolve transaction product_id values and analyze variant SKUs, prices, and stock quantities (high)
 - [ ] `Shop shipping profiles (GET /v3/application/shops/{shop_id}/shipping-profiles)` — resolve shipping_profile_id on listings and transactions for shipping cost and service comparisons (high)
 - [ ] `Shop readiness state definitions (GET /v3/application/shops/{shop_id}/readiness-state-definitions)` — resolve readiness_state_id on listings into preparation states and processing times (high)
-- [ ] `Shop return policies (GET /v3/application/shops/{shop_id}/policies/return)` — resolve return_policy_id on listings for returns and catalog analysis (high)
-- [ ] `Payment account ledger entry payments (GET /v3/application/shops/{shop_id}/payment-account/ledger-entries/payments)` — reconcile gross sales, fees, net payments, and payment adjustments with receipts and ledger entries (high)
+- [x] `Shop return policies (GET /v3/application/shops/{shop_id}/policies/return)` — resolve return_policy_id on listings for returns and catalog analysis (high)
+- [x] `Payment account ledger entry payments (GET /v3/application/shops/{shop_id}/payment-account/ledger-entries/payments)` — reconcile gross sales, fees, net payments, and payment adjustments with receipts and ledger entries (high)
 - [ ] `Listing properties (GET /v3/application/shops/{shop_id}/listings/{listing_id}/properties)` — analyze sales and assortment by product attributes such as size, material, and color (medium)
 
 Note: The official OpenAPI spec supplied GET paths, parameters, and listing and transaction fields. Transactions already expand from receipts, so alternate transaction routes are excluded. Inventory and payment reads require parent ID batches; properties require one request per listing. Media and authentication are excluded; business lookups are retained because existing rows reference their IDs.
