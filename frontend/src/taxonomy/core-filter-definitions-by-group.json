@@ -155,6 +155,12 @@
             "label": "AI cache read audio tokens (LLM)",
             "type": "Numeric"
         },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
+            "type": "Numeric"
+        },
         "$ai_cache_read_input_tokens": {
             "description": "The number of tokens read from the cache for the input prompt.",
             "examples": [23],
@@ -2745,6 +2751,12 @@
             "type": "Boolean",
             "virtual": true
         },
+        "$virt_mcp_harness": {
+            "description": "MCP client label resolved from the event's client identity signals. Empty on non-MCP events.",
+            "label": "MCP harness",
+            "type": "String",
+            "virtual": true
+        },
         "$virt_traffic_category": {
             "description": "Detailed traffic category: ai_crawler, ai_search, ai_assistant, search_crawler, seo_crawler, etc. Bots the project defined itself report the category picked in settings.",
             "examples": ["ai_crawler", "ai_search", "ai_assistant", "search_crawler", "regular"],
@@ -3982,6 +3994,12 @@
             "description": "The number of audio tokens read from the prompt cache.",
             "examples": [16],
             "label": "AI cache read audio tokens (LLM)",
+            "type": "Numeric"
+        },
+        "$ai_cache_read_image_tokens": {
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "label": "AI cache read image tokens (LLM)",
             "type": "Numeric"
         },
         "$ai_cache_read_input_tokens": {

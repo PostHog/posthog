@@ -1,3 +1,5 @@
+from datetime import date
+
 from unittest import mock
 
 from parameterized import parameterized
@@ -48,6 +50,11 @@ class TestTeamtailorSource:
         # New sources start on the newest stable version; the legacy pin stays selectable.
         assert self.source.supported_versions == (API_VERSION_20240404, API_VERSION_20240904)
         assert self.source.default_version == API_VERSION_20240904
+
+    def test_legacy_version_is_deprecated_with_the_vendor_sunset_date(self) -> None:
+        deprecation = self.source.get_version_deprecation(API_VERSION_20240404)
+        assert deprecation is not None and deprecation.sunset_at == date(2025, 10, 1)
+        assert self.source.get_version_deprecation(API_VERSION_20240904) is None
 
     @parameterized.expand(
         [

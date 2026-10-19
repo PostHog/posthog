@@ -1,6 +1,7 @@
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
 from posthog.schema import (
@@ -30,7 +31,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
     FIRST_PAGEVIEW_BREAKDOWNS,
