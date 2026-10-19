@@ -38,11 +38,11 @@ from products.signals.backend.ranking.model_contract import classification_thres
 from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
-    DAILY_CANDIDATE_ROLE,
     DEFAULT_MODEL_KIND,
     ONNX_MODEL_FILE,
     ONNX_MODEL_KIND,
     PINNED_ROLE,
+    RECENT_ROLE,
     SERVED_ROLE,
     ServingManifest,
     ServingManifestEntry,
@@ -340,19 +340,21 @@ def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
     "head_name,frame,expected_cohort,expected_label",
     [
         # action: cohort is everyone, so a never-impressed report an agent claimed is a positive.
-        # A server-side action and a UI action are the same label.
+        # A server-side action, a UI action and a thumbs up are the same label. A thumbs down is not.
         (
             "action",
             pd.DataFrame(
                 {
-                    "impression_unit_count": [0, 1, 1, 1],
-                    "claim_count": [1, 0, 0, 0],
-                    "reasoned_resolution_count": [0, 1, 0, 0],
-                    "view_diff_count": [0, 0, 2, 0],
+                    "impression_unit_count": [0, 1, 1, 1, 1, 1],
+                    "claim_count": [1, 0, 0, 0, 0, 0],
+                    "reasoned_resolution_count": [0, 1, 0, 0, 0, 0],
+                    "view_diff_count": [0, 0, 2, 0, 0, 0],
+                    "feedback_positive_count": [0, 0, 0, 1, 0, 0],
+                    "feedback_negative_count": [0, 0, 0, 0, 1, 0],
                 }
             ),
-            [True, True, True, True],
-            [True, True, True, False],
+            [True] * 6,
+            [True, True, True, True, False, False],
         ),
         # fixed: cohort is everyone, label is a fix read from the status stream.
         (
@@ -1791,7 +1793,7 @@ def test_model_key_layout_is_stable():
     )
     assert (
         model_object_key("inbox_ranking", EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
-        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-19/open.ubj"
+        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings_v2/dt=2026-08-19/open.ubj"
     )
     assert snapshot_dates("2026-08-19", 2) == [
         datetime.date(2026, 8, 17),
@@ -1959,7 +1961,7 @@ def test_examples_key_layout_is_per_feature_set():
     # And one models prefix per family, so one family's booster never lands on another's.
     assert (
         model_object_key("inbox_ranking", EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
-        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-19/open.ubj"
+        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings_v2/dt=2026-08-19/open.ubj"
     )
 
 
@@ -2323,27 +2325,25 @@ def test_a_manifest_entry_the_sweep_could_not_load_is_refused(overrides, message
         )
 
 
-def _compose(families, served):
+def _compose(families, served, recent=(), recent_versions=3, pinned=()):
     return compose_manifest(
         families,
         served=served,
         prefix="inbox_ranking",
         now=datetime.datetime(2026, 8, 19, 6, tzinfo=datetime.UTC),
+        recent=recent,
+        recent_versions=recent_versions,
+        pinned=pinned,
     )
 
 
 def test_no_served_pointer_publishes_nothing():
-    # Composing a manifest off a champion or the day's candidate instead would move the served
+    # Composing a manifest off a champion or a recent version instead would move the served
     # model without a person choosing it.
     decision = _compose(
-        [
-            FamilyModels(
-                name=EMBEDDINGS_MODEL_NAME,
-                candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
-                champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-            )
-        ],
+        [FamilyModels(name=EMBEDDINGS_MODEL_NAME, champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"))],
         served=None,
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19")],
     )
     assert decision.manifest is None
     assert "no served pointer" in decision.reason
@@ -2355,12 +2355,9 @@ def test_the_served_pointer_wins_over_the_champion_of_its_own_family():
         [
             FamilyModels(
                 name=EMBEDDINGS_MODEL_NAME,
-                candidate=None,
                 champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
             ),
-            FamilyModels(
-                name=STATE_MODEL_NAME, candidate=None, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")
-            ),
+            FamilyModels(name=STATE_MODEL_NAME, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
         ],
         served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-01"),
     )
@@ -2372,32 +2369,39 @@ def test_the_served_pointer_wins_over_the_champion_of_its_own_family():
 
 
 @pytest.mark.parametrize(
-    "candidate_version,candidate_readable,expected_roles",
+    "recent,recent_versions,expected_recent",
     [
-        # A distinct, readable candidate is the paired read the sweep exists for.
-        ("2026-08-19", True, {SERVED_ROLE: "2026-08-15", DAILY_CANDIDATE_ROLE: "2026-08-19"}),
-        # The candidate at the champion's own version is the champion: a second entry for it would
-        # spend a result slot on a duplicate score.
-        ("2026-08-15", True, {SERVED_ROLE: "2026-08-15"}),
-        # An unreadable candidate has no holdout number to pair the champion against.
-        ("2026-08-19", False, {SERVED_ROLE: "2026-08-15"}),
+        # The newest versions are the paired reads the sweep exists for, newest first.
+        (
+            [("2026-08-19", True), ("2026-08-18", True), ("2026-08-17", True), ("2026-08-16", True)],
+            3,
+            ["2026-08-19", "2026-08-18", "2026-08-17"],
+        ),
+        # The served version is already an entry, so it gains no second one and frees its slot.
+        (
+            [("2026-08-19", True), ("2026-08-15", True), ("2026-08-14", True), ("2026-08-13", True)],
+            3,
+            ["2026-08-19", "2026-08-14", "2026-08-13"],
+        ),
+        # An unreadable version has no holdout number to pair the served model against.
+        ([("2026-08-19", False), ("2026-08-18", True)], 3, ["2026-08-18"]),
+        # The same version read twice is one entry.
+        ([("2026-08-19", True), ("2026-08-19", True), ("2026-08-18", True)], 3, ["2026-08-19", "2026-08-18"]),
+        ([("2026-08-19", True)], 0, []),
     ],
 )
-def test_the_served_family_candidate_is_paired_only_when_it_is_a_second_model(
-    candidate_version, candidate_readable, expected_roles
-):
+def test_the_served_family_keeps_its_newest_distinct_readable_versions(recent, recent_versions, expected_recent):
     decision = _compose(
-        [
-            FamilyModels(
-                name=EMBEDDINGS_MODEL_NAME,
-                candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, candidate_version, readable=candidate_readable),
-                champion=None,
-            )
-        ],
+        [],
         served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, version, readable=readable) for version, readable in recent],
+        recent_versions=recent_versions,
     )
     assert decision.manifest is not None
-    assert {entry.roles[0]: entry.model_version for entry in decision.manifest.models} == expected_roles
+    assert [(entry.roles, entry.model_version) for entry in decision.manifest.models] == [
+        ([SERVED_ROLE], "2026-08-15"),
+        *(([RECENT_ROLE], version) for version in expected_recent),
+    ]
 
 
 def test_a_family_with_no_readable_head_is_left_out():
@@ -2406,15 +2410,11 @@ def test_a_family_with_no_readable_head_is_left_out():
         [
             FamilyModels(
                 name=EMBEDDINGS_MODEL_NAME,
-                candidate=None,
                 champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
             ),
-            FamilyModels(
-                name=STATE_MODEL_NAME, candidate=None, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")
-            ),
+            FamilyModels(name=STATE_MODEL_NAME, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
             FamilyModels(
                 name=NN_MODEL_NAME,
-                candidate=None,
                 champion=_serving_metadata(NN_MODEL_NAME, "2026-08-12", readable=False),
             ),
         ],
@@ -2426,57 +2426,50 @@ def test_a_family_with_no_readable_head_is_left_out():
 
 def test_the_cap_drops_cross_family_entries_before_the_paired_read():
     # `RankingScore` refuses a row over the cap, so the manifest is capped at the same number. The
-    # served entry and its paired candidate are the reads the sweep exists for.
+    # served entry and its recent version are the reads the sweep exists for.
     families = [
-        FamilyModels(
-            name=EMBEDDINGS_MODEL_NAME,
-            candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
-            champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-        ),
+        FamilyModels(name=EMBEDDINGS_MODEL_NAME, champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15")),
         *(
-            FamilyModels(
-                name=f"family_{index}", candidate=None, champion=_serving_metadata(f"family_{index}", "2026-08-10")
-            )
+            FamilyModels(name=f"family_{index}", champion=_serving_metadata(f"family_{index}", "2026-08-10"))
             for index in range(5)
         ),
     ]
-    decision = _compose(families, served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"))
+    decision = _compose(
+        families,
+        served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19")],
+    )
     assert decision.manifest is not None
     assert [entry.roles[0] for entry in decision.manifest.models] == [
         SERVED_ROLE,
-        DAILY_CANDIDATE_ROLE,
+        RECENT_ROLE,
         *[CROSS_FAMILY_ROLE] * (MAX_RANKING_MODEL_RESULTS - 2),
     ]
 
 
-def test_a_pinned_model_is_kept_and_capped_before_the_paired_read():
+def test_a_pinned_model_is_kept_and_capped_after_the_recent_versions():
     families = [
-        FamilyModels(
-            name=EMBEDDINGS_MODEL_NAME,
-            candidate=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"),
-            champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-        ),
-        FamilyModels(name=STATE_MODEL_NAME, candidate=None, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
+        FamilyModels(name=EMBEDDINGS_MODEL_NAME, champion=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15")),
+        FamilyModels(name=STATE_MODEL_NAME, champion=_serving_metadata(STATE_MODEL_NAME, "2026-08-10")),
     ]
     pinned = [_serving_metadata(EMBEDDINGS_MODEL_NAME, f"2026-08-0{day}", readable=False) for day in range(1, 5)]
     # A pin of a model the manifest already names gains no second entry.
-    pinned.append(_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
+    pinned.insert(0, _serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
 
-    decision = compose_manifest(
+    decision = _compose(
         families,
         served=_serving_metadata(EMBEDDINGS_MODEL_NAME, "2026-08-15"),
-        prefix="inbox_ranking",
-        now=datetime.datetime(2026, 8, 19, 6, tzinfo=datetime.UTC),
+        recent=[_serving_metadata(EMBEDDINGS_MODEL_NAME, f"2026-08-{day}") for day in (19, 18, 17)],
         pinned=pinned,
     )
 
     assert decision.manifest is not None
     assert [(entry.roles[0], entry.model_version) for entry in decision.manifest.models] == [
         (SERVED_ROLE, "2026-08-15"),
-        (DAILY_CANDIDATE_ROLE, "2026-08-19"),
+        (RECENT_ROLE, "2026-08-19"),
+        (RECENT_ROLE, "2026-08-18"),
+        (RECENT_ROLE, "2026-08-17"),
         (PINNED_ROLE, "2026-08-01"),
-        (PINNED_ROLE, "2026-08-02"),
-        (PINNED_ROLE, "2026-08-03"),
     ]
 
 
@@ -2670,6 +2663,66 @@ def test_project_vectors_are_published_before_the_manifest_that_names_them(
         assert mirror.objects == {}
 
 
+def test_recent_versions_come_from_the_window_and_skip_a_version_missing_its_booster(monkeypatch):
+    # A booster deleted by a re-run would fail the whole publish, and a version older than the
+    # window would keep a stale model in every pass.
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    client = _serving_dataset_s3(prefix, "2026-08-19")
+    for version, booster in (("2026-08-18", True), ("2026-08-17", False), ("2026-08-13", True)):
+        folder = model_object_key(prefix, EMBEDDINGS_MODEL_NAME, version, "")
+        client.objects[folder + METADATA_FILE] = json.dumps(
+            _serving_metadata(EMBEDDINGS_MODEL_NAME, version, heads=("open",), **_FEATURE_FIELDS)
+        ).encode()
+        if booster:
+            client.objects[folder + "open.ubj"] = b"booster"
+    monkeypatch.setattr(settings, "INBOX_RANKING_SERVING_RECENT_VERSIONS", 3)
+    store = _AppObjectStore()
+
+    _run_serving_manifest(monkeypatch, store, dataset_client=client)
+
+    manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+    assert [(entry.model_version, entry.roles) for entry in manifest.models] == [
+        ("2026-08-15", [SERVED_ROLE]),
+        ("2026-08-19", [RECENT_ROLE]),
+        ("2026-08-18", [RECENT_ROLE]),
+    ]
+
+
+class _FailingVersionS3(_ModelStoreS3):
+    def __init__(self, objects: dict[str, bytes], *, failing_prefix: str, code: str):
+        super().__init__(objects)
+        self.failing_prefix = failing_prefix
+        self.code = code
+
+    def get_object(self, *, Bucket, Key):
+        if Key.startswith(self.failing_prefix):
+            raise ClientError({"Error": {"Code": self.code}}, "GetObject")
+        return super().get_object(Bucket=Bucket, Key=Key)
+
+
+@pytest.mark.parametrize("code,published", [("AccessDenied", True), ("SlowDown", False), ("InternalError", False)])
+def test_a_recent_version_read_error_skips_only_a_missing_key(monkeypatch, code, published):
+    # A throttled read that skipped the version would publish a manifest without it and bypass
+    # the asset retry, so only the 403 S3 gives for a missing key may drop a recent version.
+    prefix = settings.INBOX_RANKING_DATASET_S3_PREFIX
+    base = _serving_dataset_s3(prefix, "2026-08-19")
+    client = _FailingVersionS3(
+        base.objects,
+        failing_prefix=model_object_key(prefix, EMBEDDINGS_MODEL_NAME, "2026-08-19", ""),
+        code=code,
+    )
+    store = _AppObjectStore()
+
+    if published:
+        _run_serving_manifest(monkeypatch, store, dataset_client=client)
+        manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
+        assert [entry.model_version for entry in manifest.models] == ["2026-08-15"]
+    else:
+        with pytest.raises(ClientError):
+            _run_serving_manifest(monkeypatch, store, dataset_client=client)
+        assert serving_manifest_key(prefix) not in store.objects
+
+
 def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
     # A model version is immutable, so re-copying it every day would move the boosters of every
     # entry, one of which is 1536 columns wide, for no change.
@@ -2682,7 +2735,7 @@ def test_a_version_already_in_the_store_is_not_copied_again(monkeypatch):
 
     assert store.objects[f"{champion_prefix}/{METADATA_FILE}"] == b"already here"
     assert f"{champion_prefix}/open.ubj" not in store.objects
-    # The day's candidate was not there, so it was copied and the manifest still names both.
+    # The recent version was not there, so it was copied and the manifest still names both.
     manifest = ServingManifest.model_validate_json(store.objects[serving_manifest_key(prefix)])
     assert len(manifest.models) == 2
 
@@ -2778,7 +2831,7 @@ def test_the_serving_prefix_layout_is_stable():
     assert serving_manifest_key("inbox_ranking") == "inbox_ranking/serving/manifest.json"
     assert (
         serving_model_prefix("inbox_ranking", model_key(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
-        == "inbox_ranking/serving/models/report_embeddings@2026-08-19"
+        == "inbox_ranking/serving/models/report_embeddings_v2@2026-08-19"
     )
 
 
@@ -2803,7 +2856,7 @@ _CANDIDATE_EVENT = {
     "model_key": model_key(REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION),
     "model_name": REPORT_EMBEDDINGS_MODEL_NAME,
     "model_version": CANDIDATE_VERSION,
-    "roles": [DAILY_CANDIDATE_ROLE],
+    "roles": [RECENT_ROLE],
 }
 _NN_EVENT = {"model_name": NN_MODEL_NAME, "model_version": V1, "roles": [CROSS_FAMILY_ROLE]}
 _SERVED_POOL = ["tie", "low", "legacy_low", "legacy_high", "challenger_only", "late"]
@@ -2870,14 +2923,14 @@ def test_served_score_rows_keep_the_earliest_score_of_each_newborn_per_model_key
         zip(others["report_id"], others["model_name"], others["model_version"], others["model_role"], others["score"])
     ) == [
         ("challenger_only", NN_MODEL_NAME, V1, CROSS_FAMILY_ROLE, 0.5),
-        ("tie", REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, DAILY_CANDIDATE_ROLE, 0.7),
+        ("tie", REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, RECENT_ROLE, 0.7),
     ]
     metadata = served_metadata(_state(_SERVED_POOL), rows)
     assert metadata["served_pool_coverage"] == dagster.MetadataValue.float(4 / 6)
     assert metadata["pool_coverage_by_model"].value == {
         f"{REPORT_EMBEDDINGS_MODEL_NAME}@{V1}/{SERVED_ROLE}": 2 / 6,
         f"{REPORT_EMBEDDINGS_MODEL_NAME}@{V2}/{SERVED_ROLE}": 3 / 6,
-        f"{REPORT_EMBEDDINGS_MODEL_NAME}@{CANDIDATE_VERSION}/{DAILY_CANDIDATE_ROLE}": 1 / 6,
+        f"{REPORT_EMBEDDINGS_MODEL_NAME}@{CANDIDATE_VERSION}/{RECENT_ROLE}": 1 / 6,
         f"{NN_MODEL_NAME}@{V1}/{CROSS_FAMILY_ROLE}": 1 / 6,
     }
 
@@ -2885,8 +2938,8 @@ def test_served_score_rows_keep_the_earliest_score_of_each_newborn_per_model_key
 @pytest.mark.parametrize(
     "roles,expected",
     [
-        ([SERVED_ROLE, DAILY_CANDIDATE_ROLE], SERVED_ROLE),
-        ([DAILY_CANDIDATE_ROLE, CROSS_FAMILY_ROLE], DAILY_CANDIDATE_ROLE),
+        ([SERVED_ROLE, RECENT_ROLE], SERVED_ROLE),
+        ([RECENT_ROLE, CROSS_FAMILY_ROLE], RECENT_ROLE),
         ([], CANDIDATE_ROLE),
         (None, CANDIDATE_ROLE),
     ],
@@ -2929,7 +2982,7 @@ def test_served_scores_grade_per_version_at_the_threshold_that_was_served(monkey
     assert set(graded_by_key) == {
         (REPORT_EMBEDDINGS_MODEL_NAME, V1, SERVED_ROLE),
         (REPORT_EMBEDDINGS_MODEL_NAME, V2, SERVED_ROLE),
-        (REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, DAILY_CANDIDATE_ROLE),
+        (REPORT_EMBEDDINGS_MODEL_NAME, CANDIDATE_VERSION, RECENT_ROLE),
         (NN_MODEL_NAME, V1, CROSS_FAMILY_ROLE),
     }
     graded = {version: row for (_, version, role), row in graded_by_key.items() if role == SERVED_ROLE}

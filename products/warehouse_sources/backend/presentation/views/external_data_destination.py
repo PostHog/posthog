@@ -249,6 +249,9 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
             raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
 
+        if isinstance(attrs.get("config"), dict):
+            attrs["config"] = self._trim_names(str(destination_type), attrs["config"])
+
         if self.instance is not None:
             self._reject_retargeting(attrs)
         elif destination_type == ExternalDataDestination.Type.POSTGRES:
@@ -290,6 +293,20 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container", "prefix"),
     }
 
+    # Config fields whose names cannot hold a space, per type. A pasted bucket or container name
+    # often has a stray space at one end, and the store then rejects the name on every run. A
+    # prefix is not here: a prefix with a space is a valid key, and rows may already sit under it.
+    TRIMMED_FIELDS_BY_TYPE: dict[str, tuple[str, ...]] = {
+        str(ExternalDataDestination.Type.S3): ("bucket", "bucket_name", "region"),
+        str(ExternalDataDestination.Type.AZURE_BLOB): ("container_name", "container"),
+    }
+
+    def _trim_names(self, destination_type: str, config: dict[str, Any]) -> dict[str, Any]:
+        fields = self.TRIMMED_FIELDS_BY_TYPE.get(destination_type, ())
+        return {
+            key: value.strip() if key in fields and isinstance(value, str) else value for key, value in config.items()
+        }
+
     def _reject_retargeting(self, attrs: dict[str, Any]) -> None:
         assert self.instance is not None
         if "integration" in attrs and attrs["integration"] != self.instance.integration:
@@ -305,9 +322,10 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         if "config" not in attrs:
             return
 
-        current = self.instance.config or {}
-        incoming = attrs["config"] or {}
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
+        # A name saved with a stray space never worked, so the trimmed name is the same target.
+        current = self._trim_names(str(destination_type), self.instance.config or {})
+        incoming = attrs["config"] or {}
         for field in self.RETARGETING_FIELDS_BY_TYPE.get(str(destination_type), ()):
             if field in incoming and incoming[field] != current.get(field):
                 label = field.replace("_", " ")

@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { timeoutGuard } from '~/common/utils/db/utils'
+import { asPostgresParameterText, sanitizeString, timeoutGuard } from '~/common/utils/db/utils'
 import { LazyLoader, LoaderRetryOptions } from '~/common/utils/lazy-loader'
 import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -9,6 +10,19 @@ import { GroupTypeIndex, GroupTypeToColumnIndex, GroupTypesByProjectId, ProjectI
 
 /** How many unique group types to allow per team */
 export const MAX_GROUP_TYPES_PER_TEAM = 5
+
+/** posthog_grouptypemapping.group_type is varchar(400); a longer value makes the insert fail. */
+export const MAX_GROUP_TYPE_LENGTH = 400
+
+// Postgres text cannot hold a NUL byte, so every lookup and insert uses the sanitized text.
+export function groupTypeAsStoredText(groupType: unknown): string {
+    return sanitizeString(asPostgresParameterText(groupType))
+}
+
+const groupTypeTooLongCounter = new Counter({
+    name: 'group_type_too_long_total',
+    help: 'Group type resolutions skipped because the type exceeds the column length.',
+})
 
 export interface GroupTypeManagerOptions {
     /** Retry transient group-type-load failures (e.g. a Postgres pooler blip) instead of letting them propagate. */
@@ -70,7 +84,8 @@ export class GroupTypeManager {
      */
     public async lookupGroupTypeIndex(projectId: ProjectId, groupType: string): Promise<GroupTypeIndex | null> {
         const groupTypes = await this.fetchGroupTypes(projectId)
-        const groupTypeIndex = Object.hasOwn(groupTypes, groupType) ? groupTypes[groupType] : undefined
+        const groupTypeText = groupTypeAsStoredText(groupType)
+        const groupTypeIndex = Object.hasOwn(groupTypes, groupTypeText) ? groupTypes[groupTypeText] : undefined
         return typeof groupTypeIndex === 'number' ? groupTypeIndex : null
     }
 
@@ -80,7 +95,13 @@ export class GroupTypeManager {
         groupType: string,
         eventTimestamp: DateTime
     ): Promise<GroupTypeIndex | null> {
-        const existingIndex = await this.lookupGroupTypeIndex(projectId, groupType)
+        const groupTypeText = groupTypeAsStoredText(groupType)
+        if (groupTypeText.length > MAX_GROUP_TYPE_LENGTH) {
+            groupTypeTooLongCounter.inc()
+            return null
+        }
+
+        const existingIndex = await this.lookupGroupTypeIndex(projectId, groupTypeText)
         if (existingIndex !== null) {
             return existingIndex
         }
@@ -102,7 +123,7 @@ export class GroupTypeManager {
         const [groupTypeIndex, isInsert] = await this.groupRepository.insertGroupType(
             teamId,
             projectId,
-            groupType,
+            groupTypeText,
             nextAvailableIndex,
             eventTimestamp
         )
@@ -113,7 +134,7 @@ export class GroupTypeManager {
         if (isInsert && groupTypeIndex !== null) {
             // TODO: Is the `group type ingested` event being valuable? If not, we can remove
             // `captureGroupTypeInsert()`. If yes, we should move this capture to use the project instead of team
-            await this.captureGroupTypeInsert(teamId, groupType, groupTypeIndex)
+            await this.captureGroupTypeInsert(teamId, groupTypeText, groupTypeIndex)
         }
         return groupTypeIndex
     }

@@ -52,15 +52,24 @@ class TestBuildParams:
             "orderDirection": "Asc",
         }
 
-    def test_incremental_endpoint_without_cursor_falls_back_to_stable_sort(self) -> None:
+    @parameterized.expand(
+        [
+            ("Constituents", "Id"),
+            # Refunds and SoftCredits reject `orderBy=Id`.
+            ("SoftCredits", "CreatedDate"),
+        ]
+    )
+    def test_incremental_endpoint_without_cursor_falls_back_to_stable_sort(
+        self, endpoint: str, expected_sort: str
+    ) -> None:
         # First-ever sync: no watermark yet, but the endpoint still supports sorting, so page
         # boundaries must stay stable rather than sending no params at all.
         params = _build_params(
-            BLOOMERANG_ENDPOINTS["Constituents"],
+            BLOOMERANG_ENDPOINTS[endpoint],
             should_use_incremental_field=True,
             db_incremental_field_last_value=None,
         )
-        assert params == {"orderBy": "Id", "orderDirection": "Asc"}
+        assert params == {"orderBy": expected_sort, "orderDirection": "Asc"}
 
     def test_full_refresh_endpoint_with_sort_support_never_filters(self) -> None:
         # Transactions has no server-side lastModified filter; a cursor must not leak into the request.

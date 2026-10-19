@@ -111,4 +111,58 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "last_visited": "Date a live link to the target was last verified.",
         },
     },
+    "link_intersect_refdomains": {
+        "description": "Referring domains that link to the selected project's target or its Ahrefs competitors.",
+        "docs_url": "https://docs.ahrefs.com/en/api/reference/competitive-analysis/post-link-intersect-refdomains",
+        "columns": {
+            "project_id": "Identifier of the selected Site Audit project.",
+            "domain": "The referring domain.",
+            "domain_rating": "Domain Rating of the referring domain.",
+            "intersect": "Number of competitors this result links to.",
+            "links_to_target": "Number of links from this result to the project's target.",
+            "competitors": (
+                "Competitor URLs from the Ahrefs project, in the order used by the links_to_competitor_N columns."
+            ),
+        },
+    },
+    "link_intersect_refpages": {
+        "description": "Referring pages that link to the selected project's target or its Ahrefs competitors.",
+        "docs_url": "https://docs.ahrefs.com/en/api/reference/competitive-analysis/post-link-intersect-refpages",
+        "columns": {
+            "project_id": "Identifier of the selected Site Audit project.",
+            "url": "URL of the referring page.",
+            "title": "Title of the referring page.",
+            "domain_rating": "Domain Rating of the referring page's domain.",
+            "url_rating": "URL Rating of the referring page.",
+            "intersect": "Number of competitors this result links to.",
+            "links_to_target": "Number of links from this result to the project's target.",
+            "competitors": (
+                "Competitor URLs from the Ahrefs project, in the order used by the links_to_competitor_N columns."
+            ),
+        },
+    },
+    "brand_radar_web_pages": {
+        "description": "Web pages that mention the brands or competitors in the project's Brand Radar reports.",
+        "docs_url": "https://docs.ahrefs.com/en/api/reference/brand-radar/post-web-pages",
+        "columns": {
+            "project_id": "Identifier of the selected Site Audit project.",
+            "report_id": "Identifier of the Brand Radar report the page was found for.",
+            "url": "URL of the page that mentions a brand or competitor.",
+            "title": "Title of the page.",
+            "content": "Excerpt of the page content that contains the mention.",
+            "domain_rating": "Domain Rating of the page's domain.",
+            "referring_domains": "Number of unique domains that link to the page.",
+            "traffic": "Estimated monthly organic search traffic of the page.",
+            "traffic_value": "Estimated monthly value of the page's organic search traffic, in USD.",
+        },
+    },
+    "domain_rating_top_domains": {
+        "description": "The top 1 million domains ranked by Ahrefs Domain Rating.",
+        "docs_url": "https://docs.ahrefs.com/en/api/reference/public/get-domain-rating-top-domains",
+        "columns": {
+            "domain": "Domain name.",
+            "domain_rating": "Current Domain Rating of the domain, on a 100-point logarithmic scale.",
+            "rank": "Position of the domain in the ranking. 1 is the highest Domain Rating.",
+        },
+    },
 }

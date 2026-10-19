@@ -110,6 +110,9 @@ import type {
     SignalReportSourceMetadataResponseApi,
     SignalReportStateRequestApi,
     SignalReportSuggestedReviewersArtefactApi,
+    SignalReportTaskActionListResponseApi,
+    SignalReportTaskActionRunRequestApi,
+    SignalReportTaskActionRunResponseApi,
     SignalReportsForYouResponseApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -377,6 +380,47 @@ export const signalsReportsDestroy = async (
     return apiMutator<SignalReportDeletionStatusApi>(getSignalsReportsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsReportsActionsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/actions/`
+}
+
+/**
+ * List the actions on this report that start an agent run, read from the report's current state. `get_it_merged` is available only while the report has an open, approved pull request. `suggested_prompt` has one entry per prompt the report suggests. Start one with the run endpoint.
+ * @summary List the report actions that start an agent run
+ */
+export const signalsReportsActionsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportTaskActionListResponseApi> => {
+    return apiMutator<SignalReportTaskActionListResponseApi>(getSignalsReportsActionsListUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsActionsRunCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/actions/run/`
+}
+
+/**
+ * Create a task linked to the report and start its first run in the background, with the instructions the inbox uses for the same action. The run shows in the report's runs and counts toward the report's task limit. Nobody can answer questions in a background run, so the agent writes a note to the report's work log when it needs a decision.
+ * @summary Start a report action as a background agent run
+ */
+export const signalsReportsActionsRunCreate = async (
+    projectId: string,
+    id: string,
+    signalReportTaskActionRunRequestApi: SignalReportTaskActionRunRequestApi,
+    options?: RequestInit
+): Promise<SignalReportTaskActionRunResponseApi> => {
+    return apiMutator<SignalReportTaskActionRunResponseApi>(getSignalsReportsActionsRunCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportTaskActionRunRequestApi),
     })
 }
 
