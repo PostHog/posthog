@@ -154,6 +154,7 @@ describe('EmailDomainScene', () => {
         await flush(POLL_MS)
         expectStep('Checking your settings…')
         expectProgress('8 of 8 found')
+        expect(element('email-domain-verifying-create-welcome-workflow')).toBeInTheDocument()
 
         backend.verifyDomain(DOMAIN)
         await flush(POLL_MS)
@@ -422,6 +423,7 @@ describe('EmailDomainScene', () => {
         backend.failOnce('email_verify', { status: 500, body: { detail: 'SES is down' } })
         await open(urls.workflowsEmailDomain(SENDER_ID))
         expectStep('Verification stopped')
+        expect(document.querySelector('[data-attr="email-domain-verifying-create-welcome-workflow"]')).toBeNull()
 
         click('email-domain-restart-verification')
         await flush()

@@ -6,8 +6,10 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { AgentHandoffModal } from './components/AgentHandoffModal'
+import { SendOnceVerifiedCard } from './components/SendOnceVerifiedCard'
 import { StepIndicator } from './components/StepIndicator'
 import { emailDomainLogic } from './emailDomainLogic'
+import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 import { DomainStep } from './steps/DomainStep'
 import { ReadyStep } from './steps/ReadyStep'
 import { SettingsStep } from './steps/SettingsStep'
@@ -16,6 +18,7 @@ import { VerifyingStep } from './steps/VerifyingStep'
 
 function CurrentStep(): JSX.Element {
     const { phase } = useValues(emailDomainLogic)
+    const { status } = useValues(emailDomainStatusLogic)
     switch (phase) {
         case 'domain':
             return (
@@ -37,7 +40,12 @@ function CurrentStep(): JSX.Element {
         case 'settings':
             return <SettingsStep />
         case 'verifying':
-            return <VerifyingStep />
+            return (
+                <>
+                    <VerifyingStep />
+                    {status?.status !== 'failed' && <SendOnceVerifiedCard />}
+                </>
+            )
         case 'ready':
             return <ReadyStep />
     }
