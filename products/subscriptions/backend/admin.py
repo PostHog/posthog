@@ -1,10 +1,11 @@
 from django.contrib import admin
+from django.http import HttpRequest
 from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.admin.paginators.no_count_paginator import NoCountPaginator
 
-from products.exports.backend.models.subscription import Subscription
+from products.subscriptions.backend.models.subscription import Subscription
 
 
 @admin.register(Subscription)
@@ -30,17 +31,17 @@ class SubscriptionAdmin(admin.ModelAdmin):
     ordering = ("-id",)
     exclude = ("dashboard_export_insights",)
 
-    def has_add_permission(self, request):
+    def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
-    def has_change_permission(self, request, obj=None):
+    def has_change_permission(self, request: HttpRequest, obj: Subscription | None = None) -> bool:
         return False
 
-    def has_delete_permission(self, request, obj=None):
+    def has_delete_permission(self, request: HttpRequest, obj: Subscription | None = None) -> bool:
         return False
 
     @admin.display(description="Team")
-    def team_link(self, subscription: Subscription):
+    def team_link(self, subscription: Subscription) -> str:
         return format_html(
             '<a href="{}">{}</a>',
             reverse("admin:posthog_team_change", args=[subscription.team_id]),
