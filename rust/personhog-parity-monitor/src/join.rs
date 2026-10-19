@@ -207,6 +207,10 @@ struct MappingEntry {
 struct MergeEntry {
     last_update_ms: i64,
     partitions: [Option<i32>; 2],
+    /// Each feed's recorded target, released when the entry is evicted.
+    targets: [Option<PersonKey>; 2],
+    /// Judged already; kept while a pending merge still points at it.
+    settled: bool,
 }
 
 pub struct Join {
@@ -215,6 +219,8 @@ pub struct Join {
     personhog: FeedState,
     mappings: HashMap<DistinctIdKey, MappingEntry>,
     merges: HashMap<PersonKey, MergeEntry>,
+    /// How many merge entries point at each person on either feed.
+    target_refs: HashMap<PersonKey, usize>,
     progress: HashMap<Topic, TopicProgress>,
     warmup_until_ms: Option<i64>,
     samples: SampleRing,
@@ -228,9 +234,17 @@ impl Join {
             personhog: FeedState::new(),
             mappings: HashMap::new(),
             merges: HashMap::new(),
+            target_refs: HashMap::new(),
             progress: HashMap::new(),
             warmup_until_ms: None,
             samples,
+        }
+    }
+
+    fn feed(&self, side: Side) -> &FeedState {
+        match side {
+            Side::Node => &self.node,
+            Side::Personhog => &self.personhog,
         }
     }
 
@@ -295,16 +309,27 @@ impl Join {
                     let expected = partition_for_key(event.key().as_bytes(), count) as i32;
                     report.placement = Some((topic.side, expected == partition));
                 }
+                let side = side_index(topic.side);
                 if self.feed_mut(topic.side).observe_merge(&event).is_some() {
                     report.merge_conflict = Some(topic.side);
                 }
                 let old = PersonKey::new(event.team_id, event.old_person_uuid);
+                let target = self
+                    .feed(topic.side)
+                    .merged_into(&old)
+                    .map(|new| PersonKey::new(event.team_id, new));
                 let entry = self.merges.entry(old).or_insert(MergeEntry {
                     last_update_ms: timestamp_ms,
                     partitions: [None, None],
+                    targets: [None, None],
+                    settled: false,
                 });
                 entry.last_update_ms = entry.last_update_ms.max(timestamp_ms);
-                entry.partitions[side_index(topic.side)] = Some(partition);
+                entry.partitions[side] = Some(partition);
+                if let (None, Some(target)) = (entry.targets[side], target) {
+                    entry.targets[side] = Some(target);
+                    *self.target_refs.entry(target).or_default() += 1;
+                }
             }
         }
         report
@@ -333,7 +358,7 @@ impl Join {
             let due: Vec<(PersonKey, i64)> = self
                 .merges
                 .iter()
-                .filter(|(_, entry)| entry.last_update_ms <= merge_cutoff)
+                .filter(|(_, entry)| !entry.settled && entry.last_update_ms <= merge_cutoff)
                 .map(|(old, entry)| (*old, entry.last_update_ms))
                 .collect();
             for (old, last_update_ms) in due {
@@ -342,6 +367,7 @@ impl Join {
                     report.warmup_evictions += 1;
                 } else {
                     self.settle_merge(old, &mut report);
+                    self.release_merge(old);
                 }
             }
             let due: Vec<(DistinctIdKey, i64)> = self
@@ -361,7 +387,7 @@ impl Join {
         }
         self.enforce_cap(&mut report);
         report.pending_mappings = self.mappings.len();
-        report.pending_merges = self.merges.len();
+        report.pending_merges = self.merges.values().filter(|entry| !entry.settled).count();
         report
     }
 
@@ -436,7 +462,18 @@ impl Join {
             }));
         }
         *report.merge_outcomes.entry(outcome).or_default() += 1;
-        self.evict_merge(old);
+        if let Some(entry) = self.merges.get_mut(&old) {
+            entry.settled = true;
+        }
+    }
+
+    /// A settled merge keeps its edge while a pending merge still points at
+    /// it: that merge's verdict follows the chain through it, and the sweep
+    /// order must not decide the verdict.
+    fn release_merge(&mut self, old: PersonKey) {
+        if self.target_refs.get(&old).copied().unwrap_or(0) == 0 {
+            self.evict_merge(old);
+        }
     }
 
     /// Partition numbers only compare across topics with the same count.
@@ -458,10 +495,29 @@ impl Join {
         self.mappings.remove(key);
     }
 
+    /// Releases the evicted entry's targets; a settled target nothing points
+    /// at any more goes with it.
     fn evict_merge(&mut self, old: PersonKey) {
-        self.node.remove_merge(&old);
-        self.personhog.remove_merge(&old);
-        self.merges.remove(&old);
+        let mut stack = vec![old];
+        while let Some(old) = stack.pop() {
+            let Some(entry) = self.merges.remove(&old) else {
+                continue;
+            };
+            self.node.remove_merge(&old);
+            self.personhog.remove_merge(&old);
+            for target in entry.targets.into_iter().flatten() {
+                let Some(refs) = self.target_refs.get_mut(&target) else {
+                    continue;
+                };
+                *refs -= 1;
+                if *refs == 0 {
+                    self.target_refs.remove(&target);
+                    if self.merges.get(&target).is_some_and(|entry| entry.settled) {
+                        stack.push(target);
+                    }
+                }
+            }
+        }
     }
 
     /// Trims to nine tenths of the cap, one pass per tenth rather than one
@@ -818,6 +874,39 @@ mod tests {
         both(&mut join, 0, 70_000, "w3", 9, t0);
         let report = join.settle(t0);
         assert_eq!(mapping_outcomes(&report), vec![(MappingOutcome::Agree, 2)]);
+    }
+
+    // Node merges A into C directly; personhog goes through its own B, whose
+    // merge is older and settles first. A's verdict still reaches C.
+    #[test]
+    fn merge_edges_outlive_the_merges_that_depend_on_them() {
+        let t0 = Instant::now();
+        let mut join = join(usize::MAX, None);
+        join.observe(merge(Side::Node, 0, 1_000, 1, 3), t0);
+        join.observe(merge(Side::Personhog, 0, 500, 2, 3), t0);
+        join.observe(merge(Side::Personhog, 0, 1_000, 1, 2), t0);
+
+        both(&mut join, 0, 60_600, "w1", 9, t0);
+        let report = join.settle(t0);
+        assert_eq!(report.merge_outcomes.values().sum::<u64>(), 1);
+        assert!(!report
+            .merge_outcomes
+            .contains_key(&SurvivorOutcome::Mismatch));
+        assert_eq!(report.pending_merges, 1);
+        assert_eq!(
+            join.personhog.merged_into(&PersonKey::new(TEAM, uuid(2))),
+            Some(uuid(3))
+        );
+
+        both(&mut join, 0, 61_100, "w2", 9, t0);
+        let report = join.settle(t0);
+        assert_eq!(
+            report.merge_outcomes,
+            BTreeMap::from([(SurvivorOutcome::Agree, 1)])
+        );
+        assert_eq!(join.node.merge_count() + join.personhog.merge_count(), 0);
+        assert!(join.merges.is_empty());
+        assert!(join.target_refs.is_empty());
     }
 
     #[test]
