@@ -157,8 +157,8 @@ export function buildExperimentTargeting(context: ExperimentScannerContext): Sca
 }
 
 /**
- * Turns a fresh (or freshly templated) scanner into an experiment scanner for the context: the
- * experiment type, a scoped name, and the experiment's test-account setting. A template's type and
+ * Turns a fresh (or freshly drafted) scanner into an experiment scanner for the context: the
+ * experiment type, a scoped name, and the experiment's test-account setting. Any other type and
  * prompt give way, because only the experiment type compares variants.
  */
 export function prefillScannerForExperiment(

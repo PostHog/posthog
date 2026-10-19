@@ -39,6 +39,7 @@ from products.replay_vision.backend.api.scanners import (
 )
 from products.replay_vision.backend.api.trigger import WorkflowStartOutcome, start_apply_scanner_workflow
 from products.replay_vision.backend.billing import observation_credits_for_model
+from products.replay_vision.backend.built_in_scans import BUILT_IN_SCANS, BuiltInScanKey
 from products.replay_vision.backend.enqueue_claims import _scanner_key, _team_key, pending_enqueue_claims_for_team
 from products.replay_vision.backend.experiment_launch import start_scanners_of_launched_experiments
 from products.replay_vision.backend.jev_watch_feed import store_watch_ranks
@@ -1519,7 +1520,6 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertEqual(properties["sampling_rate"], 0.25)
         self.assertTrue(properties["has_filters"])
         self.assertFalse(properties["has_experiment_targeting"])
-        self.assertFalse(properties["uses_template_prompt"])
         self.assertTrue(properties["free_only"])
         self.assertFalse(properties["has_credit_limit"])
         self.assertTrue(properties["enabled"])
@@ -1554,34 +1554,6 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
         self.assertTrue(properties["has_filters"])
         self.assertTrue(properties["has_experiment_targeting"])
 
-    @parameterized.expand([("test_arm", "test"), ("control_arm", "control"), ("flag_off", False)])
-    def test_create_reports_the_experiment_arm(self, _name: str, flag_value: str | bool) -> None:
-        # The creation-flow experiment splits its conversion metric on this property. Dropping it
-        # leaves the metric computable but arm-blind, so the analysis reads as valid and is not.
-        with (
-            patch("products.replay_vision.backend.api.scanners.get_feature_flag_or_none", return_value=flag_value),
-            patch("posthoganalytics.capture") as capture,
-        ):
-            resp = self.client.post(
-                self.scanners_url,
-                data={
-                    "name": f"telemetry-arm-{_name}",
-                    "scanner_type": ScannerType.MONITOR,
-                    "scanner_config": {"prompt": "did checkout complete?"},
-                    "model": ScannerModel.GEMINI_3_8_FLASH,
-                },
-                format="json",
-            )
-
-        self.assertEqual(resp.status_code, 201, resp.json())
-        created = [
-            call for call in capture.call_args_list if call.kwargs.get("event") == "replay_vision_scanner_created"
-        ]
-        # A flag that is off carries no arm, so the metric can exclude the unenrolled rather than
-        # counting them as a third arm.
-        expected = flag_value if isinstance(flag_value, str) else None
-        self.assertEqual(created[0].kwargs["properties"]["creation_flow_variant"], expected)
-
     @parameterized.expand(
         [
             ("app", {}, "ai", "ai"),
@@ -1591,9 +1563,7 @@ class TestScannerLifecycleTelemetry(_VisionAPITestCase):
     def test_create_reports_how_the_scanner_was_built(
         self, _name: str, headers: dict[str, Any], claimed: str, expected: str
     ) -> None:
-        # The arm says which flow the person was offered; this says what they did with it. Someone
-        # offered the AI flow can still fill the form by hand, so a metric comparing AI-built against
-        # hand-built scanners needs this and cannot read it off the arm.
+        # A metric comparing AI-built against hand-built scanners needs to know how the form was filled.
         #
         # Only the app has a form, so a caller that has none reports its surface instead of what it
         # claims. Resolved from a real user agent, since the question is whether a caller's surface
@@ -4445,15 +4415,45 @@ class TestInlineScanAction(_VisionAPITestCase):
             completed_at=timezone.now(),
         )
 
+    def _assert_refused(self, payload: dict[str, Any], attr: str) -> None:
+        resp = self.client.post(self.inline_url, data=payload, format="json")
+        self.assertEqual(resp.status_code, 400, resp.json())
+        self.assertEqual(resp.json()["attr"], attr)
+
     def test_experiment_type_is_refused(self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock) -> None:
         # Inline scans skip the saved-scanner access check and the variant attribution, so an
         # experiment-type inline scan would read an experiment's population with neither.
-        resp = self._scan(
-            scanner_type="experiment",
-            scanner_config={"experiment_id": 1},
+        self._assert_refused(
+            self._payload(scanner_type="experiment", scanner_config={"experiment_id": 1}), "scanner_type"
         )
-        self.assertEqual(resp.status_code, 400, resp.json())
-        self.assertEqual(resp.json()["attr"], "scanner_type")
+
+    def test_a_built_in_scan_refuses_a_prompt_of_its_own(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        self._assert_refused(self._payload(built_in="summarize_recording"), "built_in")
+
+    def test_a_scan_needs_a_prompt_or_a_built_in(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        self._assert_refused({"session_ids": ["sess-1"]}, "prompt")
+
+    def test_the_built_in_summary_lands_on_the_summarize_buttons_existing_scanner(
+        self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
+    ) -> None:
+        # Projects already hold the button's scanner, keyed by the prompt it used to send. Asking by name
+        # must resolve that same row, or every earlier summary is stranded under it.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        summary = BUILT_IN_SCANS[BuiltInScanKey.SUMMARIZE_RECORDING]
+
+        by_prompt = self._scan(prompt=summary.prompt, scanner_type="summarizer", scanner_config={"length": "medium"})
+        by_name = self.client.post(
+            self.inline_url, data={"session_ids": ["sess-2"], "built_in": "summarize_recording"}, format="json"
+        )
+
+        self.assertEqual(by_prompt.json()["scan_id"], by_name.json()["scan_id"])
+        scanner = ReplayScanner.all_origins.get(id=by_name.json()["scan_id"])
+        self.assertEqual(scanner.prompt_question, summary.question)
 
     def test_a_fully_refused_scan_still_reports_the_request(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock

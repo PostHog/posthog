@@ -292,7 +292,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/pulse': ['Pulse', 'pulse'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-    '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+    '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
     '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
     '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -564,6 +564,7 @@ export const productRedirects: Record<
         combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/ml-inference/decisions': '/ml-inference/playground',
     '/replay/vision': '/replay-vision',
+    '/replay-vision/:id/template': ({ id }) => `/replay-vision/${id}/goal`,
     '/scout-trials': (_params, searchParams, hashParams) =>
         combineUrl('/inbox/scout-trials', searchParams, hashParams).url,
     '/community-skills': (_params, searchParams, hashParams) =>
@@ -1870,8 +1871,8 @@ export const productUrls = {
     replaySettings: (sectionId?: string): string => `/replay/settings${sectionId ? `?sectionId=${sectionId}` : ''}`,
     replayVision: (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
     replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
-    replayVisionTemplates: (): string => '/replay-vision/new/template',
-    replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+    replayVisionNewScanner: (): string => '/replay-vision/new/goal',
+    replayVisionScannerGoal: (id: string): string => `/replay-vision/${id}/goal`,
     replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
     replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
     replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,
