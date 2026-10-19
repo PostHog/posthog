@@ -271,6 +271,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
     PLANE = "Plane", "Plane"
+    SCARF = "Scarf", "Scarf"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
