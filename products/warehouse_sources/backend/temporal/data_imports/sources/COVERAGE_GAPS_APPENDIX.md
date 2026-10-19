@@ -11573,8 +11573,8 @@ Today (9): `Accounts`, `Activities`, `Campaigns`, `Cases`, `Contacts`, `Document
 
 Diffed against: <https://support.reallysimplesystems.com/api-v4/>
 
-- [ ] `campaignstages` — lookup table resolving the stage a campaign or campaign member sits in (high)
-- [ ] `campaigndetails` — the per-campaign membership/detail rows linking contacts to campaigns (high)
+- [x] `campaignstages` — lookup table resolving the stage a campaign or campaign member sits in (high)
+- [x] `campaigndetails` — the per-campaign membership/detail rows linking contacts to campaigns (high)
 
 Note: The v4 API documents exactly 11 CRUD objects; PostHog exposes 9 of them, so coverage is nearly complete. The two missing ones are both marketing-tool objects. Also available but not table-shaped: GET /datadictionary/{object} and GET /lookup/{object}/{field} for dropdown values.
 
