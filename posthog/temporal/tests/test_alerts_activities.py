@@ -32,7 +32,7 @@ from posthog.schema import (
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.errors import CHQueryErrorQueryWasCancelled
+from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorQueryWasCancelled
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseClusterMemoryLimitExceeded,
@@ -1125,12 +1125,26 @@ class TestEvaluateAlert:
         assert check.triggered_metadata["skipped_reason"]
         investigate.assert_not_called()
 
-    async def test_unavailable_data_records_error_without_disabling(self, alert_with_user) -> None:
-        with (
-            patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
-                side_effect=AlertDataUnavailableError("SQL history is incomplete"),
+    @pytest.mark.parametrize(
+        "error,expected_message",
+        [
+            (AlertDataUnavailableError("SQL history is incomplete"), "SQL history is incomplete"),
+            (
+                CHQueryErrorNoCommonType(
+                    "Code: 386. DB::Exception: There is no supertype for types String, UInt16. Stack trace: ...",
+                    code=386,
+                    code_name="no_common_type",
+                ),
+                "There is no supertype for types String, UInt16.",
             ),
+        ],
+        ids=["unavailable_data", "user_safe_clickhouse_error"],
+    )
+    async def test_recoverable_failure_records_error_without_disabling_or_capturing(
+        self, alert_with_user, error, expected_message
+    ) -> None:
+        with (
+            patch("posthog.temporal.alerts.activities.check_alert_for_insight", side_effect=error),
             patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
             patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
         ):
@@ -1141,7 +1155,7 @@ class TestEvaluateAlert:
         assert result.new_state == AlertState.ERRORED
         check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
         assert check.calculated_value is None
-        assert check.error == {"message": "SQL history is incomplete"}
+        assert check.error == {"message": expected_message}
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
         assert refreshed.enabled is True
         mock_capture.assert_not_called()

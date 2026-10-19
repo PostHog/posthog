@@ -13,7 +13,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.insight_result import InsightResult
-from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorS3FileChangedDuringRead
+from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorS3FileChangedDuringRead, CHQueryErrorUnknownIdentifier
 from posthog.hogql_queries.query_failure_handling import build_failure_exception
 from posthog.query_cache.failures import QueryFailureRecord
 
@@ -90,11 +90,19 @@ def test_a_breaker_replay_keeps_the_ordinary_failure_path() -> None:
             r"^There is no supertype for types DateTime64\(6, 'UTC'\), String\.$",
         ),
         (
+            CHQueryErrorUnknownIdentifier(
+                "Code: 47. DB::Exception: Identifier 'orders.missing_column' cannot be resolved. Stack trace: ...",
+                code=47,
+                code_name="unknown_identifier",
+            ),
+            r"^Identifier 'orders\.missing_column' cannot be resolved\.$",
+        ),
+        (
             QueryError("Function 'toStartOfHour' expects 1 argument, found 2"),
             r"^Function 'toStartOfHour' expects 1 argument, found 2$",
         ),
     ],
-    ids=["clickhouse", "hogql"],
+    ids=["clickhouse", "clickhouse_unknown_identifier", "hogql"],
 )
 def test_a_sql_query_the_engine_rejects_becomes_an_extraction_error(error, expected_message) -> None:
     with pytest.raises(AlertExtractionError, match=expected_message):
@@ -107,8 +115,9 @@ def test_a_sql_query_the_engine_rejects_becomes_an_extraction_error(error, expec
         (CHQueryErrorNoCommonType("no supertype", code=386), {"kind": NodeKind.TRENDS_QUERY, "series": []}),
         (CHQueryErrorS3FileChangedDuringRead("file changed", code=36), {"kind": NodeKind.HOG_QL_QUERY}),
         (QueryError("Unknown function"), {"kind": NodeKind.TRENDS_QUERY, "series": []}),
+        (CHQueryErrorUnknownIdentifier("unknown", code=47), {"kind": NodeKind.TRENDS_QUERY, "series": []}),
     ],
-    ids=["posthog_built_query", "transient_error", "posthog_built_hogql"],
+    ids=["posthog_built_query", "transient_error", "posthog_built_hogql", "posthog_built_unknown_identifier"],
 )
 def test_a_query_error_outside_the_owners_sql_keeps_the_ordinary_failure_path(error, query) -> None:
     with pytest.raises(type(error)):

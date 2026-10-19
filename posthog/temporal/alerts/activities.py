@@ -30,7 +30,7 @@ from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
-from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
+from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
@@ -721,6 +721,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     },
                 )
                 error = {"message": str(err), "traceback": traceback.format_exc()}
+        except ExposedCHQueryError as err:
+            # ClickHouse rejects the insight as the user built it, for example a property filter
+            # whose type does not match the data. The query API returns a 400 for this and does not
+            # capture it. Record it on the check, because it fails the same way on every check
+            # until the user changes the insight.
+            error = {"message": str(err)}
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
