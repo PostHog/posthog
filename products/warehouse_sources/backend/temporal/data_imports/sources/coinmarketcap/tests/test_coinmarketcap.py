@@ -55,16 +55,28 @@ class TestCoinMarketCapSourceResumeBehavior:
     def _page_body(items: list[dict[str, Any]]) -> dict[str, Any]:
         return {"data": items, "status": {"error_code": 0, "error_message": None}}
 
-    @pytest.mark.parametrize("endpoint", ["cryptocurrency_map", "listings_latest", "fiat_map"])
-    def test_fresh_run_saves_start_after_each_non_terminal_page(self, endpoint: str) -> None:
-        result = _driver().run(
-            endpoint,
-            [_response(self._page_body(_full_page())), _response(self._page_body([{"id": "x"}]))],
-        )
+    @pytest.mark.parametrize(
+        ("endpoint", "list_key"),
+        [
+            ("cryptocurrency_map", None),
+            ("listings_latest", None),
+            ("fiat_map", None),
+            ("liquidations_by_cryptocurrency_latest", "cryptocurrencies"),
+            ("liquidations_by_exchange_latest", "exchanges"),
+        ],
+    )
+    def test_fresh_run_saves_start_after_each_non_terminal_page(self, endpoint: str, list_key: str | None) -> None:
+        def body(items: list[dict[str, Any]]) -> dict[str, Any]:
+            if list_key is None:
+                return self._page_body(items)
+            return {"data": {list_key: items, "total_size": PAGE_SIZE + 1, "has_more": False}}
+
+        result = _driver().run(endpoint, [_response(body(_full_page())), _response(body([{"id": "x"}]))])
 
         # First request starts at 1; the second carries the advanced start.
         assert result.params("start") == ["1", str(1 + PAGE_SIZE)]
         assert result.saved_states == [CoinMarketCapResumeConfig(start=1 + PAGE_SIZE)]
+        assert len(result.rows) == PAGE_SIZE + 1
         assert result.raised is None
 
     def test_resume_seeds_paginator_with_saved_start(self) -> None:

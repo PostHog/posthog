@@ -112,10 +112,13 @@ import type {
 import type { DataNodeRegisteredProps } from './dataNodeCollectionLogic'
 import {
     forgetRetainedResponse,
+    getInflightResponse,
     getRetainedResponse,
     isCompleteResponse,
+    reclaimReleasedQuery,
     responseCacheKey,
     retainResponse,
+    trackInflightResponse,
 } from './responseCache'
 
 export interface DataNodeLogicProps {
@@ -186,12 +189,24 @@ function sanitizeRefreshType(refresh: unknown): RefreshType | undefined {
         : undefined
 }
 
-const concurrencyController = new ConcurrencyController(1)
+export const concurrencyController = new ConcurrencyController(1)
 const accountsTableConcurrencyController = new ConcurrencyController(2)
 const webAnalyticsConcurrencyController = new ConcurrencyController(6)
 const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
+const notebookConcurrencyController = new ConcurrencyController(4)
+// The priority queue doesn't keep insertion order for equal priorities, so notebook loads count up instead.
+let notebookLoadOrder = 0
+
+export async function cancelQueryOnServer(teamId: number | null, queryId: string): Promise<void> {
+    try {
+        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
+        await api.delete(`api/projects/${teamId}/query/${queryId}/`)
+    } catch (e) {
+        console.warn('Failed cancelling query', e)
+    }
+}
 
 function getConcurrencyController(query: DataNode, currentTeam: TeamType): ConcurrencyController {
     if (isAccountsTableQuery(query)) {
@@ -207,6 +222,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.SavedInsights) {
         return productAnalyticsHomeConcurrencyController
+    }
+
+    if (activeScene === Scene.Notebook) {
+        return notebookConcurrencyController
     }
 
     if (
@@ -635,6 +654,9 @@ export interface dataNodeLogicActions {
     setPollResponse: (status: QueryStatus | null) => {
         status: QueryStatus | null
     }
+    setQueryId: (queryId: string) => {
+        queryId: string
+    }
     setQueryLogQueryId: (queryId: string) => {
         queryId: string
     }
@@ -1046,6 +1068,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             overrideQuery,
         }),
         abortAnyRunningQuery: true,
+        setQueryId: (queryId: string) => ({ queryId }),
         abortQuery: (payload: { queryId: string }) => payload,
         cancelQuery: true,
         setResponse: (response: Exclude<AnyResponseType, undefined>) => response,
@@ -1084,6 +1107,32 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         await Promise.resolve()
                         breakpoint()
                         return retainedResponse
+                    }
+                    const inflightResponse =
+                        !pollOnly && !refreshArg?.startsWith('force_') ? getInflightResponse(key) : null
+                    if (inflightResponse) {
+                        inflightResponse.adopt()
+                        cache.inflightQuery = inflightResponse
+                        actions.setQueryId(inflightResponse.queryId)
+                        let data: AnyResponseType | null | undefined
+                        try {
+                            data = await inflightResponse.promise
+                        } catch (error: any) {
+                            // A query that never started because its node unmounted while queued is run again below.
+                            if (!isBreakpoint(error)) {
+                                error.queryId = inflightResponse.queryId
+                                if (shouldCancelQuery(error)) {
+                                    actions.abortQuery({ queryId: inflightResponse.queryId })
+                                }
+                                breakpoint()
+                                throw error
+                            }
+                        }
+                        breakpoint()
+                        if (data !== undefined) {
+                            cache.responseCacheKey = null
+                            return data
+                        }
                     }
                     forgetRetainedResponse(key)
                     const rawQuery = overrideQuery ?? props.query
@@ -1136,16 +1185,36 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
 
                     const abortController = new AbortController()
-                    cache.disposables.add(() => () => abortController.abort(), 'query', { pauseOnPageHidden: false })
+                    // A retained query keeps running when the node unmounts, so a remount can pick it up.
+                    const keepRunningOnUnmount = !!key && !pollOnly
+                    if (!keepRunningOnUnmount) {
+                        cache.disposables.add(() => () => abortController.abort(), 'query', {
+                            pauseOnPageHidden: false,
+                        })
+                    }
                     const methodOptions: ApiMethodOptions = {
                         signal: abortController.signal,
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
-                        const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
+                        const queryConcurrencyController = getConcurrencyController(
+                            query,
+                            values.currentTeam as TeamType
+                        )
+                        if (
+                            queryConcurrencyController === notebookConcurrencyController &&
+                            queryConcurrencyController._current.length >= queryConcurrencyController._concurrencyLimit
+                        ) {
+                            reclaimReleasedQuery()
+                        }
+                        const responsePromise = queryConcurrencyController.run({
                             debugTag: query.kind,
                             abortController,
-                            priority: props.loadPriority,
+                            priority:
+                                props.loadPriority ??
+                                (queryConcurrencyController === notebookConcurrencyController
+                                    ? notebookLoadOrder++
+                                    : undefined),
                             fn: async (): Promise<{ duration: number; data: Record<string, any> }> => {
                                 const now = performance.now()
                                 try {
@@ -1171,6 +1240,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 }
                             },
                         })
+                        if (key && keepRunningOnUnmount) {
+                            const teamId = values.currentTeamId
+                            // The in-flight entry retains the result, so `loadDataSuccess` skips its copy.
+                            cache.responseCacheKey = null
+                            cache.inflightQuery = trackInflightResponse(
+                                key,
+                                responsePromise.then(({ data }) => data as AnyResponseType | null),
+                                {
+                                    queryId,
+                                    abort: () => abortController.abort(),
+                                    abandon: () => {
+                                        abortController.abort()
+                                        void cancelQueryOnServer(teamId, queryId)
+                                    },
+                                }
+                            )
+                        }
+                        const response = await responsePromise
                         breakpoint()
                         actions.setElapsedTime(response.duration)
                         return response.data
@@ -1359,6 +1446,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             null as null | string,
             {
                 loadData: (_, { queryId }) => queryId,
+                setQueryId: (_, { queryId }) => queryId,
             },
         ],
         newDataLoading: [
@@ -2143,15 +2231,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     listeners(({ actions, values, cache, props }) => ({
         abortAnyRunningQuery: () => {
             cache.disposables.dispose('query')
+            cache.inflightQuery?.abort()
+            cache.inflightQuery = null
         },
         abortQuery: async ({ queryId }) => {
-            try {
-                const { currentTeamId } = values
-                // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                await api.delete(`api/projects/${currentTeamId}/query/${queryId}/`)
-            } catch (e) {
-                console.warn('Failed cancelling query', e)
-            }
+            await cancelQueryOnServer(values.currentTeamId, queryId)
         },
         cancelQuery: () => {
             actions.abortAnyRunningQuery()
@@ -2282,7 +2366,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.loadData(refreshType)
         }
     }),
-    beforeUnmount(({ actions, props, values }) => {
+    beforeUnmount(({ actions, props, values, cache }) => {
+        cache.inflightQuery?.release()
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }

@@ -7,12 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.
 from products.warehouse_sources.backend.temporal.data_imports.sources.nebius_ai.source import NebiusAISource
 
 
-class TestNebiusAISchemas:
-    def test_names_filter_narrows_the_list(self) -> None:
-        schemas = NebiusAISource().get_schemas(MagicMock(), team_id=1, names=["files"])
-        assert [s.name for s in schemas] == ["files"]
-
-
 class TestNebiusAIValidateCredentials:
     @parameterized.expand(
         [

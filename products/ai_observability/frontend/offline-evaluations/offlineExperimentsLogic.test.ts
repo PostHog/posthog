@@ -53,6 +53,47 @@ describe('offlineExperimentsLogic', () => {
 
     afterEach(() => jest.useRealTimers())
 
+    it('shares experiment tag filters with trends and restores them from the URL', async () => {
+        const logic = offlineExperimentsLogic(props)
+        logic.mount()
+        logic.actions.setFilters({ tags: ['quality', 'production'], tag_match: 'all' })
+        await jest.advanceTimersByTimeAsync(400)
+        expect(router.values.searchParams).toMatchObject({ tags: ['quality', 'production'], tag_match: 'all' })
+        expect(list).toHaveBeenLastCalledWith(
+            String(props.teamId),
+            expect.objectContaining({ tags: '["quality","production"]', tag_match: 'all' })
+        )
+        expect(logic.values.trendFilters).toMatchObject({ tags: '["quality","production"]', tag_match: 'all' })
+        jest.mocked(api.aiObservabilityOfflineScorersHistoryList).mockResolvedValue({
+            results: overviewHistory(overviewScorers[0]),
+            count: 6,
+            next_cursor: null,
+        })
+        const trend = offlineOverviewTrendLogic({
+            teamId: props.teamId,
+            scorerId: overviewScorers[0].id,
+            dateFrom: logic.values.dateRange!.dateFrom,
+            dateTo: logic.values.dateRange!.dateTo,
+            refreshKey: 0,
+            filters: logic.values.trendFilters,
+        })
+        trend.mount()
+        await jest.advanceTimersByTimeAsync(400)
+        expect(api.aiObservabilityOfflineScorersHistoryList).toHaveBeenLastCalledWith(
+            String(props.teamId),
+            overviewScorers[0].id,
+            expect.objectContaining({ tags: '["quality","production"]', tag_match: 'all' })
+        )
+        router.actions.push(urls.aiObservabilityScorers())
+        router.actions.push(urls.aiObservabilityOfflineEvaluations())
+        await jest.advanceTimersByTimeAsync(400)
+        expect(logic.values.filters.tags).toEqual(['quality', 'production'])
+        expect(router.values.searchParams.tags).toEqual(['quality', 'production'])
+        router.actions.push(urls.aiObservabilityOfflineEvaluations(), { tags: [] })
+        await jest.advanceTimersByTimeAsync(400)
+        expect(logic.values.filters.tags).toEqual([])
+    })
+
     it('keeps the active chart hover when another chart leaves and clears it when filters change', () => {
         const logic = offlineExperimentsLogic(props)
         logic.mount()
@@ -278,7 +319,12 @@ describe('offlineExperimentsLogic', () => {
             run_source: 'local',
             statuses: 'uploading',
         })
-        expect(logic.values.trendFilters).toEqual({ run_source: 'local', statuses: 'uploading' })
+        expect(logic.values.trendFilters).toEqual({
+            run_source: 'local',
+            statuses: 'uploading',
+            tags: '[]',
+            tag_match: 'any',
+        })
 
         jest.setSystemTime(new Date('2026-09-28T15:00:00Z'))
         logic.actions.nextPage('cursor-2')
@@ -298,7 +344,12 @@ describe('offlineExperimentsLogic', () => {
         logic.actions.setFilters({ date_from: '-7d', run_source: 'ci', statuses: 'failed' })
         await jest.advanceTimersByTimeAsync(150)
         expect(logic.values.cursorStack).toEqual([])
-        expect(logic.values.trendFilters).toEqual({ run_source: 'ci', statuses: 'failed' })
+        expect(logic.values.trendFilters).toEqual({
+            run_source: 'ci',
+            statuses: 'failed',
+            tags: '[]',
+            tag_match: 'any',
+        })
         expect(list.mock.calls.at(-1)?.[1]).toMatchObject({
             date_from: logic.values.dateRange?.dateFrom,
             date_to: logic.values.dateRange?.dateTo,
@@ -322,7 +373,12 @@ describe('offlineExperimentsLogic', () => {
         await jest.advanceTimersByTimeAsync(150)
         expect(logic.values.cursorStack).toEqual(['cursor-2'])
         expect(logic.values.dateRange).toEqual(initialRange)
-        expect(logic.values.trendFilters).toEqual({ run_source: 'local', statuses: 'uploading' })
+        expect(logic.values.trendFilters).toEqual({
+            run_source: 'local',
+            statuses: 'uploading',
+            tags: '[]',
+            tag_match: 'any',
+        })
         expect(list.mock.calls.at(-1)?.[1]).toMatchObject({
             date_from: initialRange?.dateFrom,
             date_to: initialRange?.dateTo,
@@ -394,7 +450,11 @@ describe('offlineExperimentsLogic', () => {
         expect(logic.values.experiments).toEqual(page)
         expect(logic.values.experimentsError).toBeNull()
         expect(logic.values.dateRange).not.toBeNull()
-        expect(logic.values.trendFilters).toEqual({ statuses: 'completed,uploading,failed' })
+        expect(logic.values.trendFilters).toEqual({
+            statuses: 'completed,uploading,failed',
+            tags: '[]',
+            tag_match: 'any',
+        })
         expect(logic.values.hasExperiments).toBe(true)
         expect(logic.values.scorerIds).toEqual(overviewScorers.map(({ id }) => id))
     })

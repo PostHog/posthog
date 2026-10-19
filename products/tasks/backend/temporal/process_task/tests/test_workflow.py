@@ -183,6 +183,7 @@ def test_activity_error_properties_names_the_application_failure_class():
     not os.environ.get("MODAL_TOKEN_ID") or not os.environ.get("MODAL_TOKEN_SECRET"),
     reason="MODAL_TOKEN_ID and MODAL_TOKEN_SECRET environment variables not set",
 )
+@pytest.mark.usefixtures("sandbox_ai_gateway")
 class TestProcessTaskWorkflow:
     """
     End-to-end workflow tests using real Modal sandboxes.
@@ -2416,15 +2417,15 @@ class TestProcessTaskWorkflowUnit:
         update_task_run_status_mock = AsyncMock()
         track_workflow_event_mock = AsyncMock()
         post_slack_update_mock = AsyncMock()
-        complete_run_stream_mock = AsyncMock()
+        execute_activity = AsyncMock()
 
         monkeypatch.setattr(workflow, "_get_task_processing_context", get_task_processing_context_mock)
         monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
         monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
         monkeypatch.setattr(workflow, "_post_slack_update", post_slack_update_mock)
-        monkeypatch.setattr(workflow, "_complete_run_stream", complete_run_stream_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", execute_activity)
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+        result = await workflow.run(ProcessTaskInput(run_id="run-id", stream_generation="resumed-generation"))
 
         assert result.success is False
         assert result.error == "database connection closed"
@@ -2437,7 +2438,9 @@ class TestProcessTaskWorkflowUnit:
         )
         track_workflow_event_mock.assert_not_awaited()
         post_slack_update_mock.assert_not_awaited()
-        complete_run_stream_mock.assert_awaited_once_with("run-id")
+        assert execute_activity.call_args.args[1] == CompleteRunStreamInput(
+            run_id="run-id", stream_generation="resumed-generation"
+        )
 
     async def test_run_persists_activity_failure_cause_not_the_wrapper(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
@@ -2576,13 +2579,20 @@ class TestProcessTaskWorkflowUnit:
         monkeypatch.setattr(workflow, "_start_slack_agent_design_relay", start_slack_relay_mock)
         monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
 
-        result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+        result = await workflow.run(
+            ProcessTaskInput(
+                run_id="run-id", slack_thread_context={"channel": "C1", "person_message": "Why is the export slow?"}
+            )
+        )
 
         assert result.success is True
         relay_sandbox_events_mock.assert_not_called()
         relay_agent_design_signals_mock.assert_called_once()
-        # The plan shows while the sandbox provisions, so the relay starts before the first turn.
-        start_slack_relay_mock.assert_awaited_once_with({"channel": "C1"}, setup_title="Setting up sandbox")
+        # The plan shows while the sandbox provisions, so the relay starts before the first turn. The
+        # mention goes with it alone, not with the context every later payload carries.
+        start_slack_relay_mock.assert_awaited_once_with(
+            {"channel": "C1"}, setup_title="Setting up sandbox", person_message="Why is the export slow?"
+        )
 
     @pytest.mark.parametrize(
         "early_relay_open, expected_starts",
@@ -3458,7 +3468,8 @@ class TestProcessTaskWorkflowUnit:
         assert ready_inputs[1].failed_repositories == ["posthog/code"]
         assert ready_inputs[1].release_barrier is False
 
-    async def test_overlap_releases_agent_and_continues_when_primary_clone_fails(self, monkeypatch):
+    @pytest.mark.parametrize("fail_on_primary_clone_failure", [True, False])
+    async def test_overlap_primary_clone_failure(self, monkeypatch, fail_on_primary_clone_failure):
         workflow = ProcessTaskWorkflow()
         workflow._context = _build_context(
             github_integration_id=123,
@@ -3507,8 +3518,22 @@ class TestProcessTaskWorkflowUnit:
             raise AssertionError(f"Unexpected activity call: {activity_fn}")
 
         monkeypatch.setattr(process_task_workflow_module.workflow, "execute_activity", fake_execute_activity)
-        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", lambda _: True)
+        monkeypatch.setattr(
+            process_task_workflow_module.workflow,
+            "patched",
+            lambda patch_id: (
+                fail_on_primary_clone_failure
+                or patch_id != process_task_workflow_module._PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE
+            ),
+        )
         monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        if fail_on_primary_clone_failure:
+            with pytest.raises(RuntimeError, match="clone timed out"):
+                await workflow._get_sandbox_for_repository()
+            assert mark_repo_ready not in calls
+            assert checkout_branch_in_sandbox not in calls
+            return
 
         result = await workflow._get_sandbox_for_repository()
 

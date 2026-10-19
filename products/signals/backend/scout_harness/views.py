@@ -39,7 +39,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import exceptions, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from temporalio.exceptions import WorkflowAlreadyStartedError
@@ -80,6 +80,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
 )
 from products.signals.backend.pipeline_identity import pipeline_writer_identity
+from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_charts import ChartSize
 from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
@@ -605,31 +606,6 @@ def _resolve_emission_report_links(
     return links
 
 
-class ScoutCanonicalTeamAccessPermission(BasePermission):
-    """Authorize requests against the project that owns the scout data."""
-
-    message = "You don't have access to the project that owns this data."
-
-    def has_permission(self, request: Request, view) -> bool:
-        if not request.user.is_authenticated:
-            # Unreachable while `IsAuthenticated` runs ahead of this class, but deny rather than
-            # allow, so this class can never be the reason an anonymous request gets through.
-            return False
-        team = view.team
-        if team.parent_team_id is None or team.parent_team_id == team.id or team.parent_team is None:
-            return True
-        authenticator = request.successful_authenticator
-        scoped_teams = None
-        if isinstance(authenticator, OAuthAccessTokenAuthentication):
-            scoped_teams = authenticator.access_token.scoped_teams
-        elif isinstance(authenticator, PersonalAPIKeyAuthentication):
-            scoped_teams = authenticator.personal_api_key.scoped_teams
-        if scoped_teams and team.parent_team_id not in scoped_teams:
-            return False
-        level = view.user_permissions.team(team.parent_team).effective_membership_level
-        return level is not None
-
-
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Run history + finding emission for the headless agent."""
 
@@ -775,7 +751,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "Runs older than the staleness guard are excluded too, so a scout that stopped running "
             "reads as stale instead of healthy — `max_age_days` (default 30) is that guard's floor, "
             "which each scout's own cadence extends. Use `list` instead when you want a literal "
-            "time window or a text/emitted filter. Strictly team-scoped."
+            "time window or a text/emitted filter. Pass `skill_name` to probe one scout only. "
+            "Strictly team-scoped."
         ),
         operation_id="signals_scout_runs_recent_per_scout",
     )
@@ -792,16 +769,23 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         saved = saved_reads_for_request(request, _canonical_team_id(self))
         per_scout_limit = validated.get("per_scout_limit") or DEFAULT_RUNS_PER_SCOUT
         max_age_days = validated.get("max_age_days") or DEFAULT_RUNS_PER_SCOUT_MAX_AGE_DAYS
+        skill_name = validated.get("skill_name")
         run_ids = recent_run_ids_per_scout(
             team_id=_canonical_team_id(self),
             per_scout_limit=per_scout_limit,
             max_age_days=max_age_days,
             exclude_skill_name=saved.context.skill_name if saved is not None else None,
+            skill_name=skill_name,
         )
         if saved is not None:
             rows = runs_by_id(team_id=_canonical_team_id(self), run_ids=run_ids)
             rows.extend(
-                saved.recent_runs([], limit=per_scout_limit, date_from=timezone.now() - timedelta(days=max_age_days))
+                saved.recent_runs(
+                    [],
+                    limit=per_scout_limit,
+                    date_from=timezone.now() - timedelta(days=max_age_days),
+                    skill_name=skill_name,
+                )
             )
             rows.sort(key=lambda row: row.created_at, reverse=True)
             return Response(SignalScoutRunSummarySerializer([row.as_dict() for row in rows], many=True).data)
@@ -3947,7 +3931,8 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
             "lacking one, retire the skills whose canonical scout no longer ships, and return all "
             "scout configs. Normally the Temporal coordinator does this on its next tick; this "
             "action exists so the scout UIs and setup flows (e.g. the wizard's self-driving "
-            "program) can hand the user a tunable fleet immediately."
+            "program) can hand the user a tunable fleet immediately. With surface=onboarding, "
+            "new configs stay disabled until explicitly activated."
         ),
         operation_id="signals_scout_config_sync",
     )
@@ -3957,7 +3942,7 @@ class SignalScoutConfigViewSet(ScoutTrialConfigMixin, TeamAndOrgViewSetMixin, vi
         url_path="sync",
         # Custom actions need explicit scopes — see the `current` action's note on the
         # "no scopes declared" rejection branch in `posthog/permissions.py`. Write scope:
-        # the sync materializes configs, and fresh configs are enabled (they drive spend).
+        # the sync materializes configs and can enable fresh ones outside onboarding.
         required_scopes=["signal_scout:write"],
         pagination_class=None,
     )

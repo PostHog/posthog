@@ -22,6 +22,7 @@ from uuid import UUID
 import structlog
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 
@@ -119,6 +120,12 @@ def _deduplication_token(team_id: int, rows: Sequence[PlatformAlertEventRow]) ->
     return digest.hexdigest()
 
 
+def _execute(query: str, args: Any, *, team_id: int, settings: dict[str, Any] | None = None) -> Any:
+    """`sync_execute` as the platform's own user, so this bookkeeping never takes from `default`'s
+    per-user concurrency budget. A pod without that user wired falls back to its own default user."""
+    return sync_execute(query, args, team_id=team_id, settings=settings, ch_user=ClickHouseUser.ALERTS_PLATFORM)
+
+
 def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
     """Records a batch's history. Returns how many rows it wrote.
 
@@ -132,7 +139,7 @@ def insert_events(team_id: int, rows: Sequence[PlatformAlertEventRow]) -> int:
         # `sync_execute` requires both tags. The platform product rather than a source's, because
         # the table serves every source and the write is the platform's own bookkeeping.
         tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-        sync_execute(
+        _execute(
             _INSERT_SQL,
             [row.as_row() for row in rows],
             settings={"insert_deduplication_token": _deduplication_token(team_id, rows)},
@@ -211,9 +218,9 @@ def announcement(
         "incident_grouping_keys": list(incident_grouping_keys),
     }
     if parts > 1:
-        rows = sync_execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
+        rows = _execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
     else:
-        rows = sync_execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
+        rows = _execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
     if not rows:
         return None
 
@@ -252,7 +259,7 @@ def announced_kinds(
 ) -> dict[str, AlertEventKind]:
     """The kind of every group `announcement` returns across all parts, without the rows' payloads."""
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    rows = sync_execute(
+    rows = _execute(
         _ANNOUNCED_KINDS_SQL,
         {
             "team_id": team_id,
@@ -315,6 +322,8 @@ def history(
     if not configuration_ids:
         return {}
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    # Not `_execute`: the web API calls this too, and naming a user would replace the one
+    # `sync_execute` picks for request traffic.
     rows = sync_execute(
         _HISTORY_SQL,
         {"team_id": team_id, "configuration_ids": list(configuration_ids), "since": since, "until": until},

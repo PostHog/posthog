@@ -6,11 +6,13 @@ matrix. A model records the set it was fit on in its `metadata.json`, so a run c
 sets at once: the examples Parquet, the training matrix and the scoring matrix are all built per
 set, and a model whose declared set this build cannot produce is left unscored.
 
-The two sets are the report's combined-text embedding vector and its title-only vector, one
-rendering each. They are the served contract: training (`products/signals/dags/inbox_ranking/training/`)
-and serving (the scoring sweep in this package) build features through the same `build_matrix`, so
-the booster's `feature_names` match the serving matrix by construction. The sweep reads each
-vector at scoring time and needs nothing else from the report.
+Two sets live here. `report_embeddings` is the report's combined-text embedding vector, and
+`report_embeddings_priority` is that vector plus the report's priority, one column per level. They
+are the served contract: training (`products/signals/dags/inbox_ranking/training/`) and serving
+(the scoring sweep in this package) build features through the same `build_matrix`, so the model's
+`feature_names` match the serving matrix by construction. The sweep reads the vector at scoring
+time, and reads the latest priority judgment only for a model whose set declares the `priority`
+state column.
 """
 
 import abc
@@ -32,16 +34,18 @@ NO_EXTRAS: Extras = MappingProxyType({})
 # snapshot, indexed by report_id, with the vector in `EMBEDDING_COLUMN` and the moment that vector
 # landed in `EMBEDDING_INSERTED_AT_COLUMN`.
 REPORT_EMBEDDINGS_EXTRA = "report_embeddings"
-# The title-only vector, under its own key, from the dataset dag's own
-# `inbox_report_title_embeddings` snapshot. Two keys rather than one, because the two families
-# exist to be compared: a row that fell back to the combined-text vector would measure nothing, and
-# a summary-only edit re-embeds only the combined rendering, so the two landing times differ.
-TITLE_EMBEDDINGS_EXTRA = "title_embeddings"
 EMBEDDING_COLUMN = "embedding_small"
 EMBEDDING_INSERTED_AT_COLUMN = "embedding_inserted_at"
 # The width of text-embedding-3-small-1536, the model the report documents are embedded with. A
 # row whose vector is a different length is not this model's, so it is treated as missing.
 EMBEDDING_DIMENSIONS = 1536
+# Position order, so `emb_i` is the vector's ith component in every matrix an embedding set builds.
+EMBEDDING_FEATURE_NAMES = tuple(f"emb_{index}" for index in range(EMBEDDING_DIMENSIONS))
+
+# The report-state column that holds the report's latest priority judgment as of the moment, and
+# the levels a set encodes it with.
+PRIORITY_COLUMN = "priority"
+PRIORITY_LEVELS = ("P0", "P1", "P2", "P3", "P4")
 
 # The team's project-vector kinds, in the order a network that reads them takes them. The dataset
 # dag's `inbox_project_vectors` writes one row per (team, kind), and the training and serving
@@ -111,11 +115,9 @@ class FeatureSet(abc.ABC):
 class ReportEmbeddingsFeatureSet(FeatureSet):
     """One text rendering's embedding vector, and nothing else, at one example per report.
 
-    Parameterized by the `extras` key it reads, so a rendering is a second instance rather than a
-    second class: the combined-text rendering and the title-only rendering then share this width,
-    this grain and this row budget by construction, and a regularization change lands on both. That
-    is what makes the two families' grades a measurement of the text choice rather than of the
-    recipe. A set reads its own key only, and never falls back to another rendering's vector.
+    Parameterized by the `extras` key it reads, so another rendering is a second instance rather
+    than a second class, and shares this width, this grain and this row budget by construction. A
+    set reads its own key only, and never falls back to another rendering's vector.
 
     Two modelling calls this set records, both open questions on the issue that asked for it
     (posthog#98243):
@@ -146,9 +148,8 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
     """
 
     schema_version = 1
-    # Position order, so `emb_i` is the vector's ith component in every matrix this set builds.
-    feature_names = tuple(f"emb_{index}" for index in range(EMBEDDING_DIMENSIONS))
-    state_columns = ()
+    feature_names = EMBEDDING_FEATURE_NAMES
+    state_columns: tuple[str, ...] = ()
     # 1536 float32 columns, so a head's Parquet slice and its training matrix both scale with this.
     # Sized so every head of this family fits one partition's examples object and the fits stay
     # inside the training job's runtime budget. The budget cuts the oldest report-creation days, so
@@ -167,7 +168,8 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
         matrix = np.full((len(rows), EMBEDDING_DIMENSIONS), np.nan, dtype=np.float32)
         if buildable.any():
             matrix[buildable] = np.vstack(vectors.to_numpy()[buildable])
-        return pd.DataFrame(matrix, index=rows.index, columns=list(self.feature_names))
+        # The vector columns, not `feature_names`: a subclass adds columns after these.
+        return pd.DataFrame(matrix, index=rows.index, columns=list(EMBEDDING_FEATURE_NAMES))
 
     def buildable(
         self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
@@ -203,18 +205,44 @@ class ReportEmbeddingsFeatureSet(FeatureSet):
         ).astype(bool)
 
 
+class ReportEmbeddingsPriorityFeatureSet(ReportEmbeddingsFeatureSet):
+    """The report vector, then the report's priority as one column per level in `PRIORITY_LEVELS`.
+
+    The priority comes from the `priority` state column: the dataset dag cuts it at each snapshot
+    from the latest priority judgment, and the scorer reads the latest judgment at scoring time. No
+    judgment, or a value outside `PRIORITY_LEVELS`, sets every level column to zero. `buildable` is
+    the parent's, so this set keeps the same rows as `report_embeddings`.
+    """
+
+    schema_version = 1
+    feature_names = (*EMBEDDING_FEATURE_NAMES, *(f"priority_{level}" for level in PRIORITY_LEVELS))
+    state_columns = (PRIORITY_COLUMN,)
+
+    def build_matrix(
+        self, rows: pd.DataFrame, extras: Extras = NO_EXTRAS, *, as_of: datetime.datetime | None = None
+    ) -> pd.DataFrame:
+        # A missing column must not read as "no priority" on every row: the model would then score
+        # every report as unjudged and nothing would say so.
+        if PRIORITY_COLUMN not in rows:
+            raise ValueError(f"the {self.name} feature set needs the {PRIORITY_COLUMN} column")
+        matrix = super().build_matrix(rows, extras, as_of=as_of)
+        priorities = rows[PRIORITY_COLUMN]
+        for level in PRIORITY_LEVELS:
+            matrix[f"priority_{level}"] = (priorities == level).to_numpy(dtype=np.float32)
+        return matrix
+
+
 REPORT_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="report_embeddings", extras_key=REPORT_EMBEDDINGS_EXTRA)
-# The title-only rendering of the same reports, so a family can measure the title against the
-# title-plus-summary vectors on identical rows. The inbox title is what a person reads before
-# opening a report; the summary is read after. Everything else matches the set above, deliberately.
-TITLE_EMBEDDINGS_FEATURE_SET = ReportEmbeddingsFeatureSet(name="title_embeddings", extras_key=TITLE_EMBEDDINGS_EXTRA)
+REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET = ReportEmbeddingsPriorityFeatureSet(
+    name="report_embeddings_priority", extras_key=REPORT_EMBEDDINGS_EXTRA
+)
 
 # Every set this build can produce, by name. A model that names a set absent from here cannot be
 # scored, the same way a model whose feature names have moved on cannot.
 FEATURE_SETS: Mapping[str, FeatureSet] = MappingProxyType(
     {
         REPORT_EMBEDDINGS_FEATURE_SET.name: REPORT_EMBEDDINGS_FEATURE_SET,
-        TITLE_EMBEDDINGS_FEATURE_SET.name: TITLE_EMBEDDINGS_FEATURE_SET,
+        REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET.name: REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
     }
 )
 

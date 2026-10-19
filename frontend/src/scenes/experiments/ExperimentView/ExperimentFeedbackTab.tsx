@@ -35,22 +35,30 @@ export function ExperimentFeedbackTab({ experiment }: { experiment: Experiment }
     }
 
     return (
-        <FeedbackTabContent
-            surveys={experimentSurveys}
-            context={{
-                type: QuickSurveyType.EXPERIMENT,
-                experiment,
-            }}
-            emptyStateHeader="Survey your experiment participants"
-            emptyStateDescription="Create a survey that targets users exposed to this experiment. Responses are linked to the experiment so you can review them alongside your results."
-            multipleSurveysBannerMessage={
-                <>
-                    Showing only surveys associated with this experiment.{' '}
-                    <Link to={urls.surveys(SurveysTabs.Active)}>
-                        See all surveys <IconArrowRight />
-                    </Link>
-                </>
-            }
-        />
+        <>
+            {/* A reset experiment is a draft whose flag stays active, so its surveys keep showing */}
+            {!experiment.start_date && !experiment.feature_flag?.active && (
+                <LemonBanner type="info" className="mb-6" data-attr="experiment-feedback-draft-note">
+                    This experiment hasn't launched yet. Surveys linked to it start showing to users once it launches.
+                </LemonBanner>
+            )}
+            <FeedbackTabContent
+                surveys={experimentSurveys}
+                context={{
+                    type: QuickSurveyType.EXPERIMENT,
+                    experiment,
+                }}
+                emptyStateHeader="Survey your experiment participants"
+                emptyStateDescription="Create a survey that targets users exposed to this experiment. Responses are linked to the experiment so you can review them alongside your results."
+                multipleSurveysBannerMessage={
+                    <>
+                        Showing only surveys associated with this experiment.{' '}
+                        <Link to={urls.surveys(SurveysTabs.Active)}>
+                            See all surveys <IconArrowRight />
+                        </Link>
+                    </>
+                }
+            />
+        </>
     )
 }
