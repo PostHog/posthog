@@ -152,7 +152,7 @@ export function QuillDashboardHeaderActions(): JSX.Element | null {
                     disabledReason={sharingDisabledReason}
                 >
                     {dashboard.is_shared ? <Badge variant="success">On</Badge> : <IconShare />}
-                    {dashboard.is_shared ? 'Sharing' : 'Share'}
+                    <span>{dashboard.is_shared ? 'Sharing' : 'Share'}</span>
                 </Button>
             )}
             {canEditDashboard && tiles.length > 0 && <QuillDashboardCustomizeButton />}
