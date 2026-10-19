@@ -388,7 +388,7 @@ async def test_pre_research_gate_reverts_report_and_skips_research():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("spend_failures", [0, 1])
+@pytest.mark.parametrize("spend_failures", [0, 3])
 async def test_open_gates_let_the_run_flow_through(spend_failures: int) -> None:
     recorder = _Recorder(gate_answers={}, spend_failures=spend_failures)
     await _run_summary_workflow(recorder)

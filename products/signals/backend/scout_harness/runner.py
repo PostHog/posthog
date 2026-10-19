@@ -1263,7 +1263,6 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 claimed = _claim_finished_orphan(run_id=run.id, team_id=team_id)
             if not claimed:
                 continue
-            transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
             logger.warning(
                 "signals_scout: reaped stale in-progress run before dispatch",
                 extra={
@@ -1285,6 +1284,7 @@ def _self_heal_stale_runs(team_id: int, skill_name: str) -> None:
                 status_before=status_before,
                 age_seconds=age_seconds,
             )
+            transaction.on_commit(partial(settle_scout_spend.delay, team_id=team_id, run_id=str(task_run.id)))
         except Exception:
             logger.exception(
                 "signals_scout: failed to reap stale in-progress run; continuing",

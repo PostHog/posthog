@@ -3140,6 +3140,7 @@ async def test_stale_in_progress_run_is_reaped_and_unblocks_dispatch(ateam, aerr
     with (
         patch("products.signals.backend.temporal.agentic.resolve_acting_user_id_for_team", return_value=42),
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
+        patch("products.signals.backend.tasks.settle_scout_spend.delay"),
     ):
         result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
 
@@ -3232,6 +3233,7 @@ async def test_stale_run_reap_captures_run_reaped_event(ateam, aerrors_skill, st
     with (
         patch("products.signals.backend.scout_harness.runner._spawn_and_run", side_effect=fake_spawn),
         patch("products.signals.backend.scout_harness.runner.posthoganalytics.capture") as capture,
+        patch("products.signals.backend.tasks.settle_scout_spend.delay"),
     ):
         await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
         # A second dispatch must not report the same run again.
