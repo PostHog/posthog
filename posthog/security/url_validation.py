@@ -178,7 +178,7 @@ _BARE_HOSTNAME = re.compile(rf"{_HOSTNAME_LABEL}(?:\.{_HOSTNAME_LABEL})*\.?")
 _MAX_HOSTNAME_LENGTH = 253
 
 
-def _matches_hostname_pattern(host: str) -> bool:
+def matches_hostname_pattern(host: str) -> bool:
     return len(host) <= _MAX_HOSTNAME_LENGTH and _BARE_HOSTNAME.fullmatch(host) is not None
 
 
@@ -214,7 +214,7 @@ def _host_shape_error(host: str) -> str | None:
         return "Host is empty"
     if _parse_ip_literal(host) is not None:
         return None
-    if not _matches_hostname_pattern(_canonicalize_host(host)):
+    if not matches_hostname_pattern(_canonicalize_host(host)):
         return "Host must be a hostname or IP address"
     return None
 

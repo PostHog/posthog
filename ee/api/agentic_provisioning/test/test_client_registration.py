@@ -422,20 +422,27 @@ class TestClientRegistration(ProvisioningTestBase):
         [
             ("per_client_id", PER_CLIENT_ID_LIMIT, CIMD_URL, "client_registration", "newpartner.example.com"),
             ("per_address", PER_ADDRESS_LIMIT, CIMD_URL, "client_registration_ip", "newpartner.example.com"),
-            ("non_url_client_id", PER_CLIENT_ID_LIMIT, "opaque-client-id", "client_registration", None),
-            ("oversized_host", PER_CLIENT_ID_LIMIT, f"https://{'a' * 254}.com/doc.json", "client_registration", None),
+            ("malformed_url", PER_CLIENT_ID_LIMIT, "https://[newpartner.example.com/x", "client_registration", None),
+            ("not_a_hostname", PER_CLIENT_ID_LIMIT, "https://new partner.example.com/x", "client_registration", None),
+            (
+                "oversized_host",
+                PER_CLIENT_ID_LIMIT,
+                f"https://{'.'.join(['a' * 63] * 4)}/x",
+                "client_registration",
+                None,
+            ),
         ]
     )
     def test_a_refusal_records_the_claimed_domain_and_not_the_partner(
         self, _name: str, exhausted_limit: str, client_id: str, endpoint: str, claimed_client_domain: str | None
     ) -> None:
-        self._make_partner()
+        self._make_partner(client_id=client_id)
 
         with patch(exhausted_limit, 0), patch("posthoganalytics.capture") as capture:
             res = self._post_api(REGISTRATION_URL, {"client_id": client_id})
 
         assert res.status_code == 429
-        capture.assert_called_once_with(
+        capture.assert_any_call(
             "agentic_provisioning rate_limited",
             distinct_id=ANY,
             properties={

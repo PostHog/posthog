@@ -35,8 +35,6 @@ CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS = 3600
 # should still be able to spend a full budget on each.
 CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX = 120
 
-DNS_HOSTNAME_MAX_LENGTH = 253
-
 # Per-partner endpoint budgets live in ee/api/agentic_provisioning/ratelimits.py,
 # declared on each handler with @rate_limited.
 
