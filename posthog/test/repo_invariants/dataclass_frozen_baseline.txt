@@ -913,7 +913,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/pipeliner/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/plaid.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/plaid/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/plain/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/planhat.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/planhat/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/platform_sh/platform_sh.py
@@ -1240,8 +1239,6 @@
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zep/zep.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoho_crm/zoho_crm.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zonka_feedback/settings.py
-1 products/warehouse_sources/backend/temporal/data_imports/sources/zonka_feedback/zonka_feedback.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/settings.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zoom/zoom.py
 1 products/warehouse_sources/backend/temporal/data_imports/sources/zuora/zuora.py

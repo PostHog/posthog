@@ -2226,6 +2226,13 @@ class MetricsAxisScale(StrEnum):
     LOG = "log"
 
 
+class MetricsDashboardVariableSource(StrEnum):
+    CUSTOM = "custom"
+    PROMQL = "promql"
+    SQL = "sql"
+    TEXTBOX = "textbox"
+
+
 class MetricsDisplayType(StrEnum):
     LINE = "line"
     AREA = "area"
@@ -2779,6 +2786,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    IS_CLEANED_PATH_NOT_EXACT = "is_cleaned_path_not_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
     SEMVER_EQ = "semver_eq"
     SEMVER_NEQ = "semver_neq"
