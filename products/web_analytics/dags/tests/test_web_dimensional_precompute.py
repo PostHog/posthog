@@ -99,11 +99,11 @@ class TestPrecomputeWindow:
         local_today = now.astimezone(tz).date()
         read_start = datetime.combine(local_today - timedelta(days=90), time(), tzinfo=tz)
 
-        window_start, window_end = precompute_window(now)
+        window = precompute_window(now)
 
-        assert window_start <= read_start
-        assert window_end > now
-        assert window_end == window_start + timedelta(days=PRECOMPUTE_WINDOW_DAYS)
+        assert window.start <= read_start
+        assert window.end > now
+        assert window.end == window.start + timedelta(days=PRECOMPUTE_WINDOW_DAYS)
 
 
 class TestSummarizeCoverage(SimpleTestCase):
@@ -297,7 +297,7 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
 
 class TestCheckWebDimensionalPrecomputeCoverageOp(APIBaseTest):
     def _create_jobs(self, query_hash: str, today_built_minutes_ago: int) -> PreaggregationJob:
-        window_start, _window_end = precompute_window(_NOW)
+        window_start = precompute_window(_NOW).start
         PreaggregationJob.objects.create(
             team=self.team,
             time_range_start=window_start,

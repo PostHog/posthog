@@ -135,12 +135,18 @@ WEB_DIMENSIONAL_PRECOMPUTE_TEAM_FAILED = Counter(
 )
 
 
-def precompute_window(now: datetime) -> tuple[datetime, datetime]:
+@frozen
+class TimeSpan:
+    start: datetime
+    end: datetime
+
+
+def precompute_window(now: datetime) -> TimeSpan:
     # chunk_ranges slices backwards from `end`, so ending on a UTC midnight makes every chunk one UTC
     # day. The framework builds one job per UTC day, and a chunk that straddles midnight merges two
     # missing days into a single INSERT that reads twice the data.
     end = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    return end - timedelta(days=PRECOMPUTE_WINDOW_DAYS), end
+    return TimeSpan(start=end - timedelta(days=PRECOMPUTE_WINDOW_DAYS), end=end)
 
 
 @frozen
@@ -186,13 +192,13 @@ class TableCoverage:
         )
 
 
-def _merge_spans(spans: Iterable[tuple[datetime, datetime]]) -> list[tuple[datetime, datetime]]:
-    merged: list[tuple[datetime, datetime]] = []
-    for start, end in sorted(spans):
-        if merged and start <= merged[-1][1]:
-            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+def _merge_spans(spans: Iterable[TimeSpan]) -> list[TimeSpan]:
+    merged: list[TimeSpan] = []
+    for span in sorted(spans, key=lambda s: s.start):
+        if merged and span.start <= merged[-1].end:
+            merged[-1] = TimeSpan(start=merged[-1].start, end=max(merged[-1].end, span.end))
         else:
-            merged.append((start, end))
+            merged.append(span)
     return merged
 
 
@@ -213,7 +219,7 @@ def summarize_coverage(
     jobs = list(ready_jobs)
     fresh_cutoff = now - timedelta(seconds=COVERAGE_GRACE_SECONDS)
     merged = _merge_spans(
-        (job.time_range_start, job.time_range_end)
+        TimeSpan(start=job.time_range_start, end=job.time_range_end)
         for job in jobs
         if job.expires_at is not None and job.expires_at >= fresh_cutoff
     )
@@ -222,7 +228,7 @@ def summarize_coverage(
     day = window_start
     while day < window_end:
         day_end = day + timedelta(days=1)
-        if not any(start <= day and end >= day_end for start, end in merged):
+        if not any(span.start <= day and span.end >= day_end for span in merged):
             missing.append(day.date())
         day = day_end
 
@@ -302,8 +308,7 @@ def _push_coverage_gauges(coverages: list[TableCoverage]) -> None:
 def _ensure_for_team(
     context: dagster.OpExecutionContext,
     team: Team,
-    start: datetime,
-    end: datetime,
+    window: TimeSpan,
     chunk_days: int,
     sample_job_ids: dict[tuple[int, str], str],
 ) -> int:
@@ -319,7 +324,7 @@ def _ensure_for_team(
         (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
         (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
     ):
-        for chunk_start, chunk_end in chunk_ranges(start, end, chunk_days):
+        for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
             try:
                 result = ensure_fn(team, chunk_start, chunk_end)
             except Exception as exc:
@@ -350,11 +355,11 @@ def _ensure_for_team(
 @dagster.op
 def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) -> DimensionalPrecomputeRun:
     """Drive `ensure_*_dimensional_precomputed` over the rolling window for each selected team."""
-    start, end = precompute_window(datetime.now(UTC))
+    window = precompute_window(datetime.now(UTC))
 
     team_ids = get_selected_team_ids()
     context.log.info(
-        f"web_dimensional_precompute_start teams={len(team_ids)} window=[{start}, {end}) "
+        f"web_dimensional_precompute_start teams={len(team_ids)} window=[{window.start}, {window.end}) "
         f"chunk_days={PRECOMPUTE_CHUNK_DAYS}"
     )
     if not team_ids:
@@ -372,7 +377,7 @@ def ensure_web_dimensional_precompute_op(context: dagster.OpExecutionContext) ->
         if team is None:
             context.log.warning(f"web_dimensional_precompute_team_missing team_id={team_id}")
             continue
-        failures += _ensure_for_team(context, team, start, end, PRECOMPUTE_CHUNK_DAYS, sample_job_ids)
+        failures += _ensure_for_team(context, team, window, PRECOMPUTE_CHUNK_DAYS, sample_job_ids)
         processed.append(team_id)
 
     context.log.info(f"web_dimensional_precompute_complete teams={len(processed)} failures={failures}")
@@ -388,7 +393,7 @@ def check_web_dimensional_precompute_coverage_op(
 ) -> None:
     """Fail the run when a processed team has a missing day or a stale current day in either table."""
     now = datetime.now(UTC)
-    window_start, window_end = precompute_window(now)
+    window = precompute_window(now)
     query_hash_by_job_id = {
         str(job_id): query_hash
         for job_id, query_hash in PreaggregationJob.objects.filter(
@@ -405,8 +410,8 @@ def check_web_dimensional_precompute_coverage_op(
                     team_id=team_id,
                     table=table,
                     query_hash=query_hash_by_job_id.get(job_id) if job_id is not None else None,
-                    window_start=window_start,
-                    window_end=window_end,
+                    window_start=window.start,
+                    window_end=window.end,
                     now=now,
                 )
             )
