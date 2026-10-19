@@ -16,6 +16,7 @@ from posthog.dataclasses import frozen
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import is_person_in_cohort
+from products.cohorts.backend.tasks import reconcile_static_cohort_count_after_addition
 
 
 class StaticCohortMembershipOutcome(StrEnum):
@@ -66,15 +67,23 @@ def add_resolved_person_to_static_cohort(
     if cohort is None or cohort_status != StaticCohortMembershipOutcome.VALID:
         return cohort_status
     if is_person_in_cohort(team_id, person_id, cohort_id):
+        reconcile_static_cohort_count_after_addition.delay(team_id=team_id, cohort_id=cohort_id)
         return StaticCohortMembershipOutcome.ALREADY_PRESENT
 
     inserted_count = cohort.insert_users_list_by_id_uuid_pairs_skip_validation(
         [(person_id, person_uuid)], team_id=team_id, raise_on_error=True, save_state=False
     )
     if inserted_count == 0:
+        reconcile_static_cohort_count_after_addition.delay(team_id=team_id, cohort_id=cohort_id)
         return StaticCohortMembershipOutcome.ALREADY_PRESENT
 
-    Cohort.objects.filter(team_id=team_id, id=cohort_id).update(count=Coalesce(F("count"), Value(0)) + inserted_count)
+    try:
+        Cohort.objects.filter(team_id=team_id, id=cohort_id).update(
+            count=Coalesce(F("count"), Value(0)) + inserted_count
+        )
+    finally:
+        # Personhog membership and cohort metadata are separate writes, so repair after either outcome.
+        reconcile_static_cohort_count_after_addition.delay(team_id=team_id, cohort_id=cohort_id)
     return StaticCohortMembershipOutcome.ADDED
 
 

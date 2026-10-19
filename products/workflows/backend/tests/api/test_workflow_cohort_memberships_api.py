@@ -47,6 +47,11 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
         self.redis_client = get_client.start().return_value
         self.redis_client.lock.return_value = MagicMock()
         self.addCleanup(get_client.stop)
+        reconcile_count = patch(
+            "products.cohorts.backend.facade.api.reconcile_static_cohort_count_after_addition.delay"
+        )
+        self.reconcile_count = reconcile_count.start()
+        self.addCleanup(reconcile_count.stop)
 
     def _post(self, body: dict[str, Any] | None = None, token: str | None = None) -> Any:
         return self.client.post(
@@ -78,6 +83,7 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
         assert self.cohort.count == 11
         resolve.assert_called_once_with(self.team.id, [PERSON_UUID])
         insert.assert_called_once_with([(42, PERSON_UUID)], team_id=self.team.id, raise_on_error=True, save_state=False)
+        self.reconcile_count.assert_called_once_with(team_id=self.team.id, cohort_id=self.cohort.id)
         self.redis_client.lock.assert_called_once_with(
             f"workflow-static-cohort-member:{self.team.id}:{self.cohort.id}:42",
             timeout=30,
@@ -106,6 +112,7 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
         self.cohort.refresh_from_db()
         assert self.cohort.count == 10
         insert.assert_not_called()
+        self.reconcile_count.assert_called_once_with(team_id=self.team.id, cohort_id=self.cohort.id)
 
     @patch(
         "products.cohorts.backend.facade.api.is_person_in_cohort",
@@ -127,6 +134,7 @@ class TestWorkflowCohortMembershipsAPI(APIBaseTest):
         self.cohort.refresh_from_db()
         assert self.cohort.count == 10
         insert.assert_called_once()
+        self.reconcile_count.assert_called_once_with(team_id=self.team.id, cohort_id=self.cohort.id)
 
     @patch(
         "products.workflows.backend.presentation.views.workflow_cohort_memberships.get_person_ids_and_uuids_by_uuids",
