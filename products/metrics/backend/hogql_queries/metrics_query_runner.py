@@ -7,7 +7,6 @@ bypasses the facade, so the viewer, MCP tools, and insights all share one
 query path.
 """
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Optional, cast
 
 from posthog.schema import (
@@ -26,11 +25,12 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.api.snuffle_proxy import SNUFFLE_API_FEATURE_FLAG
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.metrics.backend.dashboard_import.promql_text import drop_match_all_matchers
+from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.api import run_metric_query
 from products.metrics.backend.facade.contracts import (
     METRICS_FEATURE_FLAG,
@@ -49,31 +49,21 @@ from products.metrics.backend.facade.enums import (
 )
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.sql_mode import run_metrics_sql
+from products.metrics.backend.variables import (
+    filter_referenced_names,
+    from_dashboard,
+    from_query,
+    referenced_names,
+    sql_referenced_names,
+    substitute_filters,
+    substitute_promql,
+    substitute_sql,
+    to_query,
+    unresolved_message,
+)
 
 if TYPE_CHECKING:
-    from posthog.models import Team, User
-
-# Metrics dashboards are usually about "what is happening now", so the
-# node defaults to a tighter window than the analytics-wide -7d.
-DEFAULT_DATE_FROM = "-24h"
-
-
-def metrics_query_date_range(team: "Team", date_range: DateRange | None) -> QueryDateRange:
-    # The facade picks and aligns the bucket interval, so this passes interval=None.
-    # With interval=None, QueryDateRange falls back to day. exact_timerange stops it truncating a
-    # relative date_from to midnight (so "-30M" would read the whole day), and explicitDate stops it
-    # rounding an explicit date_to up to the end of the day.
-    return QueryDateRange(
-        date_range=DateRange(
-            date_from=(date_range.date_from if date_range else None) or DEFAULT_DATE_FROM,
-            date_to=date_range.date_to if date_range else None,
-            explicitDate=True,
-        ),
-        team=team,
-        interval=None,
-        now=datetime.now(),
-        exact_timerange=True,
-    )
+    from posthog.models import User
 
 
 class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
@@ -181,14 +171,35 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def _run(self) -> list[MetricSeries]:
         language = self.query.language or MetricsQueryLanguage.BUILDER
+        variables = from_query(self.query.variables)
         if language == MetricsQueryLanguage.BUILDER:
+            clauses = []
+            for clause in self.query.clauses:
+                substitution = substitute_filters(clause.filters, variables)
+                if substitution.unresolved:
+                    raise ValueError(unresolved_message(substitution.unresolved))
+                clauses.append(
+                    clause.model_copy(update={"filters": substitution.filters}) if clause.filters else clause
+                )
+            self.query.clauses = clauses
             return run_metric_query(team=self.team, request=self._to_request())
         date_range = metrics_query_date_range(self.team, self.query.dateRange)
-        text = (self.query.promql if language == MetricsQueryLanguage.PROMQL else self.query.sql) or ""
-        if not text.strip():
-            raise ValueError(f"Write a {'PromQL' if language == MetricsQueryLanguage.PROMQL else 'SQL'} query first.")
-        run = run_promql_range if language == MetricsQueryLanguage.PROMQL else run_metrics_sql
-        return run(self.team, text, date_range.date_from(), date_range.date_to(), self.query.interval)
+        date_from, date_to = date_range.date_from(), date_range.date_to()
+        if language == MetricsQueryLanguage.PROMQL:
+            if not (self.query.promql or "").strip():
+                raise ValueError("Write a PromQL query first.")
+            promql = substitute_promql(self.query.promql or "", variables)
+            if promql.unresolved:
+                raise ValueError(unresolved_message(promql.unresolved))
+            # A variable set to All writes `label=~".*"`, which matches every series.
+            text = drop_match_all_matchers(promql.text) if promql.text != self.query.promql else promql.text
+            return run_promql_range(self.team, text, date_from, date_to, self.query.interval)
+        if not (self.query.sql or "").strip():
+            raise ValueError("Write a SQL query first.")
+        sql = substitute_sql(self.query.sql or "", variables)
+        if sql.unresolved:
+            raise ValueError(unresolved_message(sql.unresolved))
+        return run_metrics_sql(self.team, sql.sql, date_from, date_to, self.query.interval, sql.placeholders)
 
     def _calculate(self) -> MetricsQueryResponse:
         self._enforce_alpha_gates_without_a_request_user()
@@ -214,8 +225,9 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter) -> None:
         # Metric label predicates are not PostHog property filters, so the dashboard's
-        # property filters do not apply. Its date range and label filters do. Label filters
-        # reach builder clauses only: PromQL and SQL text is not rewritten.
+        # property filters do not apply. Its date range, variables and label filters do.
+        # Variables reach all three languages. Label filters reach builder clauses only:
+        # PromQL and SQL text is not rewritten for them.
         if dashboard_filter.date_from or dashboard_filter.date_to:
             self.query.dateRange = DateRange(
                 date_from=dashboard_filter.date_from,
@@ -226,3 +238,16 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                 clause.model_copy(update={"filters": [*(clause.filters or []), *dashboard_filter.metricFilters]})
                 for clause in self.query.clauses
             ]
+        if dashboard_filter.metricVariables:
+            self._apply_variables(dashboard_filter)
+
+    def _apply_variables(self, dashboard_filter: DashboardFilter) -> None:
+        # The values go into the query, so each selection has its own cache entry and reaches the async worker.
+        names = dict.fromkeys(
+            [
+                *referenced_names(self.query.promql),
+                *sql_referenced_names(self.query.sql),
+                *(name for clause in self.query.clauses for name in filter_referenced_names(clause.filters)),
+            ]
+        )
+        self.query.variables = to_query(from_dashboard(dashboard_filter.metricVariables), names) or None

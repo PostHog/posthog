@@ -14,6 +14,7 @@ the bucket interval.
 
 import math
 import datetime as dt
+from collections.abc import Mapping
 from typing import Any
 
 from posthog.hogql import ast
@@ -113,13 +114,18 @@ def _assert_reads_only_metrics_tables(team: Team, query: ast.SelectQuery | ast.S
         )
 
 
-def build_metrics_sql_query(
-    team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
-) -> ast.SelectQuery:
-    """Parse the insight's SQL with the date placeholders filled in, wrapped in the row limit."""
+def _parse_metrics_sql(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None,
+) -> ast.SelectQuery | ast.SelectSetQuery:
     resolved = _resolve_interval(date_from, date_to, interval)
     step = _interval_step(resolved)
     placeholders: dict[str, ast.Expr] = {
+        **(variables or {}),
         "date_from": ast.Constant(value=_align_to_interval(date_from, resolved, tzinfo=team.timezone_info)),
         "date_to": ast.Constant(value=date_to),
         "interval": _interval_expr(resolved),
@@ -127,6 +133,19 @@ def build_metrics_sql_query(
     }
     inner = parse_select(sql, placeholders=placeholders)
     _assert_reads_only_metrics_tables(team, inner)
+    return inner
+
+
+def build_metrics_sql_query(
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None = None,
+) -> ast.SelectQuery:
+    """Parse the insight's SQL with the date and variable placeholders filled in, wrapped in the row limit."""
+    inner = _parse_metrics_sql(team, sql, date_from, date_to, interval, variables)
     wrapped = parse_select(
         "SELECT * FROM {inner} LIMIT {row_limit}",
         placeholders={"inner": inner, "row_limit": ast.Constant(value=_SQL_ROW_LIMIT)},
@@ -170,9 +189,14 @@ def _on_interval_starts(times: list[Any], interval: str, team: Team) -> bool:
 
 
 def run_metrics_sql(
-    team: Team, sql: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+    team: Team,
+    sql: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    interval: str | None,
+    variables: Mapping[str, ast.Expr] | None = None,
 ) -> list[MetricSeries]:
-    query = build_metrics_sql_query(team, sql, date_from, date_to, interval)
+    query = build_metrics_sql_query(team, sql, date_from, date_to, interval, variables)
     response = execute_hogql_query(
         query_type="MetricsSQLQuery",
         query=query,
