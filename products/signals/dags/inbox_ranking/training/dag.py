@@ -468,7 +468,10 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
         "excluded_no_training_consent_reports": dagster.MetadataValue.int(excluded.reports),
         "excluded_no_training_consent_teams": dagster.MetadataValue.int(excluded.teams),
     }
-    for feature_set in FEATURE_SETS.values():
+    # Only the sets this location trains on. A set only `signals_ml` reads would cost this job a
+    # second 1536-column examples object that nothing reads.
+    main_sets = {family.feature_set.name: family.feature_set for family in families_trained_in(MAIN_LOCATION)}
+    for feature_set in main_sets.values():
         metadata |= _examples_for_set(
             context, client, bucket, prefix, partition_key, feature_set, snapshots, backfilled_rows, excluded
         )
@@ -1009,6 +1012,18 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
         if served is not None
         else []
     )
+    # One version per other family, read from the last 2 days, because a `signals_ml` candidate can
+    # land after this asset runs.
+    challengers = (
+        [
+            metadata
+            for family in MODEL_FAMILIES
+            if family.name != served["model_name"]
+            for metadata in _recent_models(context, client, bucket, prefix, family.name, partition_key, 1)
+        ]
+        if served is not None
+        else []
+    )
     decision = (
         compose_manifest(
             families,
@@ -1017,6 +1032,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
             now=datetime.datetime.now(datetime.UTC),
             recent=recent,
             recent_versions=recent_versions,
+            challengers=challengers,
             pinned=pinned,
         )
         if served_reason is None
@@ -1079,6 +1095,7 @@ def _publish_manifest(context: RunContext, partition_key: str, run_id: str) -> d
                     for metadata in (
                         *([served] if served is not None else []),
                         *recent,
+                        *challengers,
                         *pinned,
                         *(family.champion for family in families if family.champion),
                     )
