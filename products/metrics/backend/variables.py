@@ -43,6 +43,8 @@ class Variable:
     all_value: str | None
     # The options that All expands to when it has no all value. Empty means "match everything".
     options: tuple[str, ...]
+    # Grafana puts an imported all value into the query as it is written, whatever string holds it.
+    all_value_as_written: bool = False
 
 
 @frozen
@@ -238,6 +240,8 @@ def with_values(variable: Variable, values: Iterable[str]) -> Variable:
 def format_promql(variable: Variable, value_format: str | None, *, context: PromQLStringContext) -> str:
     if variable.is_all:
         if variable.all_value is not None:
+            if variable.all_value_as_written:
+                return variable.all_value
             return promql_string_escape(variable.all_value, context.quote)
         if not variable.options:
             return MATCH_ALL
