@@ -85,7 +85,7 @@ describe('renderColumn', () => {
         )
 
         expect(screen.getByText(label)).toBeInTheDocument()
-        expect(screen.queryByRole('img', { name: label }) !== null).toBe(hasLogo)
+        expect(screen.queryByAltText(label) !== null).toBe(hasLogo)
     })
 
     it.each([
