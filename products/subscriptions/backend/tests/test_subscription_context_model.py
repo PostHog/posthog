@@ -10,8 +10,8 @@ from parameterized import parameterized
 from posthog.models.scoping.manager import TeamScopeError
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.exports.backend.models import Subscription, SubscriptionContext
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.models import Subscription, SubscriptionContext
 
 
 class TestSubscriptionContextModel(BaseTest):

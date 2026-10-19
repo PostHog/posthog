@@ -46,9 +46,9 @@ from products.dashboards.backend.models.dashboard_tile import ButtonTile, Dashbo
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
-from products.exports.backend.models.subscription import Subscription
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.subscriptions.backend.facade.testing import create_subscription
 
 
 def mock_exporter_template(test_func):
@@ -2688,15 +2688,7 @@ class TestSaveTimeAccessBlock(APIBaseTest):
         if exposure == "shared":
             SharingConfiguration.objects.create(team=self.team, dashboard=dashboard, enabled=True)
         elif exposure == "subscription":
-            Subscription.objects.create(
-                team=self.team,
-                dashboard=dashboard,
-                target_type="email",
-                target_value="recipient@example.com",
-                frequency="daily",
-                start_date=timezone.now(),
-                created_by=self.user,
-            )
+            create_subscription(team_id=self.team.id, dashboard_id=dashboard.id)
         filters = {"properties": [denied_filter]}
         sent_filters: dict[str, Any] = filters
         if target.startswith("grouped"):
