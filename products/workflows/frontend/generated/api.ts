@@ -50,6 +50,7 @@ import type {
     HogFlowsProposalsListParams,
     HogFlowsReputationRetrieveParams,
     HogFlowsRevisionsListParams,
+    HogFlowsSendCalendarRetrieveParams,
     HogInvocationCancelRequestApi,
     HogInvocationCancelResponseApi,
     HogInvocationRerunRequestApi,
@@ -69,6 +70,7 @@ import type {
     PatchedHogFlowUpdateApi,
     PeopleImportApi,
     PeopleImportCreateApi,
+    SendCalendarFlowApi,
     TeamEmailReputationResponseApi,
     WorkflowEmailPauseStatusApi,
     WorkflowProposalApi,
@@ -1315,6 +1317,37 @@ export const hogFlowsReputationRetrieve = async (
     options?: RequestInit
 ): Promise<TeamEmailReputationResponseApi> => {
     return apiMutator<TeamEmailReputationResponseApi>(getHogFlowsReputationRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getHogFlowsSendCalendarRetrieveUrl = (projectId: string, params: HogFlowsSendCalendarRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/hog_flows/send_calendar/?${stringifiedParams}`
+        : `/api/projects/${projectId}/hog_flows/send_calendar/`
+}
+
+/**
+ * Active batch and schedule workflows with an email step that is not transactional, and that have a schedule with sends to come or a batch run inside the range. Each carries only the fields a calendar card shows. Read a single workflow for its full configuration.
+ * @summary List the scheduled sends for the send calendar
+ */
+export const hogFlowsSendCalendarRetrieve = async (
+    projectId: string,
+    params: HogFlowsSendCalendarRetrieveParams,
+    options?: RequestInit
+): Promise<SendCalendarFlowApi[]> => {
+    return apiMutator<SendCalendarFlowApi[]>(getHogFlowsSendCalendarRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
