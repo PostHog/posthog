@@ -91,6 +91,8 @@ SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] =
 ExtractErrors = {
     "The AWS Access Key Id you provided does not exist": "The Access Key you provided does not exist",
     "Access Denied: while reading key:": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
+    # A HEAD request has no response body, so S3's denial reaches ClickHouse without "Access Denied".
+    "Failed to get object info: No response body.. HTTP response code: 403": "Access was denied when reading a file from the bucket. Check that the provided credentials can read objects in this bucket (s3:GetObject), then try again.",
     # DeltaLake-kernel object_store errors (Delta-format tables, e.g. all warehouse_sources synced
     # tables) use a different vocabulary than ClickHouse's native S3 errors above.
     "The operation lacked the necessary privileges to complete": "Access was denied when reading the provided file",
@@ -453,7 +455,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     options = models.JSONField(default=dict, blank=True)
 
-    row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
+    row_count = models.BigIntegerField(null=True, help_text="How many rows are currently synced in this table")
     size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
 
     __repr__ = sane_repr("name")
@@ -975,7 +977,12 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             keep_tuple_element_names=self.format in STRUCTURE_KEEPS_TUPLE_ELEMENT_NAMES,
         )
 
-        if self.external_data_source and self.external_data_source.is_direct_postgres:
+        is_managed_trino_table = (
+            self.external_data_source is not None
+            and self.external_data_source.is_managed_warehouse
+            and self.url_pattern == "direct://trino"
+        )
+        if self.external_data_source and self.external_data_source.is_direct_postgres and not is_managed_trino_table:
             postgres_catalog = (
                 self.options.get(DIRECT_POSTGRES_CATALOG_OPTION)
                 if isinstance(self.options.get(DIRECT_POSTGRES_CATALOG_OPTION), str)
@@ -1116,7 +1123,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         if (
             self.external_data_source
             and self.external_data_source.is_direct_query
-            and self.external_data_source.direct_engine == "trino"
+            and (self.external_data_source.direct_engine == "trino" or is_managed_trino_table)
         ):
             job_inputs = self.external_data_source.job_inputs or {}
             trino_catalog = (
@@ -1258,7 +1265,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def _csv_parses_with_double_quotes(self, allow_double_quotes: bool) -> bool:
         """Read a few rows under one quote setting. False when the rows don't parse; any other
-        failure (credentials, a missing file) is raised for the caller to surface as-is."""
+        failure (credentials, a missing file) is raised with a user-facing message."""
         ctx = HogQLContext(team_id=self.team.pk)
         func = build_function_call(
             url=self.url_pattern,
@@ -1283,7 +1290,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 self._safe_expose_ch_error(e)
             if e.code in self._CSV_PARSE_ERROR_CODES:
                 return False
-            raise
+            if not is_expected_warehouse_read_error(e):
+                capture_exception(e)
+            self._safe_expose_ch_error(e)
         return True
 
     def detect_csv_double_quotes_setting(self) -> bool | None:

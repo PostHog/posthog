@@ -67,6 +67,24 @@ def _overview_stats_columns(**overrides: str) -> dict[str, str]:
 
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "change_event": {
+        "description": "Account configuration changes with their old and new field values. The API returns only the last 30 days; incremental sync retains imported history.",
+        "docs_url": "https://developers.google.com/google-ads/api/docs/change-event",
+        "columns": {
+            "customer_id": _IDS["customer_id"],
+            "customer_time_zone": "The account time zone used by change_event_change_date_time.",
+            "change_event_resource_name": "Unique change event resource name, including the account ID.",
+            "change_event_change_date_time": "Time of the change in the Google Ads account time zone, without an offset.",
+            "change_event_change_resource_type": "Type of resource that changed.",
+            "change_event_change_resource_name": "Resource name of the object that changed.",
+            "change_event_resource_change_operation": "Whether the change created, updated, or removed the object.",
+            "change_event_client_type": "Client used to make the change, such as the web client or API.",
+            "change_event_user_email": "Email of the user who made the change, when Google exposes it.",
+            "change_event_changed_fields": "Field mask identifying the fields that changed.",
+            "change_event_old_resource": "JSON representation of the changed resource before the change.",
+            "change_event_new_resource": "JSON representation of the changed resource after the change.",
+        },
+    },
     "ad": {
         "description": "An ad within an ad group (ad_group_ad), including its creative content and status.",
         "docs_url": "https://developers.google.com/google-ads/api/fields/v17/ad_group_ad",
@@ -220,6 +238,20 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_criterion_gender_type": "Gender, when the criterion is a gender.",
             "campaign_criterion_placement_url": "Placement URL, when the criterion is a placement.",
             "campaign_criterion_user_list_user_list": "Resource name of the user list, when the criterion is a user list.",
+        },
+    },
+    "keyword_placement_stats": {
+        "description": "Daily keyword impression placement without click-type segmentation.",
+        "columns": {
+            **_IDS,
+            "ad_group_criterion_criterion_id": "The keyword criterion ID.",
+            "ad_group_criterion_keyword_text": "The keyword text.",
+            "ad_group_criterion_keyword_match_type": "The keyword match type.",
+            "segments_date": "The date the impressions are reported for.",
+            "segments_ad_network_type": "The ad network where the impressions were shown.",
+            "metrics_impressions": "Number of times the ad was shown.",
+            "metrics_top_impression_percentage": "Fraction of impressions shown among the top ads.",
+            "metrics_absolute_top_impression_percentage": "Fraction of impressions shown as the first ad.",
         },
     },
     "keyword_stats": {

@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     finalize_repartition_scheme,
     save_repartition_checkpoint_if_claimed,
+    save_repartition_swap_phase_if_claimed,
     stage_partition_scheme_for_full_refresh,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -51,6 +52,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     NULL_NUMERICAL_PARTITION,
     append_partition_key_to_table,
+    partition_key_from_add_path,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_stream import (
     PartitionedFileWriter,
@@ -65,11 +67,21 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
     resume_blocker,
     storage_filesystem,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition_swap import (
+    DELTA_LOG_PREFIX,
+    SWAP_PHASE_CLEANUP,
+    SWAP_PHASE_SWITCH_LOG,
+    SWAP_PROGRESS_INTERVAL_SECONDS,
+    SwapProgress,
+    copy_files,
+    delete_files,
+    list_table_files,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
     PartitionMode,
 )
-from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes
+from products.warehouse_sources.backend.temporal.data_imports.workload_report import report_buffer_bytes, report_phase
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 if TYPE_CHECKING:
@@ -193,6 +205,10 @@ class RepartitionStoppedError(Exception):
         self.rows_written = rows_written
 
 
+class RepartitionSliceEndedError(RepartitionStoppedError):
+    """The rewrite paused at a source file boundary because the slice its sync gives it ended."""
+
+
 class RepartitionSchemePersistError(Exception):
     """The swap re-bucketed the table in S3 but the new scheme could not be saved to the schema row.
 
@@ -251,26 +267,6 @@ class RepartitionTarget:
         return cls(**{k: v for k, v in data.items() if k in fields})
 
 
-# Delta's fixed marker for a Hive-style partition directory whose column value is null.
-_HIVE_NULL_PARTITION = "__HIVE_DEFAULT_PARTITION__"
-
-
-def _partition_key_from_add_path(path: str) -> str | None:
-    """Recover the `_ph_partition_key` value from a Hive-style partitioned add-action file path.
-
-    Every value this pipeline actually partitions by — an md5 bucket index, a numerical bucket or the
-    `null` sentinel, or a datetime tier like "2024-01" — is plain ASCII with nothing that needs
-    percent-encoding, so splitting the path recovers the same value `get_add_actions`'s
-    `partition.<key>` column would give.
-    """
-    prefix = f"{PARTITION_KEY}="
-    for segment in path.split("/"):
-        if segment.startswith(prefix):
-            value = segment[len(prefix) :]
-            return None if value == _HIVE_NULL_PARTITION else value
-    return None
-
-
 def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | None, int]:
     """At-rest bytes per partition, read from the Delta log (no S3 LIST, no data scan).
 
@@ -286,7 +282,7 @@ def measure_partition_bytes(delta_table: deltalake.DeltaTable) -> dict[str | Non
 
     totals: dict[str | None, int] = defaultdict(int)
     for path, size in delta_table._table.get_add_file_sizes().items():
-        key = _partition_key_from_add_path(path) if partitioned else None
+        key = partition_key_from_add_path(path) if partitioned else None
         totals[key] += size or 0
     return dict(totals)
 
@@ -440,6 +436,64 @@ async def _purge_stale_temp_tables(s3: Any, live_uri: str) -> None:
     files = await s3._find(parent, prefix=f"{table_dir}{TEMP_URI_SUFFIX}")
     if files:
         await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+
+
+# A temp table sits beside its live table: the live URI, the suffix, then at most the 8 characters of
+# a claim token (see `_temp_uri_for`). No path separator can follow, so a match is never the live
+# table, a path inside it, or a path above it.
+_TEMP_URI_CLAIM_PART = re.compile(r"(_[0-9a-f]{1,8})?")
+
+
+def is_temp_uri_of(live_uri: str, temp_uri: str) -> bool:
+    """Whether `temp_uri` is a repartition temp table of the table at `live_uri`, and nothing else."""
+    live = live_uri.rstrip("/")
+    prefix = f"{live}{TEMP_URI_SUFFIX}"
+    # The live URI must name a table directory below a bucket, not a bucket or an empty path.
+    if "/" not in live.rpartition("://")[2].strip("/"):
+        return False
+    if not temp_uri.startswith(prefix):
+        return False
+    return _TEMP_URI_CLAIM_PART.fullmatch(temp_uri[len(prefix) :]) is not None
+
+
+async def purge_abandoned_rewrite_temp(
+    table_ref: DeltaTableRef,
+    schema: ExternalDataSchema,
+    temp_uri: str | None,
+    logger: FilteringBoundLogger,
+    *,
+    claim_token: str | None,
+) -> bool:
+    """Delete the temp table of a rewrite that will not continue. Returns whether it deleted.
+
+    Deletes one exact prefix, not every temp variant of the table. A wildcard sweep can remove the
+    temp table of a newer attempt, and the database claim cannot fence a delete that is in progress.
+    A newer attempt builds under its own claim token, so it never writes to this prefix again.
+
+    The caller clears the checkpoint that names `temp_uri` after this returns, not before. If the
+    delete fails, the checkpoint still records the temp table, and a later run deletes it.
+    """
+    if not temp_uri:
+        return False
+    live_uri = await table_ref.get_table_uri()
+    if not is_temp_uri_of(live_uri, temp_uri):
+        await logger.awarning(
+            f"repartition: refusing to delete a path that is not a temp table of this table schema_id={schema.id}",
+            schema_id=str(schema.id),
+        )
+        return False
+    await _ensure_claim(schema, claim_token)
+    swap = schema.repartition_swap
+    if swap is not None and swap.get("temp_uri") == temp_uri:
+        # A staged swap makes temp the only intact copy.
+        return False
+    async with aget_s3_client(fresh_instance=True) as s3:
+        await _purge_s3_prefix(s3, temp_uri)
+    await logger.ainfo(
+        f"repartition: deleted the temp table of an abandoned rewrite schema_id={schema.id}",
+        schema_id=str(schema.id),
+    )
+    return True
 
 
 def _temp_uri_for(live_uri: str, claim_token: str | None) -> str:
@@ -939,6 +993,7 @@ async def _rewrite_into_temp(
     copied_files: frozenset[str] = frozenset(),
     should_stop: Callable[[], bool] | None = None,
     stop_grace_seconds: float = STOP_GRACE_SECONDS,
+    pause_at_file_end: Callable[[], bool] | None = None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a temp table under the new partition scheme.
 
@@ -1156,7 +1211,7 @@ async def _rewrite_into_temp(
             stop_requested_at = time.monotonic()
         return True
 
-    async def stop() -> NoReturn:
+    async def stop(*, paused: bool = False) -> NoReturn:
         # The throttled checkpoint can be older than the last commit. The next attempt resumes only
         # from a checkpoint, so save one now. Without a commit from this attempt there is nothing new
         # to record, and temp may not exist yet.
@@ -1164,9 +1219,8 @@ async def _rewrite_into_temp(
             await maybe_checkpoint(force=True)
         fields = progress()
         await logger.ainfo(f"repartition: rewrite stopped early {_format_fields(fields)}", **fields)
-        raise RepartitionStoppedError(
-            f"rewrite stopped early after {rows_written} rows written to {temp_uri}", rows_written=rows_written
-        )
+        error = RepartitionSliceEndedError if paused else RepartitionStoppedError
+        raise error(f"rewrite stopped early after {rows_written} rows written to {temp_uri}", rows_written=rows_written)
 
     last_claim_check: float | None = None
     files_left = len(plan)
@@ -1212,7 +1266,11 @@ async def _rewrite_into_temp(
             files_left -= 1
             # After the last file only the final commit is left, so finishing costs less than a stop
             # and a new attempt.
-            stopping = files_left > 0 and stop_requested()
+            # A pause never abandons an open file, unlike a stop, so a file longer than the grace
+            # still ends in a commit and the next attempt does not read it again.
+            stop_now = stop_requested()
+            pause_now = not stop_now and pause_at_file_end is not None and pause_at_file_end()
+            stopping = files_left > 0 and (stop_now or pause_now)
             if (
                 (writer is not None and writer.bytes_since_commit >= budget.commit_bytes)
                 or len(completed_sources) >= budget.max_source_files_per_commit
@@ -1221,7 +1279,7 @@ async def _rewrite_into_temp(
             ):
                 await commit()
             if stopping:
-                await stop()
+                await stop(paused=pause_now)
         await commit()
     except BaseException:
         if writer is not None:
@@ -1319,6 +1377,7 @@ async def repartition_table_in_place(
     claim_token: str | None = None,
     deadline: float | None = None,
     should_stop: Callable[[], bool] | None = None,
+    rewrite_slice_seconds: float | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
@@ -1338,11 +1397,17 @@ async def repartition_table_in_place(
 
     `deadline` (a `time.monotonic()` value) bounds the rewrite phase only. The swap that follows
     needs no bound of its own: it records `repartition_swap` before touching live, so a swap cut
-    short by the activity timeout resumes from the intact temp table on a later run.
+    short by the activity timeout resumes on a later run and copies only the files that are not in
+    place yet.
 
-    `should_stop` also applies to the rewrite phase only. When it returns True the rewrite stops after
-    its next commit and raises `RepartitionStoppedError`, with the temp table and its checkpoint kept
-    for the next attempt (see `_rewrite_into_temp`).
+    `should_stop` applies to the rewrite and to the swap's copy of the data files. When it returns
+    True the rewrite stops after its next commit and the swap stops after its current group of files.
+    Both raise `RepartitionStoppedError` and keep what the next attempt needs to resume (see
+    `_rewrite_into_temp` and `_swap_temp_into_live`).
+
+    `rewrite_slice_seconds` pauses the rewrite that long after it starts streaming, at the end of its
+    open source file, so the sync can import between two parts of a long rewrite. It never stops the
+    swap, because a staged swap holds the import until it lands.
     """
     live_uri = await table_ref.get_table_uri()
     storage_options = table_ref.get_storage_options()
@@ -1380,6 +1445,32 @@ async def repartition_table_in_place(
 
     await ensure_claim()
 
+    async def set_swap_phase(phase: str) -> None:
+        await asyncio.to_thread(_save_swap_phase, schema, claim_token, temp_uri, phase)
+
+    async def resume_swap_without_live(phase: str | None) -> dict[str, Any]:
+        return await _resume_swap_with_missing_live(
+            table_ref=table_ref,
+            schema=schema,
+            target=target,
+            temp_uri=temp_uri,
+            live_uri=live_uri,
+            storage_options=storage_options,
+            logger=logger,
+            ensure_claim=ensure_claim,
+            claim_token=claim_token,
+            should_stop=should_stop,
+            phase=phase,
+        )
+
+    # A swap that already started to replace live's log cannot be judged by live's row count: a
+    # part of the new log reads as a valid, smaller table. The marker's phase names the copy to trust.
+    swap_phase = (swap or {}).get("phase") if resuming else None
+    if swap_phase in (SWAP_PHASE_SWITCH_LOG, SWAP_PHASE_CLEANUP):
+        trusted_uri = live_uri if swap_phase == SWAP_PHASE_CLEANUP else temp_uri
+        if await _valid_delta_row_count(trusted_uri, storage_options) is not None:
+            return await resume_swap_without_live(swap_phase)
+
     try:
         old_delta = await table_ref.get_delta_table()
     except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
@@ -1401,17 +1492,7 @@ async def repartition_table_in_place(
         # rather than skipping — a plain skip would strand the markers forever (every later run hits
         # this same early return) and let the next sync bootstrap an empty table over the lost data.
         if resuming:
-            return await _resume_swap_with_missing_live(
-                table_ref=table_ref,
-                schema=schema,
-                target=target,
-                temp_uri=temp_uri,
-                live_uri=live_uri,
-                storage_options=storage_options,
-                logger=logger,
-                ensure_claim=ensure_claim,
-                claim_token=claim_token,
-            )
+            return await resume_swap_without_live(None)
         await logger.ainfo(f"repartition: no delta table, skipping schema_id={schema.id}", schema_id=str(schema.id))
         return {"outcome": "skipped", "reason": "no_delta_table"}
 
@@ -1436,6 +1517,16 @@ async def repartition_table_in_place(
             resolved = target
             rows_written = old_row_count
             await logger.ainfo(f"repartition: resuming from valid temp schema_id={schema.id}", schema_id=str(schema.id))
+        elif (
+            temp_rows is not None
+            and temp_rows > old_row_count
+            and staged_target is not None
+            and await _live_matches_scheme(live_uri, storage_options, staged_target, logger)
+        ):
+            # Live is on the new layout with fewer rows than a readable temp: a swap without a phase
+            # on its marker died while it copied the log, and a part of a log is a valid table. A
+            # finished swap never leaves temp with more rows than live, so temp is the full table.
+            return await resume_swap_without_live(None)
         elif staged_target is not None and await _live_matches_scheme(live_uri, storage_options, staged_target, logger):
             # temp is gone because the swap finished and deleted it — only the settings write was
             # lost. Live already carries the marker's keys, so there is nothing to rewrite: finish the
@@ -1519,6 +1610,11 @@ async def repartition_table_in_place(
                     schema_id=str(schema.id),
                     reason=blocker,
                 )
+                if (rewrite_checkpoint or {}).get("sliced"):
+                    # The import between two slices changed a file the rewrite had copied, so a
+                    # sliced rewrite of this table restarts after every slice and never finishes.
+                    await asyncio.to_thread(retry_on_db_connection_drop, schema.disable_repartition_slicing)
+                    rewrite_slice_seconds = None
                 await asyncio.to_thread(schema.clear_repartition_rewrite)
                 resuming_rewrite = False
                 temp_uri = _temp_uri_for(live_uri, claim_token)
@@ -1567,9 +1663,12 @@ async def repartition_table_in_place(
                     "target": resolved_target.to_dict(),
                     "live_version": checkpoint_version,
                     "held_at": datetime.now(UTC).isoformat(),
+                    # A resume that discards a sliced checkpoint turns slicing off for this target.
+                    "sliced": rewrite_slice_seconds is not None,
                 },
             )
 
+        slice_ends_at = None if rewrite_slice_seconds is None else time.monotonic() + rewrite_slice_seconds
         try:
             rows_written, resolved = await _rewrite_into_temp(
                 old_delta=old_delta,
@@ -1584,6 +1683,7 @@ async def repartition_table_in_place(
                 total_rows=old_row_count,
                 copied_files=copied,
                 should_stop=should_stop,
+                pause_at_file_end=lambda: slice_ends_at is not None and time.monotonic() >= slice_ends_at,
             )
         except RepartitionBudgetExceededError as e:
             # Only a checkpoint this attempt could build on marks a restart. One the resume path
@@ -1673,14 +1773,17 @@ async def repartition_table_in_place(
         # temp is complete now, so the rewrite checkpoint is obsolete — the swap marker supersedes it.
         await asyncio.to_thread(schema.clear_repartition_rewrite)
 
-    # Swap (idempotent): replace live with a server-side copy of temp, verify, then drop temp. temp
-    # holds the full re-bucketed dataset, so deleting live is safe — temp is the new source of truth.
+    # Swap (idempotent): copy temp's data files beside live's, replace live's log, verify, then drop
+    # the old files and temp. temp holds the full re-bucketed dataset and stays until live is verified.
     await _swap_temp_into_live(
         temp_uri=temp_uri,
         live_uri=live_uri,
         storage_options=storage_options,
         expected_rows=old_row_count,
+        logger=logger,
         ensure_claim=ensure_claim,
+        should_stop=should_stop,
+        set_phase=set_swap_phase,
     )
 
     # The data in S3 is on the new scheme from here, so the settings, the markers and the cooldown go
@@ -1720,6 +1823,17 @@ async def repartition_table_in_place(
     }
 
 
+def _save_swap_phase(schema: ExternalDataSchema, claim_token: str | None, temp_uri: str, phase: str) -> None:
+    if claim_token is None:
+        # No claim means no fencing (tests, ad-hoc use), so there is no newer writer to protect.
+        schema.set_repartition_swap({**(schema.repartition_swap or {}), "phase": phase})
+        return
+    if not save_repartition_swap_phase_if_claimed(schema, claim_token=claim_token, temp_uri=temp_uri, phase=phase):
+        raise RepartitionSupersededError(
+            f"repartition claim lost before swap phase {phase} (ours={claim_token[:8]}) schema_id={schema.id}"
+        )
+
+
 async def _resume_swap_with_missing_live(
     *,
     table_ref: DeltaTableRef,
@@ -1731,16 +1845,24 @@ async def _resume_swap_with_missing_live(
     logger: FilteringBoundLogger,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
     claim_token: str | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    phase: str | None = None,
 ) -> dict[str, Any]:
-    """Finish a swap whose live table was already deleted by an interrupted prior run.
+    """Finish a swap that an interrupted run left without a live table to compare against.
 
-    Entered only when the swap marker is set but live is gone — i.e. a previous run crashed inside
-    `_swap_temp_into_live` after deleting live and before the copy completed. temp is the durable
-    source of truth, so its own row count is the swap's expectation. If temp is *also* gone there is
-    nothing left to recover (both folders lost): clear the markers and skip so the next sync rebuilds.
+    Entered when the swap marker is set and live cannot say how many rows the table has: its log is
+    gone or incomplete (an older swap deleted live first, and the current one replaces the log in
+    its `switch_log` phase), or the marker's `phase` says the swap got that far. temp is the durable
+    source of truth, so its own row count is the swap's expectation. In the `cleanup` phase live is
+    already verified and temp can be partly deleted, so live's own row count is the expectation. If
+    temp is *also* gone there is nothing left to recover (both folders lost): clear the markers and
+    skip so the next sync rebuilds.
     """
-    expected_rows = await _valid_delta_row_count(temp_uri, storage_options)
+    source_of_truth = live_uri if phase == SWAP_PHASE_CLEANUP else temp_uri
+    expected_rows = await _valid_delta_row_count(source_of_truth, storage_options)
     if expected_rows is None:
+        if phase == SWAP_PHASE_CLEANUP:
+            raise ValueError(f"repartition swap: live is unreadable in the cleanup phase (schema_id={schema.id})")
         # Both live and a usable temp are gone (temp missing or its `_delta_log` is corrupt) — nothing
         # left to recover. Clear the markers and skip so the next sync rebuilds the table from source.
         await asyncio.to_thread(schema.clear_repartition_swap)
@@ -1751,16 +1873,28 @@ async def _resume_swap_with_missing_live(
         )
         return {"outcome": "skipped", "reason": "no_delta_table"}
 
-    await logger.ainfo(
-        f"repartition: live missing mid-swap, resuming from temp schema_id={schema.id}", schema_id=str(schema.id)
-    )
+    if phase is None:
+        await logger.ainfo(
+            f"repartition: live missing mid-swap, resuming from temp schema_id={schema.id}", schema_id=str(schema.id)
+        )
+    else:
+        await logger.ainfo(
+            f"repartition: resuming swap phase={phase} schema_id={schema.id}", schema_id=str(schema.id), phase=phase
+        )
+
+    async def set_phase(new_phase: str) -> None:
+        await asyncio.to_thread(_save_swap_phase, schema, claim_token, temp_uri, new_phase)
 
     await _swap_temp_into_live(
         temp_uri=temp_uri,
         live_uri=live_uri,
         storage_options=storage_options,
         expected_rows=expected_rows,
+        logger=logger,
         ensure_claim=ensure_claim,
+        should_stop=should_stop,
+        phase=phase,
+        set_phase=set_phase,
     )
 
     await _persist_resolved_scheme(schema, target, claim_token, logger)
@@ -1780,53 +1914,170 @@ async def _swap_temp_into_live(
     live_uri: str,
     storage_options: dict[str, str],
     expected_rows: int,
+    logger: FilteringBoundLogger,
     ensure_claim: Callable[[], Awaitable[None]] | None = None,
+    should_stop: Callable[[], bool] | None = None,
+    phase: str | None = None,
+    set_phase: Callable[[str], Awaitable[None]] | None = None,
+    progress_interval_seconds: float = SWAP_PROGRESS_INTERVAL_SECONDS,
+    claim_recheck_interval_seconds: float = CLAIM_RECHECK_INTERVAL_SECONDS,
 ) -> None:
-    """Atomically-enough replace `live_uri` with the contents of `temp_uri`.
+    """Put the contents of `temp_uri` in place of the table at `live_uri`.
 
-    Crash-safe ordering: delete live → server-side copy temp → live → verify → delete temp. Until
-    temp is deleted it remains the durable source of truth, so any retry simply re-runs this whole
-    function (Delta uses relative paths in `_delta_log`, so a copied folder is a valid table).
+    The steps, each safe to run again after a death at any point:
 
-    Files are copied one at a time preserving their path relative to temp — a single recursive
-    `copy(prefix, prefix)` trips over directory-marker objects on S3-compatible stores.
+    1. Copy temp's data files into the live folder, beside the old data files. The old log does not
+       name them, so live stays readable on the old layout. A file that is already in place with
+       the same size is not copied again, which is how a later attempt resumes. This is the long
+       step, and the only one that stops for `should_stop`.
+    2. Record phase `switch_log`, delete live's log and copy temp's log. Live has no complete log
+       only during this step. temp is the source of truth for it.
+    3. Verify live: the row count, and that every data file the new log names is in the folder.
+    4. Record phase `cleanup`, delete the objects in the live folder that the new log does not
+       name (the old data files), then delete temp.
+
+    Delta stores relative paths in `_delta_log`, so a copied folder is a valid table. Data file
+    names carry a random id, so a new file never replaces an old one.
+
+    `phase` is the marker's phase from an earlier attempt. `set_phase` records a new one, fenced
+    on the claim. The claim is also re-checked before each destructive step, and at most once per
+    `claim_recheck_interval_seconds` during the copy.
     """
-    # Never destroy live for an incomplete temp: confirm temp is a readable Delta table holding every
-    # expected row before deleting live. A partial/corrupt temp (from an interrupted rewrite or swap)
-    # would otherwise be copied over live and leave both broken. Raising is safe — the caller
-    # re-validates temp on the next run and rebuilds fresh from the still-intact live.
-    temp_rows = await _valid_delta_row_count(temp_uri, storage_options)
-    if temp_rows != expected_rows:
-        raise ValueError(
-            f"repartition swap: refusing to swap, temp is incomplete "
-            f"(rows={temp_rows} expected={expected_rows} temp_uri={temp_uri})"
-        )
+    if not is_temp_uri_of(live_uri, temp_uri):
+        raise ValueError("repartition swap: refusing to swap, the temp path is not a temp table of the live table")
 
-    # Deleting live is the point of no return — a superseded attempt must never reach it.
-    if ensure_claim is not None:
-        await ensure_claim()
+    last_claim_check = time.monotonic()
+    last_progress_log = time.monotonic()
 
-    temp_prefix = temp_uri.replace("s3://", "").rstrip("/")
+    async def claim() -> None:
+        nonlocal last_claim_check
+        if ensure_claim is not None:
+            await ensure_claim()
+        last_claim_check = time.monotonic()
+
+    async def log(message: str, **fields: Any) -> None:
+        await logger.ainfo(f"repartition: swap {message} {_format_fields(fields)}", **fields)
+
+    report_phase("repartition_swap")
     async with aget_s3_client(fresh_instance=True) as s3:
-        if await s3._exists(temp_uri):
-            # Fully clear live before the copy. A leftover file from an incomplete recursive delete
-            # merges into the copied `_delta_log` and inflates the row count past `expected_rows`,
-            # tripping the verification below and looping the repartition forever.
-            await _purge_s3_prefix(s3, live_uri)
-            files = await s3._find(temp_uri)
-            # Data files first, `_delta_log` last: a death mid-copy then leaves live without a
-            # readable log — a state the corrupted-log revive detects and heals — instead of a
-            # valid log referencing data files that never arrived.
-            files = sorted(files, key=lambda f: "/_delta_log/" in f)
-            for f in files:
-                rel = f[len(temp_prefix) :]
-                await s3._copy(f"s3://{f.lstrip('/')}", f"{live_uri}{rel}")
+        s3.invalidate_cache()
+        if phase != SWAP_PHASE_CLEANUP:
+            # Never touch live for an incomplete temp: confirm temp is a readable Delta table holding
+            # every expected row first. A partial/corrupt temp (from an interrupted rewrite or swap)
+            # would otherwise replace live and leave both broken. Raising is safe — the caller
+            # re-validates temp on the next run and rebuilds fresh from the still-intact live.
+            temp_rows = await _valid_delta_row_count(temp_uri, storage_options)
+            if temp_rows != expected_rows:
+                raise ValueError(
+                    f"repartition swap: refusing to swap, temp is incomplete "
+                    f"(rows={temp_rows} expected={expected_rows} temp_uri={temp_uri})"
+                )
+            await claim()
 
-    # Verify the live copy is a valid Delta table with the expected row count before dropping temp.
-    live_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=live_uri, storage_options=storage_options)
-    live_rows = await asyncio.to_thread(_table_row_count, live_delta)
-    if live_rows != expected_rows:
-        raise ValueError(f"repartition swap verification failed: live={live_rows} expected={expected_rows}")
+            temp_files = await list_table_files(s3, temp_uri)
+            live_files = await list_table_files(s3, live_uri)
+            data_files = {path: size for path, size in temp_files.items() if not path.startswith(DELTA_LOG_PREFIX)}
+            log_files = {path: size for path, size in temp_files.items() if path.startswith(DELTA_LOG_PREFIX)}
+            if not log_files:
+                raise ValueError(f"repartition swap: refusing to swap, temp has no log (temp_uri={temp_uri})")
+            to_copy = {path: size for path, size in data_files.items() if live_files.get(path) != size}
+            in_place = len(data_files) - len(to_copy)
+            progress = SwapProgress(
+                step="copy_data",
+                files_total=len(data_files),
+                bytes_total=sum(data_files.values()),
+                files_done=in_place,
+                bytes_done=sum(data_files.values()) - sum(to_copy.values()),
+                files_already_in_place=in_place,
+            )
+            await log(
+                "starting",
+                phase=phase or "copy_data",
+                files_total=progress.files_total,
+                bytes_total=progress.bytes_total,
+                files_already_in_place=in_place,
+                files_to_copy=len(to_copy),
+                log_files=len(log_files),
+                live_objects=len(live_files),
+            )
 
-    async with aget_s3_client(fresh_instance=True) as s3:
+            async def stop_if_requested() -> None:
+                if should_stop is not None and should_stop() and progress.files_done < progress.files_total:
+                    await log("stopped early", **progress.fields())
+                    raise RepartitionStoppedError(
+                        f"swap stopped early with {progress.files_done} of {progress.files_total} data files "
+                        f"in place for {temp_uri}"
+                    )
+
+            async def between_groups() -> None:
+                nonlocal last_progress_log
+                now = time.monotonic()
+                if now - last_claim_check >= claim_recheck_interval_seconds:
+                    await claim()
+                if now - last_progress_log >= progress_interval_seconds:
+                    last_progress_log = now
+                    await log("progress", **progress.fields())
+                await stop_if_requested()
+
+            if to_copy:
+                await stop_if_requested()
+                await copy_files(
+                    s3,
+                    source_uri=temp_uri,
+                    destination_uri=live_uri,
+                    files=to_copy,
+                    progress=progress,
+                    between_groups=between_groups,
+                )
+            await log("data files in place", **progress.fields())
+
+            # The point of no return for live's old log — a superseded attempt must never reach it.
+            await claim()
+            if set_phase is not None:
+                await set_phase(SWAP_PHASE_SWITCH_LOG)
+            switch_started = time.monotonic()
+            await _purge_s3_prefix(s3, f"{live_uri.rstrip('/')}/{DELTA_LOG_PREFIX.rstrip('/')}")
+            await copy_files(
+                s3,
+                source_uri=temp_uri,
+                destination_uri=live_uri,
+                files=log_files,
+                progress=SwapProgress(
+                    step="switch_log", files_total=len(log_files), bytes_total=sum(log_files.values())
+                ),
+            )
+            await log(
+                "log switched",
+                log_files=len(log_files),
+                live_without_log_seconds=round(time.monotonic() - switch_started, 1),
+            )
+
+        # Verify live before anything is deleted: the row count, and that every file the log names
+        # is there. A log that names a file which never arrived reads as a valid table by row count.
+        live_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=live_uri, storage_options=storage_options)
+        live_rows = await asyncio.to_thread(_table_row_count, live_delta)
+        if live_rows != expected_rows:
+            raise ValueError(f"repartition swap verification failed: live={live_rows} expected={expected_rows}")
+        named = {source.path for source in await asyncio.to_thread(plan_source_files, live_delta)}
+        live_files = await list_table_files(s3, live_uri)
+        missing = named - live_files.keys()
+        if missing:
+            raise ValueError(
+                f"repartition swap verification failed: {len(missing)} of {len(named)} data files that the "
+                f"live log names are not in place"
+            )
+
+        await claim()
+        if phase != SWAP_PHASE_CLEANUP and set_phase is not None:
+            await set_phase(SWAP_PHASE_CLEANUP)
+
+        # Everything else in the folder is the old table. Delete by name from the listing of the live
+        # folder itself, so the delete cannot reach a sibling folder or a file the new log names.
+        old_files = sorted(path for path in live_files if path not in named and not path.startswith(DELTA_LOG_PREFIX))
+        cleanup = SwapProgress(step="delete_old_files", files_total=len(old_files), bytes_total=0)
+        if old_files:
+            await delete_files(s3, live_uri, old_files, cleanup)
+        await log("old files deleted", files_deleted=len(old_files))
+
         await _purge_s3_prefix(s3, temp_uri)
+        await log("complete", rows=expected_rows, data_files=len(named))

@@ -7,6 +7,8 @@ from typing import Any
 import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
 import pyarrow as pa
 from asgiref.sync import async_to_sync
 from deltalake import DeltaTable, write_deltalake
@@ -42,6 +44,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _mark_job_completed,
     _promote_staged_cursor,
     _read_existing_rows_by_first_pk,
+    _rebuild_compaction_due,
     _resolve_cdc_positions,
     _run_post_load_for_already_processed_batch,
     _trigger_post_import_workflow,
@@ -51,7 +54,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.table_handles import (
     GroupTableHandles,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 from products.warehouse_sources_queue.backend.core.batch_consumer import CoalescingDeclined
 
 
@@ -702,6 +707,50 @@ class TestFinalDataBatch:
         mock_writer_cls.return_value.write.assert_awaited_once()
         mock_mark_processed.assert_called_once_with(1, "schema-1", "run-9", 4)
         mock_mark_completed.assert_not_called()
+
+
+class TestStagedCursorWaitsForTheFinalBatch:
+    # A descending source stages the newest value of its run from the first batch. Promoting it on a
+    # batch before the final one moves the watermark above rows that are not loaded yet.
+
+    @parameterized.expand([("mid_run_batch", False, 0), ("final_batch", True, 1)])
+    def test_a_staged_cursor_is_promoted_only_by_the_final_batch(
+        self, _name: str, is_final_batch: bool, promotions: int
+    ) -> None:
+        delta_table = MagicMock()
+        delta_table.schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        delta_table.file_uris.return_value = []
+        with ExitStack() as stack:
+            for target in (
+                "posthoganalytics",
+                "mark_batch_as_processed",
+                "_trigger_post_import_workflow",
+                "_trigger_ducklake_register_data_imports",
+                "transaction",
+                "release_v3_pipeline_lock",
+            ):
+                stack.enter_context(patch(f"{_PROCESSOR}.{target}"))
+            stack.enter_context(patch(f"{_PROCESSOR}.finish_row_tracking", new_callable=AsyncMock))
+            stack.enter_context(
+                patch(f"{_PROCESSOR}.run_post_load_operations", new_callable=AsyncMock, return_value=_POST_LOAD_RESULT)
+            )
+            stack.enter_context(patch(f"{_PROCESSOR}.read_parquet", return_value=pa.table({"id": [1]})))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            mock_writer_cls = stack.enter_context(patch(f"{_PROCESSOR}.DeltaWriter"))
+            mock_writer_cls.return_value.write = AsyncMock(return_value=delta_table)
+            mock_helper_cls = stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef"))
+            mock_helper_cls.return_value.get_delta_table = AsyncMock(return_value=None)
+            mock_job_cls = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            mock_update = stack.enter_context(patch(f"{_PROCESSOR}.update_external_job_status"))
+            mock_update.return_value.status = mock_job_cls.Status.COMPLETED
+            mock_schema_objects = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataSchema.objects"))
+
+            process_message(_message(is_final_batch=is_final_batch, run_uuid="wfrun-1-a2"))
+
+        promote = mock_schema_objects.get.return_value.promote_staged_incremental_values
+        assert promote.call_count == promotions
+        if promotions:
+            promote.assert_called_with("wfrun-1-a2", merge_source_cursors=ANY)
 
 
 def _set_messages(count: int, *, sync_type: str = "full_refresh", final: bool = True) -> list[dict[str, Any]]:
@@ -1645,6 +1694,122 @@ class TestBatchPhaseReports:
         assert _post_load_summary(mock_logger)["phase_names"] == ["job_completion", "post_import_trigger"]
 
 
+_WORKFLOW_RUN = "0190aaaa-0000-7000-8000-000000000001"
+
+
+class TestTableRebuildLoad:
+    # Batches of 3 keys each. `_SOURCE_REPEATS_A_KEY` holds key 4 in two batches.
+    _SOURCE = [{"id": [1, 2, 3]}, {"id": [4, 5, 6]}, {"id": [7, 8, 9]}]
+    _SOURCE_REPEATS_A_KEY = [{"id": [1, 2, 3]}, {"id": [4, 5, 6]}, {"id": [4, 8, 9]}]
+
+    @staticmethod
+    def _rows(run_uuid: str, index: int, ids: list[int]) -> pa.Table:
+        return pa.table({"id": ids, "name": [f"{run_uuid[-2:]}_b{index}_{row_id}" for row_id in ids]})
+
+    @contextmanager
+    def _loader(self, table_path: str, batches: dict[str, pa.Table], config: dict[str, Any]) -> Iterator[None]:
+        def local_ref(**kwargs: Any) -> DeltaTableRef:
+            ref = make_local_table_ref(table_path)
+            ref._is_first_sync = kwargs["is_first_sync"]
+            return ref
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f"{_PROCESSOR}.posthoganalytics"))
+            stack.enter_context(patch(f"{_PROCESSOR}.mark_batch_as_processed"))
+            stack.enter_context(patch(f"{_PROCESSOR}.is_batch_already_processed", return_value=False))
+            stack.enter_context(patch(f"{_PROCESSOR}.read_parquet", side_effect=lambda path: batches[path]))
+            stack.enter_context(patch(f"{_PROCESSOR}.DeltaTableRef", side_effect=local_ref))
+            job_model = stack.enter_context(patch(f"{_PROCESSOR}.ExternalDataJob"))
+            job = MagicMock()
+            job.schema.sync_type_config = config
+            job_model.objects.prefetch_related.return_value.get.return_value = job
+            yield
+
+    def _load(
+        self,
+        table_path: str,
+        attempt: int,
+        source: list[dict[str, list[int]]],
+        *,
+        rebuild: bool,
+        indexes: list[int] | None = None,
+        config: dict[str, Any] | None = None,
+    ) -> None:
+        run_uuid = f"{_WORKFLOW_RUN}-a{attempt}"
+        batches = {
+            f"s3://bucket/{run_uuid}/{index}": self._rows(run_uuid, index, rows["id"])
+            for index, rows in enumerate(source)
+        }
+        with self._loader(table_path, batches, config if config is not None else {}):
+            for index in indexes if indexes is not None else range(len(source)):
+                process_message(
+                    _message(
+                        run_uuid=run_uuid,
+                        batch_index=index,
+                        s3_path=f"s3://bucket/{run_uuid}/{index}",
+                        is_first_ever_sync=rebuild,
+                    )
+                )
+
+    @staticmethod
+    def _table_rows(table_path: str) -> list[tuple[int, str]]:
+        rows = DeltaTable(table_path).to_pyarrow_table().to_pydict()
+        return sorted(zip(rows["id"], rows["name"]))
+
+    @parameterized.expand(
+        [
+            ("one_attempt", []),
+            ("an_attempt_replaced_after_two_batches", [0, 1]),
+            ("an_attempt_replaced_before_its_first_batch_loads", []),
+        ]
+    )
+    def test_a_rebuild_gives_the_table_that_a_merge_of_each_batch_gives(
+        self, case: str, first_attempt_batches: list[int]
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rebuilt, merged = f"{tmp}/rebuilt", f"{tmp}/merged"
+            last_attempt = 1 if case == "one_attempt" else 2
+            config: dict[str, Any] = {}
+
+            if last_attempt == 2:
+                self._load(rebuilt, 1, self._SOURCE, rebuild=True, indexes=first_attempt_batches, config=config)
+                config["table_rebuild_run_uuid"] = f"{_WORKFLOW_RUN}-a2"
+            self._load(rebuilt, last_attempt, self._SOURCE, rebuild=True, indexes=[0, 1], config=config)
+            if last_attempt == 2:
+                # A batch of the first attempt that the loader takes after the second attempt started.
+                self._load(rebuilt, 1, self._SOURCE, rebuild=True, indexes=[2], config=config)
+            self._load(rebuilt, last_attempt, self._SOURCE, rebuild=True, indexes=[2], config=config)
+
+            self._load(merged, last_attempt, self._SOURCE, rebuild=False)
+
+            assert len(self._table_rows(rebuilt)) == 9
+            assert self._table_rows(rebuilt) == self._table_rows(merged)
+            operations = [commit["operation"] for commit in DeltaTable(rebuilt).history()]
+            assert "MERGE" not in operations
+
+    def test_a_run_after_the_rebuild_merges_on_the_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._load(tmp, 1, self._SOURCE, rebuild=True)
+            later = pa.table({"id": [9, 10], "name": ["later_9", "later_10"]})
+            with self._loader(tmp, {"s3://bucket/later/0": later}, {"table_rebuild_run_uuid": f"{_WORKFLOW_RUN}-a1"}):
+                process_message(_message(run_uuid="0190bbbb-a1", batch_index=0, s3_path="s3://bucket/later/0"))
+
+            rows = dict(self._table_rows(tmp))
+            assert len(self._table_rows(tmp)) == 10
+            assert (rows[9], rows[10]) == ("later_9", "later_10")
+
+    def test_a_key_that_the_source_holds_twice_stays_twice_until_a_later_run_merges_it(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            self._load(tmp, 1, self._SOURCE_REPEATS_A_KEY, rebuild=True)
+            assert [name for row_id, name in self._table_rows(tmp) if row_id == 4] == ["a1_b1_4", "a1_b2_4"]
+
+            later = pa.table({"id": [4], "name": ["later_4"]})
+            with self._loader(tmp, {"s3://bucket/later/0": later}, {}):
+                process_message(_message(run_uuid="0190bbbb-a1", batch_index=0, s3_path="s3://bucket/later/0"))
+
+            assert [name for row_id, name in self._table_rows(tmp) if row_id == 4] == ["later_4"]
+
+
 def _batch_rows(index: int) -> pa.Table:
     # Each batch updates one row of the batch before it and adds two rows.
     ids = [index * 2, index * 2 + 1, index * 2 + 2]
@@ -1830,3 +1995,82 @@ class TestTableHandleReuse:
             rows = DeltaTable(tmp).to_pyarrow_table()
             assert rows.sort_by("id").column("id").to_pylist() == [0, 1, 4, 5, 6, 6, 7, 8, 100]
             assert rows.schema.names == ["id", "name", "added"]
+
+
+class TestCompactionDuringRebuild:
+    @staticmethod
+    def _schema(source_type: str = "Postgres") -> MagicMock:
+        schema = MagicMock()
+        schema.source.source_type = source_type
+        return schema
+
+    @parameterized.expand(
+        [
+            ("full_refresh", {"sync_type": "full_refresh"}, None, None, True),
+            ("first_sync_incremental", {"is_first_ever_sync": True}, None, None, True),
+            ("first_sync_append", {"sync_type": "append", "is_first_ever_sync": True}, None, None, True),
+            ("incremental_on_an_existing_table", {}, None, None, False),
+            ("append_on_an_existing_table", {"sync_type": "append"}, None, None, False),
+            ("cdc", {"is_first_ever_sync": True, "cdc_write_mode": "upsert"}, None, None, False),
+            ("partial_data_loading", {"is_first_ever_sync": True}, ExternalDataSourceType.STRIPE, None, False),
+            ("set_spanning_two_runs", {"sync_type": "full_refresh"}, None, [("run-0", 9), ("run-1", 10)], False),
+            (
+                "set_crossing_a_check",
+                {"sync_type": "full_refresh", "batch_index": 9},
+                None,
+                [("run-1", 9), ("run-1", 10)],
+                True,
+            ),
+            ("between_checks", {"sync_type": "full_refresh", "batch_index": 11}, None, None, False),
+            ("first_batch", {"sync_type": "full_refresh", "batch_index": 0}, None, None, False),
+        ]
+    )
+    def test_which_writes_check_for_compaction(
+        self,
+        _name: str,
+        overrides: dict[str, Any],
+        source_type: str | None,
+        members: list[tuple[str, int]] | None,
+        expected: bool,
+    ) -> None:
+        signal = ExportSignalMessage.from_dict(_message(**{"batch_index": 10, **overrides}))
+        members = members or [(signal.run_uuid, signal.batch_index)]
+        with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=True):
+            assert _rebuild_compaction_due(signal, self._schema(source_type or "Postgres"), members) is expected
+
+    def test_the_flag_turns_it_off(self) -> None:
+        signal = ExportSignalMessage.from_dict(_message(batch_index=10, sync_type="full_refresh"))
+        with patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=False):
+            assert _rebuild_compaction_due(signal, self._schema(), [(signal.run_uuid, 10)]) is False
+
+    def _load(self, table_path: str, sync_type: str, first_index: int, *, enabled: bool) -> None:
+        write_deltalake(table_path, TestTableHandleReuse._SEED)
+        with (
+            override_settings(DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES=3),
+            patch(f"{_PROCESSOR}.REBUILD_COMPACT_CHECK_EVERY", 5),
+            TestTableHandleReuse()._loader(table_path, []),
+            patch(f"{_PROCESSOR}.is_schema_flag_enabled", return_value=enabled),
+        ):
+            for index in range(first_index, first_index + 12):
+                process_message(TestTableHandleReuse._batch(index, sync_type=sync_type))
+
+    @parameterized.expand(
+        [
+            ("rebuild_run_compacts_as_it_loads", "full_refresh", 0, True),
+            ("append_on_an_existing_table_waits_for_post_load", "append", 1, False),
+        ]
+    )
+    def test_compaction_between_batches_keeps_the_rows(
+        self, _name: str, sync_type: str, first_index: int, compacts: bool
+    ) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            on_path, off_path = f"{tmp}/on", f"{tmp}/off"
+            self._load(on_path, sync_type, first_index, enabled=True)
+            self._load(off_path, sync_type, first_index, enabled=False)
+
+            on_table, off_table = DeltaTable(on_path), DeltaTable(off_path)
+            assert (
+                on_table.to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")]).to_pydict()
+                == off_table.to_pyarrow_table().sort_by([("id", "ascending"), ("name", "ascending")]).to_pydict()
+            )
+            assert (len(on_table.file_uris()) < len(off_table.file_uris())) is compacts

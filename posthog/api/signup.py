@@ -37,7 +37,15 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailValidationHelper, reject_plus_addressed_email, validate_display_name
 from posthog.helpers.oauth_pending_connection import read_pending_oauth_connection
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
-from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models import (
+    InviteExpiredException,
+    Organization,
+    OrganizationDomain,
+    OrganizationInvite,
+    OrganizationMembership,
+    Team,
+    User,
+)
 from posthog.models.identity_provider_config import ConfigScope, IdentityProviderConfig
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -884,6 +892,13 @@ def lookup_invite_for_saml(email: str, saml_relay_state: str) -> Optional[Organi
     # nosemgrep: idor-lookup-without-org (identifier from an already-verified SAML response)
     config = IdentityProviderConfig.objects.filter(saml_relay_state=saml_relay_state).first()
     if config is None:
+        return None
+    # An existing member cannot use an invite, because `OrganizationInvite.validate` rejects one for
+    # them, either as expired or as a duplicate membership. The caller raises that rejection inside
+    # the social-auth pipeline, which answers the login with a 500, so report no invite instead.
+    if OrganizationMembership.objects.filter(
+        organization_id=config.organization_id, user__email__iexact=email
+    ).exists():
         return None
     return (
         OrganizationInvite.objects.filter(target_email__iexact=email, organization_id=config.organization_id)

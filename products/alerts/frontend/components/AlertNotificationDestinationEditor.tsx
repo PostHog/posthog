@@ -87,6 +87,7 @@ interface AlertNotificationDestinationEditorProps<NotificationType extends strin
         existingLoading: boolean
         existing: AlertNotificationDestinationView[]
         pending: PendingAlertNotificationDestinationView[]
+        pendingTooltip?: string
     }
     notificationType: {
         options: LemonSelectOptions<NotificationType>
@@ -210,8 +211,10 @@ function ExistingDestinations({
 
 function PendingDestinations({
     destinations,
+    tooltip = 'Save this alert to add this destination.',
 }: {
     destinations: PendingAlertNotificationDestinationView[]
+    tooltip?: string
 }): JSX.Element | null {
     if (destinations.length === 0) {
         return null
@@ -224,7 +227,7 @@ function PendingDestinations({
                     <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
                             <span className="text-sm font-medium truncate">{destination.title}</span>
-                            <Tooltip title="Save this alert to add this destination.">
+                            <Tooltip title={tooltip}>
                                 <LemonTag type="warning" size="small">
                                     Pending
                                 </LemonTag>
@@ -353,7 +356,7 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 <ExistingDestinations loading={destinations.existingLoading} destinations={destinations.existing} />
             ) : null}
 
-            <PendingDestinations destinations={destinations.pending} />
+            <PendingDestinations destinations={destinations.pending} tooltip={destinations.pendingTooltip} />
 
             {hasDestinations ? <hr className="border-border m-0" /> : null}
 

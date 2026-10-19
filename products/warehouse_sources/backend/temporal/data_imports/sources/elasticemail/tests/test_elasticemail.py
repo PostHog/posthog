@@ -1,10 +1,7 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-import pytest
 import time_machine
-from unittest import mock
 
 import requests
 from parameterized import parameterized
@@ -12,6 +9,12 @@ from parameterized import parameterized
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientNonRetryableError,
     RESTClientRetryableError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail import elasticemail
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.elasticemail import (
@@ -21,19 +24,19 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.elasticema
     _format_datetime,
     _is_auth_error_body,
     _static_params,
-    elasticemail_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.settings import (
     ELASTICEMAIL_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the elasticemail module.
-ELASTICEMAIL_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.elasticemail.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.elasticemail.source import ElasticemailSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.elasticemail import (
+    ElasticemailSourceConfig,
 )
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(ElasticemailSource(), ElasticemailSourceConfig(api_key="key"))
 
 
 class TestFormatDatetime:
@@ -84,101 +87,126 @@ class TestIsAuthErrorBody:
         assert _is_auth_error_body(status, body) is expected
 
 
-def _make_response(status_code: int, *, json_body: Any = None, text: str | None = None) -> requests.Response:
-    response = requests.Response()
-    response.status_code = status_code
-    if json_body is not None:
-        response._content = json.dumps(json_body).encode()
-    elif text is not None:
-        response._content = text.encode()
-    return response
-
-
-def _make_manager(resume_state: ElasticEmailResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[requests.Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so snapshot a copy when each
-    request is prepared rather than reading the shared dict after the run.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _source(endpoint: str, manager: mock.MagicMock, **kwargs: Any) -> Any:
-    return elasticemail_source(
-        api_key="key",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="job",
-        resumable_source_manager=manager,
-        **kwargs,
-    )
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_until_short_page(self, MockSession: Any) -> None:
-        session = MockSession.return_value
+    def test_paginates_until_short_page(self) -> None:
         full_page = [{"Email": f"c{i}@x.com"} for i in range(elasticemail.PAGE_SIZE)]
-        params = _wire(
-            session,
-            [_make_response(200, json_body=full_page), _make_response(200, json_body=[{"Email": "last@x.com"}])],
+        result = _driver().run(
+            "contacts",
+            [ScriptedResponse(json=full_page), ScriptedResponse(json=[{"Email": "last@x.com"}])],
         )
 
-        rows = _rows(_source("contacts", _make_manager()))
+        assert result.raised is None
+        assert [row["Email"] for row in result.rows] == [
+            *(f"c{i}@x.com" for i in range(elasticemail.PAGE_SIZE)),
+            "last@x.com",
+        ]
+        assert result.params("offset") == ["0", str(elasticemail.PAGE_SIZE)]
+        assert result.params("limit") == [str(elasticemail.PAGE_SIZE)] * 2
 
-        assert [r["Email"] for r in rows] == [*(f"c{i}@x.com" for i in range(elasticemail.PAGE_SIZE)), "last@x.com"]
-        assert params[0]["offset"] == 0
-        assert params[0]["limit"] == elasticemail.PAGE_SIZE
-        assert params[1]["offset"] == elasticemail.PAGE_SIZE
+    def test_resumes_from_saved_offset(self) -> None:
+        result = _driver().run(
+            "contacts",
+            [ScriptedResponse(json=[{"Email": "resumed@x.com"}])],
+            resume_state=ElasticEmailResumeConfig(offset=2000),
+        )
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_offset(self, MockSession: Any) -> None:
-        session = MockSession.return_value
-        params = _wire(session, [_make_response(200, json_body=[{"Email": "resumed@x.com"}])])
-
-        manager = _make_manager(ElasticEmailResumeConfig(offset=2000))
-        rows = _rows(_source("contacts", manager))
-
-        assert params[0]["offset"] == 2000
-        assert [r["Email"] for r in rows] == ["resumed@x.com"]
+        assert result.raised is None
+        assert result.params("offset") == ["2000"]
+        assert [row["Email"] for row in result.rows] == ["resumed@x.com"]
 
 
-def _wire_repeating(session: mock.MagicMock, response: requests.Response) -> None:
-    """Return the same response for every send — a retryable status is re-issued until attempts run out."""
-    session.headers = {}
-    session.prepare_request.side_effect = lambda request: mock.MagicMock()
-    session.send.return_value = response
+class TestListContactsFanout:
+    def test_fans_out_per_list_with_encoded_names(self) -> None:
+        result = _driver().run(
+            "list_contacts",
+            [
+                ScriptedResponse(json=[{"ListName": "News / EU"}, {"ListName": "Gone"}, {"ListName": "VIP"}]),
+                ScriptedResponse(json=[{"Email": "a@example.com"}, {"Email": "b@example.com"}]),
+                ScriptedResponse(status=404, body=b'{"Error":"List not found"}'),
+                ScriptedResponse(json=[{"Email": "a@example.com"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["ListName"], row["Email"]) for row in result.rows] == [
+            ("News / EU", "a@example.com"),
+            ("News / EU", "b@example.com"),
+            ("VIP", "a@example.com"),
+        ]
+        assert [request.origin for request in result.requests] == ["https://api.elasticemail.com"] * 4
+        assert result.paths == [
+            "/v4/lists",
+            "/v4/lists/News%20%2F%20EU/contacts",
+            "/v4/lists/Gone/contacts",
+            "/v4/lists/VIP/contacts",
+        ]
+        assert result.params("limit") == [str(elasticemail.PAGE_SIZE)] * 4
+
+
+class TestDailyStatistics:
+    @parameterized.expand(
+        [
+            (
+                "incremental_refetches_watermark_day",
+                True,
+                date(2026, 6, 13),
+                None,
+                ["2026-06-13", "2026-06-14", "2026-06-15"],
+            ),
+            (
+                "resume_skips_finished_days",
+                True,
+                date(2026, 6, 10),
+                ElasticEmailResumeConfig(next_day="2026-06-14"),
+                ["2026-06-14", "2026-06-15"],
+            ),
+            ("future_watermark_clamps_to_today", True, date(2026, 7, 1), None, ["2026-06-15"]),
+        ]
+    )
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_walks_one_day_per_request(
+        self,
+        _name: str,
+        incremental: bool,
+        watermark: date,
+        resume: ElasticEmailResumeConfig | None,
+        expected_days: list[str],
+    ) -> None:
+        result = _driver().run(
+            "statistics",
+            [ScriptedResponse(json={"Delivered": i}) for i in range(len(expected_days))],
+            resume_state=resume,
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert [(row["Date"], row["Delivered"]) for row in result.rows] == [
+            (day, i) for i, day in enumerate(expected_days)
+        ]
+        assert result.params("from") == [f"{day}T00:00:00" for day in expected_days]
+        assert result.params("to") == [f"{day}T23:59:59" for day in expected_days]
+        assert result.params("limit") == [None] * len(expected_days)
+        assert result.params("offset") == [None] * len(expected_days)
+
+    @time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+    def test_full_refresh_backfills_lookback_window(self) -> None:
+        days = elasticemail.STATISTICS_LOOKBACK_DAYS + 1
+        result = _driver().run("statistics", [ScriptedResponse(json={"Delivered": 0}) for _ in range(days)])
+
+        assert result.raised is None
+        assert len(result.rows) == days
+        assert result.params("from")[0] == "2025-06-15T00:00:00"
+        assert result.params("from")[-1] == "2026-06-15T00:00:00"
 
 
 class TestErrorClassification:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
-    @mock.patch("time.sleep", return_value=None)
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_retryable_statuses_raise_retryable(self, _name: str, status: int, MockSession: Any, _sleep: Any) -> None:
-        session = MockSession.return_value
-        _wire_repeating(session, _make_response(status, text="boom"))
-        with pytest.raises(RESTClientRetryableError):
-            _rows(_source("contacts", _make_manager()))
+    def test_retryable_statuses_raise_retryable(self, _name: str, status: int) -> None:
+        result = _driver().run("contacts", always(ScriptedResponse(status=status, body=b"boom")))
+
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert len(result.requests) > 1
 
     @parameterized.expand(
         [
@@ -188,44 +216,39 @@ class TestErrorClassification:
             ("forbidden_403", 403, ""),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_auth_failures_raise_marked_error(self, _name: str, status: int, body: str, MockSession: Any) -> None:
+    def test_auth_failures_raise_marked_error(self, _name: str, status: int, body: str) -> None:
         # A bad/expired/under-scoped key surfaces a permanent, marker-carrying error so the pipeline's
         # non-retryable classifier stops the sync instead of hammering the dead key.
-        session = MockSession.return_value
-        _wire(session, [_make_response(status, text=body)])
-        with pytest.raises(ValueError) as exc:
-            _rows(_source("contacts", _make_manager()))
-        assert AUTH_ERROR_MARKER in str(exc.value)
+        result = _driver().run("contacts", [ScriptedResponse(status=status, body=body.encode())])
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_generic_400_is_not_marked_as_auth(self, MockSession: Any) -> None:
-        # A non-credential 400 raises an HTTPError with no auth marker, so the pipeline retries it as usual.
-        session = MockSession.return_value
-        _wire(session, [_make_response(400, text='{"Error":"Invalid date range"}')])
-        with pytest.raises(requests.HTTPError) as exc:
-            _rows(_source("contacts", _make_manager()))
-        assert AUTH_ERROR_MARKER not in str(exc.value)
+        assert isinstance(result.raised, ValueError)
+        assert AUTH_ERROR_MARKER in str(result.raised)
+        assert len(result.requests) == 1
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_list_payload_raises_shape_error(self, MockSession: Any) -> None:
+    def test_generic_400_is_not_marked_as_auth(self) -> None:
+        # A non-credential 400 raises an HTTPError with no auth marker.
+        result = _driver().run("contacts", [ScriptedResponse(status=400, body=b'{"Error":"Invalid date range"}')])
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert AUTH_ERROR_MARKER not in str(result.raised)
+
+    def test_non_list_payload_raises_shape_error(self) -> None:
         # A 200 object payload is an unexpected shape; fail loud rather than sync the object as a row.
-        # The error carries no auth marker, so the pipeline retries it as a transient shape change.
-        session = MockSession.return_value
-        _wire(session, [_make_response(200, json_body={"Error": "unexpected"})])
-        with pytest.raises(ValueError) as exc:
-            _rows(_source("contacts", _make_manager()))
-        assert AUTH_ERROR_MARKER not in str(exc.value)
+        # The error carries no auth marker.
+        result = _driver().run("contacts", always(ScriptedResponse(json={"Error": "unexpected"})))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_non_json_body_raises_non_retryable(self, MockSession: Any) -> None:
+        assert isinstance(result.raised, ValueError)
+        assert AUTH_ERROR_MARKER not in str(result.raised)
+        assert result.rows == []
+
+    def test_non_json_body_raises_non_retryable(self) -> None:
         # A 200 with an HTML/proxy body can't be turned into rows by retrying (a re-fetch returns
         # the same non-JSON body), so it fails fast and non-retryably rather than propagating a raw
         # JSONDecodeError.
-        session = MockSession.return_value
-        _wire(session, [_make_response(200, text="<html>gateway timeout</html>")])
-        with pytest.raises(RESTClientNonRetryableError):
-            _rows(_source("contacts", _make_manager()))
+        result = _driver().run("contacts", [ScriptedResponse(body=b"<html>gateway timeout</html>")])
+
+        assert isinstance(result.raised, RESTClientNonRetryableError)
+        assert len(result.requests) == 1
 
 
 class TestValidateCredentials:
@@ -240,28 +263,19 @@ class TestValidateCredentials:
         ]
     )
     def test_status_mapping(self, _name: str, status: int, body: str, expected: bool) -> None:
-        with mock.patch.object(
-            elasticemail,
-            "make_tracked_session",
-            lambda **_: _FakeSession(_make_response(status, text=body)),
-        ):
+        with scripted_network(always(ScriptedResponse(status=status, body=body.encode()))) as network:
             assert validate_credentials("key") is expected
 
-    def test_transport_exception_is_invalid(self) -> None:
-        class _Boom:
-            def get(self, *a: Any, **k: Any) -> Any:
-                raise requests.ConnectionError("down")
+        assert network.requests_log[0].path == "/v4/statistics"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].param("offset") == "0"
+        assert network.requests_log[0].headers["x-elasticemail-apikey"] == "key"
 
-        with mock.patch.object(elasticemail, "make_tracked_session", lambda **_: _Boom()):
+    def test_transport_exception_is_invalid(self) -> None:
+        with scripted_network(always(requests.ConnectionError("down"))) as network:
             assert validate_credentials("key") is False
 
-
-class _FakeSession:
-    def __init__(self, response: requests.Response) -> None:
-        self._response = response
-
-    def get(self, url: str, headers: dict[str, str], timeout: int) -> requests.Response:
-        return self._response
+        assert network.requests_log[0].path == "/v4/statistics"
 
 
 class TestElasticemailSource:
@@ -277,7 +291,11 @@ class TestElasticemailSource:
         ]
     )
     def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
-        response = _source(endpoint, _make_manager())
+        result = _driver().run(endpoint, [ScriptedResponse(json=[])])
+
+        assert result.raised is None
+        response = result.response
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         assert response.sort_mode == "asc"

@@ -109,10 +109,7 @@ class TestWarehouseUsage(BaseTest):
     def test_prompt_jev_source_reads_are_attributed(self):
         source = self._create_stripe_table()
 
-        with (
-            patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
-            patch("posthog.hogql.query.sync_execute", return_value=([], [("label", "Nullable(String)")])),
-        ):
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("label", "Nullable(String)")])):
             response = execute_hogql_query(
                 "SELECT label FROM (SELECT jev(id, 'Refund?') AS label FROM stripe_table_1 LIMIT 10)",
                 self.team,

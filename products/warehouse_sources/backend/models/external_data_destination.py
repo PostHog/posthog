@@ -28,6 +28,12 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         AZURE_BLOB = "AzureBlob", "Azure Blob"
         S3 = "S3", "S3"
 
+    class Status(models.TextChoices):
+        HEALTHY = "healthy", "Healthy"
+        FAILING = "failing", "Failing"
+        # PostHog turned off every link to this destination after repeated configuration errors.
+        PAUSED = "paused", "Paused"
+
     # `db_constraint=False`: a real FK constraint to the hot `posthog_team` table would
     # take a lock on it while being created. Team scoping is enforced at the app level
     # via `TeamScopedRootMixin`. See products/README.md "Adding or moving backend models
@@ -53,8 +59,26 @@ class ExternalDataDestination(TeamScopedRootMixin, UpdatedMetaFields, DeletedMet
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False, related_name="+"
     )
     created_at = models.DateTimeField(auto_now_add=True)
+    status = models.CharField(
+        max_length=32,
+        choices=Status,
+        default=Status.HEALTHY,
+        db_default=Status.HEALTHY,
+        help_text="Whether the last delivery to this destination worked, failed, or PostHog paused it.",
+    )
+    latest_error = models.TextField(
+        null=True,
+        blank=True,
+        help_text="The last delivery error, in words safe to show the user. Never holds credentials.",
+    )
+    latest_error_at = models.DateTimeField(null=True, blank=True, help_text="When the last delivery error occurred.")
+    consecutive_configuration_failures = models.IntegerField(
+        default=0,
+        db_default=0,
+        help_text="Configuration errors since the last successful delivery. At the threshold, PostHog pauses the destination.",
+    )
 
-    __repr__ = sane_repr("id", "team_id", "type", "name")
+    __repr__ = sane_repr("id", "team_id", "type", "name", "status")
 
     class Meta:
         db_table = "posthog_externaldatadestination"

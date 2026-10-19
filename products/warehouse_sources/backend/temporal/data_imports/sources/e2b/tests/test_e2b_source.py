@@ -1,8 +1,11 @@
 import pytest
-from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.e2b.e2b import (
     INVALID_CREDENTIALS_ERROR,
     NO_ACCESS_ERROR,
@@ -35,21 +38,15 @@ class TestE2BSource:
         schemas = {s.name: s for s in self.source.get_schemas(config, team_id=self.team_id)}
         assert schemas[endpoint].should_sync_default is expected
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(MagicMock(spec=E2BSourceConfig), team_id=self.team_id, names=["templates"])
-        assert [s.name for s in schemas] == ["templates"]
-
     def test_a_table_needing_the_team_id_says_so_instead_of_probing(self) -> None:
         # The per-schema check is the only place a user learns the team ID is missing before the
         # sync fails, and a credential probe cannot tell them anything about it.
         config = E2BSourceConfig(api_key="e2b_test")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.validate_e2b_credentials"
-        ) as probe:
+        with scripted_network([]) as network:
             ok, message = self.source.validate_credentials(config, self.team_id, "team_metrics")
         assert ok is False
         assert message is not None and "team ID" in message
-        probe.assert_not_called()
+        assert network.requests_log == []
 
     @parameterized.expand(
         [
@@ -58,13 +55,14 @@ class TestE2BSource:
             ("no_access", (False, NO_ACCESS_ERROR)),
         ]
     )
-    def test_validate_credentials_delegates_to_transport(self, _name: str, transport_result) -> None:
+    def test_validate_credentials_delegates_to_transport(
+        self, _name: str, transport_result: tuple[bool, str | None]
+    ) -> None:
         config = E2BSourceConfig(api_key="e2b_test")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.validate_e2b_credentials",
-            return_value=transport_result,
-        ):
+        status = 200 if transport_result[0] else 401 if transport_result[1] == INVALID_CREDENTIALS_ERROR else 403
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             assert self.source.validate_credentials(config, self.team_id) == transport_result
+        assert network.requests_log[0].path == "/v2/sandboxes"
 
     @parameterized.expand(
         [
@@ -83,10 +81,7 @@ class TestE2BSource:
         # A probe that can't reach E2B must not brand a possibly-valid key "invalid" and send the user
         # down the credential-reset path — the message has to point at retrying instead.
         config = E2BSourceConfig(api_key="e2b_test")
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.e2b.source.validate_e2b_credentials",
-            side_effect=Exception("upstream 503"),
-        ):
+        with scripted_network([ConnectionResetError("connection reset")]):
             ok, message = self.source.validate_credentials(config, self.team_id)
         assert ok is False
         assert message is not None and "invalid" not in message.lower()

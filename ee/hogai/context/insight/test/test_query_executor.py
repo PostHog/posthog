@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from rest_framework.exceptions import APIException
 
 from posthog.schema import (
@@ -37,10 +37,19 @@ from posthog.schema import (
 )
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import (
+    ExposedHogQLError,
+    NotImplementedError as HogQLNotImplementedError,
+    ParsingError,
+    QueryError,
+    ResolutionError,
+    SyntaxError as HogQLSyntaxError,
+)
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.errors import CHQueryErrorIllegalTypeOfArgument, ExposedCHQueryError, InternalCHQueryError
+from posthog.exceptions import ClickHouseAtCapacity, QueryRanConcurrently
 from posthog.models import Organization, Team, User
 
 from ee.hogai.context.insight.context import InsightContext
@@ -49,10 +58,35 @@ from ee.hogai.context.insight.query_executor import (
     AssistantQueryExecutor,
     execute_and_format_query,
     get_example_prompt,
+    hogql_error_code,
     is_supported_query,
 )
-from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError, MaxToolTransientError
 from ee.hogai.utils.query import validate_assistant_query
+
+
+def _exposed_from(cause: Exception) -> ExposedHogQLError:
+    error = ExposedHogQLError("HogQL error")
+    error.__cause__ = cause
+    return error
+
+
+class TestHogQLErrorCode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unknown_table", QueryError("Unknown table `evnts`."), "hogql_unknown_table"),
+            (
+                "internal_unknown_table_type",
+                ResolutionError("Unknown table type in LazyTableResolver: X"),
+                "hogql_resolution_error",
+            ),
+            ("not_implemented", HogQLNotImplementedError("No support for X"), "hogql_not_implemented"),
+            ("other_internal", ParsingError("Parsing failed"), "hogql_internal_error"),
+            ("not_hogql", ValueError("Unable to resolve field: x"), None),
+        ]
+    )
+    def test_codes_hold_no_caller_input(self, _name: str, error: Exception, expected_code: str | None) -> None:
+        self.assertEqual(hogql_error_code(error), expected_code)
 
 
 class TestSQLResultBudgets(SimpleTestCase):
@@ -294,18 +328,31 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), "API error message")
 
+    @parameterized.expand(
+        [
+            ("outage_without_code", ExposedHogQLError("Warehouse connection failed"), "internal", None),
+            ("unresolved_field", QueryError("Unable to resolve field: plan"), "validation", "hogql_unresolved_field"),
+            ("syntax", HogQLSyntaxError("mismatched input 'FORM'"), "validation", "hogql_syntax_error"),
+            (
+                "wrapped_cause",
+                _exposed_from(QueryError("Unable to resolve field: plan")),
+                "validation",
+                "hogql_unresolved_field",
+            ),
+        ]
+    )
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
-    async def test_run_and_format_query_handles_exposed_hogql_error(self, mock_process_query):
-        """Test handling of ExposedHogQLError"""
-
-        mock_process_query.side_effect = ExposedHogQLError("HogQL error")
-
-        query = AssistantHogQLQuery(query="SELECT invalid")
+    async def test_run_and_format_query_handles_exposed_hogql_error(
+        self, _name, error, expected_type, expected_code, mock_process_query
+    ):
+        mock_process_query.side_effect = error
 
         with self.assertRaises(MaxToolRetryableError) as context:
-            await self.query_runner.arun_and_format_query(query)
+            await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT plan FROM events"))
 
-        self.assertIn("HogQL error", str(context.exception))
+        self.assertEqual(str(context.exception), str(error))
+        self.assertEqual(context.exception.error_type, expected_type)
+        self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
         [
@@ -456,12 +503,13 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         [
             ("validation", "Unknown field: missing_column", None, "Unknown field: missing_column", None),
             ("timeout", "Query timed out", "error", "Query timed out", None),
-            (
+            param(
                 "memory_limit",
                 "Query memory limit exceeded",
                 "clickhouse_memory_limit_exceeded",
                 "Query memory limit exceeded",
                 None,
+                expected_error_type="memory_limit",
             ),
             ("warehouse_connection", "Warehouse connection failed", None, "Warehouse connection failed", None),
             (
@@ -500,6 +548,8 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
         expected_code: str | None,
         mock_get_query_status: Mock,
         mock_process_query: Mock,
+        *,
+        expected_error_type: str = "internal",
     ) -> None:
         mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
 
@@ -521,7 +571,7 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
 
         self.assertEqual(str(context.exception), expected_message)
         self.assertEqual(context.exception.retry_hint, " You may retry with adjusted inputs.")
-        self.assertEqual(context.exception.error_type, "internal")
+        self.assertEqual(context.exception.error_type, expected_error_type)
         self.assertEqual(context.exception.error_code, expected_code)
 
     @parameterized.expand(
@@ -640,6 +690,56 @@ class TestAssistantQueryExecutor(NonAtomicBaseTest):
                 await self.query_runner.arun_and_format_query(AssistantHogQLQuery(query="SELECT 1"))
         self.assertIs(type(context.exception), Exception)
         self.assertEqual(str(context.exception), "There was an unknown error running this query: Query failed")
+
+    @parameterized.expand(
+        [
+            ("at_capacity", "clickhouse_at_capacity", ClickHouseAtCapacity.default_detail, None, "rate_limited"),
+            ("ran_concurrently", "query_ran_concurrently", QueryRanConcurrently.default_detail, None, "api_5xx"),
+            ("concurrency_limit_without_message", "clickhouse_at_capacity", None, None, "rate_limited"),
+            ("direct_capacity", None, ClickHouseAtCapacity.default_detail, ClickHouseAtCapacity(), "rate_limited"),
+            ("direct_shared_failure", None, QueryRanConcurrently.default_detail, QueryRanConcurrently(), "api_5xx"),
+            (
+                "direct_concurrency_limit",
+                None,
+                str(ConcurrencyLimitExceeded()),
+                ConcurrencyLimitExceeded(),
+                "rate_limited",
+            ),
+        ]
+    )
+    @patch("ee.hogai.context.insight.query_executor.process_query_dict")
+    @patch("ee.hogai.context.insight.query_executor.get_query_status")
+    async def test_temporary_query_failures_ask_the_agent_to_wait(
+        self,
+        _name: str,
+        error_code: str | None,
+        error_message: str | None,
+        raised_error: Exception | None,
+        expected_error_type: str,
+        mock_get_query_status: Mock,
+        mock_process_query: Mock,
+    ) -> None:
+        mock_process_query.side_effect = raised_error
+        mock_process_query.return_value = {"query_status": {"id": "test-query-id", "complete": False}}
+        mock_get_query_status.return_value = Mock(
+            model_dump=lambda mode: {
+                "id": "test-query-id",
+                "complete": True,
+                "error": True,
+                "error_message": error_message,
+                "error_code": error_code,
+            }
+        )
+
+        with patch("ee.hogai.context.insight.query_executor.asyncio.sleep"):
+            with self.assertRaises(MaxToolTransientError) as context:
+                await self.query_runner.arun_and_format_query(AssistantTrendsQuery(series=[]))
+
+        self.assertEqual(context.exception.error_type, expected_error_type)
+        self.assertEqual(context.exception.retry_hint, " You may retry this operation once without changes.")
+        self.assertIn(
+            error_message if raised_error is not None else error_message or "too busy", str(context.exception)
+        )
 
     @override_settings(TEST=False)
     @patch("ee.hogai.context.insight.query_executor.process_query_dict")
@@ -987,7 +1087,7 @@ class TestExecuteAndFormatQuery(NonAtomicBaseTest):
         self.assertIn("1_/home|2_/pricing|150|2m 30s", result)
 
 
-class TestValidateAssistantQuery(NonAtomicBaseTest):
+class TestValidateAssistantQuery(SimpleTestCase):
     """Tests for the validate_assistant_query function"""
 
     CLASS_DATA_LEVEL_SETUP = False

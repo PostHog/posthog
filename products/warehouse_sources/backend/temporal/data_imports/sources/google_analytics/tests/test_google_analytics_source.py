@@ -26,11 +26,6 @@ def _config(property_id: str = "123456789", custom_reports: str | None = None) -
     )
 
 
-def test_get_schemas_filters_by_names():
-    schemas = GoogleAnalyticsSource().get_schemas(_config(), team_id=1, names=["website_overview", "events"])
-    assert {s.name for s in schemas} == {"website_overview", "events"}
-
-
 @pytest.mark.parametrize(
     "custom_reports,expected_substring",
     [
@@ -134,10 +129,13 @@ def _http_error(status_code: int, body: str = "") -> requests.HTTPError:
             "allow Google Analytics access",
         ),
         (404, "", "was not found"),
+        (429, "", "couldn't reach Google Analytics"),
         (500, "", "couldn't reach Google Analytics"),
     ],
 )
 def test_validate_credentials_maps_http_errors(status_code, body, expected_substring):
+    # None of these are bugs worth paging error tracking for: the mapped ones are user/upstream
+    # errors with their own message, and 429/5xx are transient and self-resolving.
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
@@ -146,11 +144,15 @@ def test_validate_credentials_maps_http_errors(status_code, body, expected_subst
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
             side_effect=_http_error(status_code, body),
         ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
+        ) as mock_capture,
     ):
         ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
 
     assert ok is False
     assert expected_substring in (message or "")
+    mock_capture.assert_not_called()
 
 
 def test_validate_credentials_maps_token_refresh_error():
@@ -220,7 +222,8 @@ def test_validate_credentials_handles_missing_integration():
     assert "matching query" not in (message or "")
 
 
-def test_validate_credentials_succeeds_when_metadata_readable():
+@pytest.mark.parametrize("property_id", ["123456789", "properties/123456789", "p123456789"])
+def test_validate_credentials_succeeds_when_metadata_readable(property_id):
     with (
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
@@ -228,12 +231,13 @@ def test_validate_credentials_succeeds_when_metadata_readable():
         mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
             return_value={"dimensions": [], "metrics": []},
-        ),
+        ) as get_metadata,
     ):
-        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(property_id), team_id=1)
 
     assert ok is True
     assert message is None
+    assert get_metadata.call_args.args[1] == "123456789"
 
 
 def test_retryable_errors_cover_exhausted_quota_retries():

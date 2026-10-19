@@ -1,9 +1,14 @@
 import json
+from contextlib import nullcontext
+from datetime import UTC, datetime, timedelta
 from ipaddress import ip_address
 
+import time_machine
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache as real_cache
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework.parsers import JSONParser
@@ -11,13 +16,19 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.oauth.cimd import _cache_key, fetch_and_upsert_cimd_application
+from posthog.api.oauth.client_assertion import PRIVATE_KEY_REQUIRED_MESSAGE
 from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
 from posthog.models.oauth import OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.user import User
 
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
-from ee.api.agentic_provisioning.test.base import TEST_PARTNER_CLIENT_SECRET, ProvisioningTestBase, provisioning_config
+from ee.api.agentic_provisioning.test.base import (
+    TEST_PARTNER_CLIENT_SECRET,
+    ProvisioningTestBase,
+    provisioning_config,
+    signing_required,
+)
 
 WIZARD_CLIENT_ID = "test-wizard-client"
 
@@ -314,15 +325,27 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
         assert res.status_code == 401
 
-    # --- can_provision_resources enforcement ---
+    # --- partner config changes apply to tokens minted before them ---
 
-    def test_partner_without_can_provision_resources_rejected(self):
+    @parameterized.expand(
+        [
+            ("cannot_provision_resources", {"can_provision_resources": False}, False, 403),
+            ("grace_ended_without_a_private_key", {}, True, 401),
+            # The Wizard's production shape: a client secret, and no account creation.
+            ("grace_ended_for_a_partner_that_cannot_create_accounts", {"can_create_accounts": False}, True, 200),
+        ]
+    )
+    def test_bearer_after_partner_changes(
+        self, _name: str, change: dict[str, bool], grace_ended: bool, expected_status: int
+    ) -> None:
         token = self._get_bearer_token()
 
-        self.partner.update_provisioning(can_provision_resources=False)
+        if change:
+            self.partner.update_provisioning(**change)
 
-        res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
-        assert res.status_code == 403
+        with signing_required() if grace_ended else nullcontext():
+            res = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token)
+        assert res.status_code == expected_status
 
     # --- CIMD URL-based PKCE identification ---
 
@@ -441,6 +464,115 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         )
         assert res.status_code == 400
         assert "S256" in res.json()["error"]["message"]
+
+
+@override_settings(
+    PROVISIONING_SIGNING_REQUIRED_SINCE=datetime(2026, 10, 15, tzinfo=UTC),
+    PROVISIONING_UNSIGNED_GRACE_UNTIL=datetime(2026, 10, 21, 16, tzinfo=UTC),
+)
+class TestUnsignedProvisioningGrace(ProvisioningTestBase):
+    def _public_partner(
+        self, *, client_id: str = "grace-public-partner", capabilities: dict[str, bool] | None = None
+    ) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id=client_id,
+            name="Grace partner",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://partner.example.com/callback",
+            algorithm="RS256",
+            is_provisioning_partner=True,
+            _provisioning_config=provisioning_config(**(capabilities or {})),
+        )
+
+    def _account_request(self, partner: OAuthApplication, email: str):
+        _, challenge = self._pkce_pair()
+        with patch("ee.api.agentic_provisioning.authentication.capture_auth_event") as capture_auth_event:
+            res = self._post_api(
+                "/api/agentic/provisioning/account_requests",
+                {
+                    "id": f"req_{email}",
+                    "email": email,
+                    "code_challenge": challenge,
+                    "code_challenge_method": "S256",
+                    "client_id": partner.client_id,
+                },
+            )
+        signing = capture_auth_event.call_args.kwargs.get("provisioning_signing") if capture_auth_event.called else None
+        return res, signing
+
+    def _assert_refused(self, res, email: str) -> None:
+        assert res.status_code == 401, res.json()
+        assert res.json()["error"] == {"code": "unauthorized", "message": PRIVATE_KEY_REQUIRED_MESSAGE}
+        assert not User.objects.filter(email=email).exists()
+
+    @parameterized.expand(
+        [
+            ("before_the_cutoff", timedelta(seconds=-1), "unsigned_grace"),
+            ("after_the_cutoff", timedelta(seconds=1), "refused"),
+        ]
+    )
+    def test_partner_that_predates_the_requirement_calls_unsigned_until_the_cutoff(
+        self, name: str, offset: timedelta, expected_signing: str
+    ) -> None:
+        with time_machine.travel(settings.PROVISIONING_SIGNING_REQUIRED_SINCE - timedelta(days=1), tick=False):
+            partner = self._public_partner()
+        email = f"grace-{name}@example.com"
+
+        with time_machine.travel(settings.PROVISIONING_UNSIGNED_GRACE_UNTIL + offset, tick=False):
+            res, signing = self._account_request(partner, email)
+
+        assert signing == expected_signing
+        if expected_signing == "refused":
+            self._assert_refused(res, email)
+        else:
+            assert res.status_code == 200, res.json()
+
+    @parameterized.expand(
+        [
+            ("creates_accounts", {}, 401, "refused"),
+            ("pays_for_customers", {"can_create_accounts": False, "pays_for_customers": True}, 401, "refused"),
+            # Not asked to sign, so it gets past authentication to the capability check.
+            ("neither", {"can_create_accounts": False}, 403, "unsigned_exempt"),
+        ]
+    )
+    def test_partner_created_after_the_requirement_signs_from_its_first_request(
+        self, name: str, capabilities: dict[str, bool], expected_status: int, expected_signing: str
+    ) -> None:
+        email = f"new-partner-{name}@example.com"
+        with time_machine.travel(settings.PROVISIONING_SIGNING_REQUIRED_SINCE + timedelta(hours=1), tick=False):
+            partner = self._public_partner(capabilities=capabilities)
+            res, signing = self._account_request(partner, email)
+
+        assert signing == expected_signing
+        if expected_status == 401:
+            self._assert_refused(res, email)
+        else:
+            assert res.status_code == expected_status, res.json()
+            assert res.json()["error"]["code"] == "forbidden"
+
+    @parameterized.expand(
+        [
+            ("predates_the_requirement", timedelta(days=-1)),
+            ("created_after_the_requirement", timedelta(hours=1)),
+        ]
+    )
+    def test_override_extends_one_partners_grace(self, _name: str, created_relative_to_requirement: timedelta) -> None:
+        created_at = settings.PROVISIONING_SIGNING_REQUIRED_SINCE + created_relative_to_requirement
+        with time_machine.travel(created_at, tick=False):
+            extended = self._public_partner()
+            other = self._public_partner(client_id="grace-other-partner")
+        extended.update_provisioning(
+            unsigned_allowed_until=settings.PROVISIONING_UNSIGNED_GRACE_UNTIL + timedelta(days=7)
+        )
+
+        with time_machine.travel(settings.PROVISIONING_UNSIGNED_GRACE_UNTIL + timedelta(days=1), tick=False):
+            extended_res, extended_signing = self._account_request(extended, "extended@example.com")
+            other_res, _ = self._account_request(other, "other@example.com")
+
+        assert extended_res.status_code == 200, extended_res.json()
+        assert extended_signing == "unsigned_grace"
+        self._assert_refused(other_res, "other@example.com")
 
 
 CIMD_PROV_URL = "https://partner.example.com/.well-known/oauth-client-metadata.json"

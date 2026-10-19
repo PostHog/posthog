@@ -6,21 +6,29 @@ import pytest
 from unittest import mock
 
 import requests
-import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.bing_webmaster_tools import (
     BingWebmasterToolsError,
     _request,
     _stats_row,
-    get_rows,
     parse_site_urls,
     parse_wcf_date,
     select_site_urls,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.settings import BASE_URL
-
-MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.bing_webmaster_tools"
+from products.warehouse_sources.backend.temporal.data_imports.sources.bing_webmaster_tools.source import (
+    BingWebmasterToolsSource,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bingwebmastertools import (
+    BingWebmasterToolsSourceConfig,
+)
 
 _SITES = [
     {
@@ -209,17 +217,15 @@ class TestRequest:
 
 
 class TestGetRows:
-    def setup_method(self):
-        self.logger = structlog.get_logger()
+    def _driver(self) -> SourceDriver:
+        return SourceDriver(BingWebmasterToolsSource(), BingWebmasterToolsSourceConfig(api_key="key"))
 
     def test_sites_rows_keep_only_url_and_verification(self):
         # Ownership-verification tokens must not reach the warehouse.
-        session = _session({"GetUserSites": _response(200, {"d": _SITES})})
+        result = self._driver().run("sites", [ScriptedResponse(json={"d": _SITES})])
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("key", "sites", None, self.logger))
-
-        assert batches == [
+        assert result.raised is None
+        assert result.items == [
             [
                 {"url": "https://example.com/", "is_verified": True},
                 {"url": "http://unverified.example.org", "is_verified": False},
@@ -227,19 +233,18 @@ class TestGetRows:
         ]
 
     def test_stats_fan_out_over_verified_sites_only(self):
-        session = _session(
-            {
-                "GetUserSites": _response(200, {"d": _SITES}),
-                "GetQueryStats": _response(200, {"d": _QUERY_STATS}),
-            }
+        result = self._driver().run(
+            "query_stats",
+            [ScriptedResponse(json={"d": _SITES}), ScriptedResponse(json={"d": _QUERY_STATS})],
         )
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("key", "query_stats", None, self.logger))
-
-        stats_calls = [call for call in session.get.call_args_list if "GetQueryStats" in call.args[0]]
-        assert [call.kwargs["params"]["siteUrl"] for call in stats_calls] == ["https://example.com/"]
-        assert batches == [
+        assert result.raised is None
+        assert result.paths == [
+            "/webmaster/api.svc/json/GetUserSites",
+            "/webmaster/api.svc/json/GetQueryStats",
+        ]
+        assert result.requests[1].param("siteUrl") == "https://example.com/"
+        assert result.items == [
             [
                 {
                     "avg_click_position": 18,
@@ -253,59 +258,139 @@ class TestGetRows:
             ]
         ]
 
-    def test_rows_with_unparseable_dates_are_dropped(self):
-        bad_row = {**_QUERY_STATS[0], "Date": "garbage", "Query": "other"}
-        session = _session(
-            {
-                "GetUserSites": _response(200, {"d": _SITES}),
-                "GetQueryStats": _response(200, {"d": [*_QUERY_STATS, bad_row]}),
-            }
+    def test_page_query_stats_fan_out_over_distinct_top_pages(self):
+        page_stats = [
+            {**_QUERY_STATS[0], "Query": "https://example.com/a"},
+            {**_QUERY_STATS[0], "Query": "https://example.com/a", "Date": "/Date(1316761200000-0700)/"},
+            {**_QUERY_STATS[0], "Query": "https://example.com/b"},
+        ]
+        result = self._driver().run(
+            "page_query_stats",
+            [
+                ScriptedResponse(json={"d": _SITES}),
+                ScriptedResponse(json={"d": page_stats}),
+                ScriptedResponse(json={"d": _QUERY_STATS}),
+                ScriptedResponse(json={"d": []}),
+            ],
         )
 
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
-            batches = list(get_rows("key", "query_stats", None, self.logger))
+        assert result.raised is None
+        assert result.paths == [
+            "/webmaster/api.svc/json/GetUserSites",
+            "/webmaster/api.svc/json/GetPageStats",
+            "/webmaster/api.svc/json/GetPageQueryStats",
+            "/webmaster/api.svc/json/GetPageQueryStats",
+        ]
+        assert [r.param("page") for r in result.requests[2:]] == ['"https://example.com/a"', '"https://example.com/b"']
+        assert [(row["page"], row["query"], row["site_url"]) for row in result.rows] == [
+            ("https://example.com/a", "query", "https://example.com/")
+        ]
 
-        assert [row["query"] for batch in batches for row in batch] == ["query"]
+    def test_link_counts_walk_every_page(self):
+        def links_page(url: str) -> ScriptedResponse:
+            return ScriptedResponse(
+                json={
+                    "d": {
+                        "__type": "LinkCounts:#Microsoft.Bing.Webmaster.Api",
+                        "Links": [{"__type": "LinkCount:#Microsoft.Bing.Webmaster.Api", "Count": 14, "Url": url}],
+                        "TotalPages": 2,
+                    }
+                }
+            )
+
+        result = self._driver().run(
+            "link_counts",
+            [
+                ScriptedResponse(json={"d": _SITES}),
+                links_page("https://example.com/a"),
+                links_page("https://example.com/b"),
+            ],
+        )
+
+        assert result.raised is None
+        assert [r.param("page") for r in result.requests[1:]] == ["0", "1"]
+        assert result.rows == [
+            {"count": 14, "url": "https://example.com/a", "site_url": "https://example.com/"},
+            {"count": 14, "url": "https://example.com/b", "site_url": "https://example.com/"},
+        ]
+
+    def test_crawl_issues_rows_skip_entries_without_url(self):
+        issues = [
+            {
+                "__type": "UrlWithCrawlIssues:#Microsoft.Bing.Webmaster.Api",
+                "HttpCode": 200,
+                "Issues": 32,
+                "Url": "https://example.com/a",
+                "InLinks": 10,
+            },
+            {
+                "__type": "UrlWithCrawlIssues:#Microsoft.Bing.Webmaster.Api",
+                "HttpCode": 404,
+                "Issues": 4,
+                "Url": None,
+                "InLinks": 0,
+            },
+        ]
+        result = self._driver().run(
+            "crawl_issues", [ScriptedResponse(json={"d": _SITES}), ScriptedResponse(json={"d": issues})]
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                "http_code": 200,
+                "issues": 32,
+                "url": "https://example.com/a",
+                "in_links": 10,
+                "site_url": "https://example.com/",
+            }
+        ]
+
+    def test_rows_with_unparseable_dates_are_dropped(self):
+        bad_row = {**_QUERY_STATS[0], "Date": "garbage", "Query": "other"}
+        result = self._driver().run(
+            "query_stats",
+            [ScriptedResponse(json={"d": _SITES}), ScriptedResponse(json={"d": [*_QUERY_STATS, bad_row]})],
+        )
+
+        assert result.raised is None
+        assert [row["query"] for row in result.rows] == ["query"]
 
 
 class TestValidateCredentials:
-    def _validate(self, response: mock.MagicMock, site_urls: str | None = None) -> tuple[bool, str | None]:
-        session = _session({"GetUserSites": response})
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+    def _validate(self, response: ScriptedResponse, site_urls: str | None = None) -> tuple[bool, str | None]:
+        with scripted_network([response]):
             return validate_credentials("key", site_urls)
 
     def test_valid_key_with_verified_site(self):
-        assert self._validate(_response(200, {"d": _SITES})) == (True, None)
+        assert self._validate(ScriptedResponse(json={"d": _SITES})) == (True, None)
 
     def test_invalid_api_key_fault_gives_key_guidance(self):
-        ok, message = self._validate(_response(400, {"ErrorCode": 3, "Message": "InvalidApiKey"}))
+        ok, message = self._validate(ScriptedResponse(status=400, json={"ErrorCode": 3, "Message": "InvalidApiKey"}))
 
         assert ok is False
         assert message is not None and "API access" in message
 
     def test_faultless_400_gives_key_guidance(self):
-        ok, message = self._validate(_response(400, body=None, json_error=True))
+        ok, message = self._validate(ScriptedResponse(status=400, body=b"<html>error</html>"))
 
         assert ok is False
         assert message is not None and "rejected the API key" in message
 
     def test_no_verified_sites_is_actionable(self):
-        ok, message = self._validate(_response(200, {"d": [_SITES[1]]}))
+        ok, message = self._validate(ScriptedResponse(json={"d": [_SITES[1]]}))
 
         assert ok is False
         assert message is not None and "no verified sites" in message
 
     def test_filter_matching_nothing_is_actionable(self):
-        ok, message = self._validate(_response(200, {"d": _SITES}), site_urls="https://other.example.net")
+        ok, message = self._validate(ScriptedResponse(json={"d": _SITES}), site_urls="https://other.example.net")
 
         assert ok is False
         assert message is not None and "not verified sites" in message
 
     def test_unreachable_api(self):
-        session = mock.MagicMock()
-        session.get.side_effect = requests.ConnectionError("boom")
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(always(requests.ConnectionError("boom"))):
             ok, message = validate_credentials("key", None)
 
         assert ok is False

@@ -45,12 +45,15 @@ import {
     logsRecordsBytesExceedPayloadCounter,
     logsRecordsDroppedCounter,
     logsRecordsReceivedCounter,
+    parseMinTimestampHeader,
     parseSizeHeader,
 } from './logs-ingestion-consumer'
 import { compileMetricRules } from './metrics-rules/compile-metric-rules'
 import type { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import type { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
+import type { PatternMessageKeysCache } from './pattern-message-keys-cache'
+import { MAX_RETENTION_DAYS } from './retention/evaluate-retention'
 import { DEFAULT_TRACES_RETENTION_DAYS } from './retention/tracing-config-cache'
 import { compileRuleSet } from './sampling/compile-rules'
 import type { SamplingRulesCache } from './sampling/sampling-rules-cache'
@@ -115,6 +118,8 @@ const createKafkaMessage = async (
             { name: 'instrumentation_scope', type: ['null', 'string'] },
             { name: 'event_name', type: ['null', 'string'] },
             { name: 'attributes', type: ['null', { type: 'map', values: 'string' }] },
+            { name: 'pattern', type: ['null', 'string'], default: null },
+            { name: 'pattern_version', type: ['null', 'int'], default: null },
         ],
     })
 
@@ -171,7 +176,7 @@ const createMultiRecordKafkaMessage = async (
         trace_id: null,
         span_id: null,
         trace_flags: null,
-        timestamp: DateTime.now().toMillis() * 1000,
+        timestamp: logData.timestampMicros ?? DateTime.now().toMillis() * 1000,
         observed_timestamp: DateTime.now().toMillis() * 1000,
         body: JSON.stringify(logData),
         severity_text: logData.level || 'info',
@@ -214,7 +219,11 @@ describe('LogsIngestionConsumer', () => {
         depsPartial: Partial<
             Pick<
                 LogsIngestionConsumerDeps,
-                'samplingRulesCache' | 'metricRulesCache' | 'metricsEmitter' | 'logsTransformer'
+                | 'samplingRulesCache'
+                | 'metricRulesCache'
+                | 'metricsEmitter'
+                | 'logsTransformer'
+                | 'patternMessageKeysCache'
             >
         > = {}
     ) => {
@@ -759,6 +768,17 @@ describe('LogsIngestionConsumer', () => {
         })
     })
 
+    describe('parseMinTimestampHeader', () => {
+        it.each([
+            ['1790000000000000', 1790000000000000],
+            [undefined, undefined],
+            ['', undefined],
+            ['not-a-number', undefined],
+        ])('parses %p as %p', (raw, expected) => {
+            expect(parseMinTimestampHeader(raw)).toEqual(expected)
+        })
+    })
+
     describe('message routing', () => {
         it('should route messages to correct ClickHouse topic', async () => {
             const logData = createLogMessage()
@@ -980,6 +1000,41 @@ describe('LogsIngestionConsumer', () => {
             expect(getProducedKafkaMessages()).toHaveLength(1)
             expect(bytesReceivedSpy).toHaveBeenCalledWith(0)
             expect(recordsReceivedSpy).toHaveBeenCalledWith(0)
+        })
+    })
+
+    describe('backfill gate', () => {
+        it.each([
+            {
+                name: 'refuses a backfill request from a team not on the list',
+                header: true,
+                listed: false,
+                produced: 0,
+            },
+            { name: 'accepts a backfill request from a listed team', header: true, listed: true, produced: 1 },
+            { name: 'leaves live traffic alone', header: false, listed: false, produced: 1 },
+        ])('$name', async ({ header, listed, produced }) => {
+            await consumer.stop()
+            consumer = await createLogsIngestionConsumer(hub, {
+                LOGS_BACKFILL_ENABLED_TEAMS: listed ? String(team.id) : String(team2.id),
+            })
+
+            // The row is recent on purpose: a backfill request can carry rows from the last day.
+            const messages = await createKafkaMessages([createLogMessage()], {
+                token: team.api_token,
+                record_count: '1',
+                ...(header ? { backfill_days: '540' } : {}),
+            })
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch(messages))
+
+            expect(getProducedKafkaMessages().filter((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toHaveLength(produced)
+            if (produced === 0) {
+                expect(logMessageDroppedCounterSpy).toHaveBeenCalledWith(
+                    { reason: 'backfill_not_enabled', team_id: team.id.toString() },
+                    1
+                )
+            }
         })
     })
 
@@ -1522,13 +1577,17 @@ describe('LogsIngestionConsumer', () => {
         })
 
         it.each([
-            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d', byteDays: undefined },
-            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d', byteDays: 500 * 30 },
-            { retentionDays: 90, tierMetric: 'bytes_ingested_retention_90d', byteDays: 500 * 90 },
-            { retentionDays: 45, tierMetric: null, byteDays: 500 * 45 },
+            { retentionDays: 14, tierMetric: 'bytes_ingested_retention_14d', byteDayCounts: [] },
+            { retentionDays: 30, tierMetric: 'bytes_ingested_retention_30d', byteDayCounts: [500 * 30] },
+            {
+                retentionDays: 90,
+                tierMetric: 'bytes_ingested_retention_90d',
+                byteDayCounts: [500 * 30, 500 * 30, 500 * 30],
+            },
+            { retentionDays: 45, tierMetric: null, byteDayCounts: [500 * 30, 500 * 15] },
         ])(
-            'should emit retention_byte_days as $byteDays for $retentionDays days alongside the per-tier metric',
-            async ({ retentionDays, tierMetric, byteDays }) => {
+            'should emit one retention_byte_days row per month for $retentionDays days alongside the per-tier metric',
+            async ({ retentionDays, tierMetric, byteDayCounts }) => {
                 const usageStats = new Map([
                     [
                         team.id,
@@ -1551,7 +1610,10 @@ describe('LogsIngestionConsumer', () => {
                 const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
                 const parsed = messages.map((m) => parseMetricValue(m.value))
 
-                expect(parsed.find((m) => m?.metric_name === 'retention_byte_days')?.count).toBe(byteDays)
+                const byteDayRows = parsed
+                    .filter((m) => m?.metric_name === 'retention_byte_days')
+                    .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+                expect(byteDayRows.map((m) => m.count)).toEqual(byteDayCounts)
 
                 const tierMetrics = parsed.filter((m) => m?.metric_name?.startsWith('bytes_ingested_retention_'))
                 if (tierMetric) {
@@ -1563,6 +1625,73 @@ describe('LogsIngestionConsumer', () => {
                 }
             }
         )
+
+        it('should date each retention_byte_days row at the start of its month', async () => {
+            const usageStats = new Map([
+                [
+                    team.id,
+                    {
+                        bytesReceived: 500,
+                        recordsReceived: 5,
+                        bytesAllowed: 500,
+                        recordsAllowed: 5,
+                        bytesAllowedRecords: 0,
+                        bytesDropped: 0,
+                        recordsDropped: 0,
+                        piiReplacements: 0,
+                        retentionDays: 90,
+                    },
+                ],
+            ])
+            // Mid-hour, so the rows show the truncation to the hour.
+            jest.spyOn(Date, 'now').mockReturnValue(DateTime.fromISO('2025-01-01T05:37:12Z').toMillis())
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const timestamps = getProducedKafkaMessages()
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                .map((m) => parseMetricValue(m.value))
+                .filter((m) => m?.metric_name === 'retention_byte_days')
+                .map((m) => m.timestamp)
+                .sort()
+
+            expect(timestamps).toEqual([
+                '2025-01-01 05:00:00.000',
+                '2025-01-31 05:00:00.000',
+                '2025-03-02 05:00:00.000',
+            ])
+        })
+
+        it('should keep the longest retention within ClickHouse partitions-per-insert limit', async () => {
+            // app_metrics2 is partitioned by month, and ClickHouse fails an insert block that touches
+            // more than 100 partitions by default. One flush at the maximum retention must stay well
+            // under that, with room for the current month and a block that crosses a month boundary.
+            const usageStats = new Map([
+                [
+                    team.id,
+                    {
+                        bytesReceived: 500,
+                        recordsReceived: 5,
+                        bytesAllowed: 500,
+                        recordsAllowed: 5,
+                        bytesAllowedRecords: 0,
+                        bytesDropped: 0,
+                        recordsDropped: 0,
+                        piiReplacements: 0,
+                        retentionDays: MAX_RETENTION_DAYS,
+                    },
+                ],
+            ])
+
+            await consumer['emitUsageMetrics'](usageStats)
+
+            const months = new Set(
+                getProducedKafkaMessages()
+                    .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                    .map((m) => parseMetricValue(m.value)?.timestamp.slice(0, 7))
+            )
+            expect(months.size).toBeLessThanOrEqual(95)
+        })
 
         it('should skip zero-count metrics', async () => {
             const usageStats = new Map([
@@ -1641,13 +1770,14 @@ describe('LogsIngestionConsumer', () => {
 
             const messages = getProducedKafkaMessages().filter((m) => m.topic === KAFKA_APP_METRICS_2)
 
-            // 4 base metrics + per-tier retention + retention_byte_days per team (no dropped) = 12 total.
-            expect(messages).toHaveLength(12)
+            // 4 base metrics + per-tier retention + one retention_byte_days row per 30-day month
+            // (no dropped): 6 for the 30-day team and 8 for the 90-day team.
+            expect(messages).toHaveLength(14)
 
             const team1Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team.id)
             const team2Messages = messages.filter((m) => parseMetricValue(m.value)?.team_id === team2.id)
             expect(team1Messages).toHaveLength(6)
-            expect(team2Messages).toHaveLength(6)
+            expect(team2Messages).toHaveLength(8)
         })
     })
 
@@ -1870,6 +2000,29 @@ describe('LogsIngestionConsumer', () => {
             })
 
             expect(droppedMetrics).toHaveLength(0)
+        })
+
+        it('drops a row already past retention and reports it, when the header says the message can hold one', async () => {
+            const fourHundredDaysAgoMicros = DateTime.now().minus({ days: 400 }).toMillis() * 1000
+            const message = await createMultiRecordKafkaMessage(
+                [{ level: 'info', timestampMicros: fourHundredDaysAgoMicros }],
+                {
+                    token: team.api_token,
+                    bytes_uncompressed: '400',
+                    record_count: '1',
+                    min_timestamp: fourHundredDaysAgoMicros.toString(),
+                }
+            )
+
+            await waitForBackgroundTasks(consumer.processKafkaBatch([message]))
+
+            const produced = getProducedKafkaMessages()
+            expect(produced.some((m) => m.topic === KAFKA_LOGS_CLICKHOUSE)).toBe(false)
+            const expiredMetric = produced
+                .filter((m) => m.topic === KAFKA_APP_METRICS_2)
+                .map((m) => parseMetricValue(m.value))
+                .find((v) => v.metric_name === 'records_dropped_retention_expired' && v.team_id === team.id)
+            expect(expiredMetric?.count).toBe(1)
         })
 
         describe('sampling usage to app_metrics2', () => {
@@ -2605,6 +2758,28 @@ describe('LogsIngestionConsumer', () => {
             } else {
                 expect(bodyKindIncSpy).not.toHaveBeenCalled()
             }
+        })
+
+        it("derives the pattern from the team's message keys, not the defaults", async () => {
+            const patternMessageKeysCache = {
+                getMessageKeys: jest.fn().mockResolvedValue(['log']),
+            } as unknown as PatternMessageKeysCache
+            maskingConsumer = await createLogsIngestionConsumer(
+                hub,
+                { LOGS_PATTERN_MASKING_ENABLED_TEAMS: '*' },
+                { patternMessageKeysCache }
+            )
+            const messages = await createKafkaMessages(
+                [createLogMessage({ message: 'default key wins', log: 'team key wins' })],
+                {
+                    token: team.api_token,
+                }
+            )
+            await waitForBackgroundTasks(maskingConsumer.processKafkaBatch(messages))
+
+            const logsMessages = getProducedKafkaMessages().filter((m) => m.topic === 'clickhouse_logs_test')
+            const [, , records] = await decodeLogRecords(logsMessages[0].value as Buffer)
+            expect(records.map((r) => r.pattern)).toEqual(['team key wins'])
         })
     })
 })

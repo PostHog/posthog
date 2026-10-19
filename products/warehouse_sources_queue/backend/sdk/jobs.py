@@ -157,12 +157,14 @@ class GenericJobAdapter:
         *,
         batches: list[Job],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None:
         await JobsTable.unlock_groups(
             conn,
             lane=self._lane,
             group_keys=sorted({job.group_key for job in batches}),
             owner_token=owner_token,
+            skip_locked=skip_locked,
         )
 
     async def release_all_owned(
@@ -344,6 +346,9 @@ class GenericJobAdapter:
 
     async def observe_queue_gauges(self, conn: psycopg.AsyncConnection[Any]) -> bool:
         return False
+
+    async def release_queue_gauges_slot(self, conn: psycopg.AsyncConnection[Any]) -> None:
+        return
 
     async def should_process_batch(
         self,

@@ -16,12 +16,14 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
-from typing import Any
+from typing import Any, assert_never
 
 import psycopg
 from psycopg.rows import dict_row
 
 from posthog.dataclasses import frozen
+
+from products.warehouse_sources_queue.backend.core.overlap import GroupJobState, OverlapPolicy
 
 JOB_TABLE = "queuejob"
 JOB_STATUS_TABLE = "queuejobstatus"
@@ -193,30 +195,92 @@ _JOB_COLUMNS = (
     "j.payload, j.priority, j.dedup_key, j.latest_state, j.latest_attempt, j.state_changed_at, j.created_at"
 )
 
-# The insert's dedup guard. A partitioned table cannot enforce a unique index
-# that omits the partition key, so live-pair uniqueness is a NOT EXISTS in the
-# same statement: correct under one enqueuer per key (the scheduler is
-# single-flighted; followers are enqueued by the single run finalizer), and a
-# rare concurrent duplicate is bounded — both rows share the dedup_key, so the
-# loser is observable and the handler contract stays idempotent.
-_INSERT_SQL = f"""
+
+# Live jobs, as the overlap policies see them. A job is live while the claim
+# path or a consumer can still move it forward. The claim path ignores
+# 'pending' and 'waiting_retry' rows older than the claim eligibility window,
+# and the recovery sweep reads 'executing' rows inside the partition window.
+# Terminal and superseded jobs are not live. A 'waiting' job is not live
+# either, because the generic claim path never claims it. The state filters
+# match the conditions of the claimable and group-busy partial indexes.
+def _pending_job_predicate(alias: str) -> str:
+    return (
+        f"({alias}.latest_state = 'pending'"
+        f" AND {alias}.created_at > now() - interval '{JOB_CLAIM_ELIGIBILITY_INTERVAL}')"
+    )
+
+
+def _running_job_predicate(alias: str) -> str:
+    return (
+        f"({alias}.latest_state = 'executing'"
+        f" OR ({alias}.latest_state = 'waiting_retry'"
+        f" AND {alias}.created_at > now() - interval '{JOB_CLAIM_ELIGIBILITY_INTERVAL}'))"
+    )
+
+
+def _live_job_predicate(alias: str) -> str:
+    return f"({_pending_job_predicate(alias)} OR {_running_job_predicate(alias)})"
+
+
+def _overlap_blocking_predicate(policy: OverlapPolicy, alias: str) -> str:
+    """The live jobs that make ``overlap_allows`` refuse a new job for ``policy``."""
+    match policy:
+        case OverlapPolicy.SKIP:
+            return _live_job_predicate(alias)
+        case OverlapPolicy.BUFFER_ONE:
+            return _pending_job_predicate(alias)
+        case _:
+            assert_never(policy)
+
+
+def _insert_sql(overlap_policy: OverlapPolicy | None = None) -> str:
+    """Single-job insert with the dedup guard and an optional overlap guard.
+
+    A partitioned table cannot enforce a unique index that omits the partition
+    key, so live-pair uniqueness is a NOT EXISTS in the same statement: correct
+    under one enqueuer per key (the scheduler is single-flighted; followers are
+    enqueued by the single run finalizer), and a rare concurrent duplicate is
+    bounded — both rows share the dedup_key, so the loser is observable and the
+    handler contract stays idempotent. The overlap guard has the same shape and
+    the same single-enqueuer assumption: it refuses the insert while the
+    group's live jobs of this kind block ``overlap_policy``.
+    """
+    overlap_guard = ""
+    if overlap_policy is not None:
+        overlap_guard = f"""
+        AND NOT EXISTS (
+            SELECT 1 FROM {JOB_TABLE} o
+            WHERE o.kind = %(kind)s::varchar
+              AND o.lane = %(lane)s::varchar
+              AND o.group_key = %(group_key)s::varchar
+              AND o.created_at > now() - interval '{JOB_PARTITION_PRUNING_INTERVAL}'
+              AND NOT o.superseded
+              AND {_overlap_blocking_predicate(overlap_policy, "o")}
+        )"""
+    return f"""
     INSERT INTO {JOB_TABLE} (
         id, kind, lane, group_key, team_id, run_id, sequence, payload,
         priority, dedup_key, created_at
     )
     SELECT
-        gen_random_uuid(), %(kind)s::varchar, %(lane)s, %(group_key)s, %(team_id)s, %(run_id)s,
+        gen_random_uuid(), %(kind)s::varchar, %(lane)s::varchar, %(group_key)s::varchar, %(team_id)s, %(run_id)s,
         %(sequence)s, %(payload)s::jsonb, %(priority)s, %(dedup_key)s::varchar, now()
-    WHERE %(dedup_key)s::varchar IS NULL OR NOT EXISTS (
-        SELECT 1 FROM {JOB_TABLE} d
-        WHERE d.kind = %(kind)s::varchar
-          AND d.dedup_key = %(dedup_key)s::varchar
-          AND d.created_at > now() - interval '{JOB_PARTITION_PRUNING_INTERVAL}'
-          AND d.latest_state != 'failed'
-          AND NOT d.superseded
-    )
+    WHERE (
+        %(dedup_key)s::varchar IS NULL OR NOT EXISTS (
+            SELECT 1 FROM {JOB_TABLE} d
+            WHERE d.kind = %(kind)s::varchar
+              AND d.dedup_key = %(dedup_key)s::varchar
+              AND d.created_at > now() - interval '{JOB_PARTITION_PRUNING_INTERVAL}'
+              AND d.latest_state != 'failed'
+              AND NOT d.superseded
+        )
+    ){overlap_guard}
     RETURNING id
 """
+
+
+_INSERT_SQL = _insert_sql()
+_INSERT_WITH_OVERLAP_SQL = {policy: _insert_sql(policy) for policy in OverlapPolicy}
 
 _INSERT_MANY_SQL = f"""
     WITH raw AS (
@@ -334,10 +398,16 @@ class JobsTable:
         sequence: int = 0,
         priority: int = 0,
         dedup_key: str | None = None,
+        overlap_policy: OverlapPolicy | None = None,
     ) -> str | None:
-        """Enqueue one job. Returns the new id, or None when the dedup guard refused it."""
+        """Enqueue one job. Returns the new id, or None when a guard refused it.
+
+        With ``overlap_policy`` set, the check against the group's live jobs of
+        this kind and lane runs in the insert statement, so check and insert are
+        atomic under one enqueuer.
+        """
         cursor = await conn.execute(
-            _INSERT_SQL,
+            _INSERT_SQL if overlap_policy is None else _INSERT_WITH_OVERLAP_SQL[overlap_policy],
             {
                 "kind": kind,
                 "lane": lane,
@@ -381,6 +451,48 @@ class JobsTable:
             cursor = await conn.execute(_INSERT_MANY_SQL, {"jobs": json.dumps(normalized)})
             rows = await cursor.fetchall()
         return [str(row[0]) for row in rows]
+
+    # -- reads (producer side) -----------------------------------------------
+
+    @staticmethod
+    async def get_group_job_states(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        kind: str,
+        lane: str,
+        group_keys: list[str],
+    ) -> dict[str, GroupJobState]:
+        """Live-job state for each of ``group_keys`` in one query.
+
+        Every requested key is in the result; a group with no live job of this
+        kind and lane maps to an empty ``GroupJobState``.
+        """
+        if not group_keys:
+            return {}
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT
+                    j.group_key,
+                    bool_or({_running_job_predicate("j")}) AS has_running,
+                    bool_or({_pending_job_predicate("j")}) AS has_pending
+                FROM {JOB_TABLE} j
+                WHERE j.kind = %(kind)s
+                  AND j.lane = %(lane)s
+                  AND j.group_key = ANY(%(group_keys)s)
+                  AND j.created_at > now() - interval '{JOB_PARTITION_PRUNING_INTERVAL}'
+                  AND NOT j.superseded
+                  AND {_live_job_predicate("j")}
+                GROUP BY j.group_key
+                """,
+                {"kind": kind, "lane": lane, "group_keys": group_keys},
+            )
+            rows = await cur.fetchall()
+        live = {
+            str(group_key): GroupJobState(has_running=bool(has_running), has_pending=bool(has_pending))
+            for group_key, has_running, has_pending in rows
+        }
+        return {group_key: live.get(group_key, GroupJobState()) for group_key in group_keys}
 
     # -- reads (consumer side) -----------------------------------------------
 
@@ -626,16 +738,36 @@ class JobsTable:
         lane: str,
         group_keys: list[str],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None:
-        """Hand groups back when their work finishes (drop this owner's leases)."""
+        """Hand groups back when their work finishes (drop this owner's leases).
+
+        ``skip_locked`` leaves a lease row that another statement holds in place
+        (it expires after its TTL) instead of waiting on it.
+        """
         if not group_keys:
+            return
+        params = {"lane": lane, "group_keys": group_keys, "owner": owner_token}
+        if skip_locked:
+            await conn.execute(
+                f"""
+                DELETE FROM {JOB_LEASE_TABLE}
+                WHERE id IN (
+                    SELECT id FROM {JOB_LEASE_TABLE}
+                    WHERE lane = %(lane)s AND group_key = ANY(%(group_keys)s) AND owner_token = %(owner)s
+                    ORDER BY group_key
+                    FOR UPDATE SKIP LOCKED
+                )
+                """,
+                params,
+            )
             return
         await conn.execute(
             f"""
             DELETE FROM {JOB_LEASE_TABLE}
             WHERE lane = %(lane)s AND group_key = ANY(%(group_keys)s) AND owner_token = %(owner)s
             """,
-            {"lane": lane, "group_keys": group_keys, "owner": owner_token},
+            params,
         )
 
     @staticmethod

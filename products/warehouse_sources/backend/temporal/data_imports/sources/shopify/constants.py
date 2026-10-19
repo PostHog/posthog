@@ -45,8 +45,13 @@ PRODUCTS = "products"
 SHOP = "shop"
 SUBSCRIPTION_CONTRACTS = "subscriptionContracts"
 
-# graphql will reject the orders endpoint query for "complexity cost" if the page size is above ~35
-SHOPIFY_PAGE_SIZE_OVERRIDES = {ORDERS: 20}
+# Shopify rejects a query whose requested cost is above 1000 points, and the cost grows with the
+# page size. An object listed here starts at a page size that is known to fit. The request layer
+# then grows the page from the cost Shopify reports.
+SHOPIFY_COST_LIMITED_START_PAGE_SIZES = {ORDERS: 20}
+SHOPIFY_MAX_QUERY_COST = 1000
+# The largest `first` Shopify accepts on a connection.
+SHOPIFY_MAX_PAGE_SIZE = 250
 
 
 # NOTE: some of the permissions queries may seem random. not every field on a given graphql object

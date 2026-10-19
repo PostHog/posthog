@@ -1,0 +1,241 @@
+{
+    "name": "HTTP server",
+    "description": "Latency and in-flight requests of HTTP servers that report OpenTelemetry semantic conventions.",
+    "panels": [
+        {
+            "key": "p50",
+            "title": "p50 latency",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.request.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.5
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "s",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "p95",
+            "title": "p95 latency",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.request.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.95
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "s",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 3,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "p99",
+            "title": "p99 latency",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.request.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.99
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "unit": "s",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "active",
+            "title": "Active requests",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.active_requests",
+                        "aggregation": "sum"
+                    }
+                ],
+                "display": {
+                    "type": "stat",
+                    "reduce": "last"
+                }
+            },
+            "layout": {
+                "x": 9,
+                "y": 0,
+                "w": 3,
+                "h": 2
+            }
+        },
+        {
+            "key": "p95_by_route",
+            "title": "p95 latency by route",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.request.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.95,
+                        "groupBy": [
+                            {
+                                "key": "http.route"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "p95_by_service",
+            "title": "p95 latency by service",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.request.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.95,
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "s"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 2,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "p95_by_status",
+            "title": "p95 latency by status code",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.request.duration",
+                        "aggregation": "histogram_quantile",
+                        "quantile": 0.95,
+                        "groupBy": [
+                            {
+                                "key": "http.response.status_code"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line",
+                    "unit": "s"
+                }
+            },
+            "layout": {
+                "x": 0,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "active_by_service",
+            "title": "Active requests by service",
+            "query": {
+                "kind": "MetricsQuery",
+                "clauses": [
+                    {
+                        "name": "a",
+                        "metricName": "http.server.active_requests",
+                        "aggregation": "sum",
+                        "groupBy": [
+                            {
+                                "key": "service_name"
+                            }
+                        ]
+                    }
+                ],
+                "display": {
+                    "type": "line"
+                }
+            },
+            "layout": {
+                "x": 6,
+                "y": 6,
+                "w": 6,
+                "h": 4
+            }
+        },
+        {
+            "key": "latency_distribution",
+            "title": "Latency distribution",
+            "query": {
+                "kind": "MetricsHistogramQuery",
+                "metricName": "http.server.request.duration",
+                "unit": "s"
+            },
+            "layout": {
+                "x": 0,
+                "y": 10,
+                "w": 12,
+                "h": 5
+            }
+        }
+    ]
+}

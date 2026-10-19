@@ -14,6 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mercadopago import (
     MercadoPagoSourceConfig,
@@ -25,6 +30,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mercado_pa
 
 TOKEN = "fake-mercado-pago-token"
 NOW = datetime(2026, 6, 15, 12, tzinfo=UTC)
+
+
+def _driver() -> SourceDriver:
+    return SourceDriver(MercadoPagoSource(), MercadoPagoSourceConfig(access_token=TOKEN))
 
 
 @pytest.fixture
@@ -106,37 +115,36 @@ def test_requests_and_pagination(
         (True, "2020-01-01T00:00:00Z", None),
     ],
 )
-@responses.activate
 def test_payment_time_filters(
-    inputs: SourceInputs,
-    manager: MagicMock,
     incremental: bool,
     cursor: str | datetime | None,
     expected_begin: datetime | None,
 ) -> None:
-    inputs.should_use_incremental_field = incremental
-    inputs.db_incremental_field_last_value = cursor
-    responses.get("https://api.mercadopago.com/v1/payments/search", json={"results": [], "paging": {"total": 0}})
     with time_machine.travel(NOW, tick=False):
-        source = MercadoPagoSource().source_for_pipeline(MercadoPagoSourceConfig(access_token=TOKEN), manager, inputs)
-        list(cast(Iterable[Any], source.items()))
-    query = parse_qs(urlsplit(responses.calls[0].request.url).query)
-    begin = datetime.fromisoformat(query["begin_date"][0])
+        result = _driver().run(
+            "payments",
+            [ScriptedResponse(json={"results": [], "paging": {"total": 0}})],
+            should_use_incremental_field=incremental,
+            db_incremental_field_last_value=cursor,
+        )
+    assert result.raised is None
+    assert result.rows == []
+    assert len(result.requests) == 1
+    request = result.requests[0]
+    begin = datetime.fromisoformat(request.param("begin_date") or "")
     assert begin == (expected_begin or NOW - timedelta(days=365) + timedelta(milliseconds=1))
-    assert datetime.fromisoformat(query["end_date"][0]) == NOW
-    assert query["range"] == ["date_last_updated" if incremental else "date_created"]
-    assert query["sort"] == ["date_last_updated" if incremental else "date_created"]
-    assert query["criteria"] == [source.sort_mode] == ["asc"]
-    assert source.partition_keys == ["date_created"]
-    manager.save_state.assert_not_called()
+    assert datetime.fromisoformat(request.param("end_date") or "") == NOW
+    assert request.param("range") == ("date_last_updated" if incremental else "date_created")
+    assert request.param("sort") == ("date_last_updated" if incremental else "date_created")
+    assert result.response is not None
+    assert request.param("criteria") == result.response.sort_mode == "asc"
+    assert result.response.partition_keys == ["date_created"]
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize("name", ["payments", "subscriptions", "subscription_plans"])
-@responses.activate
-def test_resume_keeps_offset_and_payment_window(inputs: SourceInputs, manager: MagicMock, name: str) -> None:
-    inputs.schema_name = name
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = MercadoPagoResumeConfig(
+def test_resume_keeps_offset_and_payment_window(name: str) -> None:
+    resume_state = MercadoPagoResumeConfig(
         offset=20, begin_date="2026-06-01T00:00:00.000+00:00", end_date="2026-06-02T00:00:00.000+00:00"
     )
     paths = {
@@ -144,52 +152,52 @@ def test_resume_keeps_offset_and_payment_window(inputs: SourceInputs, manager: M
         "subscriptions": "/preapproval/search",
         "subscription_plans": "/preapproval_plan/search",
     }
-    responses.get(
-        "https://api.mercadopago.com" + paths[name], json={"results": [{"id": "last"}], "paging": {"total": 21}}
-    )
     with time_machine.travel(NOW, tick=False):
-        source = MercadoPagoSource().source_for_pipeline(MercadoPagoSourceConfig(access_token=TOKEN), manager, inputs)
-        assert list(cast(Iterable[Any], source.items())) == [[{"id": "last"}]]
-    query = parse_qs(urlsplit(responses.calls[0].request.url).query)
-    assert query["offset"] == ["20"]
+        result = _driver().run(
+            name,
+            [ScriptedResponse(json={"results": [{"id": "last"}], "paging": {"total": 21}})],
+            resume_state=resume_state,
+        )
+    assert result.raised is None
+    assert result.items == [[{"id": "last"}]]
+    assert result.paths == [paths[name]]
+    assert result.params("offset") == ["20"]
     if name == "payments":
-        assert query["begin_date"] == ["2026-06-01T00:00:00.000+00:00"]
-        assert query["end_date"] == ["2026-06-02T00:00:00.000+00:00"]
-    manager.save_state.assert_not_called()
+        assert result.params("begin_date") == ["2026-06-01T00:00:00.000+00:00"]
+        assert result.params("end_date") == ["2026-06-02T00:00:00.000+00:00"]
+    assert result.saved_states == []
 
 
 @pytest.mark.parametrize("status", [401, 403])
-@responses.activate
-def test_auth_errors_are_actionable(inputs: SourceInputs, manager: MagicMock, status: int) -> None:
-    responses.get("https://api.mercadopago.com/v1/payments/search", status=status, json={"error": "unauthorized"})
+def test_auth_errors_are_actionable(status: int) -> None:
     source = MercadoPagoSource()
     config = MercadoPagoSourceConfig(access_token=TOKEN)
-    valid, message = source.validate_credentials(config, team_id=1)
+    answer = ScriptedResponse(status=status, json={"error": "unauthorized"})
+    with scripted_network([answer]) as network:
+        valid, message = source.validate_credentials(config, team_id=1)
     assert valid is False
     assert message is not None and "access token" in message
-    response = source.source_for_pipeline(config, manager, inputs)
-    with pytest.raises(HTTPError) as error:
-        list(cast(Iterable[Any], response.items()))
+    result = _driver().run("payments", [answer])
+    assert isinstance(result.raised, HTTPError)
     assert any(
-        pattern in str(error.value) and mapped == message
+        pattern in str(result.raised) and mapped == message
         for pattern, mapped in source.get_non_retryable_errors().items()
     )
-    assert len(responses.calls) == 2
+    assert len(network.requests_log) + len(result.requests) == 2
 
 
 @pytest.mark.parametrize("status", [200, 400, 429, 503])
-@responses.activate
 def test_credential_validation_uses_one_request(status: int) -> None:
     body: dict[str, Any] = {"results": [], "paging": {"total": 0}} if status == 200 else {"error": "test_error"}
-    responses.get("https://api.mercadopago.com/v1/payments/search", status=status, json=body)
     source = MercadoPagoSource()
     config = MercadoPagoSourceConfig(access_token=TOKEN)
-    if status == 200:
-        assert source.validate_credentials(config, team_id=1) == (True, None)
-    else:
-        with pytest.raises(RESTClientRetryableError if status >= 429 else HTTPError):
-            source.validate_credentials(config, team_id=1)
-    assert len(responses.calls) == 1
-    request = responses.calls[0].request
-    assert request.headers["Authorization"] == f"Bearer {TOKEN}"
-    assert parse_qs(urlsplit(request.url).query) == {"limit": ["1"]}
+    with scripted_network([ScriptedResponse(status=status, json=body)]) as network:
+        if status == 200:
+            assert source.validate_credentials(config, team_id=1) == (True, None)
+        else:
+            with pytest.raises(RESTClientRetryableError if status >= 429 else HTTPError):
+                source.validate_credentials(config, team_id=1)
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
+    assert request.headers["authorization"] == f"Bearer {TOKEN}"
+    assert request.query == {"limit": ("1",)}

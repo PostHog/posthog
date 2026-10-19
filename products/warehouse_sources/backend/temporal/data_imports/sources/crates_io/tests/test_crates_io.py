@@ -7,17 +7,27 @@ from unittest import mock
 import requests
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.crates_io import (
     CRATES_IO_BASE_URL,
     EXTRA_DOWNLOADS_VERSION_ID,
     MAX_CRATES,
     MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES,
+    MAX_VERSIONS_PER_CRATE_FOR_VERSION_DOWNLOADS,
     CratesIORetryableError,
     _fetch_json,
     crates_io_source,
-    get_rows,
     parse_crates,
     validate_credentials,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.source import CratesIOSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cratesio import (
+    CratesIOSourceConfig,
 )
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.crates_io.crates_io"
@@ -91,6 +101,10 @@ def _downloads_document() -> dict[str, Any]:
     }
 
 
+def _driver(crates: str = "serde") -> SourceDriver:
+    return SourceDriver(CratesIOSource(), CratesIOSourceConfig(crates=crates))
+
+
 class TestParseCrates:
     @pytest.mark.parametrize("raw", [None, "", "   \n  ", " , , "])
     def test_empty_raises(self, raw):
@@ -135,63 +149,65 @@ class TestValidateCredentials:
         [
             (200, True),
             (404, False),
+            (403, False),
             (500, False),
         ],
     )
     def test_status_mapping(self, status, expected_valid):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(status)
-
+        with scripted_network([ScriptedResponse(status=status)]) as network:
             is_valid, _ = validate_credentials("serde")
 
         assert is_valid is expected_valid
+        assert network.requests_log[0].path == "/api/v1/crates/serde"
 
     def test_empty_crates_is_invalid_without_request(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+        with scripted_network([]) as network:
             is_valid, message = validate_credentials("")
 
         assert is_valid is False
         assert message is not None
-        mock_session.return_value.get.assert_not_called()
+        assert network.requests_log == []
 
     def test_network_error_is_invalid(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = Exception("boom")
-
+        with scripted_network(always(ConnectionError("boom"))) as network:
             is_valid, message = validate_credentials("serde")
 
         assert is_valid is False
         assert message is not None
+        assert {request.path for request in network.requests_log} == {"/api/v1/crates/serde"}
 
 
 class TestGetRows:
     def test_crates_yields_a_batch_per_crate_and_skips_404(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _crate_detail("serde")),
-                _response(404),
-                _response(200, _crate_detail("tokio")),
-            ]
-
-            batches = list(get_rows("crates", ["serde", "nope", "tokio"], structlog.get_logger()))
+        result = _driver("serde\nnope\ntokio").run(
+            "crates",
+            [
+                ScriptedResponse(json=_crate_detail("serde")),
+                ScriptedResponse(status=404),
+                ScriptedResponse(json=_crate_detail("tokio")),
+            ],
+        )
 
         # The 404 crate is skipped, so only two batches come back.
-        assert len(batches) == 2
-        assert batches[0][0]["id"] == "serde"
-        assert batches[1][0]["id"] == "tokio"
+        assert result.raised is None
+        assert len(result.items) == 2
+        assert result.items[0][0]["id"] == "serde"
+        assert result.items[1][0]["id"] == "tokio"
+        assert result.paths == ["/api/v1/crates/serde", "/api/v1/crates/nope", "/api/v1/crates/tokio"]
 
     def test_downloads_stamps_canonical_crate_and_sentinel_version(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
+        result = _driver("serde-json").run(
+            "downloads",
+            [
                 # The canonical id (`serde_json`) differs from the user's spelling (`serde-json`);
                 # rows must be keyed on the canonical form so joins with `crates`/`versions` align.
-                _response(200, _crate_detail("serde_json")),
-                _response(200, _downloads_document()),
-            ]
+                ScriptedResponse(json=_crate_detail("serde_json")),
+                ScriptedResponse(json=_downloads_document()),
+            ],
+        )
 
-            batches = list(get_rows("downloads", ["serde-json"], structlog.get_logger()))
-
-        rows = [row for batch in batches for row in batch]
+        assert result.raised is None
+        rows = result.rows
         # The malformed entry without a `date` (a primary key component) is dropped.
         assert len(rows) == 3
         assert all(row["crate"] == "serde_json" for row in rows)
@@ -201,31 +217,31 @@ class TestGetRows:
         assert [(row["date"], row["downloads"]) for row in extra_rows] == [("2026-07-01", 526826)]
 
     def test_owners_stamps_canonical_crate(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _crate_detail("serde")),
-                _response(200, {"users": [{"id": 3618, "login": "dtolnay", "kind": "user"}]}),
-            ]
+        result = _driver().run(
+            "owners",
+            [
+                ScriptedResponse(json=_crate_detail("serde")),
+                ScriptedResponse(json={"users": [{"id": 3618, "login": "dtolnay", "kind": "user"}]}),
+            ],
+        )
 
-            batches = list(get_rows("owners", ["serde"], structlog.get_logger()))
-
-        assert batches == [[{"id": 3618, "login": "dtolnay", "kind": "user", "crate": "serde"}]]
+        assert result.raised is None
+        assert result.items == [[{"id": 3618, "login": "dtolnay", "kind": "user", "crate": "serde"}]]
 
     def test_dependencies_stamps_parent_crate_and_version(self):
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, _versions_page(["1.0.1", "1.0.0"], next_page=None)),
-                _response(200, _dependencies_document(1, ["serde_derive"])),
-                _response(404),
-            ]
-
-            batches = list(get_rows("dependencies", ["serde"], structlog.get_logger()))
-
-            urls = [call[0][0] for call in mock_session.return_value.get.call_args_list]
+        result = _driver().run(
+            "dependencies",
+            [
+                ScriptedResponse(json=_versions_page(["1.0.1", "1.0.0"], next_page=None)),
+                ScriptedResponse(json=_dependencies_document(1, ["serde_derive"])),
+                ScriptedResponse(status=404),
+            ],
+        )
 
         # The endpoint's own `crate_id` names the crate being depended on, so the declaring crate
         # and version only exist on the row because the connector stamps them.
-        assert [row for batch in batches for row in batch] == [
+        assert result.raised is None
+        assert result.rows == [
             {
                 "id": 100,
                 "version_id": 1,
@@ -237,13 +253,46 @@ class TestGetRows:
         ]
         # Only the most recently published versions are walked, so the version list must be capped
         # and date-sorted. Sorting by semver would drop a backport released onto an older line.
-        assert urls[0] == (
+        assert result.urls[0] == (
             f"{CRATES_IO_BASE_URL}/crates/serde/versions?per_page={MAX_VERSIONS_PER_CRATE_FOR_DEPENDENCIES}&sort=date"
         )
         # A version whose dependencies 404 is skipped rather than failing the crate.
-        assert urls[1:] == [
+        assert result.urls[1:] == [
             f"{CRATES_IO_BASE_URL}/crates/serde/1.0.1/dependencies",
             f"{CRATES_IO_BASE_URL}/crates/serde/1.0.0/dependencies",
+        ]
+
+    def test_version_downloads_stamps_crate_and_version_num(self):
+        result = _driver("serde-json").run(
+            "version_downloads",
+            [
+                ScriptedResponse(json=_versions_page(["1.0.1", "1.0.0", "0.9.0"], next_page=None)),
+                ScriptedResponse(
+                    json={
+                        "version_downloads": [
+                            {"version": 1, "downloads": 40, "date": "2026-07-01"},
+                            {"version": 1, "downloads": 7, "date": ""},
+                            {"downloads": 9, "date": "2026-07-02"},
+                        ]
+                    }
+                ),
+                ScriptedResponse(status=404),
+                ScriptedResponse(json={"version_downloads": []}),
+            ],
+        )
+
+        # The endpoint returns only the numeric version id, so the crate and version number exist on
+        # the row only because the connector stamps them. Rows missing a primary key part are dropped.
+        assert result.raised is None
+        assert result.rows == [
+            {"version": 1, "downloads": 40, "date": "2026-07-01", "crate": "serde", "version_num": "1.0.1"}
+        ]
+        assert result.urls == [
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/versions?per_page={MAX_VERSIONS_PER_CRATE_FOR_VERSION_DOWNLOADS}&sort=date",
+            # A version whose downloads 404 is skipped rather than failing the crate.
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/1.0.1/downloads",
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/1.0.0/downloads",
+            f"{CRATES_IO_BASE_URL}/crates/serde-json/0.9.0/downloads",
         ]
 
     def test_reverse_dependencies_joins_the_dependent_version(self):
@@ -255,12 +304,10 @@ class TestGetRows:
             "versions": [{"id": 900, "crate": "tauri-plugin-posthog", "num": "0.2.4"}],
             "meta": {"total": 2},
         }
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [_response(200, document)]
+        result = _driver("posthog-rs").run("reverse_dependencies", [ScriptedResponse(json=document)])
 
-            batches = list(get_rows("reverse_dependencies", ["posthog-rs"], structlog.get_logger()))
-
-        rows = [row for batch in batches for row in batch]
+        assert result.raised is None
+        rows = result.rows
         # Without the join a row identifies its dependent only by a numeric version id.
         assert (rows[0]["crate"], rows[0]["dependent_crate"], rows[0]["dependent_version_num"]) == (
             "posthog-rs",
@@ -275,47 +322,47 @@ class TestGetRows:
         # with tens of thousands of reverse dependencies must not walk the list unbounded.
         monkeypatch.setattr(f"{MODULE}.LIST_PER_PAGE", 1)
         monkeypatch.setattr(f"{MODULE}.MAX_REVERSE_DEPENDENCY_PAGES", 3)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(200, {"dependencies": [{"id": 1}], "versions": []})
+        result = _driver().run(
+            "reverse_dependencies",
+            [ScriptedResponse(json={"dependencies": [{"id": 1}], "versions": []}) for _ in range(3)],
+        )
 
-            batches = list(get_rows("reverse_dependencies", ["serde"], structlog.get_logger()))
-
-            request_count = mock_session.return_value.get.call_count
-
-        assert request_count == 3
-        assert len([row for batch in batches for row in batch]) == 3
+        assert result.raised is None
+        assert len(result.requests) == 3
+        assert len(result.rows) == 3
 
     @pytest.mark.parametrize("endpoint", ["categories", "keywords"])
     def test_registry_wide_lookups_are_walked_once(self, endpoint, monkeypatch):
         monkeypatch.setattr(f"{MODULE}.LIST_PER_PAGE", 2)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.side_effect = [
-                _response(200, {endpoint: [{"id": "a"}, {"id": "b"}]}),
-                _response(200, {endpoint: [{"id": "c"}]}),
-            ]
+        result = _driver("serde\ntokio").run(
+            endpoint,
+            [
+                ScriptedResponse(json={endpoint: [{"id": "a"}, {"id": "b"}]}),
+                ScriptedResponse(json={endpoint: [{"id": "c"}]}),
+            ],
+        )
 
-            batches = list(get_rows(endpoint, ["serde", "tokio"], structlog.get_logger()))
-
-            urls = [call[0][0] for call in mock_session.return_value.get.call_args_list]
-
-        assert [row["id"] for batch in batches for row in batch] == ["a", "b", "c"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["a", "b", "c"]
         # These tables cover the whole registry, so two configured crates must not walk them twice.
         base = f"{CRATES_IO_BASE_URL}/{endpoint}"
-        assert urls == [f"{base}?sort=alpha&per_page=2&page=1", f"{base}?sort=alpha&per_page=2&page=2"]
+        assert result.urls == [
+            f"{base}?sort=alpha&per_page=2&page=1",
+            f"{base}?sort=alpha&per_page=2&page=2",
+        ]
 
     def test_chunks_large_version_history(self, monkeypatch):
         # A crate with a large version history must not be yielded as one oversized list; it's
         # split into bounded chunks so downstream Arrow conversion stays capped.
         monkeypatch.setattr(f"{MODULE}.MAX_ROWS_PER_BATCH", 2)
-        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
-            mock_session.return_value.get.return_value = _response(
-                200, _versions_page(["1.0.2", "1.0.1", "1.0.0"], next_page=None)
-            )
-
-            batches = list(get_rows("versions", ["serde"], structlog.get_logger()))
+        result = _driver().run(
+            "versions",
+            [ScriptedResponse(json=_versions_page(["1.0.2", "1.0.1", "1.0.0"], next_page=None))],
+        )
 
         # Three versions at 2 rows per chunk is [2, 1].
-        assert [len(b) for b in batches] == [2, 1]
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [2, 1]
 
 
 class TestCratesIOSourceResponse:

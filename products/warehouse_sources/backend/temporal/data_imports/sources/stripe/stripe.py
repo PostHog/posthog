@@ -91,6 +91,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.custom import (
     ClientFactory,
+    CreditNoteListWithAllLines,
     InvoiceListWithAllLines,
     RateLimitCallback,
 )
@@ -350,6 +351,27 @@ def _call_stripe(method: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
         raise
 
 
+def _iter_cleaning_errors(objects: Iterable[Any]) -> Iterator[Any]:
+    """Iterate a Stripe listing and clean errors raised while it pages, as `_call_stripe` does.
+
+    A listing wrapper such as `InvoiceListWithAllLines` makes its first request only when it is
+    iterated, so `_call_stripe` around the method call never sees that request's error.
+    """
+    iterator = iter(objects)
+    try:
+        while True:
+            try:
+                obj = _call_stripe(next, iterator)
+            except StopIteration:
+                return
+            yield obj
+    finally:
+        # Close the inner generator now, so a listing wrapper shuts down its thread pool.
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            close()
+
+
 def _is_stripe_resource_missing_error(error: stripe_lib.StripeError) -> bool:
     """True for Stripe's ``resource_missing`` 404 — e.g. a customer deleted between when we
     listed it and when we fetched its nested resources. The object is genuinely gone, so the
@@ -474,9 +496,9 @@ def _customer_might_have_balance_transactions(customer: dict[str, Any]) -> bool:
     (one call each, almost all empty) into a handful of calls.
 
     Tradeoff: a customer whose balance was credited and then fully consumed back to 0 has ledger
-    entries but a 0 balance, so we won't fetch their history. This is rare and an accepted cost of
-    avoiding the per-customer fan-out. A missing ``balance`` (unexpected payload shape) is treated as
-    "might have" so we never silently drop data."""
+    entries but a 0 balance, so we won't fetch their history. The `balance_history_all_customers`
+    source setting turns this skip off for accounts where that history matters. A missing ``balance``
+    (unexpected payload shape) is treated as "might have" so we never silently drop data."""
     balance = customer.get("balance")
     return balance is None or balance != 0
 
@@ -726,6 +748,7 @@ def _build_resources(
     client: StripeClient,
     logger: Optional[FilteringBoundLogger] = None,
     client_factory: Optional[ClientFactory] = None,
+    include_zero_balance_customers: bool = False,
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
     """Single source of truth for the resources we sync from Stripe and how they relate.
 
@@ -733,8 +756,8 @@ def _build_resources(
     checks). Nested resources carry their parent on `.parent`, so callers can derive the
     nested→parent linkage without restating it elsewhere.
 
-    `logger` and `client_factory` are only consumed by InvoiceListWithAllLines; pass None when the
-    caller doesn't need the wrapped invoice expansion (e.g. validation, which just probes the list
+    `logger` and `client_factory` are only consumed by the invoice and credit note line expansion;
+    pass None when the caller doesn't need it (e.g. validation, which just probes the list
     endpoint). The factory gives each of its worker threads a client of its own.
     """
     return {
@@ -770,7 +793,13 @@ def _build_resources(
                 "expand": ["data.discounts", "data.items.data.discounts"],
             },
         ),
-        CREDIT_NOTE_RESOURCE_NAME: StripeResource(method=client.credit_notes.list),
+        CREDIT_NOTE_RESOURCE_NAME: StripeResource(
+            method=(
+                (lambda params: CreditNoteListWithAllLines(params, logger, client_factory=client_factory))  # type: ignore
+                if logger is not None and client_factory is not None
+                else client.credit_notes.list
+            )
+        ),
         COUPON_RESOURCE_NAME: StripeResource(method=client.coupons.list),
         # The one nested resource that reads its parent from the warehouse. Its skip predicate
         # answers from the parent row itself, so a run is dominated by paging the customer
@@ -781,7 +810,7 @@ def _build_resources(
             parent_id="id",
             parent=StripeResource(method=client.customers.list),
             parent_name=CUSTOMER_RESOURCE_NAME,
-            parent_has_nested=_customer_might_have_balance_transactions,
+            parent_has_nested=None if include_zero_balance_customers else _customer_might_have_balance_transactions,
         ),
         # Stays on the parent API: one child call per customer with no skip signal, so the
         # listing is a small fraction of the run and reusing the parent table saves ~nothing.
@@ -894,6 +923,7 @@ def get_rows(
     api_version: str,
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
+    include_zero_balance_customers: bool = False,
 ):
     def new_client(on_rate_limited: Optional[RateLimitCallback] = None) -> StripeClient:
         return StripeClient(
@@ -907,7 +937,12 @@ def get_rows(
 
     client = new_client()
     default_params = {"limit": DEFAULT_LIMIT}
-    resources = _build_resources(client, logger=logger, client_factory=new_client)
+    resources = _build_resources(
+        client,
+        logger=logger,
+        client_factory=new_client,
+        include_zero_balance_customers=include_zero_balance_customers,
+    )
 
     batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
@@ -1097,18 +1132,38 @@ def get_rows(
                     f"Stripe: skipped {skipped_parents} {resource.nested_parent_param}(s) with no nested data, saving that many API calls"
                 )
         else:
-            stripe_objects = _call_stripe(
-                resource.method, params={**default_params, **resource.params, **resume_params}
-            )
-            for obj in stripe_objects.auto_paging_iter():
-                batcher.batch(_scrub_client_secrets(obj))
 
-                while batcher.should_yield():
-                    py_table = batcher.get_table()
-                    # Staged before the yield, so the commit that follows this table's write covers it.
-                    last_cur = py_table.column("id")[-1].as_py()
-                    resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
-                    yield py_table
+            def _list_resource(params: dict[str, Any]) -> Any:
+                return _iter_cleaning_errors(_call_stripe(resource.method, params=params).auto_paging_iter())
+
+            list_params = {**default_params, **resource.params, **resume_params}
+            cursor_restarted = False
+            while True:
+                try:
+                    for obj in _list_resource(list_params):
+                        batcher.batch(_scrub_client_secrets(obj))
+
+                        while batcher.should_yield():
+                            py_table = batcher.get_table()
+                            # Staged before the yield, so the commit that follows this table's write covers it.
+                            last_cur = py_table.column("id")[-1].as_py()
+                            resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
+                            yield py_table
+                    break
+                except stripe_lib.InvalidRequestError as e:
+                    # A cursor saved by a previous run (or the auto-paging cursor mid-run) can
+                    # outlive the object it names, e.g. the invoice_payment it pointed at was
+                    # voided between runs. Stripe can't resume pagination from a cursor it no
+                    # longer has, so every retry of this job would 404 identically forever. Drop
+                    # the cursor and restart the listing once instead of getting stuck.
+                    if cursor_restarted or not (resume_params and _is_stripe_resource_missing_error(e)):
+                        raise
+                    logger.debug(
+                        f"Stripe: resume cursor {resume_params['starting_after']} no longer exists, restarting {endpoint} from the beginning"
+                    )
+                    resume_params = {}
+                    cursor_restarted = True
+                    list_params = {**default_params, **resource.params}
 
         def trailing_state(py_table: pa.Table) -> StripeResumeConfig:
             if isinstance(resource, StripeNestedResource):
@@ -1135,7 +1190,7 @@ def get_rows(
                 f"created[lt]": db_incremental_field_earliest_value,
             },
         )
-        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
+        yield from _batch_and_yield(_iter_cleaning_errors(stripe_objects.auto_paging_iter()), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
@@ -1150,7 +1205,7 @@ def get_rows(
             },
         )
         yield from _batch_and_yield(
-            stripe_objects.auto_paging_iter(),
+            _iter_cleaning_errors(stripe_objects.auto_paging_iter()),
             batcher,
             incremental_field_name=incremental_field_name,
             stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
@@ -1290,6 +1345,7 @@ def stripe_source(
     team_id: Optional[int] = None,
     source_id: Optional[str] = None,
     use_warehouse_parent: bool = False,
+    include_zero_balance_customers: bool = False,
 ):
     # Only the endpoints with a PostHog-managed canonical schema have column hints; the rest let the
     # pipeline infer their columns from the rows Stripe returns.
@@ -1330,6 +1386,7 @@ def stripe_source(
             resumable_source_manager=resumable_source_manager,
             api_version=api_version,
             warehouse_parent=warehouse_parent,
+            include_zero_balance_customers=include_zero_balance_customers,
         )
 
     # A few Stripe objects carry no timestamp at all, so there is nothing to partition on — the

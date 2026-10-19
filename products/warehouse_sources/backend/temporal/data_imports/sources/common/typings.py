@@ -118,6 +118,9 @@ class SourceResponse:
     a final checkpoint without opening a crash window before the pipeline flushes its last batch."""
     destination_reset_required: bool = False
     """Whether source metadata discovered during setup requires rebuilding the destination table."""
+    reset_handed_over: bool = False
+    """Whether the source passed this run's reset to another process, so this run must not delete the
+    destination table. Wins over `destination_reset_required` and the reset the run was asked for."""
     lanes: Optional[list[OutputLane]] = None
     """Tables this response's items feed, when it feeds more than the one `name` alone describes.
     None means the single lane built from `name` and `cdc_write_mode`."""
@@ -170,6 +173,9 @@ class SourceInputs:
     # Temporal's attempt number for this activity, starting at 1. A source can read a retry
     # differently from a first run, because the first run has already shown what fails.
     activity_attempt: int = 1
+    # Times a worker died on this run without raising, which is what a page too large for its
+    # memory looks like. A source that pages can read smaller pages after one.
+    worker_deaths: int = 0
     # Set for a source that implements `CursorSource`. It holds the cursor stored by the last
     # successful run, or no cursor when this run rebuilds the table.
     source_cursor: Optional[SourceCursorManager[Any]] = None

@@ -7,8 +7,10 @@ import {
   applyContextWikiEnv,
   type ContextWikiEnv,
 } from "@posthog/harness/extensions/context-wiki";
+import { isTaskRunSandbox } from "../../server/memory-watchdog";
 import type { ProcessSpawnedCallback } from "../../types";
 import { Logger } from "../../utils/logger";
+import { buildMemoryKillHooksConfig } from "./memory-kill-hook";
 
 export interface ChatgptAuthTokens {
   accessToken: string;
@@ -167,7 +169,9 @@ export function buildAppServerArgs(
   // PostHog owns these integrations. Do not run user hooks or send task data
   // to telemetry exporters from the user's Codex config.
   args.push("-c", "mcp_servers={}");
-  args.push("-c", "hooks={}");
+  const taskRunSandbox = isTaskRunSandbox(environment);
+  if (taskRunSandbox) args.push("-c", "features.hooks=true");
+  args.push("-c", taskRunSandbox ? buildMemoryKillHooksConfig() : "hooks={}");
   args.push("-c", "notify=[]");
   args.push("-c", `otel.exporter="none"`);
   args.push("-c", `otel.metrics_exporter="none"`);

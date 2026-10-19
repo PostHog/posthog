@@ -10,6 +10,11 @@ from requests import HTTPError, Response, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.microsoftdefendercloudapps import (
     MicrosoftDefenderCloudAppsSourceConfig,
@@ -162,29 +167,27 @@ def test_requests_and_pagination(
 )
 def test_malformed_pages_fail_instead_of_truncating(
     config: MicrosoftDefenderCloudAppsSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    send: MagicMock,
     body: dict[str, Any],
 ) -> None:
-    send.return_value = response(body)
-    result = MicrosoftDefenderCloudAppsSource().source_for_pipeline(config, manager, inputs)
-    with pytest.raises(ValueError):
-        rows_from(result)
+    result = SourceDriver(MicrosoftDefenderCloudAppsSource(), config).run(
+        "alerts", [ScriptedResponse(json=body)], incremental_field="timestamp"
+    )
+    assert isinstance(result.raised, ValueError)
 
 
 def test_resume_keeps_original_filter_with_offset(
     config: MicrosoftDefenderCloudAppsSourceConfig,
-    inputs: SourceInputs,
-    manager: MagicMock,
-    send: MagicMock,
 ) -> None:
-    manager.can_resume.return_value = True
-    manager.load_state.return_value = DefenderResumeConfig(offset=200, since=1000, until=2000)
-    send.return_value = response({"data": [{"_id": "resumed"}], "hasNext": False})
-    result = MicrosoftDefenderCloudAppsSource().source_for_pipeline(config, manager, inputs)
-    assert rows_from(result) == [{"_id": "resumed"}]
-    body = json.loads(send.call_args.args[0].body)
+    result = SourceDriver(MicrosoftDefenderCloudAppsSource(), config).run(
+        "alerts",
+        [ScriptedResponse(json={"data": [{"_id": "resumed"}], "hasNext": False})],
+        resume_state=DefenderResumeConfig(offset=200, since=1000, until=2000),
+        incremental_field="timestamp",
+        db_incremental_field_last_value=1700000000000,
+    )
+    assert result.raised is None
+    assert result.rows == [{"_id": "resumed"}]
+    body = result.requests[0].json()
     assert body["skip"] == 200
     assert body["filters"] == {"date": {"gte": 1000, "lte": 2000}}
 
@@ -193,27 +196,27 @@ def test_resume_keeps_original_filter_with_offset(
 @pytest.mark.parametrize("endpoint", [None, "files"])
 def test_credential_probe_and_errors(
     config: MicrosoftDefenderCloudAppsSourceConfig,
-    send: MagicMock,
     status: int,
     message: str | None,
     endpoint: str | None,
 ) -> None:
-    send.return_value = response({"data": [], "hasNext": False}, status)
     source = MicrosoftDefenderCloudAppsSource()
-    assert source.validate_credentials(config, 1, endpoint) == (status == 200, message)
-    send.assert_called_once()
-    request = send.call_args.args[0]
+    with scripted_network([ScriptedResponse(status=status, json={"data": [], "hasNext": False})]) as network:
+        assert source.validate_credentials(config, 1, endpoint) == (status == 200, message)
+    assert len(network.requests_log) == 1
+    request = network.requests_log[0]
     assert request.url == f"{PORTAL_URL}/api/v1/{endpoint or 'alerts'}/"
-    assert request.headers["Authorization"] == "Token fake-token"
-    assert json.loads(request.body) == {"limit": 1, "skip": 0}
+    assert request.headers["authorization"] == "Token fake-token"
+    assert request.json() == {"limit": 1, "skip": 0}
     if status != 200:
         with pytest.raises(HTTPError) as error:
-            send.return_value.raise_for_status()
+            response({"data": [], "hasNext": False}, status).raise_for_status()
         mapped = next(value for key, value in source.get_non_retryable_errors().items() if key in str(error.value))
         assert mapped == message
 
 
-def test_unexpected_http_errors_propagate(config: MicrosoftDefenderCloudAppsSourceConfig, send: MagicMock) -> None:
-    send.return_value = response({}, 400)
-    with pytest.raises(HTTPError):
-        MicrosoftDefenderCloudAppsSource().validate_credentials(config, 1)
+def test_unexpected_http_errors_propagate(config: MicrosoftDefenderCloudAppsSourceConfig) -> None:
+    with scripted_network([ScriptedResponse(status=400, json={})]) as network:
+        with pytest.raises(HTTPError):
+            MicrosoftDefenderCloudAppsSource().validate_credentials(config, 1)
+    assert len(network.requests_log) == 1

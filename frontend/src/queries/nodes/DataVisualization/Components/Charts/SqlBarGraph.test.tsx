@@ -2,9 +2,10 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { clickAtIndex, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings } from '~/queries/schema/schema-general'
+import { BIConfig } from '~/queries/schema/schema-business-intelligence'
+import { NodeKind, ChartSettings } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
@@ -15,6 +16,8 @@ import {
     sqlChart,
 } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
+
+import { buildBIQuery } from 'products/business_intelligence/frontend/biEditorTypes'
 
 // Neither timeout is set globally (jest.setup leaves asyncUtilTimeout at 1s, jest.config has no
 // testTimeout → 5s): this heavy ~7-logic mount needs findBy* headroom beyond 1s on CI, and
@@ -64,7 +67,147 @@ const renderBar = (
     })
 
 describe('SqlBarGraph', () => {
+    it.each([
+        ...[ChartDisplayType.ActionsBar, ChartDisplayType.ActionsStackedBar, ChartDisplayType.ActionsBarValue].map(
+            (chartType) => ({ chartType, dateBucket: 'month' as const, dates: MONTHS })
+        ),
+        {
+            chartType: ChartDisplayType.ActionsBar,
+            dateBucket: 'year' as const,
+            dates: ['2023-01-01', '2024-01-01', '2025-01-01', '2026-01-01', '2027-01-01', '2028-01-01'],
+        },
+    ])(
+        'opens BI drilldown and preserves unaliased $dateBucket formatting in $chartType',
+        async ({ chartType, dateBucket, dates }) => {
+            const config: BIConfig = {
+                source: { table: 'events' },
+                rows: [
+                    {
+                        id: 'month',
+                        name: 'month',
+                        expression: 'timestamp',
+                        type: 'datetime',
+                        source: { table: 'events' },
+                        dateBucket,
+                    },
+                ],
+                columns: [],
+                values: [
+                    {
+                        field: { id: 'a', name: 'a', expression: 'a', type: 'integer', source: { table: 'events' } },
+                        aggregation: 'sum',
+                    },
+                    {
+                        field: { id: 'b', name: 'b', expression: 'b', type: 'integer', source: { table: 'events' } },
+                        aggregation: 'sum',
+                    },
+                ],
+                filters: [],
+                memberAliases: [
+                    {
+                        field: {
+                            id: 'month',
+                            name: 'month',
+                            expression: 'timestamp',
+                            type: 'datetime',
+                            source: { table: 'events' },
+                            dateBucket,
+                        },
+                        aliases: [{ value: dates[0], label: 'Campaign start' }],
+                    },
+                ],
+                chartType,
+                limit: 100,
+            }
+            const dateColumn = `toStartOf${dateBucket === 'year' ? 'Year' : 'Month'}(timestamp)`
+            const node = buildBIQuery(config)!.node
+            renderDataVisualization({
+                query: {
+                    ...node,
+                    kind: NodeKind.BIVisualizationNode,
+                    config,
+                    chartSettings: {
+                        xAxis: { column: dateColumn },
+                        yAxis: [{ column: 'sum_a' }, { column: 'sum_b_2' }],
+                    },
+                },
+                response: {
+                    columns: [dateColumn, 'sum_a', 'sum_b_2'],
+                    types: [
+                        [dateColumn, 'DateTime'],
+                        ['sum_a', 'UInt64'],
+                        ['sum_b_2', 'UInt64'],
+                    ],
+                    results: MONTHS.map((month, index) => [month, (index + 1) * 100, (index + 1) * 10]),
+                },
+            })
+            const canvas = await screen.findByLabelText(/chart with 2 data series/i)
+            expect([...getHogChart().xTicks(), ...getHogChart().yTicks()].some((tick) => /^202[56]-/.test(tick))).toBe(
+                false
+            )
+            if (dateBucket === 'year') {
+                expect(getHogChart().xTicks()).toContain('2025')
+            } else if (chartType !== ChartDisplayType.ActionsBarValue) {
+                expect((await sqlChart.hoverTooltip(HOVER, dates.length)).label()).toBe('Dec 1, 00:00')
+            }
+            await clickAtIndex(canvas.parentElement!, HOVER, dates.length)
+            expect(await screen.findByText('Explore this result')).toBeVisible()
+            expect(screen.getByText('View underlying rows')).toBeVisible()
+            expect(screen.getByText(/month: 202[56]-/)).toBeVisible()
+        }
+    )
+
     describe('bar layouts', () => {
+        it('keeps horizontal BI category positions separate when their display aliases match', async () => {
+            const region = {
+                id: 'region',
+                name: 'Region',
+                expression: 'region',
+                type: 'string' as const,
+                source: { table: 'example_orders' },
+            }
+            const config: BIConfig = {
+                source: region.source,
+                rows: [region],
+                columns: [],
+                filters: [],
+                limit: 100,
+                chartType: ChartDisplayType.ActionsBarValue,
+                values: [
+                    {
+                        field: { ...region, id: 'amount', name: 'Amount', expression: 'amount', type: 'float' },
+                        aggregation: 'sum',
+                    },
+                ],
+                memberAliases: [
+                    {
+                        field: region,
+                        aliases: [
+                            { value: 'east', label: 'Same label' },
+                            { value: 'west', label: 'Same label' },
+                        ],
+                    },
+                ],
+            }
+            const node = buildBIQuery(config)!.node
+            renderDataVisualization({
+                query: { ...node, kind: NodeKind.BIVisualizationNode, config },
+                response: {
+                    columns: ['region', 'sum_amount'],
+                    types: [
+                        ['region', 'String'],
+                        ['sum_amount', 'Float64'],
+                    ],
+                    results: [
+                        ['east', 10],
+                        ['west', 20],
+                    ],
+                },
+            })
+            await screen.findByLabelText(/chart with/i)
+            await waitFor(() => expect(getHogChart().yTicks()).toEqual(['Same label', 'Same label']))
+        })
+
         it.each([
             { name: 'grouped', display: ChartDisplayType.ActionsBar, extra: {} },
             { name: 'horizontal', display: ChartDisplayType.ActionsBarValue, extra: {} },

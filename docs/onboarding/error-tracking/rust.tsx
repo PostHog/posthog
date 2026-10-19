@@ -111,7 +111,7 @@ export const getRustSteps = (ctx: OnboardingComponentsContext): StepDefinition[]
             content: (
                 <Markdown>
                     {dedent`
-                        Capture a test error and confirm it appears in [Error tracking](https://app.posthog.com/error_tracking).
+                        Capture a test error and confirm it appears in [Error tracking](https://app.posthog.com/error-tracking).
                     `}
                 </Markdown>
             ),

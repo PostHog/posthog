@@ -1,9 +1,10 @@
 import structlog
 from celery import shared_task
 
-from posthog.cdp.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 from posthog.models import Team
 from posthog.scoping_audit import skip_team_scope_audit
+
+from products.cdp.backend.internal_events import InternalEventEvent, InternalEventPerson, produce_internal_event
 
 logger = structlog.get_logger(__name__)
 

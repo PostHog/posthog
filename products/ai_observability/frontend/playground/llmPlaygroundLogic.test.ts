@@ -609,6 +609,29 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.messages).toEqual(originalMessages)
         })
 
+        it('should swap a message with its neighbor and ignore moves past the edges', () => {
+            llmPlaygroundPromptsLogic.actions.setMessages([
+                { role: 'user', content: 'first' },
+                { role: 'assistant', content: 'second' },
+                { role: 'user', content: 'third' },
+            ])
+
+            llmPlaygroundPromptsLogic.actions.moveMessage(2, 'up')
+            expect(llmPlaygroundPromptsLogic.values.messages.map((m) => m.content)).toEqual([
+                'first',
+                'third',
+                'second',
+            ])
+
+            llmPlaygroundPromptsLogic.actions.moveMessage(0, 'up')
+            llmPlaygroundPromptsLogic.actions.moveMessage(2, 'down')
+            expect(llmPlaygroundPromptsLogic.values.messages.map((m) => m.content)).toEqual([
+                'first',
+                'third',
+                'second',
+            ])
+        })
+
         it('should append a result as an assistant message and start the next user turn', () => {
             llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Hello' }])
 
@@ -776,6 +799,7 @@ describe('llmPlaygroundLogic', () => {
                     isRecommended: false,
                     providerKeyId: 'key-1',
                     supportsDecisions: false,
+                    supportsChat: true,
                 }))
             )
         })
@@ -1787,6 +1811,10 @@ describe('llmPlaygroundLogic', () => {
                             thinking: true,
                             reasoning_effort: 'high',
                             tools: [{ type: 'function', function: { name: 'lookup' } }],
+                            response_format: {
+                                type: 'json_schema',
+                                json_schema: { name: 'verdict', schema: { type: 'object' }, strict: true },
+                            },
                             messages: [{ role: 'user', content: 'Hi {{name}}' }],
                         },
                     },
@@ -1807,6 +1835,10 @@ describe('llmPlaygroundLogic', () => {
             expect(llmPlaygroundPromptsLogic.values.thinking).toBe(true)
             expect(llmPlaygroundPromptsLogic.values.reasoningLevel).toBe('high')
             expect(llmPlaygroundPromptsLogic.values.tools).toEqual([{ type: 'function', function: { name: 'lookup' } }])
+            expect(llmPlaygroundPromptsLogic.values.responseFormat).toEqual({
+                type: 'json_schema',
+                json_schema: { name: 'verdict', schema: { type: 'object' }, strict: true },
+            })
             expect(llmPlaygroundPromptsLogic.values.model).toBe('gpt-5')
         })
 

@@ -27,9 +27,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent import (
     ParentTableRef,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import SourceDriver
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.fake_network import RecordedRequest
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing.responders import ScriptedResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import (
     StripeAuthMethodConfig,
+    StripeBalanceHistoryAllCustomersConfig,
     StripeSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe import stripe as stripe_module
@@ -42,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
@@ -57,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_PAYMENT_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYMENT_METHOD_HISTORY_MAPPING_KEY,
@@ -95,6 +101,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeNestedResource,
     StripeResource,
     StripeTransientError,
+    StripeValidationError,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
     _is_non_list_stripe_response,
@@ -219,6 +226,80 @@ class TestStripeGetRowsIncrementalCursor:
         rows = [row for table in tables for row in table.to_pylist()]
         assert [row["id"] for row in rows] == [f"ch_{i}" for i in range(5)]
         assert len(tables) > 1
+
+
+class TestStripeFlatResourceResumeCursor:
+    def test_restarts_listing_when_resume_cursor_no_longer_exists(self):
+        # A cursor saved by a previous run can outlive the object it names (e.g. the
+        # invoice_payment it pointed at was voided between runs). Without recovery, every retry
+        # reloads the same stale cursor and 404s identically forever — this locks in restarting
+        # the listing instead of getting the job permanently stuck.
+        calls: list[dict] = []
+
+        def method(params=None):
+            calls.append(params or {})
+            if (params or {}).get("starting_after") == "inpay_gone":
+                raise stripe_lib.InvalidRequestError(
+                    "No such invoice_payment: 'inpay_gone'",
+                    "starting_after",
+                    code="resource_missing",
+                    http_status=404,
+                )
+            return cast(ListObject[Any], _FakeStripeList([{"id": "inpay_1"}, {"id": "inpay_2"}]))
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = True
+        resumable_source_manager.load_state.return_value = stripe_module.StripeResumeConfig(starting_after="inpay_gone")
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+        ):
+            tables = list(
+                get_rows(
+                    api_key="sk_test_123",
+                    endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                    account_id=None,
+                    db_incremental_field_last_value=None,
+                    db_incremental_field_earliest_value=None,
+                    logger=MagicMock(),
+                    resumable_source_manager=resumable_source_manager,
+                    api_version=STRIPE_API_VERSION_ACACIA,
+                )
+            )
+
+        rows = [row for table in tables for row in table.to_pylist()]
+        assert [row["id"] for row in rows] == ["inpay_1", "inpay_2"]
+        # First call carries the stale cursor and 404s; the recovery call drops it entirely.
+        assert calls == [{"limit": DEFAULT_LIMIT, "starting_after": "inpay_gone"}, {"limit": DEFAULT_LIMIT}]
+
+    def test_other_invalid_request_errors_still_raise(self):
+        def method(params=None):
+            raise stripe_lib.InvalidRequestError("Invalid string", "expand", code="parameter_unknown", http_status=400)
+
+        resource = StripeResource(method=method)
+        resumable_source_manager = MagicMock()
+        resumable_source_manager.can_resume.return_value = True
+        resumable_source_manager.load_state.return_value = stripe_module.StripeResumeConfig(starting_after="inpay_1")
+
+        with (
+            patch.object(stripe_module, "StripeClient"),
+            patch.object(stripe_module, "_build_resources", return_value={INVOICE_PAYMENT_RESOURCE_NAME: resource}),
+        ):
+            with pytest.raises(stripe_lib.InvalidRequestError):
+                list(
+                    get_rows(
+                        api_key="sk_test_123",
+                        endpoint=INVOICE_PAYMENT_RESOURCE_NAME,
+                        account_id=None,
+                        db_incremental_field_last_value=None,
+                        db_incremental_field_earliest_value=None,
+                        logger=MagicMock(),
+                        resumable_source_manager=resumable_source_manager,
+                        api_version=STRIPE_API_VERSION_ACACIA,
+                    )
+                )
 
 
 class TestStripeSource:
@@ -419,6 +500,34 @@ class TestStripeSource:
         assert "try again" in message.lower()
         assert "one of our backends" not in message
         assert "validation failed" not in message.lower()
+
+    @pytest.mark.parametrize(
+        "stripe_error,expected_start",
+        [
+            ("Invalid request (check your request parameters)", "Stripe couldn't read your account"),
+            ("This API call cannot be made with a publishable API key.", "Your Stripe API key is a publishable key"),
+        ],
+    )
+    def test_validate_credentials_validation_error_hides_raw_stripe_text(self, stripe_error, expected_start):
+        config = StripeSourceConfig(
+            auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="rk_live_x")
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.validate_stripe_credentials",
+                side_effect=StripeValidationError({"Customer": stripe_error}),
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.capture_exception"
+            ),
+        ):
+            ok, message = self.source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert message is not None
+        assert message.startswith(expected_start)
+        assert stripe_error not in message
 
     @pytest.mark.parametrize(
         "body,expected",
@@ -862,6 +971,61 @@ class TestInvoiceListWithAllLines:
                     params={}, logger=MagicMock(), client_factory=lambda _throttled: client
                 ).auto_paging_iter()
             )
+
+
+def test_credit_note_rows_carry_lines_past_the_embedded_page():
+    embedded = [{"id": f"cnli_{i}", "object": "credit_note_line_item"} for i in range(10)]
+    all_lines = [*embedded, {"id": "cnli_10", "object": "credit_note_line_item"}]
+
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/credit_notes/cn_1/lines":
+            return ScriptedResponse(json={"object": "list", "data": all_lines, "has_more": False, "url": request.path})
+        lines = {"object": "list", "data": embedded, "has_more": True, "url": "/v1/credit_notes/cn_1/lines"}
+        credit_note = {"id": "cn_1", "object": "credit_note", "created": 1700000000, "lines": lines}
+        return ScriptedResponse(json={"object": "list", "data": [credit_note], "has_more": False, "url": request.path})
+
+    config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"))
+    result = SourceDriver(StripeSource(), config).run(CREDIT_NOTE_RESOURCE_NAME, script)
+
+    assert result.raised is None
+    rows = [row for table in result.rows for row in table.to_pylist()]
+    lines_column = orjson.loads(rows[0]["lines"])
+    assert [line["id"] for line in lines_column["data"]] == [line["id"] for line in all_lines]
+    assert lines_column["has_more"] is False
+
+
+@parameterized.expand([(INVOICE_RESOURCE_NAME,), (CREDIT_NOTE_RESOURCE_NAME,)])
+def test_first_page_error_of_a_line_expanding_listing_is_cleaned(endpoint):
+    redacted = "rk_live_" + "*" * 80 + "abcd"
+    message = f"The provided key '{redacted}' does not have the required permissions for this endpoint"
+    forbidden = ScriptedResponse(status=403, json={"error": {"type": "invalid_request_error", "message": message}})
+
+    config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"))
+    result = SourceDriver(StripeSource(), config).run(endpoint, [forbidden])
+
+    assert isinstance(result.raised, stripe_lib.PermissionError)
+    assert "rk_live_***abcd" in str(result.raised)
+
+
+@parameterized.expand([("switch_off", False, ["cus_credit"]), ("switch_on", True, ["cus_credit", "cus_zero"])])
+def test_balance_history_switch_decides_which_customers_are_swept(_name, enabled, expected_customers):
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/customers":
+            customers = [{"id": "cus_zero", "balance": 0}, {"id": "cus_credit", "balance": -500}]
+            return ScriptedResponse(json={"object": "list", "data": customers, "has_more": False, "url": request.path})
+        customer = request.path.split("/")[3]
+        transaction = {"id": f"cbtxn_{customer}", "object": "customer_balance_transaction", "created": 1700000000}
+        return ScriptedResponse(json={"object": "list", "data": [transaction], "has_more": False, "url": request.path})
+
+    config = StripeSourceConfig(
+        auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"),
+        balance_history_all_customers=StripeBalanceHistoryAllCustomersConfig(enabled=enabled),
+    )
+    result = SourceDriver(StripeSource(), config).run(CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME, script)
+
+    assert result.raised is None
+    rows = [row for table in result.rows for row in table.to_pylist()]
+    assert sorted(row["customer"] for row in rows) == expected_customers
 
 
 class TestScrubClientSecrets:

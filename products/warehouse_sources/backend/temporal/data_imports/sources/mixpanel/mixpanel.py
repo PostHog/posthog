@@ -21,6 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mixpanel.s
     MIXPANEL_API_VERSION_V1,
     MIXPANEL_ENDPOINTS,
     REGION_HOSTS,
+    REPORT_LOOKBACK_DAYS,
+    RETENTION_INTERVAL_COUNT,
     RegionHosts,
 )
 
@@ -90,13 +92,15 @@ def _retry_wait(retry_state: RetryCallState) -> float:
     return _EXPONENTIAL_JITTER(retry_state)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class MixpanelResumeConfig:
     # Raw export resumes at the day window we have not yet completed.
     from_date: Optional[str] = None
     # Engage resumes at a session id + page from the previous query.
     session_id: Optional[str] = None
     page: Optional[int] = None
+    # Funnel steps resume after the last saved funnel whose rows were handed to the pipeline.
+    funnel_id: Optional[int] = None
 
 
 def _hosts(region: str) -> RegionHosts:
@@ -109,6 +113,10 @@ def _query_base(region: str) -> str:
 
 def _export_base(region: str) -> str:
     return _hosts(region).export_base
+
+
+def _ingestion_base(region: str) -> str:
+    return _hosts(region).ingestion_base
 
 
 def _export_url(region: str, api_version: str) -> str:
@@ -447,6 +455,168 @@ def _fetch_annotations(
         yield rows
 
 
+def _fetch_lexicon_schemas(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_query_base(region)}/api/app/projects/{project_id}/schemas"
+    response = _request("GET", url, username=username, secret=secret, logger=logger)
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
+def _fetch_lookup_tables(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_ingestion_base(region)}/lookup-tables"
+    response = _request("GET", url, username=username, secret=secret, logger=logger, params={"project_id": project_id})
+    data = response.json()
+    rows = data.get("results", []) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
+def _fetch_funnel_list(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> list[dict[str, Any]]:
+    url = f"{_query_base(region)}/api/query/funnels/list"
+    response = _request("GET", url, username=username, secret=secret, logger=logger, params={"project_id": project_id})
+    data = response.json()
+    return data if isinstance(data, list) else []
+
+
+def _fetch_funnels(
+    region: str, username: str, secret: str, project_id: str, logger: FilteringBoundLogger
+) -> Iterator[list[dict[str, Any]]]:
+    rows = _fetch_funnel_list(region, username, secret, project_id, logger)
+    if rows:
+        yield rows
+
+
+def _flatten_funnel_steps(funnel: dict[str, Any], data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Unnest the `{date: {"steps": [...]}}` funnel response into one row per day and step."""
+    rows: list[dict[str, Any]] = []
+    buckets = data.get("data")
+    if not isinstance(buckets, dict):
+        return rows
+    for day in sorted(buckets):
+        bucket = buckets[day]
+        steps = bucket.get("steps") if isinstance(bucket, dict) else None
+        for index, step in enumerate(steps or []):
+            rows.append(
+                {
+                    **step,
+                    "funnel_id": funnel["funnel_id"],
+                    "funnel_name": funnel.get("name"),
+                    "date": day,
+                    "step_index": index,
+                }
+            )
+    return rows
+
+
+def _iter_funnel_steps(
+    region: str,
+    username: str,
+    secret: str,
+    project_id: str,
+    logger: FilteringBoundLogger,
+    manager: ResumableSourceManager[MixpanelResumeConfig],
+    start_date: date,
+    end_date: date,
+) -> Iterator[list[dict[str, Any]]]:
+    """Query every saved funnel, one request per funnel, in ascending `funnel_id` order.
+
+    The Query API allows only a small number of queries per hour, so a project with many
+    funnels can exhaust the retries part-way through. Resuming after the last finished
+    funnel keeps the next attempt from spending its budget on funnels already synced."""
+    url = f"{_query_base(region)}/api/query/funnels"
+
+    resume = manager.load_state() if manager.can_resume() else None
+    last_funnel_id = resume.funnel_id if resume else None
+    if last_funnel_id is not None:
+        logger.debug(f"Mixpanel funnel_steps: resuming after funnel {last_funnel_id}")
+
+    funnels = sorted(
+        (f for f in _fetch_funnel_list(region, username, secret, project_id, logger) if f.get("funnel_id") is not None),
+        key=lambda f: f["funnel_id"],
+    )
+    for funnel in funnels:
+        funnel_id = funnel["funnel_id"]
+        if last_funnel_id is not None and funnel_id <= last_funnel_id:
+            continue
+
+        params = {
+            "project_id": project_id,
+            "funnel_id": funnel_id,
+            "from_date": start_date.isoformat(),
+            "to_date": end_date.isoformat(),
+            "unit": "day",
+        }
+        try:
+            response = _request("GET", url, username=username, secret=secret, logger=logger, params=params)
+        except requests.HTTPError as e:
+            # Mixpanel rejects some saved funnels outright (e.g. deleted since the funnel list
+            # was fetched) with a 400 tied to that funnel_id alone, not the request shape. Without
+            # this, one such funnel would raise every attempt and the resume cursor would never
+            # advance past it, permanently blocking every funnel after it in the sort order.
+            if e.response is None or e.response.status_code != 400:
+                raise
+            logger.warning(f"Mixpanel funnel_steps: Mixpanel rejected funnel {funnel_id}; skipping it")
+            manager.save_state(MixpanelResumeConfig(funnel_id=funnel_id))
+            manager.safe_point()
+            continue
+
+        rows = _flatten_funnel_steps(funnel, response.json())
+
+        manager.save_state(MixpanelResumeConfig(funnel_id=funnel_id))
+        if rows:
+            yield rows
+        else:
+            manager.safe_point()
+
+
+def _flatten_retention(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Unnest the `{date: {"counts": [...], "first": n}}` retention response into one row per
+    cohort day and interval."""
+    rows: list[dict[str, Any]] = []
+    for day in sorted(data):
+        cohort = data[day]
+        if not isinstance(cohort, dict):
+            continue
+        for index, count in enumerate(cohort.get("counts") or []):
+            rows.append({"date": day, "interval_index": index, "count": count, "first": cohort.get("first")})
+    return rows
+
+
+def _fetch_retention(
+    region: str,
+    username: str,
+    secret: str,
+    project_id: str,
+    logger: FilteringBoundLogger,
+    start_date: date,
+    end_date: date,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{_query_base(region)}/api/query/retention"
+    # Birth retention needs a `born_event` only the user can choose. Compounded retention with
+    # no `event` measures how often users active on a day come back for any event.
+    params = {
+        "project_id": project_id,
+        "from_date": start_date.isoformat(),
+        "to_date": end_date.isoformat(),
+        "retention_type": "compounded",
+        "unit": "day",
+        "interval_count": RETENTION_INTERVAL_COUNT,
+    }
+    response = _request("GET", url, username=username, secret=secret, logger=logger, params=params)
+    data = response.json()
+    rows = _flatten_retention(data) if isinstance(data, dict) else []
+    if rows:
+        yield rows
+
+
 def get_rows(
     region: str,
     username: str,
@@ -487,6 +657,23 @@ def get_rows(
         yield from _fetch_cohorts(region, username, secret, project_id, logger)
     elif endpoint == "annotations":
         yield from _fetch_annotations(region, username, secret, project_id, logger)
+    elif endpoint == "lexicon_schemas":
+        yield from _fetch_lexicon_schemas(region, username, secret, project_id, logger)
+    elif endpoint == "lookup_tables":
+        yield from _fetch_lookup_tables(region, username, secret, project_id, logger)
+    elif endpoint == "funnels":
+        yield from _fetch_funnels(region, username, secret, project_id, logger)
+    elif endpoint in ("funnel_steps", "retention"):
+        report_end = datetime.now(UTC).date()
+        report_start = report_end - timedelta(days=REPORT_LOOKBACK_DAYS)
+        if endpoint == "funnel_steps":
+            yield from _iter_funnel_steps(
+                region, username, secret, project_id, logger, manager, start_date=report_start, end_date=report_end
+            )
+        else:
+            yield from _fetch_retention(
+                region, username, secret, project_id, logger, start_date=report_start, end_date=report_end
+            )
     else:
         raise ValueError(f"Unknown Mixpanel endpoint: {endpoint}")
 

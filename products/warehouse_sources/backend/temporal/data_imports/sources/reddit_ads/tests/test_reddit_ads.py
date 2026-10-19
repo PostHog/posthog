@@ -1,4 +1,3 @@
-import json
 import datetime as dt
 from typing import Any, Optional
 
@@ -6,10 +5,18 @@ import pytest
 from unittest import mock
 
 from parameterized import parameterized
-from requests import Request, Response, Session
+from requests import Request, Session
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.integration_accounts import (
     IntegrationAccountListingError,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.redditads import (
+    RedditAdsSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads import (
     RedditAdsApiError,
@@ -18,9 +25,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads
     get_resource,
     list_business_ad_accounts,
     list_businesses,
-    reddit_ads_source,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.settings import REDDIT_ADS_CONFIG
+from products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source import RedditAdsSource
 
 
 class TestRedditAdsHelperFunctions:
@@ -226,152 +233,101 @@ class TestRedditAdsPaginator:
 
 
 class TestListBusinessesAndAdAccounts:
-    MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.reddit_ads"
-
     @staticmethod
-    def _response(status: int, body: dict) -> mock.MagicMock:
-        response = mock.MagicMock()
-        response.status_code = status
-        response.json.return_value = body
-        response.text = ""
-        return response
+    def _page(body: dict, status: int = 200) -> ScriptedResponse:
+        return ScriptedResponse(status=status, json=body)
 
     def test_follows_next_url_across_pages(self):
-        session = mock.MagicMock()
-        session.get.side_effect = [
-            self._response(
-                200,
+        script = [
+            self._page(
                 {
                     "data": [{"id": "b1"}],
                     "pagination": {"next_url": "https://ads-api.reddit.com/api/v3/me/businesses?page=2"},
-                },
+                }
             ),
-            self._response(200, {"data": [{"id": "b2"}], "pagination": {"next_url": None}}),
+            self._page({"data": [{"id": "b2"}], "pagination": {"next_url": None}}),
         ]
 
-        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(script) as network:
             businesses = list_businesses("token")
 
         assert [business["id"] for business in businesses] == ["b1", "b2"]
-        assert session.get.call_args_list[1][0][0] == "https://ads-api.reddit.com/api/v3/me/businesses?page=2"
+        assert network.requests_log[1].url == "https://ads-api.reddit.com/api/v3/me/businesses?page=2"
 
     def test_ad_accounts_are_requested_per_business(self):
-        session = mock.MagicMock()
-        session.get.return_value = self._response(200, {"data": [{"id": "a2_1"}], "pagination": {}})
-
-        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([self._page({"data": [{"id": "a2_1"}], "pagination": {}})]) as network:
             accounts = list_business_ad_accounts("token", "biz-1")
 
         assert [account["id"] for account in accounts] == ["a2_1"]
-        assert session.get.call_args[0][0] == "https://ads-api.reddit.com/api/v3/businesses/biz-1/ad_accounts"
+        assert network.requests_log[0].url == "https://ads-api.reddit.com/api/v3/businesses/biz-1/ad_accounts"
 
     def test_error_response_carries_the_api_status_code(self):
-        session = mock.MagicMock()
-        session.get.return_value = self._response(401, {})
-
-        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([self._page({}, status=401)]):
             with pytest.raises(RedditAdsApiError) as excinfo:
                 list_businesses("token")
 
         assert excinfo.value.api_status_code == 401
 
     def test_listing_session_disables_redirects_and_redacts_token(self):
-        session = mock.MagicMock()
-        session.get.return_value = self._response(200, {"data": [], "pagination": {}})
-
-        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session) as make_session:
+        with scripted_network([self._page({"data": [], "pagination": {}})]) as network:
             list_businesses("secret-token")
 
-        assert make_session.call_args.kwargs["allow_redirects"] is False
-        assert "secret-token" in make_session.call_args.kwargs["redact_values"]
+        assert network.session_options[0]["allow_redirects"] is False
+        assert "secret-token" in network.session_options[0]["redact_values"]
 
     def test_cross_origin_next_url_is_rejected_without_resending_token(self):
-        session = mock.MagicMock()
-        session.get.return_value = self._response(
-            200,
-            {
-                "data": [{"id": "b1"}],
-                "pagination": {"next_url": "https://evil.example.com/api/v3/me/businesses?page=2"},
-            },
-        )
+        script = [
+            self._page(
+                {
+                    "data": [{"id": "b1"}],
+                    "pagination": {"next_url": "https://evil.example.com/api/v3/me/businesses?page=2"},
+                }
+            ),
+        ]
 
-        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(script) as network:
             with pytest.raises(IntegrationAccountListingError):
                 list_businesses("token")
 
         # Only the first request (to the trusted origin) was made; the token never reached the foreign host.
-        assert session.get.call_count == 1
+        assert len(network.requests_log) == 1
 
     def test_relative_next_url_resolves_against_the_reddit_origin(self):
-        session = mock.MagicMock()
-        session.get.side_effect = [
-            self._response(
-                200,
-                {"data": [{"id": "b1"}], "pagination": {"next_url": "/api/v3/me/businesses?page=2"}},
-            ),
-            self._response(200, {"data": [{"id": "b2"}], "pagination": {}}),
+        script = [
+            self._page({"data": [{"id": "b1"}], "pagination": {"next_url": "/api/v3/me/businesses?page=2"}}),
+            self._page({"data": [{"id": "b2"}], "pagination": {}}),
         ]
 
-        with mock.patch(f"{self.MODULE}.make_tracked_session", return_value=session):
+        with scripted_network(script) as network:
             businesses = list_businesses("token")
 
         assert [business["id"] for business in businesses] == ["b1", "b2"]
-        assert session.get.call_args_list[1][0][0] == "https://ads-api.reddit.com/api/v3/me/businesses?page=2"
-
-
-def _http_response(body: Any) -> Response:
-    response = Response()
-    response.status_code = 200
-    response._content = json.dumps(body).encode()
-    response.headers["Content-Type"] = "application/json"
-    return response
+        assert network.requests_log[1].url == "https://ads-api.reddit.com/api/v3/me/businesses?page=2"
 
 
 class TestRedditAdsListEndpointTransport:
-    """Behaviour of the endpoints added on top of the original six, driven through a mocked session."""
-
-    SESSION_PATH = (
-        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source."
-        "rest_client.make_tracked_session"
-    )
-
-    def _run(self, endpoint: str, responses: list[Response]) -> tuple[list[Any], mock.MagicMock]:
-        with mock.patch(self.SESSION_PATH) as MockSession:
-            session = MockSession.return_value
-            session.headers = {}
-            session.prepare_request.side_effect = lambda req: req
-            session.send.side_effect = responses
-
-            source = reddit_ads_source(
-                account_id="789",
-                endpoint=endpoint,
-                team_id=123,
-                job_id="test_job",
-                access_token="test_token",
-                db_incremental_field_last_value=None,
-                resumable_source_manager=mock.MagicMock(can_resume=mock.MagicMock(return_value=False)),
-                should_use_incremental_field=False,
-            )
-            pages = list(source.items())
-            return [row for page in pages for row in page], session
+    """Behaviour of the endpoints added on top of the original six."""
 
     def test_structured_posts_are_fanned_out_over_every_profile(self):
         # Reddit hangs creatives off profiles, not off the ad account, so this is the only endpoint
         # that has to walk a parent list first.
-        rows, session = self._run(
-            "structured_posts",
-            [
-                _http_response({"data": [{"id": "t2_p1"}, {"id": "t2_p2"}], "pagination": {}}),
-                _http_response({"data": [{"id": "post-1", "profile_id": None}], "pagination": {}}),
-                _http_response({"data": [{"id": "post-2", "profile_id": None}], "pagination": {}}),
-            ],
-        )
+        integration = mock.MagicMock(access_token="test_token")
+        driver = SourceDriver(RedditAdsSource(), RedditAdsSourceConfig(reddit_integration_id=456, account_id="789"))
+        with mock.patch.object(RedditAdsSource, "get_oauth_integration", return_value=integration):
+            result = driver.run(
+                "structured_posts",
+                [
+                    ScriptedResponse(json={"data": [{"id": "t2_p1"}, {"id": "t2_p2"}], "pagination": {}}),
+                    ScriptedResponse(json={"data": [{"id": "post-1", "profile_id": None}], "pagination": {}}),
+                    ScriptedResponse(json={"data": [{"id": "post-2", "profile_id": None}], "pagination": {}}),
+                ],
+            )
 
-        requested = [call.args[0].url for call in session.send.call_args_list]
+        requested = result.urls
         assert requested[0].startswith("https://ads-api.reddit.com/api/v3/ad_accounts/789/profiles")
         assert "/profiles/t2_p1/structured_posts" in requested[1]
         assert "/profiles/t2_p2/structured_posts" in requested[2]
 
         # The parent id is authoritative: post rows carry a nullable `profile_id`, but the primary key
         # is (profile_id, id), so an unpopulated one would collapse posts across profiles.
-        assert [(row["profile_id"], row["id"]) for row in rows] == [("t2_p1", "post-1"), ("t2_p2", "post-2")]
+        assert [(row["profile_id"], row["id"]) for row in result.rows] == [("t2_p1", "post-1"), ("t2_p2", "post-2")]

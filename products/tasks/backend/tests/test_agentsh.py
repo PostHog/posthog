@@ -26,7 +26,7 @@ from products.tasks.backend.logic.services.agentsh import (
 )
 
 
-class TestGenerateConfigYaml(TestCase):
+class TestGenerateConfigYaml(SimpleTestCase):
     def test_has_ptrace_enabled_with_full_trace(self):
         config = yaml.safe_load(generate_config_yaml())
         self.assertTrue(config["sandbox"]["ptrace"]["enabled"])
@@ -525,7 +525,7 @@ class TestBashEnvScript(SimpleTestCase):
             self.assertNotEqual(result.returncode, 0)
 
 
-class TestBuildAuditQueryCommand(TestCase):
+class TestBuildAuditQueryCommand(SimpleTestCase):
     def test_references_audit_db(self):
         cmd = build_audit_query_command()
         self.assertIn(AGENTSH_AUDIT_DB, cmd)
@@ -545,7 +545,7 @@ class TestBuildAuditQueryCommand(TestCase):
         self.assertTrue(any(part.startswith("SELECT ts_unix_ns") for part in parts))
 
 
-class TestBuildExecPrefix(TestCase):
+class TestBuildExecPrefix(SimpleTestCase):
     def test_returns_correct_format(self):
         self.assertEqual(
             build_exec_prefix(),
@@ -639,13 +639,15 @@ class TestModalSandboxAgentShWrapping(TestCase):
             if "--taskId" in command:
                 launched.append(command)
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
+            if AGENT_SERVER_PREFLIGHT_CAPABILITY_PREFIX in command:
+                return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            if ENV_DISABLE_BUNDLED_SKILLS in command:
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
             if "chmod" in command:  # gh shim install
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
             if command.startswith("bash /tmp/posthog-launch-preparation-"):
                 return ExecutionResult(stdout="", stderr="", exit_code=0)
-            self.assertIn(ENV_DISABLE_BUNDLED_SKILLS, command)
-            self.assertIn("grep -q autoPublish", command)
-            return ExecutionResult(stdout=markers, stderr="", exit_code=0)
+            raise AssertionError(f"Unexpected sandbox command: {command}")
 
         sandbox: ModalSandbox | DockerSandbox
         if provider == "modal":

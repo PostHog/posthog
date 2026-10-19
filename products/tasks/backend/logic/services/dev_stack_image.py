@@ -17,20 +17,28 @@ image builder — which is why this is a sandbox snapshot rather than a spec-bui
 
 from __future__ import annotations
 
+import shlex
+import hashlib
 import logging
 from collections import deque
+from functools import partial
 from pathlib import Path
+from threading import Event
 from typing import TYPE_CHECKING
 
 from django.conf import settings
 
 if TYPE_CHECKING:
+    from products.tasks.backend.dev_stack_image_models import DevStackImageAttempt
     from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
 from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
 from products.tasks.backend.exceptions import SnapshotTimeoutError
 from products.tasks.backend.feature_flags import is_dev_stack_image_bake_enabled
+from products.tasks.backend.logic.services.dev_stack_image_refresh import reconcile_dev_stack_image
+from products.tasks.backend.logic.services.dev_stack_image_state import DevStackImageState
 from products.tasks.backend.logic.services.sandbox import SandboxConfig, SandboxTemplate, get_sandbox_class
+from products.tasks.backend.logic.services.task_filesystem import TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script
 from products.tasks.backend.metrics import observe_dev_stack_image_bake
 from products.tasks.backend.redis import get_tasks_cache
 
@@ -67,21 +75,21 @@ class DevStackImageBakeError(Exception):
     pass
 
 
-def _publish_snapshot_with_retries(sandbox: ModalSandbox, publish_name: str) -> str:
-    """Publish the sandbox's filesystem snapshot, retrying transient snapshot failures in place.
-
-    The sandbox keeps running between attempts, so a retry costs only the snapshot —
-    failing the activity instead would re-run the whole 15-25 minute bake.
-    """
+def _snapshot_with_retries(sandbox: ModalSandbox, publish_name: str | None) -> str:
+    snapshot = (
+        partial(sandbox.publish_filesystem_image, publish_name)
+        if publish_name
+        else partial(sandbox.create_snapshot, timeout_seconds=30 * 60)
+    )
     for attempt in range(1, PUBLISH_SNAPSHOT_MAX_ATTEMPTS):
         try:
-            return sandbox.publish_filesystem_image(publish_name)
+            return snapshot()
         except SnapshotTimeoutError as e:
             logger.warning(
                 "dev_stack_image_publish_retry",
                 extra={"publish_name": publish_name, "sandbox_id": sandbox.id, "attempt": attempt, "error": str(e)},
             )
-    return sandbox.publish_filesystem_image(publish_name)
+    return snapshot()
 
 
 def _resolve_current_base_reference() -> str | None:
@@ -121,6 +129,10 @@ def refresh_dev_stack_image_if_base_changed(publish_name: str = DEV_STACK_IMAGE_
     overnight. Also converges a region with no recorded bake (first enable, cache flush)
     by dispatching one. Returns whether a bake was dispatched.
     """
+    target = DevStackImageState.target(publish_name)
+    if target is not None:
+        return reconcile_dev_stack_image(target, trigger="base_changed")
+
     if not is_dev_stack_image_bake_enabled():
         return False
 
@@ -161,7 +173,12 @@ def refresh_dev_stack_image_if_base_changed(publish_name: str = DEV_STACK_IMAGE_
     return True
 
 
-def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
+def bake_dev_stack_image(
+    publish_name: str = DEV_STACK_IMAGE_NAME,
+    *,
+    candidate: DevStackImageAttempt | None = None,
+    cancelled: Event | None = None,
+) -> str:
     """Run the bake in a fresh VM sandbox and publish the result; returns the image object id."""
     from products.tasks.backend.logic.services.modal_sandbox import (  # noqa: PLC0415 — keeps the Modal SDK off the import path
         ModalSandbox,
@@ -173,15 +190,16 @@ def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
 
     script = (Path(settings.BASE_DIR) / BAKE_SCRIPT_LOCAL_PATH).read_text()
 
-    # Capture the base digest BEFORE creating the sandbox: the digest can move during the
-    # long bake (e.g. an agent-server release), and recording the post-bake value would
-    # make the refresh sweep believe the stale publish already sits on the new base. The
-    # digest cache's TTL means this same value is what the create below resolves to.
-    base_reference = _resolve_current_base_reference()
+    base_reference = candidate.base_reference if candidate else _resolve_current_base_reference()
+    if candidate and hashlib.sha256(script.encode()).hexdigest() != candidate.recipe_sha:
+        raise DevStackImageBakeError("Bake recipe changed; request a new generation")
+    if candidate is None and DevStackImageState.target(publish_name) is not None:
+        raise DevStackImageBakeError("Protected dev-stack images must use the activation workflow")
 
     sandbox = sandbox_cls.create(
         SandboxConfig(
             name="dev-stack-image-bake",
+            base_image_reference=base_reference,
             template=SandboxTemplate.VM_BASE,
             vm_runtime=True,
             cpu_cores=BAKE_SANDBOX_CPU_CORES,
@@ -192,12 +210,24 @@ def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
         )
     )
     try:
+        result = sandbox.write_file(TASK_FILESYSTEM_SCRIPT, read_task_filesystem_script())
+        if result.exit_code != 0:
+            raise DevStackImageBakeError("Failed to install task filesystem image preparation")
         sandbox.write_file(BAKE_SCRIPT_SANDBOX_PATH, script.encode())
 
         log_tail: deque[bytes] = deque()
         tail_len = 0
-        stream = sandbox.execute_stream(f"bash {BAKE_SCRIPT_SANDBOX_PATH} 2>&1")
+        environment = (
+            f"DEV_STACK_REPOSITORY_SHA={shlex.quote(candidate.repository_sha)} "
+            f"DEV_STACK_BASE_REFERENCE={shlex.quote(candidate.base_reference)} "
+            f"DEV_STACK_RECIPE_SHA={shlex.quote(candidate.recipe_sha)} "
+            if candidate
+            else ""
+        )
+        stream = sandbox.execute_stream(f"{environment}bash {BAKE_SCRIPT_SANDBOX_PATH} 2>&1")
         for line in stream.iter_stdout():
+            if cancelled is not None and cancelled.is_set():
+                raise DevStackImageBakeError("Bake ownership ended")
             logger.info("dev_stack_image_bake_output", extra={"sandbox_id": sandbox.id, "line": line.rstrip()})
             encoded_line = line.encode("utf-8")[-MAX_BAKE_LOG_BYTES:]
             log_tail.append(encoded_line)
@@ -209,8 +239,13 @@ def bake_dev_stack_image(publish_name: str = DEV_STACK_IMAGE_NAME) -> str:
             output_tail = b"".join(log_tail)[-MAX_BAKE_LOG_BYTES:].decode("utf-8", errors="ignore")
             raise DevStackImageBakeError(f"Bake script exited with {result.exit_code}; output tail:\n{output_tail}")
 
-        image_id = _publish_snapshot_with_retries(sandbox, publish_name)
-        _record_baked_base_reference(publish_name, base_reference)
+        if candidate:
+            if cancelled is not None and cancelled.is_set():
+                raise DevStackImageBakeError("Bake ownership ended")
+            image_id = _snapshot_with_retries(sandbox, None)
+        else:
+            image_id = _snapshot_with_retries(sandbox, publish_name)
+            _record_baked_base_reference(publish_name, base_reference)
         logger.info(
             "dev_stack_image_published",
             extra={"publish_name": publish_name, "image_id": image_id, "sandbox_id": sandbox.id},

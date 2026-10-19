@@ -569,7 +569,7 @@ function DatabaseFirewallHint(): JSX.Element | null {
 }
 
 function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: SourceWizardLogicProps }): JSX.Element {
-    const { selectedConnector, source, sourceConnectionDetails } = useValues(sourceWizardLogic)
+    const { selectedConnector, source, sourceConnectionDetails, prefixRequired } = useValues(sourceWizardLogic)
     const selectedAccessMethod = getEffectiveAccessMethod(
         2,
         sourceConnectionDetails?.access_method,
@@ -618,6 +618,7 @@ function SecondStep({ sourceWizardLogicProps }: { sourceWizardLogicProps?: Sourc
                 sourceConfig={selectedConnector}
                 initialAccessMethod={sourceConnectionDetails?.access_method ?? source.access_method}
                 showAccessMethodSelector={false}
+                prefixRequired={prefixRequired}
                 sourceWizardLogicProps={sourceWizardLogicProps}
             />
         </div>

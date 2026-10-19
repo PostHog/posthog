@@ -58,14 +58,37 @@ export interface BIDataSource {
 export interface BIField {
     id: string
     name: string
+    label?: string
     expression: string
     type: DatabaseSerializedFieldType
     source: BIDataSource
     dateBucket?: BIDateBucket
+    datePart?: 'month' | 'quarter' | 'day_of_week'
+    localDefinition?: BILocalFieldDefinition
+    localFieldId?: string
+}
+
+export type BILocalFieldDefinition =
+    | { kind: 'expression'; expression: string; aggregate: boolean }
+    | { kind: 'groups'; expression: string; groups: BICategoryGroup[]; other: string; preserveUngrouped?: boolean }
+    | { kind: 'bins'; expression: string; width: number; origin: number }
+
+export interface BICategoryGroup {
+    name: string
+    values: string[]
+}
+
+export interface BIHierarchy {
+    id: string
+    name: string
+    /** Ordered from the broadest dimension to the most detailed. */
+    levels: BIField[]
 }
 
 export interface BIValue {
     field: BIField
+    /** Measures in older worksheets belong to rows. */
+    shelf?: 'rows' | 'columns'
     aggregation: BIAggregation
     customExpression?: string
     label?: string
@@ -106,6 +129,7 @@ export interface BITotals {
 }
 
 export interface BIFilter {
+    label?: string
     field: BIField
     operator: BIFilterOperator
     value: string
@@ -115,12 +139,41 @@ export interface BIFilter {
     enabled?: boolean
 }
 
+export interface BIPaneSettings {
+    /** Ordered dimension IDs used to split returned groups into separate charts. */
+    fields: string[]
+    /** Use a separate value scale for each pane instead of a shared primary scale. */
+    independentAxes?: boolean
+    /** Calculate reference lines from each pane or from all returned worksheet marks. */
+    referenceLines?: 'pane' | 'worksheet'
+}
+
 export interface BIConfig {
     source: BIDataSource | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQuery
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string
+    /** Reusable expressions owned by this worksheet only. */
+    localFields?: BIField[]
+    /** Named dimension sequences saved with the worksheet; imports are independent copies. */
+    hierarchies?: BIHierarchy[]
+    hierarchyDrillPath?: {
+        hierarchyId: string
+        previousField: BIField
+        nextField: BIField
+        filterIds: string[]
+    }[]
+    memberAliases?: { field: BIField; aliases: { value: string | null; label: string }[] }[]
+    colorBy?: string | null
+    /** Split the returned groups into charts using these ordered dimension IDs. */
+    panes?: BIPaneSettings
     /** Column that receives the worksheet and dashboard date range. */
     dateField?: BIField | null
     dateRange?: DateRange
     compareFilter?: CompareFilter
+    /** Explore only the comparison window, using dateRange as its reference window. */
+    comparisonPeriod?: 'previous' | null
     chartType: ChartDisplayType
     rows: BIField[]
     columns: BIField[]
@@ -145,6 +198,7 @@ export interface BIConditionGroup {
 }
 
 export interface BIResultFilter {
+    label?: string
     id: string
     measureIndex: non_negative_integer
     operator:

@@ -2,7 +2,7 @@ import requests
 import structlog
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
+from products.warehouse_sources.backend.temporal.data_imports.sources.common import credentials_service
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
 logger = structlog.get_logger(__name__)
@@ -53,7 +53,7 @@ def _error_message_from_response(res: requests.Response) -> str:
 
 def _hubspot_app_credentials() -> dict[str, str]:
     """PostHog's own HubSpot app id and secret, as the token endpoint wants them named."""
-    resolved = integration_secrets.get_secrets(["HUBSPOT_APP_CLIENT_ID", "HUBSPOT_APP_CLIENT_SECRET"])
+    resolved = credentials_service.get_secrets(["HUBSPOT_APP_CLIENT_ID", "HUBSPOT_APP_CLIENT_SECRET"])
     return {
         "client_id": resolved["HUBSPOT_APP_CLIENT_ID"],
         "client_secret": resolved["HUBSPOT_APP_CLIENT_SECRET"],

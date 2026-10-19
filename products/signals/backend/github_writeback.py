@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -23,6 +22,7 @@ from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 from products.signals.backend.models import SignalReport, SignalReportGithubComment, SignalTeamConfig
+from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 
 logger = structlog.get_logger(__name__)
 
@@ -203,7 +203,7 @@ def post_report_link_to_github_issues(team: Team, report_id: str, signals: list[
         return 0
 
     marker = f"<!-- posthog:signal-report:{report_id} -->"
-    body = _comment_body(f"{settings.SITE_URL}/project/{team.pk}/inbox/reports/{report_id}", marker)
+    body = _comment_body(build_report_url(team.pk, report_id, ReportLinkSource.GITHUB_COMMENT), marker)
     integrations: dict[str, GitHubIntegration | None] = {}
     posted = sum(
         _post_to_issue(

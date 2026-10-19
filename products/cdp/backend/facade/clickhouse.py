@@ -1,0 +1,15 @@
+"""The ClickHouse tables core creates and migrates for this product.
+
+Wiring, not data: `posthog/clickhouse/schema.py` builds these in a local or test ClickHouse, and
+the migrations that created them apply the same definitions to a cluster.
+"""
+
+from products.cdp.backend.models.hog_invocation_results_sql import (
+    DISTRIBUTED_HOG_INVOCATION_RESULTS_TABLE_SQL as DISTRIBUTED_HOG_INVOCATION_RESULTS_TABLE_SQL,
+    DROP_HOG_INVOCATION_RESULTS_MV_SQL as DROP_HOG_INVOCATION_RESULTS_MV_SQL,
+    DROP_KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL as DROP_KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL,
+    HOG_INVOCATION_RESULTS_DATA_TABLE_SQL as HOG_INVOCATION_RESULTS_DATA_TABLE_SQL,
+    HOG_INVOCATION_RESULTS_MV_SQL as HOG_INVOCATION_RESULTS_MV_SQL,
+    INSERT_HOG_INVOCATION_RESULT_SQL as INSERT_HOG_INVOCATION_RESULT_SQL,
+    KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL as KAFKA_HOG_INVOCATION_RESULTS_TABLE_SQL,
+)

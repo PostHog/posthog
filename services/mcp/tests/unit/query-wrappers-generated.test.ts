@@ -77,6 +77,20 @@ describe('generated query wrappers', () => {
         expect(actorsSchema.properties?.source).not.toHaveProperty('properties.aggregation_group_type_index')
     })
 
+    it('describes every trends display type it accepts', () => {
+        const schema = z.toJSONSchema(GENERATED_TOOLS['query-trends']!().schema, { io: 'input', reused: 'inline' })
+        const display = (schema.properties!.trendsFilter as any).properties.display
+        // The MCP formatter and chart app ignore calendar_heatmap_data, so agents should not pick it yet.
+        const undescribed = ['CalendarHeatmap']
+
+        for (const value of display.enum.filter((v: string) => !undescribed.includes(v))) {
+            expect(display.description).toContain(`\`${value}\` - `)
+        }
+        for (const unsupported of ['Auto', 'ScatterPlot', 'TwoDimensionalHeatmap']) {
+            expect(display.enum).not.toContain(unsupported)
+        }
+    })
+
     it.each([
         ['zero interval count', 0, false],
         ['one interval', 1, true],

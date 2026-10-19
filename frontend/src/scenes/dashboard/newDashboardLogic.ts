@@ -19,6 +19,7 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
@@ -26,11 +27,6 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import {
-    legacyEntityToNode,
-    sanitizeRetentionEntity,
-} from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { isInsightVizNode } from '~/queries/utils'
 import {
@@ -44,8 +40,13 @@ import {
 } from '~/types'
 
 import { WEBSITE_METRICS_METRIC_CARD_TILES } from 'products/dashboards/frontend/websiteMetricsMetricCardTemplate'
+import {
+    titleMentionsMCP,
+    tryShowMCPAnalyticsNudge,
+} from 'products/mcp_analytics/frontend/nudge/mcpAnalyticsNudgeLogic'
 
 import { UNFILED_DASHBOARDS_FOLDER } from './dashboardConstants'
+import { legacyEntityToNode, sanitizeRetentionEntity } from './dashboardTemplateEntities'
 
 export interface NewDashboardForm {
     name: string
@@ -390,15 +391,18 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
                     actions.hideNewDashboardModal()
                     actions.resetNewDashboard()
-                    const queryBasedDashboard = getQueryBasedDashboard(result)
-                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                    dashboardsModel.actions.addDashboardSuccess(result)
                     actions.submitNewDashboardSuccessWithResult(result, undefined, setAsHomeTabDashboard, openAI)
-                    tryShowMCPHint('dashboards.create', {
-                        derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
-                    })
+                    if (titleMentionsMCP(result.name)) {
+                        tryShowMCPAnalyticsNudge('dashboard')
+                    } else {
+                        tryShowMCPHint('dashboards.create', {
+                            derivedPrompt: result.name ? `Build a dashboard called ${result.name}` : undefined,
+                        })
+                    }
                     if (show && redirectAfterCreation) {
                         breakpoint()
-                        router.actions.push(urls.dashboard(result.id))
+                        router.actions.push(withBackLink(urls.dashboard(result.id)))
                     }
                 } catch (e: any) {
                     if (!isBreakpoint(e)) {
@@ -492,8 +496,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     )
 
                     actions.resetNewDashboard()
-                    const queryBasedDashboard = getQueryBasedDashboard(result)
-                    queryBasedDashboard && dashboardsModel.actions.addDashboardSuccess(queryBasedDashboard)
+                    dashboardsModel.actions.addDashboardSuccess(result)
                     actions.submitNewDashboardSuccessWithResult(result, variables, setAsHomeTabDashboard)
 
                     posthog.capture('dashboard created from template', {
@@ -505,7 +508,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                     })
 
                     if (redirectAfterCreation) {
-                        router.actions.push(urls.dashboard(result.id))
+                        router.actions.push(withBackLink(urls.dashboard(result.id)))
                     }
                 } catch (e: any) {
                     if (!isBreakpoint(e)) {
