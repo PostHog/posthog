@@ -384,6 +384,9 @@ class TestEtsyTransport:
     def test_payments_resolve_each_ledger_page_and_drop_payments_already_seen(self) -> None:
         # A sale and its later refund are separate ledger entries for one payment, and a full
         # refresh does not merge on the primary key, so a repeat would land as a duplicate row.
+        # A resumed attempt would start with no record of the payments already written, so the
+        # walk restarts instead and saves no cursor.
+        stale = EtsyResumeConfig(offset=PAGE_SIZE, window_start=ETSY_HISTORY_START, window_end=ETSY_HISTORY_START + 1)
         result = _driver().run(
             "payments",
             route(
@@ -400,10 +403,14 @@ class TestEtsyTransport:
                     ],
                 }
             ),
+            resume_state=stale,
         )
 
         assert result.raised is None
         assert [row["payment_id"] for row in result.rows] == [1, 2, 3]
+        assert result.saved_states == []
+        ledger = [request for request in _walk_requests(result) if request.path.endswith("/ledger-entries")]
+        assert (ledger[0].param("min_created"), ledger[0].param("offset")) == (str(ETSY_HISTORY_START), "0")
         lookups = [request for request in _get_requests(result) if request.path.endswith("/payments")]
         assert [request.param("ledger_entry_ids") for request in lookups] == [
             ",".join(str(i) for i in range(PAGE_SIZE)),

@@ -281,7 +281,7 @@ def _windowed_pages(
     window_param: str,
     start: int,
     end: int,
-    manager: ResumableSourceManager[EtsyResumeConfig],
+    manager: Optional[ResumableSourceManager[EtsyResumeConfig]],
     resume: Optional[EtsyResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -334,7 +334,8 @@ def _windowed_pages(
             offset += page_size
             # Saved after the yield so a crash replays the last page (merge dedupes) instead of
             # skipping it.
-            manager.save_state(EtsyResumeConfig(offset=offset, window_start=window_start, window_end=window_end))
+            if manager is not None:
+                manager.save_state(EtsyResumeConfig(offset=offset, window_start=window_start, window_end=window_end))
 
             if page_size == 0 or page_size < PAGE_SIZE or offset >= total:
                 offset = 0
@@ -352,7 +353,7 @@ def _offset_pages(
     client: EtsyClient,
     path: str,
     config: EtsyEndpointConfig,
-    manager: ResumableSourceManager[EtsyResumeConfig],
+    manager: Optional[ResumableSourceManager[EtsyResumeConfig]],
     resume: Optional[EtsyResumeConfig],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -378,7 +379,8 @@ def _offset_pages(
             if rows:
                 yield rows
             offset += page_size
-            manager.save_state(EtsyResumeConfig(offset=offset, listing_state=state))
+            if manager is not None:
+                manager.save_state(EtsyResumeConfig(offset=offset, listing_state=state))
 
             if page_size == 0 or page_size < PAGE_SIZE or offset >= total:
                 break
@@ -458,7 +460,7 @@ def _paged_rows(
     shop_id: str,
     path: str,
     config: EtsyEndpointConfig,
-    manager: ResumableSourceManager[EtsyResumeConfig],
+    manager: Optional[ResumableSourceManager[EtsyResumeConfig]],
     resume: Optional[EtsyResumeConfig],
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool,
@@ -517,13 +519,17 @@ def get_rows(
             yield rows
     elif config.batch_lookup is not None:
         parent = ETSY_ENDPOINTS[config.batch_lookup.parent]
+        # The set of rows already yielded does not survive to a resumed attempt, and a resumed full
+        # refresh appends, so a deduplicated lookup saves no cursor. A restarted attempt is then a
+        # fresh run, which replaces what earlier attempts wrote.
+        resumes = config.batch_lookup.dedupe_key is None
         parent_pages = _paged_rows(
             client,
             resolved_shop_id,
             f"/shops/{resolved_shop_id}{parent.path}",
             parent,
-            resumable_source_manager,
-            resume,
+            resumable_source_manager if resumes else None,
+            resume if resumes else None,
             logger,
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
