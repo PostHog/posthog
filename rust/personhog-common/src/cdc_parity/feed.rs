@@ -139,6 +139,8 @@ pub struct FeedState {
     merged_into: HashMap<PersonKey, Uuid>,
     /// Kept exact through eviction, so naming is one lookup.
     named: HashMap<PersonKey, Names>,
+    /// Rows retained across every key, for a memory bound.
+    rows: usize,
 }
 
 impl FeedState {
@@ -153,6 +155,7 @@ impl FeedState {
         let Some(history) = self.mappings.get_mut(&key) else {
             self.mappings.insert(key, MappingHistory::new(mapping));
             self.named.entry(person).or_default().rows += 1;
+            self.rows += 1;
             return None;
         };
         if history
@@ -176,6 +179,7 @@ impl FeedState {
         };
         history.insert(mapping);
         self.named.entry(person).or_default().rows += 1;
+        self.rows += 1;
         conflict
     }
 
@@ -263,6 +267,7 @@ impl FeedState {
             self.unname(PersonKey::new(key.team_id, row.person_uuid), |names| {
                 names.rows -= 1
             });
+            self.rows -= 1;
         }
         Some(latest)
     }
@@ -276,6 +281,11 @@ impl FeedState {
 
     pub fn mapping_count(&self) -> usize {
         self.mappings.len()
+    }
+
+    /// Rows retained across every key, history included.
+    pub fn row_count(&self) -> usize {
+        self.rows
     }
 
     pub fn merge_count(&self) -> usize {
@@ -363,6 +373,7 @@ mod tests {
         );
         assert_eq!(feed.observe_mapping(&row(2, 1, false)), None);
         assert_eq!(feed.mapping(&key), Some(&mapping(1, 3, false)));
+        assert_eq!(feed.row_count(), 6);
 
         // The same disagreement read after a higher version is still one.
         let mut later = FeedState::new();
@@ -374,12 +385,15 @@ mod tests {
         assert!(later.has_row_for(&person(2)));
 
         // Eviction forgets the history and the persons only it named.
+        assert_eq!(later.row_count(), 3);
         assert_eq!(later.remove_mapping(&key), Some(mapping(1, 3, false)));
+        assert_eq!(later.row_count(), 0);
         assert!(!later.names_person(&person(1)));
         assert!(!later.names_person(&person(2)));
         assert_eq!(later.observe_mapping(&row(2, 2, false)), None);
         assert_eq!(later.mapping(&key), Some(&mapping(2, 2, false)));
         assert_eq!(later.mapping_count(), 1);
+        assert_eq!(later.row_count(), 1);
     }
 
     #[test]
