@@ -972,6 +972,7 @@ impl CohortStreamEventsConsumer {
             }
             (_, Some(restore)) => {
                 self.recover().await;
+                self.wait_for_capture(&restore).await;
                 let mut resume = ResumePoints::default();
                 let topic = InputTopic::new(self.topic.as_str());
                 resume.rewind_to(&restore.plan().positions(&topic, &self.claimed.ownership()));
@@ -1056,6 +1057,27 @@ impl CohortStreamEventsConsumer {
             .await;
     }
 
+    /// Nothing polls or folds while this host's clock reads before the checkpoint's capture, so no
+    /// fold emits a version below the outputs that made the restored state. The source pod can emit
+    /// more after the capture, and only the wall clocks of the two hosts order those outputs before
+    /// this pod's. A shutdown ends the wait.
+    async fn wait_for_capture(&self, restore: &PendingRestore) {
+        let captured_at = restore.captured_at();
+        while let Ok(wait) = (captured_at - Utc::now()).to_std() {
+            warn!(
+                %captured_at,
+                wait_secs = wait.as_secs(),
+                "this host's clock reads before the restored checkpoint's capture; holding off \
+                 dispatch until it passes",
+            );
+            tokio::select! {
+                biased;
+                _ = self.handle.shutdown_recv() => return,
+                _ = tokio::time::sleep(wait) => {}
+            }
+        }
+    }
+
     /// Seek every owned partition back to its resume point, finish the restore, then go live. Any
     /// failure keeps boot in `Rewinding`, so the next poll retries and nothing folds from the
     /// broker offset. `Rewinding` reports no liveness, so a persistent failure restarts the process.
@@ -1063,26 +1085,12 @@ impl CohortStreamEventsConsumer {
     /// The restore commits the seek list before it finishes. Finishing deletes the restore marker,
     /// so without the commit a crash right after would reopen the restored store at the broker's
     /// old, higher offsets and skip the events between.
-    ///
-    /// Nothing folds while this host's clock reads before the checkpoint's capture, so no fold
-    /// emits a version below the outputs that made the restored state. The source pod can emit
-    /// more after the capture, and only the wall clocks of the two hosts order those outputs before
-    /// this pod's.
     fn rewind(
         &self,
         resume: ResumePoints,
         restore: Box<PendingRestore>,
         boot_started: Instant,
     ) -> BootPhase {
-        let captured_at = restore.captured_at();
-        if Utc::now() < captured_at {
-            warn!(
-                %captured_at,
-                "this host's clock reads before the restored checkpoint's capture; holding off \
-                 dispatch until it passes",
-            );
-            return BootPhase::Rewinding { resume, restore };
-        }
         let owned = self.dispatcher.owned_set();
         let seek_list = match resume.seek_list(&self.claimed.stamp(), &self.topic, &owned) {
             Ok(seek_list) => seek_list,

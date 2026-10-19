@@ -229,7 +229,8 @@ To reshard:
 1. Scale the processor to 0, and wait until every pod has stopped after its final checkpoint.
 2. Set `COHORT_POD_COUNT` to the new count, `COHORT_RESHARD_FROM_POD_COUNT` to the old count, and the replicas to the new count.
 3. Check `owned_partitions` on each pod, `ownership_fence_blocked` at 0, and one `parent_s3` restore for each child.
-4. Remove `COHORT_RESHARD_FROM_POD_COUNT` in a later change.
+4. Remove `COHORT_RESHARD_FROM_POD_COUNT` in a later change, and before any offset reset of the events group.
+   While it is set, a reset that clears the stamp from every events partition of a child makes the child take its partitions over again and delete its store.
 
 If step 1 is skipped, each child waits until its parent restarts, and the old split keeps every partition until then.
 Deleting the parent pods moves the reshard on.
