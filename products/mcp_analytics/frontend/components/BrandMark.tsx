@@ -4,7 +4,7 @@ import { IconBrain, IconLaptop, IconLogomark, IconQuestion } from '@posthog/icon
 
 import { cn } from 'lib/utils/css-classes'
 
-import { BRAND_MARKS, type IconMarkName } from '../brandMarks'
+import { BRAND_MARKS, type BrandMarkName, type IconMarkName } from '../brandMarks'
 
 // The outline icons are filled shapes, not strokes, so a stroke in the fill color thickens their lines
 // to sit closer to the solid brand marks around them.
@@ -24,8 +24,16 @@ const ICON_MARKS: Record<
     'Unidentified client': { Icon: IconQuestion },
 }
 
-function isIconMark(name: string): name is IconMarkName {
+function isIconMark(name: BrandMarkName): name is IconMarkName {
     return Object.prototype.hasOwnProperty.call(ICON_MARKS, name)
+}
+
+// Mark names from untrusted input, such as HogQL's withIcon(), must pass through here before reaching BrandMark.
+export function toBrandMarkName(name: string): BrandMarkName {
+    return Object.prototype.hasOwnProperty.call(ICON_MARKS, name) ||
+        Object.prototype.hasOwnProperty.call(BRAND_MARKS, name)
+        ? (name as BrandMarkName)
+        : 'Other harnesses'
 }
 
 // Pass a label only when the mark stands alone. Next to a visible name, an unlabelled mark stays hidden
@@ -36,17 +44,17 @@ export function BrandMark({
     label,
     className = 'size-4',
 }: {
-    name: string
+    name: BrandMarkName
     label?: string
     className?: string
 }): JSX.Element {
     const a11y = label ? ({ role: 'img', 'aria-label': label } as const) : ({ 'aria-hidden': true } as const)
     let mark: JSX.Element
-    if (isIconMark(name) || !Object.prototype.hasOwnProperty.call(BRAND_MARKS, name)) {
-        const { Icon, className: iconClassName, outline } = ICON_MARKS[isIconMark(name) ? name : 'Other harnesses']
+    if (isIconMark(name)) {
+        const { Icon, className: iconClassName, outline } = ICON_MARKS[name]
         mark = <Icon className={cn('shrink-0', iconClassName, className)} {...a11y} {...outline} />
     } else {
-        const shape = BRAND_MARKS[name as keyof typeof BRAND_MARKS]
+        const shape = BRAND_MARKS[name]
         mark = (
             <svg
                 {...a11y}
