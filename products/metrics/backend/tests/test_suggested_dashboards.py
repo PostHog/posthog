@@ -6,20 +6,37 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.schema import MetricsHistogramQuery, MetricsQuery
+from posthog.schema import MetricsDashboardVariable, MetricsHistogramQuery, MetricsQuery, MetricsQueryFilter
 
 from posthog.models import Team
 
 from products.dashboards.backend.facade.dashboard_creation import DashboardTileSnapshot, NewInsightTile, TileLayout
 from products.metrics.backend.dashboard_import.catalog import CatalogEntry, MetricCatalog
-from products.metrics.backend.dashboard_import.spec import BuilderClause, BuilderQuery, DisplaySpec, GridLayout
+from products.metrics.backend.dashboard_import.spec import (
+    BuilderClause,
+    BuilderFilter,
+    BuilderQuery,
+    DisplaySpec,
+    GridLayout,
+)
 from products.metrics.backend.suggested_dashboards.bank import curated_templates
-from products.metrics.backend.suggested_dashboards.dashboards import build_tiles, panels_from_tiles
+from products.metrics.backend.suggested_dashboards.dashboards import (
+    attribute_variable,
+    build_tiles,
+    panels_from_tiles,
+    referenced_variables,
+)
 from products.metrics.backend.suggested_dashboards.discovery import _signed
 from products.metrics.backend.suggested_dashboards.generation import _convert
 from products.metrics.backend.suggested_dashboards.llm import ModelFailed, ask_model
 from products.metrics.backend.suggested_dashboards.matching import match_template
-from products.metrics.backend.suggested_dashboards.spec import DraftPanel, EvaluationAnswer, TemplatePanel
+from products.metrics.backend.suggested_dashboards.spec import (
+    DraftPanel,
+    DraftVariable,
+    EvaluationAnswer,
+    TemplatePanel,
+)
+from products.metrics.backend.variables import filter_referenced_names
 
 CATALOG = MetricCatalog(
     [
@@ -63,6 +80,10 @@ class TestSuggestedDashboards(SimpleTestCase):
             cells = {(layout.x + dx, layout.y + dy) for dx in range(layout.w) for dy in range(layout.h)}
             assert not boxes & cells, f"{panel.key} overlaps another panel"
             boxes |= cells
+        for variable in template.definition.variables:
+            MetricsDashboardVariable.model_validate(variable)
+        queries = [panel.query for panel in template.definition.panels if panel.query is not None]
+        assert referenced_variables(queries, template.definition.variables) == template.definition.variables
 
     @parameterized.expand(
         [
@@ -187,6 +208,100 @@ class TestSuggestedDashboards(SimpleTestCase):
         assert [panel.key for panel in converted.panels] == ["orders", "queue"]
         first, second = (panel.layout for panel in converted.panels)
         assert first.x + first.w <= second.x or first.y + first.h <= second.y
+
+    def test_referenced_variables_keeps_the_variables_of_the_queries_and_of_their_options(self) -> None:
+        query = _query("orders_total")
+        query["clauses"][0]["filters"] = [{"key": "instance", "op": "eq", "value": "$instance"}]
+        instance = {
+            **attribute_variable(name="instance", label="Instance", attribute="instance"),
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = $job",
+        }
+        job = attribute_variable(name="job", label="Job", attribute="job")
+        unused = attribute_variable(name="unused", label="Unused", attribute="unused")
+
+        assert referenced_variables([query], [job, unused, instance]) == [job, instance]
+        assert referenced_variables([_query("orders_total")], [job, unused, instance]) == []
+
+    @parameterized.expand(
+        [
+            ("all_by_default", "instance", False, [], [], True),
+            ("one_value_when_not_multi", "env", False, ["production", "staging"], ["production"], False),
+            ("several_values_when_multi", "env", True, ["production", "staging"], ["production", "staging"], False),
+            ("service_names_are_not_listed", "service_name", False, ["checkout"], [], True),
+        ]
+    )
+    def test_attribute_variable_selects_listed_values_or_all(
+        self,
+        _name: str,
+        attribute: str,
+        multi: bool,
+        selected: list[str],
+        expected_values: list[str],
+        expected_all: bool,
+    ) -> None:
+        converted = _convert(
+            [self._draft("orders", "orders_total", 0, filters=[BuilderFilter(key=attribute, op="eq", value="$scope")])],
+            Team(id=1),
+            CATALOG,
+            variables=[DraftVariable(name="scope", label="Scope", attribute=attribute, multi=multi, selected=selected)],
+            attributes={"orders_total": ["instance", "env"]},
+            attribute_values={"env": ["production", "staging"]},
+        )
+
+        assert len(converted.variables) == 1
+        variable = MetricsDashboardVariable.model_validate(converted.variables[0])
+        assert variable.current is not None
+        assert (variable.current.values, variable.current.all) == (expected_values, expected_all)
+        assert variable.includeAll is True
+        assert (variable.query or "").startswith(
+            "SELECT DISTINCT service_name" if attribute == "service_name" else "SELECT DISTINCT attribute_value"
+        )
+
+    def test_convert_drops_variables_with_unknown_attributes_or_no_panel(self) -> None:
+        converted = _convert(
+            [
+                self._draft(
+                    "orders",
+                    "orders_total",
+                    0,
+                    filters=[
+                        BuilderFilter(key="instance", op="eq", value="$instance"),
+                        BuilderFilter(key="host", op="eq", value="$host"),
+                    ],
+                ),
+                self._draft("queue", "queue_depth", 8),
+            ],
+            Team(id=1),
+            CATALOG,
+            variables=[
+                DraftVariable(name="instance", label="Instance", attribute="instance"),
+                DraftVariable(name="host", label="Host", attribute="host.name"),
+                DraftVariable(name="job", label="Job", attribute="job"),
+                DraftVariable(name="__interval", label="Interval", attribute="instance"),
+            ],
+            attributes={"orders_total": ["instance", "job"]},
+            attribute_values={},
+        )
+
+        assert [variable["name"] for variable in converted.variables] == ["instance"]
+        assert [variable.name for variable in converted.accepted_variables] == ["instance"]
+        orders = converted.panels[0].query
+        assert orders is not None
+        assert filter_referenced_names(
+            MetricsQueryFilter.model_validate(item) for item in orders["clauses"][0]["filters"]
+        ) == ["instance"]
+
+    @staticmethod
+    def _draft(key: str, metric: str, x: int, filters: list[BuilderFilter] | None = None) -> DraftPanel:
+        return DraftPanel(
+            key=key,
+            title=key,
+            query=BuilderQuery(
+                clauses=[BuilderClause(name="a", metric_name=metric, aggregation="rate", filters=filters or [])]
+            ),
+            display=DisplaySpec(type="line"),
+            layout=GridLayout(x=x, y=0, w=4, h=4),
+        )
 
     @parameterized.expand([(0, 0), (2**63 - 1, 2**63 - 1), (2**63, -(2**63)), (2**64 - 1, -1)])
     def test_unsigned_fingerprint_fits_a_signed_column(self, unsigned: int, signed: int) -> None:

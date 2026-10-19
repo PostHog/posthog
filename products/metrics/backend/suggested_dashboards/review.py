@@ -11,11 +11,20 @@ from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 
 from products.dashboards.backend.facade.api import unknown_dashboard_ids
-from products.dashboards.backend.facade.dashboard_creation import delete_unlisted_dashboard, read_dashboard_tiles
+from products.dashboards.backend.facade.dashboard_creation import (
+    delete_unlisted_dashboard,
+    read_dashboard_metric_variables,
+    read_dashboard_tiles,
+)
 from products.metrics.backend.dashboard_import.catalog import MetricCatalog
 from products.metrics.backend.dashboard_import.spec import GridLayout
 from products.metrics.backend.models import MetricsDashboardSuggestion, MetricsDashboardTemplate
-from products.metrics.backend.suggested_dashboards.dashboards import create_dashboard, drop_preview, panels_from_tiles
+from products.metrics.backend.suggested_dashboards.dashboards import (
+    create_dashboard,
+    drop_preview,
+    panels_from_tiles,
+    referenced_variables,
+)
 from products.metrics.backend.suggested_dashboards.matching import template_metric_names
 from products.metrics.backend.suggested_dashboards.spec import TemplatePanel, template_panels
 
@@ -66,6 +75,7 @@ def open_preview(*, template: MetricsDashboardTemplate, team: Team, user: User) 
         catalog=catalog,
         idempotency_key=f"metrics-template-review:{template.id}:{uuid.uuid4()}",
         unlisted=True,
+        variables=template.variables or [],
         # The panels keep their boxes, so the ones that the preview leaves out can go back in place on approve.
         refill=False,
     )
@@ -133,6 +143,18 @@ def approve(*, template: MetricsDashboardTemplate, user: User) -> MetricsDashboa
                 panels = _restore_unbuilt(panels, template_panels(locked.panels), set(locked.preview_unbuilt_keys))
                 locked.panels = [panel.model_dump(mode="json") for panel in panels]
                 locked.metric_names = template_metric_names(panels)
+                edited = read_dashboard_metric_variables(
+                    team_id=locked.preview_team_id, dashboard_id=locked.preview_dashboard_id
+                )
+                # The preview has only the variables of the panels that it shows. The panels it left out keep theirs.
+                names = {variable.get("name") for variable in edited}
+                kept = [
+                    *edited,
+                    *(variable for variable in locked.variables or [] if variable.get("name") not in names),
+                ]
+                locked.variables = referenced_variables(
+                    (panel.query for panel in panels if panel.query is not None), kept
+                )
         drop_preview(locked)
         locked.status = MetricsDashboardTemplate.Status.APPROVED
         locked.reviewed_by = user
@@ -191,6 +213,7 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
             catalog=catalog,
             # A deleted dashboard keeps its insights' ids, so a new one needs a new key.
             idempotency_key=f"metrics-suggestion:{suggestion.id}" + (f":after-{previous}" if previous else ""),
+            variables=template.variables or [],
         )
         if created is None:
             raise NoPanelsWithData("This project no longer sends the metrics of this dashboard.")
@@ -205,6 +228,7 @@ def create_from_suggestion(*, suggestion: MetricsDashboardSuggestion, team: Team
             "dashboard_id": created.id,
             "coverage": suggestion.coverage,
             "dropped_panel_count": len(built.dropped),
+            "variable_count": len(built.variable_names),
         },
         team=team,
     )

@@ -8,7 +8,7 @@ from typing import Any
 
 from products.metrics.backend.dashboard_import.catalog import CatalogEntry
 from products.metrics.backend.suggested_dashboards.matching import MetricFamily, TemplateMatch
-from products.metrics.backend.suggested_dashboards.spec import DraftPanel
+from products.metrics.backend.suggested_dashboards.spec import DraftPanel, DraftVariable
 
 MAX_PROMPT_METRICS = 400
 MAX_MATCHED_NAMES = 20
@@ -54,6 +54,17 @@ group_by in a panel, and none in a stat panel.
 Never filter on a value that only one project has, such as a host name or an id.
 - Give each panel one clear purpose. Two panels never show the same thing.
 
+Variables:
+- Add a dashboard variable when the metrics share an attribute that names one of several instances of the system, \
+such as a job, an instance, a namespace or a cluster. A user then picks one instance for the whole dashboard. \
+service_name, the service that sends the metric, is always available for a variable.
+- Add no variable for an attribute that splits one instance, such as a route, a status or a mode. Use group_by \
+for those. Use at most 2 variables.
+- Every panel whose metrics have the attribute refers to the variable with a filter: key is the attribute, op is \
+eq and value is $ and the variable name, for example {{"key": "service_name", "op": "eq", "value": "$service"}}.
+- Leave selected empty, so that the dashboard opens with All, unless one value from attribute_values suits every \
+project, such as production.
+
 Layout on the 12-column grid:
 - Row 1: 3 or 4 stat panels with the key numbers, such as throughput, error ratio, latency and saturation. \
 Use w 4 or w 3, h 2, y 0.
@@ -81,10 +92,11 @@ Look for problems that a person would notice:
 - A title does not say what the panel shows.
 - The layout has holes or overlaps, a half-width panel alone in a row, or stats outside the top row.
 - Two panels show the same thing.
+- A variable that no panel refers to, or a panel that does not refer to a variable whose attribute its metrics have.
 
 When there is no such problem, set looks_good to true. A small style preference is not a problem.
-When there are problems, set looks_good to false, list them, and return the complete corrected panel list. Keep \
-the panels that are fine as they are. Use only metric names from the catalog.
+When there are problems, set looks_good to false, list them, and return the complete corrected panel list and \
+variable list. Keep the panels and variables that are fine as they are. Use only metric names from the catalog.
 
 {_DATA_NOTE}"""
 
@@ -151,6 +163,7 @@ def draft_input(
 def critique_input(
     *,
     panels: Sequence[DraftPanel],
+    variables: Sequence[DraftVariable],
     entries: Sequence[CatalogEntry],
     attributes: dict[str, list[str]],
     attribute_values: dict[str, list[str]],
@@ -158,6 +171,7 @@ def critique_input(
 ) -> str:
     payload: dict[str, Any] = {
         "panels": [panel.model_dump(mode="json", exclude_none=True) for panel in panels],
+        "variables": [variable.model_dump(mode="json") for variable in variables],
         "metric_catalog": [{**_entry(entry), "attributes": attributes.get(entry.name, [])} for entry in entries],
         "attribute_values": attribute_values,
     }
