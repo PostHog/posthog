@@ -6691,6 +6691,7 @@ export namespace Schemas {
       Visitors: 'Visitors',
       Views: 'Views',
       AvgTimeOnPage: 'AvgTimeOnPage',
+      SessionDuration: 'SessionDuration',
       Clicks: 'Clicks',
       BounceRate: 'BounceRate',
       AverageScrollPercentage: 'AverageScrollPercentage',
@@ -6780,6 +6781,8 @@ export namespace Schemas {
       includeHost?: boolean | null;
       includeRevenue?: boolean | null;
       includeScrollDepth?: boolean | null;
+      /** Adds an average session duration column: the mean of each session's $session_duration across the row's sessions. Honoured for simple breakdowns, including alongside a conversionGoal. */
+      includeSessionDuration?: boolean | null;
       includeTrafficMetrics?: boolean | null;
       /** Interval for date range calculation (affects date_to rounding for hour vs day ranges) */
       interval?: IntervalType | null;
@@ -25740,10 +25743,41 @@ export namespace Schemas {
       images?: ConversationsTicketImage[] | null;
     }
 
+    export type ConversionCandidateKindEnum = typeof ConversionCandidateKindEnum[keyof typeof ConversionCandidateKindEnum];
+
+
+    export const ConversionCandidateKindEnum = {
+      EventsNode: 'EventsNode',
+      ActionsNode: 'ActionsNode',
+    } as const;
+
+    export interface ConversionCandidate {
+      source_ref: string;
+      kind: ConversionCandidateKindEnum;
+      event?: string | null;
+      action_id?: number | null;
+      name: string;
+      description?: string;
+      count?: number | null;
+      distinct_users?: number | null;
+      numeric_properties?: string[];
+      property_names?: string[];
+      already_configured?: boolean;
+    }
+
     /**
      * Wrapper for OpenAPI schema generation - one goal, in any of the three node shapes.
      */
     export type ConversionGoal = ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3;
+
+    export interface ConversionGoalApply {
+      /** The conversion goal. Must match one of the ConversionGoalFilter shapes: an events node, an actions node or a data warehouse node. conversion_goal_id is assigned by the server and any value sent is ignored. */
+      goal: ConversionGoal;
+      /** Unexpired preview reference issued for this user and project. Retries with the same reference return the same saved goal. */
+      preview_ref: string;
+      /** Explicit confirmation that the business definition and source limitations have been reviewed. */
+      definition_confirmed: boolean;
+    }
 
     /**
      * * `EventsNode` - EventsNode
@@ -25861,6 +25895,105 @@ export namespace Schemas {
 
     export type ConversionGoalPatch = PartialConversionGoalFilter1 | PartialConversionGoalFilter2 | PartialConversionGoalFilter3;
 
+    export interface ConversionGoalPreview {
+      /** The unsaved event, action, or warehouse goal to evaluate. conversion_goal_id is ignored. No goal is saved. */
+      goal: ConversionGoal;
+      /** Inclusive start of a preview period of at most 31 days. */
+      date_from: string;
+      /** Inclusive end of the preview period. Include the time zone offset. */
+      date_to: string;
+      /**
+         * Days before a conversion in which sessions can earn credit. Defaults to the project setting.
+         * @minimum 1
+         * @maximum 90
+         */
+      lookback_window_days?: number;
+      /** Count repeat conversions. Defaults to false for unique-user math and true otherwise. */
+      allow_multiple_conversions_per_visitor?: boolean;
+      /** Apply configured test-account filters. Defaults to the project setting. */
+      filter_test_accounts?: boolean;
+      /** Exclude direct sessions before calculating attribution coverage. */
+      exclude_direct_traffic?: boolean;
+      /** Exclude sessions whose channel is empty or unknown before calculating coverage. */
+      exclude_unattributed?: boolean;
+    }
+
+    export interface ConversionGoalPreviewResponse {
+      /**
+         * Reference for validated application of this exact event/action preview by this user. Null for warehouse previews or service credentials.
+         * @nullable
+         */
+      preview_ref: string | null;
+      /**
+         * When this preview must be refreshed before applying the goal.
+         * @nullable
+         */
+      expires_at: string | null;
+      /** The unsaved goal evaluated by this preview. Its ID is a temporary placeholder. */
+      goal: ConversionGoal;
+      /** When the preview completed. This is not the source sync time. */
+      observed_at: string;
+      /** Resolved inclusive start of the conversion period. */
+      date_from: string;
+      /** Resolved inclusive end of the conversion period. */
+      date_to: string;
+      /** Project time zone used by attribution. */
+      timezone: string;
+      /** Resolved session lookback window in days. */
+      attribution_window_days: number;
+      /** Whether repeat conversions count. */
+      allows_multiple_conversions_per_visitor: boolean;
+      /** Whether configured test-account filters were requested. */
+      filter_test_accounts: boolean;
+      /** Whether direct sessions were excluded from attribution. */
+      exclude_direct_traffic: boolean;
+      /** Whether sessions with an unknown channel were excluded. */
+      exclude_unattributed: boolean;
+      /** Conversion count before per-person evaluation limits. */
+      total_conversions: number;
+      /** Conversions evaluated after per-person limits. */
+      evaluated_conversions: number;
+      /** Evaluated conversions with at least one eligible session. */
+      attributed_conversions: number;
+      /** Total minus attributed conversions, including conversions excluded by evaluation limits. */
+      unattributed_conversions: number;
+      /**
+         * Summed value, null for count goals or incomplete/invalid values.
+         * @nullable
+         */
+      total_value: number | null;
+      /**
+         * Value of evaluated conversions, null for count goals or invalid values.
+         * @nullable
+         */
+      evaluated_value: number | null;
+      /**
+         * Evaluated value with an eligible session, null for count goals or invalid values.
+         * @nullable
+         */
+      attributed_value: number | null;
+      /**
+         * Total minus attributed value, null if the total is unavailable.
+         * @nullable
+         */
+      unattributed_value: number | null;
+      /**
+         * Project base currency for revenue goals; null for other goals.
+         * @nullable
+         */
+      currency: string | null;
+      /** Whether the per-person conversion limit excluded conversions. */
+      conversion_limit_reached: boolean;
+      /** Whether any person reached the touchpoint limit; older sessions may be excluded. */
+      touchpoint_limit_reached: boolean;
+      /** Whether evaluation limits or invalid values affect the result. This does not certify source quality. */
+      is_approximate: boolean;
+      /** Limitations to consider when interpreting the result. */
+      warnings: string[];
+      /** Quality checks this preview has not performed. Do not treat them as passed. */
+      checks_not_performed: string[];
+    }
+
     export interface ConversionGoalSummary {
       /** Id of the goal. Pass this to the explain, update and delete endpoints. */
       conversion_goal_id: string;
@@ -25939,7 +26072,24 @@ export namespace Schemas {
       goals: ConversionGoalSummary[];
       /** The team's configured attribution window in days */
       attribution_window_days: number;
-      /** The team's attribution model (e.g. last_touch, first_touch, linear) */
+      /** The team's configured attribution model */
+      attribution_mode: string;
+      /** True if any goal is misconfigured */
+      has_misconfigured: boolean;
+      /** Saved goal definitions, including filters and revenue/customer flags. Use these to review or verify a saved goal. */
+      conversion_goals: ConversionGoalWrittenList;
+      /** Whether Marketing analytics excludes configured test accounts by default. */
+      filter_test_accounts: boolean;
+      /** Project base currency used for revenue conversion. */
+      base_currency: string;
+    }
+
+    export interface ConversionGoalsSummaryResponse {
+      /** One summary entry per configured conversion goal */
+      goals: ConversionGoalSummary[];
+      /** The team's configured attribution window in days */
+      attribution_window_days: number;
+      /** The team's configured attribution model */
       attribution_mode: string;
       /** True if any goal is misconfigured */
       has_misconfigured: boolean;
@@ -25952,6 +26102,79 @@ export namespace Schemas {
       Manual: 'manual',
       Automatic: 'automatic',
     } as const;
+
+    export type IntentEnum = typeof IntentEnum[keyof typeof IntentEnum];
+
+
+    export const IntentEnum = {
+      Conversion: 'conversion',
+      Customer: 'customer',
+      Revenue: 'revenue',
+    } as const;
+
+    export type ConversionRecommendationStateEnum = typeof ConversionRecommendationStateEnum[keyof typeof ConversionRecommendationStateEnum];
+
+
+    export const ConversionRecommendationStateEnum = {
+      NeedsDecision: 'needs_decision',
+      NeedsPreview: 'needs_preview',
+    } as const;
+
+    export interface ConversionRecommendationDraft {
+      goal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3;
+      date_from: string;
+      date_to: string;
+      filter_test_accounts?: boolean;
+    }
+
+    export interface ConversionRecommendation {
+      source_ref: string;
+      name: string;
+      reason: string;
+      intent: IntentEnum;
+      questions: string[];
+      state: ConversionRecommendationStateEnum;
+      candidate: ConversionCandidate;
+      draft: ConversionRecommendationDraft | null;
+    }
+
+    export interface ConversionRecommendationResults {
+      recommendations?: ConversionRecommendation[];
+      limitations?: string[];
+    }
+
+    export interface ConversionRecommendationRun {
+      readonly id: string;
+      readonly status: ZendeskImportJobStatusEnum;
+      readonly lookback_days: number;
+      readonly date_from: string;
+      readonly date_to: string;
+      readonly created_at: string;
+      /** @nullable */
+      readonly completed_at: string | null;
+      readonly error: string;
+    }
+
+    export interface ConversionRecommendationStart {
+      /** False starts the first 30-day analysis once. True requests a new 14-day analysis; use only after an explicit user request. */
+      refresh?: boolean;
+    }
+
+    export interface ConversionRecommendationState {
+      /**
+         * Why this user cannot start an analysis, or null when generation is available.
+         * @nullable
+         */
+      generation_disabled_reason: string | null;
+      /** Latest analysis, including its actual state and observation period. */
+      latest_run: ConversionRecommendationRun | null;
+      /** Completed analysis that supplied the visible recommendations. Previous results remain available during an update or failure. */
+      result_run: ConversionRecommendationRun | null;
+      /** Persisted proposals and measured evidence. A proposal needs a fresh preview and explicit confirmation before saving. */
+      results: ConversionRecommendationResults;
+      /** Whether this user can request or initialize project recommendations. */
+      can_generate: boolean;
+    }
 
     export interface ConversionRecordingsRequest {
       /** A unique query ID for tracing this request in query logs. */
@@ -57567,6 +57790,10 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** How many breakdown values were folded into 'Other', so the table can say so. */
       otherBreakdownCount: number;
+      /** Median over all observed returners, before grouping into breakdowns. Only populated in summary mode. */
+      overallMedianReturnDays?: number | null;
+      /** Overall median for the previous acquisition period. Only populated when comparing in summary mode. */
+      previousOverallMedianReturnDays?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
@@ -60546,6 +60773,13 @@ export namespace Schemas {
       sparkline: IngestionWarningV2SparklinePoint[];
       /** The most recent warnings of this type (up to the `samples` query parameter, 5 by default), newest first. */
       samples: IngestionWarningV2Sample[];
+    }
+
+    export interface InitialConversionGoalsResponse {
+      /** Initial goals that have not been deleted, with their current values */
+      initial_goals: ConversionGoalWrittenList;
+      /** Whether initial setup completed or existing goals were preserved */
+      initialized: boolean;
     }
 
     /**
@@ -66820,6 +67054,52 @@ export namespace Schemas {
      */
     export interface MarketingAnalyticsCustomSourceMappings {[key: string]: string[]}
 
+    /**
+     * * `visitors` - visitors
+     * * `new_visitors` - new_visitors
+     * * `new_visitor_share` - new_visitor_share
+     * * `sessions` - sessions
+     * * `pageviews` - pageviews
+     * * `session_duration` - session_duration
+     * * `pages_per_session` - pages_per_session
+     * * `pages_per_visitor` - pages_per_visitor
+     * * `sessions_per_visitor` - sessions_per_visitor
+     * * `bounce_rate` - bounce_rate
+     * * `returning_visitors` - returning_visitors
+     * * `return_rate_7d` - return_rate_7d
+     * * `return_rate_30d` - return_rate_30d
+     * * `median_return_days` - median_return_days
+     * * `conversions` - conversions
+     * * `conversion_rate` - conversion_rate
+     * * `conversion_value` - conversion_value
+     * * `avg_conversion_value` - avg_conversion_value
+     * * `revenue` - revenue
+     */
+    export type MarketingAnalyticsOverviewMetricChoicesEnum = typeof MarketingAnalyticsOverviewMetricChoicesEnum[keyof typeof MarketingAnalyticsOverviewMetricChoicesEnum];
+
+
+    export const MarketingAnalyticsOverviewMetricChoicesEnum = {
+      Visitors: 'visitors',
+      NewVisitors: 'new_visitors',
+      NewVisitorShare: 'new_visitor_share',
+      Sessions: 'sessions',
+      Pageviews: 'pageviews',
+      SessionDuration: 'session_duration',
+      PagesPerSession: 'pages_per_session',
+      PagesPerVisitor: 'pages_per_visitor',
+      SessionsPerVisitor: 'sessions_per_visitor',
+      BounceRate: 'bounce_rate',
+      ReturningVisitors: 'returning_visitors',
+      ReturnRate7d: 'return_rate_7d',
+      ReturnRate30d: 'return_rate_30d',
+      MedianReturnDays: 'median_return_days',
+      Conversions: 'conversions',
+      ConversionRate: 'conversion_rate',
+      ConversionValue: 'conversion_value',
+      AvgConversionValue: 'avg_conversion_value',
+      Revenue: 'revenue',
+    } as const;
+
     export interface SourceMap {
       ad_group_id?: string | null;
       ad_group_name?: string | null;
@@ -66850,7 +67130,7 @@ export namespace Schemas {
       /** One-line plain-English summary of the diagnostic */
       summary: string;
       /** Conversion goal summary, when requested */
-      conversion_goals?: ConversionGoalsListResponse | null;
+      conversion_goals?: ConversionGoalsSummaryResponse | null;
       /** Top global recommended actions across all integrations */
       recommended_actions: RecommendedAction[];
     }
@@ -84048,6 +84328,8 @@ export namespace Schemas {
       custom_source_mappings?: MarketingAnalyticsCustomSourceMappings;
       /** Which field to match campaigns on per integration type, campaign_name or campaign_id. Manual mappings in campaign_name_mappings still take precedence. */
       campaign_field_preferences?: MarketingAnalyticsCampaignFieldPreferences;
+      /** Metric cards the marketing analytics Overview shows: exactly five, one per slot, in the order acquisition, engagement, retention, conversion, other. A metric may repeat, because the other slot can hold one another slot already shows. Send an empty list to restore the default. Reads always return the effective list. */
+      overview_metrics?: MarketingAnalyticsOverviewMetricChoicesEnum[];
     }
 
     export interface TeamCustomerAnalyticsPinnedAccountProperty {
@@ -93656,6 +93938,10 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       /** How many breakdown values were folded into 'Other', so the table can say so. */
       otherBreakdownCount: number;
+      /** Median over all observed returners, before grouping into breakdowns. Only populated in summary mode. */
+      overallMedianReturnDays?: number | null;
+      /** Overall median for the previous acquisition period. Only populated when comparing in summary mode. */
+      previousOverallMedianReturnDays?: number | null;
       /** Query status indicates whether next to the provided data, a query is still running. */
       query_status?: QueryStatus | null;
       /** The resolved previous/comparison period date range, when comparing against another period */
