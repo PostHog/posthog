@@ -59,37 +59,21 @@ pub(crate) trait Settlement: Send + Sync {
     fn paused(&self) -> Vec<TopicPartition>;
 }
 
-/// A partition's uncommitted charge: what it has charged and no handed-out
-/// frontier covers yet.
 pub(crate) trait Accounting: Send + Sync {
-    /// Returns the partition's uncommitted charge after this one.
     fn charge(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
         charges: &[(Offset, Charge)],
     ) -> Result<Held, Rejection>;
-
-    /// Called after a group run or a poll settles: marks offsets complete.
-    /// Returns the frontier that results, `None` while the front of the
-    /// partition's window is still incomplete. Leaves the uncommitted charge
-    /// unchanged.
     fn settled(
         &self,
         topic_partition: &TopicPartition,
         generation: u64,
         offsets: impl IntoIterator<Item = Offset>,
     ) -> Result<Option<Offset>, Rejection>;
-
-    /// Hands out the frontiers due for commit, each with what its partition
-    /// still holds after it. Their charge stops counting: the consumer submits
-    /// their commit right after.
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, HandedOut>>;
-
-    /// Like `take_due`, without waiting for the interval.
     fn take_all(&self) -> Option<HashMap<TopicPartition, HandedOut>>;
-
-    /// Drops everything the partitions hold.
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 }
 
@@ -99,12 +83,8 @@ pub(crate) struct HandedOut {
     pub(crate) remaining: Held,
 }
 
-/// Pause and resume decisions from a partition's uncommitted charge.
 pub(crate) trait Admission: Send + Sync {
-    /// After a charge that left the partition at `uncommitted`.
     fn charged(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Pause>;
-
-    /// After a hand-out that left the partition at `uncommitted`.
     fn handed_out(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Resume>;
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);

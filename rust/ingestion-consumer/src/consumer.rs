@@ -879,7 +879,6 @@ impl IngestionConsumer {
         covers_the_assignment(&paused, &assigned)
     }
 
-    /// A paused partition still serves rebalance callbacks and the poll interval, because polling never stops.
     fn pause_partition(&self, topic_partition: &TopicPartition) {
         if let Err(err) = self.consumer.pause(&partition_list(topic_partition)) {
             error!(

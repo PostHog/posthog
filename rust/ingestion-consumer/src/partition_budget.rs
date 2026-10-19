@@ -1,6 +1,3 @@
-//! Replay exposure per partition: a partition whose uncommitted work reaches
-//! its budget pauses until commits bring it under the low watermark.
-
 use std::num::NonZeroU64;
 
 use common_kafka_consumer::Charge;
@@ -47,9 +44,7 @@ impl BudgetLimits {
         Self { limits: None }
     }
 
-    /// `low_watermark` is the fraction of the budget a paused partition must
-    /// be back under, on every set axis, to resume. With neither axis set
-    /// the budget is unset.
+    /// With neither axis set the budget is unset.
     pub fn new(
         events: Option<NonZeroU64>,
         bytes: Option<NonZeroU64>,
