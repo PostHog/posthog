@@ -126497,6 +126497,10 @@ export namespace Schemas {
      */
     include_content_type?: boolean;
     /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
