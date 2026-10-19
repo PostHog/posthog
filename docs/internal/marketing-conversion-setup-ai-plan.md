@@ -1,15 +1,15 @@
 # Conversion recommendations in Marketing analytics
 
 Conversion recommendations scan a project's custom events and existing actions and suggest up to three business outcomes to measure.
-They appear in the existing Marketing analytics Setup, under Suggestions and Conversion goals.
-The `marketing-analytics-conversion-setup-ai` feature flag gates the UI, API, and MCP tools.
+The API and MCP tools expose saved recommendations independently of the frontend.
+The `marketing-analytics-conversion-setup-ai` feature flag gates the API and MCP tools.
 The existing Marketing analytics setup flag must also be enabled.
 
 ## Analysis lifecycle
 
-The first visit to Setup starts an analysis once, after loading the saved state and checking permission to generate.
-The first analysis covers 30 days; later analyses cover 14 days and require an explicit **Update recommendations** action.
-Runs and completed results are stored per project, so returning to Setup does not start another analysis.
+A start request begins the first analysis after checking permission to generate.
+The first analysis covers 30 days; later analyses cover 14 days and require an explicit refresh request.
+Runs and completed results are stored per project, so reading saved state does not start another analysis.
 An update retains the last completed recommendations while it runs.
 Interrupted runs become failed after five minutes and require an explicit retry.
 
@@ -17,7 +17,6 @@ Each recommendation includes its source event or action, an explanation, a propo
 A revenue suggestion must reference a numeric property observed in the source metadata.
 A missing amount mapping downgrades the suggestion to a conversion and adds a question about the missing mapping.
 Numeric metadata alone does not prove that a value is money; the user still needs to confirm units, currency, payment status, and duplicate handling.
-The **Configure goals** button opens the existing goal editor.
 Recommendations do not create or modify goals, and do not depend on conversion previews or the new dashboard.
 
 ## Discovery and access
@@ -44,11 +43,16 @@ Starting a run persists an analysis record and enqueues a task after the transac
 Concurrent starts reuse an active run, and repeated initial requests reuse the existing run.
 The start endpoint is limited to five requests per hour per user.
 
+## Frontend follow-up
+
+The Setup integration ships separately and consumes these endpoints.
+It starts the first analysis once, shows saved results, and offers explicit updates and navigation to the existing goal editor.
+The backend and MCP tools do not depend on that integration.
+
 ## Verification
 
 Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
-Frontend tests cover the initial run, manual updates, polling, project isolation, and the setup feature flag.
-Storybook covers analysis in progress, saved results, updates, failure, empty results, missing consent, and narrow layouts.
+MCP tests cover tool schemas, feature flag gating, and access from read-only sessions.
 
 The standalone recommendation evaluation uses nine synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
 It does not exercise discovery queries, permissions, persistence, or Celery; those have separate tests.
