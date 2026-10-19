@@ -220,7 +220,6 @@ export function loadPostHogJS(): void {
             session_recording: {
                 blockSelector: '.ph-replay-block',
                 streamNetworkBody: true,
-                recordBody: false,
                 maskCapturedNetworkRequestFn: redactMetricVariableRequest,
             },
             person_profiles: 'always',
