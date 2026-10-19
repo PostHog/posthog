@@ -88,6 +88,48 @@ Prometheus `error_type` labels are exception class names (`ClickHouseAtCapacity`
 in `temporal/scheduled_recalculation_logic.py`.
 A failed request or dispatch, or the team flag `experiments-scheduled-recalculation` off, emits no event.
 
+## One experiment (support ticket)
+
+Templates: [references/queries.md](references/queries.md).
+
+1. Find the region from the ticket (`us.` or `eu.` host), then the team and experiment in that region's Postgres.
+   Keep the ids in a hidden scratchpad file.
+2. Read the run history and the metric errors across runs, then follow the complaint.
+
+**Stale, or no refresh.** With no `scheduled` run at the expected hour, read the scheduled starts and skips:
+
+- `insufficient_exposures`, `exposure_backoff`: by design. Explain the exposure threshold.
+- `active_run_exists`, `recent_run_exists`: harmless. Another run covers the hour.
+- `exposure_query_failed`: ClickHouse capacity at that hour. Do the fleet check.
+- `zero_rollout`, `no_metrics`: configuration.
+- No event: check eligibility (running, flag active, age between `MIN_EXPERIMENT_AGE` and `EXPERIMENT_RECALCULATION_MAX_AGE_DAYS`, team flag, team hours),
+  then the Loki no-start keys. If both are clean, report the cause as unknown.
+
+**Failed.** Read `error_type` per metric and whether it repeats on the same metric:
+
+- `rate_limited`: a one-off is transient. A repeat means load at those hours: read the attempts, then do the fleet check.
+- `timeout`: code 159, or 394 with a matching kill, means the query is too heavy for its window. A long `scan_from` on `direct_scan` is the usual cause.
+- `out_of_memory`, `byte_limit`: a heavy metric shape. Hand off to `analyzing-experiment-query-performance`.
+- `validation_error`: `step = discovery` means a deleted metric or no start date. Otherwise the metric definition is invalid.
+- `server_error`: read the code in the attempts. 43 is a metric type error; check for a metric edit before the first failure.
+- `insufficient_data`: not a bug.
+
+**Tombstone.** Empty `started_at`: the workflow never began (a start failure, or a queue wait past the stale threshold).
+Otherwise the run stalled in progress. A person can read Temporal history and error tracking for that window.
+
+**Slow, or the page stopped waiting.** Read the frontend `abandoned` reason and `queue_duration_ms`. A long queue is a fleet problem.
+
+**Why `direct_scan`.** An empty skip reason on a `direct_scan` read means precompute applied but its data was not ready,
+so the read paid for the build and the full scan. Read the run's `precompute_build` rows, then the team's precompute jobs.
+
+**Many or heavy runs.** Read the gaps between runs (creators, previous status, median gap) and the UI-or-API match.
+
+**Which queue.** Check the organization against the activity-queue flag at the run's start.
+Only Temporal history proves the queue of one run.
+
+**Write-up.** The run, the metric, the error class, the evidence and the next step, with placeholder ids.
+Propose a retry only when the cause is gone; a person starts it.
+
 ## Privacy rules
 
 This skill is public, and its output often goes into tickets and Slack.
