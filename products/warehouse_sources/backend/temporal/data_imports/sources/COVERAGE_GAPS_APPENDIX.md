@@ -1640,14 +1640,14 @@ Note: The official API index and individual reference pages supplied explicit GE
 
 ## Bing Webmaster Tools — gaps
 
-Today (5): `crawl_stats`, `page_stats`, `query_stats`, `rank_and_traffic_stats`, `sites`
+Today (8): `crawl_issues`, `crawl_stats`, `link_counts`, `page_query_stats`, `page_stats`, `query_stats`, `rank_and_traffic_stats`, `sites`
 
 Diffed against: <https://learn.microsoft.com/en-us/dotnet/api/microsoft.bing.webmaster.api.interfaces.iwebmasterapi>
 
-- [ ] `GetPageQueryStats (GET /webmaster/api.svc/json/GetPageQueryStats)` — connect search queries to landing pages, which separate page and query totals cannot show (high)
-- [ ] `GetQueryPageDetailStats (GET /webmaster/api.svc/json/GetQueryPageDetailStats)` — analyze clicks and impressions by ranking position for each query and page (medium)
-- [ ] `GetCrawlIssues (GET /webmaster/api.svc/json/GetCrawlIssues)` — identify URLs with crawl failures and compare those failures with traffic changes (medium)
-- [ ] `GetLinkCounts (GET /webmaster/api.svc/json/GetLinkCounts)` — measure inbound link counts for each site page (medium)
+- [x] `GetPageQueryStats (GET /webmaster/api.svc/json/GetPageQueryStats)` — connect search queries to landing pages, which separate page and query totals cannot show (high). Added as `page_query_stats` (fan-out over the top pages GetPageStats returns; off by default because it makes one call per page).
+- ~~`GetQueryPageDetailStats (GET /webmaster/api.svc/json/GetQueryPageDetailStats)`~~ — skipped: it takes one query and one page per call, so a table needs one request per query-page pair on top of the `page_query_stats` fan-out
+- [x] `GetCrawlIssues (GET /webmaster/api.svc/json/GetCrawlIssues)` — identify URLs with crawl failures and compare those failures with traffic changes (medium). Added as `crawl_issues` (full refresh).
+- [x] `GetLinkCounts (GET /webmaster/api.svc/json/GetLinkCounts)` — measure inbound link counts for each site page (medium). Added as `link_counts` (full refresh).
 - [ ] `GetUrlLinks (GET /webmaster/api.svc/json/GetUrlLinks)` — analyze referring pages and anchor text for each linked page (medium)
 
 Note: IWebmasterApi lists methods; individual method pages confirm GET paths through JSON request examples. Current stats cover site, page, and query totals but omit the intersection of queries and pages. Detailed rankings and backlinks need additional calls for each page or query. Crawl settings, URL submissions, quotas, and health operations are excluded.
