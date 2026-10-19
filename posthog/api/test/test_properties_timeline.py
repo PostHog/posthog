@@ -952,9 +952,22 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestPropertiesTimelineRequestSerializer(SimpleTestCase):
-    def test_rejects_unsupported_insight(self):
-        query = InsightActorsQuery(source=StickinessQuery(series=[EventsNode(event="$pageview")]), day=3)
+    @parameterized.expand(
+        [
+            (
+                "stickiness_source",
+                InsightActorsQuery(source=StickinessQuery(series=[EventsNode(event="$pageview")]), day=3),
+                "The properties timeline supports Trends insights only.",
+            ),
+            (
+                "unparseable_day",
+                InsightActorsQuery(source=TrendsQuery(series=[EventsNode(event="$pageview")]), day="not-a-date"),
+                "A Trends data point's day must be a date string.",
+            ),
+        ]
+    )
+    def test_rejects_query_the_timeline_cannot_window(self, _name: str, query: InsightActorsQuery, error: str):
         serializer = PropertiesTimelineRequestSerializer(data={"query": query.model_dump(mode="json")})
 
         assert not serializer.is_valid()
-        assert serializer.errors["query"] == ["The properties timeline supports Trends insights only."]
+        assert serializer.errors["query"] == [error]

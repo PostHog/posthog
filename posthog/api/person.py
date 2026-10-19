@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db.models import TextChoices
 
 import structlog
+from dateutil.parser import parse as parse_datetime
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -517,6 +518,17 @@ class PersonPropertiesAtTimeResponseSerializer(serializers.Serializer):
     )
 
 
+def _is_date_string(day: str | int) -> bool:
+    if not isinstance(day, str):
+        return False
+    # The trends actors query parses the day with dateutil, so the same parse checks it here.
+    try:
+        parse_datetime(day)
+    except (ValueError, OverflowError):
+        return False
+    return True
+
+
 @extend_schema_field(InsightActorsQuery)  # type: ignore[arg-type]  # Supported by the Pydantic schema extension.
 class InsightActorsQueryField(serializers.JSONField):
     """Types the field as an `InsightActorsQuery` in the OpenAPI schema. `validate_query` parses it."""
@@ -544,7 +556,7 @@ class PropertiesTimelineRequestSerializer(serializers.Serializer):
             raise serializers.ValidationError("The query's series index is out of range.")
         if not isinstance(query.source.series[series_index], EventsNode | ActionsNode):
             raise serializers.ValidationError("The properties timeline supports events and actions series only.")
-        if query.day is not None and not isinstance(query.day, str):
+        if query.day is not None and not _is_date_string(query.day):
             raise serializers.ValidationError("A Trends data point's day must be a date string.")
         return query
 
