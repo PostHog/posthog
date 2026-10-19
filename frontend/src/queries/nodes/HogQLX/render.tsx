@@ -60,6 +60,16 @@ export function parseHogQLX(value: any): any {
     return value.map((v) => parseHogQLX(v))
 }
 
+function primitiveString(value: unknown): string | null {
+    if (value == null) {
+        return ''
+    }
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return String(value)
+    }
+    return null
+}
+
 export function renderHogQLX(value: any): JSX.Element {
     const object = parseHogQLX(value)
 
@@ -127,9 +137,13 @@ export function renderHogQLX(value: any): JSX.Element {
                 </LightErrorBoundary>
             )
         } else if (tag === 'BrandMarkLabel') {
+            const label = primitiveString(rest.label)
+            if (label === null) {
+                return <></>
+            }
             return (
                 <LightErrorBoundary>
-                    <BrandMarkLabel label={String(rest.label ?? '')} mark={String(rest.mark ?? '')} />
+                    <BrandMarkLabel label={label} mark={primitiveString(rest.mark) ?? ''} />
                 </LightErrorBoundary>
             )
         } else if (tag === 'a') {
