@@ -41,6 +41,7 @@ from .serializers import (
     MetricBulkDeleteResponseSerializer,
     MetricBulkNamesRequestSerializer,
     MetricCreateSerializer,
+    MetricNameConflictSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
@@ -180,8 +181,10 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={
             201: MetricSerializer,
             409: OpenApiResponse(
+                response=MetricNameConflictSerializer,
                 description="A live metric already holds this name (code 'metric_name_taken'). "
-                "extra.existing_metric holds its name and status. Send overwrite true to replace it."
+                "extra.existing_metric holds its name and status, unless the metric is hidden from the caller. "
+                "Send overwrite true to replace a visible metric.",
             ),
         },
     )
@@ -190,7 +193,6 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         user = cast(User, request.user)
-        api.reject_name_held_by_hidden_metric(self.team, user, self.user_access_control, data["name"])
         # Pass only the fields the client actually sent, so an upsert that refines an existing metric
         # leaves omitted fields (a stored definition, provenance, ...) untouched rather than resetting them.
         optional = {
@@ -213,6 +215,7 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             name=data["name"],
             description=data["description"],
             overwrite=data["overwrite"],
+            user_access_control=self.user_access_control,
             request=request,
             **optional,
         )
