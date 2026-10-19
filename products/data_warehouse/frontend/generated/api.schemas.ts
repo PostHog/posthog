@@ -2482,6 +2482,7 @@ export interface CredentialApi {
  * * `Plaid` - Plaid
  * * `SurveyMonkey` - SurveyMonkey
  * * `Eventbrite` - Eventbrite
+ * * `Everflow` - Everflow
  * * `RingCentral` - RingCentral
  * * `Twilio` - Twilio
  * * `Freshsales` - Freshsales
@@ -3679,6 +3680,7 @@ export interface CredentialApi {
  * * `SimonData` - SimonData
  * * `CommissionJunction` - CommissionJunction
  * * `Liveblocks` - Liveblocks
+ * * `Livestorm` - Livestorm
  * * `NationBuilder` - NationBuilder
  * * `Tana` - Tana
  * * `Zenchef` - Zenchef
@@ -3880,6 +3882,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Plaid: 'Plaid',
     SurveyMonkey: 'SurveyMonkey',
     Eventbrite: 'Eventbrite',
+    Everflow: 'Everflow',
     RingCentral: 'RingCentral',
     Twilio: 'Twilio',
     Freshsales: 'Freshsales',
@@ -5077,6 +5080,7 @@ export const ExternalDataSourceTypeEnumApi = {
     SimonData: 'SimonData',
     CommissionJunction: 'CommissionJunction',
     Liveblocks: 'Liveblocks',
+    Livestorm: 'Livestorm',
     NationBuilder: 'NationBuilder',
     Tana: 'Tana',
     Zenchef: 'Zenchef',

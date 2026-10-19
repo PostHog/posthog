@@ -118,6 +118,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.cohorts.backend.api.staff_tools.CohortsStaffToolsViewSet",
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",
+    "products.conversations.backend.api.signing_secret.SigningSecretViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",
@@ -222,6 +223,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.review_hog.backend.presentation.views.validators.ReviewValidatorConfigViewSet",
     # Counts and hover details must use the same complete seven-day window.
     "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
+    # Returns one team's onboarding state as a single document, so there is nothing to paginate.
+    "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",
