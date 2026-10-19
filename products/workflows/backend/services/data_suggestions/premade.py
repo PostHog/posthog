@@ -22,7 +22,7 @@ from products.workflows.backend.facade.contracts import (
     WorkflowIdeaNotFound,
     WorkflowIdeaWorkflowMismatch,
 )
-from products.workflows.backend.facade.enums import WorkflowIdeaSource, WorkflowIdeaStatus
+from products.workflows.backend.facade.enums import WorkflowIdeaStatus
 from products.workflows.backend.models import HogFlow, WorkflowIdea
 from products.workflows.backend.services.data_suggestions import team_context
 from products.workflows.backend.services.data_suggestions.builder import EmailSender
@@ -31,11 +31,7 @@ _KEY_PREFIX = "event:"
 
 
 def _waiting(team_id: int):
-    return (
-        WorkflowIdea.objects.for_team(team_id)
-        .filter(status=WorkflowIdeaStatus.SUGGESTED, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
-        .exclude(definition={})
-    )
+    return WorkflowIdea.objects.for_team(team_id).filter(status=WorkflowIdeaStatus.SUGGESTED).exclude(definition={})
 
 
 def premade_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
@@ -91,7 +87,6 @@ def store_premade_ideas(
                         "uses_saved_template": build.uses_saved_template,
                         "measured_at": timezone.now().isoformat(),
                     },
-                    "source": WorkflowIdeaSource.DATA_SUGGESTIONS,
                     "source_ref": source_ref,
                 },
             )
@@ -129,12 +124,7 @@ def accept_premade_idea(
 def lock_premade_idea(team_id: int, idea_id: str) -> WorkflowIdea:
     if not _is_uuid(idea_id):
         raise WorkflowIdeaNotFound()
-    row = (
-        WorkflowIdea.objects.for_team(team_id)
-        .select_for_update()
-        .filter(id=idea_id, source=WorkflowIdeaSource.DATA_SUGGESTIONS)
-        .first()
-    )
+    row = WorkflowIdea.objects.for_team(team_id).select_for_update().filter(id=idea_id).first()
     if row is None:
         raise WorkflowIdeaNotFound()
     if row.status != WorkflowIdeaStatus.SUGGESTED:
