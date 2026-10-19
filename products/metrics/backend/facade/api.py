@@ -69,7 +69,7 @@ from products.metrics.backend.metric_samples_query_runner import build_metric_qu
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.variable_options import check_options_window, list_variable_options
-from products.metrics.backend.variables import from_dashboard
+from products.metrics.backend.variables import from_dashboard, with_values
 
 logger = structlog.get_logger(__name__)
 
@@ -526,13 +526,18 @@ def list_metric_variable_options(
     except (ValueError, OverflowError) as exc:
         raise ValueError("The window of the variable options is not a valid date range.") from exc
     check_options_window(resolved_from, resolved_to)
+    # The caller sends the options that All stands for, so an empty list is a known empty set.
+    selections = {
+        name: with_values(variable, variable.values) if variable.is_all else variable
+        for name, variable in from_dashboard(variables).items()
+    }
     return list_variable_options(
         team=team,
         source=source,
         query=query,
         custom_values=custom_values,
         regex=regex,
-        variables=from_dashboard(variables),
+        variables=selections,
         date_from=resolved_from,
         date_to=resolved_to,
         slot=partial(query_concurrency_slots, team),
