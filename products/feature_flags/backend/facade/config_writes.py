@@ -32,8 +32,6 @@ from django.conf import settings
 
 import structlog
 
-from posthog.hogql.constants import FEATURE_FLAG_VARIANT_SENTINELS
-
 from posthog.dataclasses import frozen
 from posthog.ph_client import feature_enabled_or_false
 
@@ -46,6 +44,7 @@ from products.feature_flags.backend.facade.config_validation import (
 )
 from products.feature_flags.backend.facade.rule_warnings import review_config
 from products.feature_flags.backend.facade.warnings import ManagementWarning
+from products.feature_flags.backend.reserved_variant_keys import is_reserved_variant_key
 
 logger = structlog.get_logger(__name__)
 
@@ -54,6 +53,8 @@ _SEEDED_RULE_TYPE = "percentage_rollout"
 # Internal feature flags, targeted at the ``project`` group by id. Both off means closed.
 V2_WRITES_FLAG = "feature-flag-rules-v2-writes"
 V2_CREATION_FLAG = "feature-flag-rules-v2-creation"
+
+_RESERVED_STRING_VALUES_TEXT = '$false, $true or "null"'
 
 
 def _flag_enabled(key: str, team_id: int) -> bool:
@@ -277,16 +278,17 @@ def check_writer_rules(document: Mapping[str, Any], *, stored: Mapping[str, Any]
         raise ConfigValidationError(errors)
 
 
-def _reserved_string_values(document: Mapping[str, Any], _stored: Mapping[str, Any]) -> Iterator[ConfigError]:
-    # A string value is served as the variant, and the event-storage sentinels are the keys v1 reserves as variant keys.
+def _reserved_string_values(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:
+    # The flag serves a string value as its variant, so this rule reserves the keys v1 reserves as variant keys.
     if document["return_type"] != "string":
         return
-    detail = f"Must be a non-empty string other than {' or '.join(FEATURE_FLAG_VARIANT_SENTINELS)}"
-    if document["default_value"] in FEATURE_FLAG_VARIANT_SENTINELS:
-        yield ConfigError(code="invalid", detail=f"{detail}, or null.", attr="filters.default_value")
+    held = {stored["default_value"], *(rule.get("value") for rule in stored["rules"])} if stored else set()
+    detail = f"a non-empty string other than {_RESERVED_STRING_VALUES_TEXT}"
+    if is_reserved_variant_key(document["default_value"], held=held):
+        yield ConfigError(code="invalid", detail=f"Must be null or {detail}.", attr="filters.default_value")
     for index, rule in enumerate(document["rules"]):
-        if rule.get("value") in FEATURE_FLAG_VARIANT_SENTINELS:
-            yield ConfigError(code="invalid", detail=f"{detail}.", attr=f"filters.rules[{index}].value")
+        if is_reserved_variant_key(rule.get("value"), held=held):
+            yield ConfigError(code="invalid", detail=f"Must be {detail}.", attr=f"filters.rules[{index}].value")
 
 
 def _compilable_patterns(document: Mapping[str, Any], stored: Mapping[str, Any]) -> Iterator[ConfigError]:

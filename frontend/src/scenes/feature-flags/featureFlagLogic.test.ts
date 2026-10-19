@@ -3527,12 +3527,13 @@ describe('featureFlagLogic', () => {
                     .toFinishAllListeners()
 
                 // A `name` in the body overwrites the flag's description.
-                expect(updateSpy.mock.calls[0][1]).toEqual({ id: MOCK_FEATURE_FLAG.id, deleted: true })
+                expect(updateSpy.mock.calls[0][1]).toEqual({ deleted: true })
                 const [message, options] = toastSpy.mock.calls[0]
                 expect(render(message as JSX.Element).container.textContent).toBe(
                     `${MOCK_FEATURE_FLAG.key} has been deleted`
                 )
 
+                expect(options?.button?.label).toBe('Undo')
                 await expectLogic(logic, async () => {
                     await options?.button?.action()
                 }).toNotHaveDispatchedActions(['deleteFlag'])
@@ -4097,8 +4098,11 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'provider/model-1.2', desc: 'slashes and dots (model-id style)' },
         { key: '0.85', desc: 'dotted number' },
         { key: 'a/b/c.d_e-f', desc: 'mixed dots, slashes, hyphens, underscores' },
-    ])('accepts valid variant key: $desc', ({ key }) => {
-        expect(validateFeatureFlagVariantKey(key)).toBeUndefined()
+        { key: 'NULL', desc: 'uppercase NULL' },
+        { key: 'Null', desc: 'title-case Null' },
+        { key: 'null', savedKeys: ['control', 'null'], desc: 'null the saved flag already has' },
+    ])('accepts valid variant key: $desc', ({ key, savedKeys }) => {
+        expect(validateFeatureFlagVariantKey(key, savedKeys)).toBeUndefined()
     })
 
     it.each([
@@ -4107,8 +4111,10 @@ describe('validateFeatureFlagVariantKey', () => {
         { key: 'foo?bar', error: 'Only letters', desc: 'question marks' },
         { key: '', error: 'Please set a key', desc: 'empty key' },
         { key: 'a'.repeat(401), error: '400 characters', desc: 'over 400 characters' },
-    ])('rejects variant key with $desc', ({ key, error }) => {
-        expect(validateFeatureFlagVariantKey(key)).toContain(error)
+        { key: 'null', error: 'reserved', desc: 'null on a new flag' },
+        { key: 'null', savedKeys: ['control', 'test'], error: 'reserved', desc: 'null the saved flag lacks' },
+    ])('rejects variant key with $desc', ({ key, savedKeys, error }) => {
+        expect(validateFeatureFlagVariantKey(key, savedKeys)).toContain(error)
     })
 })
 
@@ -4767,6 +4773,68 @@ describe('a flag in config version 2', () => {
     })
 
     it.each([
+        ['deleting', () => logic.actions.deleteFeatureFlag(V2_FLAG), { deleted: true, version: 3 }],
+        [
+            'restoring',
+            () => logic.actions.restoreFeatureFlag({ ...V2_FLAG, deleted: true }),
+            { deleted: false, version: 3 },
+        ],
+    ])('sends only deleted and the row version when %s', async (_, act, body) => {
+        const update = jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, ...body, version: 4 })
+
+        await expectLogic(logic, act).toFinishAllListeners()
+
+        expect(update).toHaveBeenCalledWith(`api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7`, body)
+    })
+
+    it('deletes with the row version an inline save returned after the delete dialog opened', async () => {
+        const update = jest
+            .spyOn(api, 'update')
+            .mockImplementation(async (_url, payload) => ({ ...V2_FLAG, ...(payload as object), version: 4 }))
+        // The dialog's confirm passes the flag it was opened with, at version 3.
+        const flagWhenDialogOpened = logic.values.featureFlag
+
+        logic.actions.saveTagsInline(['checkout'])
+        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.deleteFeatureFlag(flagWhenDialogOpened)).toFinishAllListeners()
+
+        expect(update).toHaveBeenLastCalledWith(`api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7`, {
+            deleted: true,
+            version: 4,
+        })
+    })
+
+    it('offers no undo after a delete, because the server refuses to restore this flag', async () => {
+        jest.spyOn(api, 'update').mockResolvedValue({ ...V2_FLAG, deleted: true, version: 4 })
+        // deleteWithUndo toasts through @posthog/lemon-ui, which the LemonToast module mock does not replace.
+        const info = jest.spyOn(sharedLemonToast, 'info')
+
+        await expectLogic(logic, () => logic.actions.deleteFeatureFlag(V2_FLAG)).toFinishAllListeners()
+
+        expect(info).toHaveBeenCalledTimes(1)
+        expect(info.mock.calls[0][1]?.button).toBeUndefined()
+    })
+
+    it('reloads the flag when a delete hits a stale row version', async () => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/7/`]: () => [200, { ...V2_FLAG, version: 5 }],
+            },
+        })
+        jest.spyOn(api, 'update').mockRejectedValue({ status: 409, detail: 'This feature flag has changed.' })
+        const genericError = jest.spyOn(sharedLemonToast, 'error')
+
+        logic.actions.deleteFeatureFlag(V2_FLAG)
+        await expectLogic(logic)
+            .toDispatchActions(['refreshFeatureFlag', 'refreshFeatureFlagSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.rowVersionToken).toEqual({ version: 5 })
+        expect(lemonToast.error).toHaveBeenCalledWith('This feature flag has changed.')
+        expect(genericError).not.toHaveBeenCalled()
+    })
+
+    it.each([
         ['tags', () => logic.actions.saveTagsInline(['checkout'])],
         ['description', () => logic.actions.saveDescriptionInline('Checkout redesign')],
     ])('keeps a v1 flag on its loaded row version after an inline %s save', async (_, save) => {
@@ -4983,7 +5051,6 @@ describe('the editor a flag opens in', () => {
                         id: 'rule-experiment',
                         rule_type: 'experiment',
                         targeting: { properties: [] },
-                        experiment_id: 12,
                         paused: false,
                         variants: [
                             { key: 'control', weight: 50, value: false },

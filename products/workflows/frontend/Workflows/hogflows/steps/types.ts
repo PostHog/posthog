@@ -105,6 +105,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'replay_vision_scan',
         'task_skills',
     ]),
     key: z.string(),
@@ -171,6 +172,10 @@ export const HogFlowTriggerSchema = z.discriminatedUnion('type', [
     }),
     z.object({
         type: z.literal('schedule'),
+    }),
+    // A transactional email: its message template's send endpoint runs the workflow once per call.
+    z.object({
+        type: z.literal('api'),
     }),
     z.object({
         type: z.literal('cohort'),

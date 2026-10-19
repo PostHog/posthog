@@ -17,6 +17,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, CURRENCY_SYMBOL_TO_NAME_MAP } from 'lib/utils/currency'
 import { isObject } from 'lib/utils/guards'
 import { pluralize } from 'lib/utils/strings'
+import { ExperimentsConfig } from 'scenes/settings/environment/experimentsConfigLogic'
 import { urls } from 'scenes/urls'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
@@ -158,13 +159,33 @@ function createFixedVerbValueHandler(
     }
 }
 
+function createExperimentsDefaultHandler(fieldName: string, format: (value: unknown) => string = String) {
+    return (change: ActivityChange): ChangeMapping | null => {
+        if (change.after === null || change.after === undefined) {
+            return { description: [<>cleared the {fieldName}</>] }
+        }
+        return {
+            description: [
+                <>
+                    changed the {fieldName} to <em>{format(change.after)}</em>
+                </>,
+            ],
+        }
+    }
+}
+
 const TEAM_PROPERTIES_MAPPING: Record<
-    keyof TeamType | 'heatmaps_screenshot_allowed_hostnames',
+    keyof TeamType | keyof ExperimentsConfig | 'heatmaps_screenshot_allowed_hostnames' | 'conversations_signing_secret',
     (change: ActivityChange) => ChangeMapping | null
 > = {
     // API-related tokens
     api_token: createApiTokenHandler('project token', 'set', 'reset'),
     secret_api_token: createApiTokenHandler('Feature Flags secure API key', 'generated', 'rotated'),
+    conversations_signing_secret: createApiTokenHandler(
+        'Conversations identity verification secret',
+        'generated',
+        'rotated'
+    ),
     heatmaps_screenshot_secret: createApiTokenHandler('heatmap screenshot value', 'generated', 'rotated'),
     heatmaps_screenshot_allowed_hostnames: createArrayChangeHandler('approved screenshot hostnames'),
     secret_api_token_backup: (change) => {
@@ -763,6 +784,43 @@ const TEAM_PROPERTIES_MAPPING: Record<
     marketing_analytics_config: marketingAnalyticsConfigurationDescriber,
     revenue_analytics_config: revenueAnalyticsConfigurationDescriber,
     core_events_config: coreEventsConfigurationDescriber,
+
+    // Experiments defaults, written by the experiments_config endpoint and logged under the Team scope
+    default_experiment_stats_method: createExperimentsDefaultHandler('default statistical method for experiments'),
+    default_experiment_confidence_level: createExperimentsDefaultHandler(
+        'default confidence level for experiments',
+        (value) => `${Math.round(Number(value) * 100)}%`
+    ),
+    default_minimum_detectable_effect: createExperimentsDefaultHandler(
+        'default minimum detectable effect for experiments',
+        (value) => `${value}%`
+    ),
+    default_only_count_matured_users: createBooleanToggleHandler(
+        'only counting matured users by default in experiments'
+    ),
+    default_cuped_enabled: createBooleanToggleHandler('CUPED by default for experiments'),
+    default_cuped_lookback_days: createExperimentsDefaultHandler('default CUPED lookback window', (value) =>
+        pluralize(Number(value), 'day')
+    ),
+    default_sequential_testing_enabled: createBooleanToggleHandler('sequential testing by default for experiments'),
+    default_sequential_tuning_parameter: createExperimentsDefaultHandler(
+        'default tuning parameter for sequential testing'
+    ),
+    experiment_recalculation_times: (change) => {
+        if (!Array.isArray(change.after)) {
+            return { description: [<>reset the experiment recalculation time to the default</>] }
+        }
+        // Stored as HH:00:00 strings; the seconds carry no information.
+        const times = change.after.map((time: string) => time.slice(0, 5)).join(', ')
+        return {
+            description: [
+                <>
+                    changed the experiment recalculation time to <em>{times} UTC</em>
+                </>,
+            ],
+        }
+    },
+    flag_cleanup_repository: createExperimentsDefaultHandler('default repository for experiment flag cleanup PRs'),
 
     // Conversations
     conversations_enabled: createBooleanToggleHandler('conversations'),

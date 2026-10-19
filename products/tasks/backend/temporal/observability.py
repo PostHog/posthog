@@ -128,6 +128,10 @@ def log_activity_execution(
         "run_source",
         "runtime_adapter",
         "provider",
+        "runtime",
+        "sandbox_backend",
+        "boot_path",
+        "used_snapshot",
     ):
         if key in context:
             posthoganalytics.tag("run_environment" if key == "environment" else key, context[key])

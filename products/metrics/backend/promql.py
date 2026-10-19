@@ -45,24 +45,17 @@ def _error_message(response: requests.Response) -> str:
     return str(payload.get("error") or f"The PromQL query failed with status {response.status_code}.")
 
 
-def run_promql_range(
-    team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
-) -> list[MetricSeries]:
-    resolved = _resolve_interval(date_from, date_to, interval)
-    step = _interval_step(resolved)
-    start = _align_to_interval(date_from, resolved, tzinfo=team.timezone_info)
+def snuffle_payload(
+    team: Team,
+    method: str,
+    path: str,
+    *,
+    data: dict[str, str] | None = None,
+    params: dict[str, list[str]] | None = None,
+) -> dict[str, Any]:
+    """Send one Prometheus API request to Snuffle and return its JSON body. Errors are safe to show."""
     try:
-        response = snuffle_request(
-            team.pk,
-            "POST",
-            "/api/v1/query_range",
-            data={
-                "query": expr,
-                "start": str(start.timestamp()),
-                "end": str(date_to.timestamp()),
-                "step": str(int(step.total_seconds())),
-            },
-        )
+        response = snuffle_request(team.pk, method, path, data=data, params=params)
     except SnuffleNotConfiguredError as exc:
         raise PromQLQueryError("PromQL queries are not available on this PostHog instance.") from exc
     except requests.Timeout as exc:
@@ -78,8 +71,28 @@ def run_promql_range(
         payload = response.json()
     except ValueError as exc:
         raise PromQLQueryError("The PromQL query backend sent a response that cannot be read.") from exc
-    if payload.get("status") != "success":
+    if not isinstance(payload, dict) or payload.get("status") != "success":
         raise PromQLQueryError(_error_message(response))
+    return payload
+
+
+def run_promql_range(
+    team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+) -> list[MetricSeries]:
+    resolved = _resolve_interval(date_from, date_to, interval)
+    step = _interval_step(resolved)
+    start = _align_to_interval(date_from, resolved, tzinfo=team.timezone_info)
+    payload = snuffle_payload(
+        team,
+        "POST",
+        "/api/v1/query_range",
+        data={
+            "query": expr,
+            "start": str(start.timestamp()),
+            "end": str(date_to.timestamp()),
+            "step": str(int(step.total_seconds())),
+        },
+    )
 
     data = payload.get("data") or {}
     result_type = data.get("resultType")

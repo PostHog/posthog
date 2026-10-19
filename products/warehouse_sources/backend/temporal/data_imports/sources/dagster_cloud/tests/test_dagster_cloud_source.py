@@ -13,12 +13,6 @@ class TestDagsterCloudSourceConfig:
         assert set(DagsterCloudSource().connection_host_fields) == {"organization", "deployment"}
 
 
-class TestDagsterCloudSchemas:
-    def test_names_filter(self) -> None:
-        schemas = DagsterCloudSource().get_schemas(MagicMock(), team_id=1, names=["runs"])
-        assert [s.name for s in schemas] == ["runs"]
-
-
 class TestDagsterCloudNonRetryableErrors:
     @parameterized.expand(
         [

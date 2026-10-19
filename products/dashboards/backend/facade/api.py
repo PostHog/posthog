@@ -11,6 +11,7 @@ matters. Refusals are raised as the error types defined here — the caller deci
 response they become.
 """
 
+import re
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -23,6 +24,7 @@ from rest_framework import serializers
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
+from posthog.models.user_home_settings import UserHomeSettings
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -93,6 +95,52 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
     )
 
 
+@dataclass(frozen=True)
+class DashboardInsightTile:
+    insight_short_id: str
+    filters_overrides: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class DashboardInsights:
+    dashboard_id: int
+    name: str | None
+    filters: dict[str, Any]
+    variables: dict[str, Any] | None
+    tiles: tuple[DashboardInsightTile, ...]
+
+
+def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> DashboardInsights | None:
+    homepage = UserHomeSettings.objects.filter(team=team, user=user).values_list("homepage", flat=True).first()
+    match = re.search(r"/dashboard/(\d+)", str((homepage or {}).get("pathname") or ""))
+    dashboard_id = int(match.group(1)) if match else team.primary_dashboard_id
+    if dashboard_id is None:
+        return None
+    return dashboard_insights(team=team, user=user, dashboard_id=dashboard_id, limit=limit)
+
+
+def dashboard_insights(*, team: "Team", user: User, dashboard_id: int, limit: int) -> DashboardInsights | None:
+    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
+    access = UserAccessControl(user=user, team=team)
+    if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
+        return None
+    insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
+    tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
+    return DashboardInsights(
+        dashboard_id=dashboard.id,
+        name=dashboard.name,
+        filters=dashboard.filters or {},
+        variables=dashboard.variables or None,
+        tiles=tuple(
+            DashboardInsightTile(
+                insight_short_id=tile.insight.short_id, filters_overrides=tile.filters_overrides or None
+            )
+            for tile in tiles[:limit]
+            if tile.insight is not None
+        ),
+    )
+
+
 def viewable_dashboard_ref(dashboard_id: int, *, team: "Team", user: User) -> DashboardRef | None:
     """The dashboard as a ref when it is live in this team and the user may view it, else None.
 
@@ -152,10 +200,11 @@ def active_tile_count(dashboard_id: int) -> int:
     return DashboardTile.objects.filter(dashboard_id=dashboard_id).exclude(deleted=True).count()
 
 
-def tile_ids_prefetch() -> Prefetch:
-    """Prefetch of an insight's tiles carrying only the columns a basic insight payload renders."""
+def tile_ids_prefetch(lookup: str = "dashboard_tiles") -> Prefetch:
+    """Prefetch of an insight's tiles carrying only the columns a basic insight payload renders.
+    `lookup` is the path from the queryset's model to the insight's tiles."""
     return Prefetch(
-        "dashboard_tiles",
+        lookup,
         queryset=DashboardTile.objects.only("id", "dashboard_id", "deleted", "insight_id"),
     )
 

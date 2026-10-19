@@ -216,10 +216,21 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             ("unsupported_decision", "decision", "openai", ["text"], None),
             ("custom_chat", "llm", "system_one", ["decisions"], None),
             ("decision_only_chat", "llm", "openrouter", ["decisions"], None),
+            ("openai_decision", "decision", "openai", ["text"], True, "gpt-6-luna", True),
+            ("openai_legacy", None, "openai", ["text"], False, "gpt-6-luna", True),
+            ("openai_chat", "llm", "openai", ["text"], False, "gpt-6-luna", True),
+            ("openai_disabled", "decision", "openai", ["text"], None, "gpt-6-luna", False),
         ]
     )
     def test_judge_method_matches_model_capabilities(
-        self, _name: str, method: str | None, provider: str, modalities: list[str], expected: bool | None
+        self,
+        _name: str,
+        method: str | None,
+        provider: str,
+        modalities: list[str],
+        expected: bool | None,
+        model: str = "example/model",
+        flag: bool = True,
     ) -> None:
         config = {"prompt": "Check the response."}
         if method:
@@ -229,11 +240,11 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             evaluation_config=config,
             output_type="boolean",
             output_config={},
-            model_configuration=LLMModelConfiguration(provider=provider, model="example/model"),
+            model_configuration=LLMModelConfiguration(provider=provider, model=model),
         )
         serializer = EvaluationSerializer(instance=evaluation, partial=True, context={"get_team": lambda: Mock(id=1)})
         with (
-            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True),
+            patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=flag),
             patch(
                 "products.ai_observability.backend.llm.providers.openrouter._model_output_modalities",
                 return_value={"example/model": modalities},
@@ -250,6 +261,36 @@ class TestModelConfigurationSerializer(SimpleTestCase):
                     validated = serializer.validate(data)
                 self.assertEqual(validated["evaluation_config"], config)
 
+    @parameterized.expand(
+        [
+            ({"name": "Renamed decision evaluation"}, True),
+            ({"enabled": False}, True),
+            ({"enabled": True}, False),
+            ({"output_config": {"allows_na": True}}, False),
+        ]
+    )
+    def test_native_decision_flag_off_allows_rename_and_disable(self, data: dict[str, object], valid: bool) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Check the response.", "judge_method": "decision"},
+            enabled=data.get("enabled") is not True,
+            output_type="boolean",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openai", model="gpt-6-luna"),
+        )
+        serializer = EvaluationSerializer(
+            instance=evaluation, data=data, partial=True, context={"get_team": lambda: Mock(id=1)}
+        )
+        with patch(
+            "products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=False
+        ):
+            self.assertEqual(serializer.is_valid(), valid, serializer.errors)
+        if valid:
+            for field, value in data.items():
+                self.assertEqual(serializer.validated_data[field], value)
+        else:
+            self.assertIn("model_configuration", serializer.errors)
+
     def test_judge_method_change_validates_the_stored_model(self) -> None:
         evaluation = Evaluation(
             evaluation_type="llm_judge",
@@ -261,6 +302,30 @@ class TestModelConfigurationSerializer(SimpleTestCase):
         serializer = EvaluationSerializer(instance=evaluation, partial=True)
         with self.assertRaises(ValidationError):
             serializer.validate({"evaluation_config": {"prompt": "Check the response.", "judge_method": "decision"}})
+
+    @parameterized.expand([("single", 1, False), ("single", 2, True), ("multiple", 1, True)])
+    def test_openai_category_question_matches_the_native_option_limits(
+        self, mode: str, count: int, valid: bool
+    ) -> None:
+        evaluation = Evaluation(
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Classify the reply.", "judge_method": "decision"},
+            output_type="categorical",
+            output_config={},
+            model_configuration=LLMModelConfiguration(provider="openai", model="gpt-6-luna"),
+        )
+        serializer = EvaluationSerializer(instance=evaluation, partial=True, context={"get_team": lambda: Mock(id=1)})
+        config = {
+            "selection_mode": mode,
+            "options": [{"key": f"option_{i}", "label": f"Option {i}"} for i in range(count)],
+        }
+        with patch("products.ai_observability.backend.api.evaluations.decision_evaluations_enabled", return_value=True):
+            if valid:
+                assert serializer.validate({"output_config": config})["output_config"]["selection_mode"] == mode
+            else:
+                with self.assertRaises(ValidationError) as error:
+                    serializer.validate({"output_config": config})
+                assert "at least two options" in str(error.exception)
 
     @parameterized.expand([("boolean", {}), ("categorical", {}), ("numeric", {"min": 0, "max": 10})])
     def test_system_one_supports_evaluation_output_types(
