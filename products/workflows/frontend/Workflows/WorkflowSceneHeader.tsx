@@ -58,6 +58,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         discardChanges,
         publishDraft,
         discardDraft,
+        enableWorkflow,
         confirmEnablePrompt,
         cancelEnablePrompt,
     } = useActions(workflowLogic)
@@ -242,9 +243,9 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                                         // reveals the per-field messages, and saveWorkflowPartial
                                         // guards the actual enable with a toast.
                                         onClick={() =>
-                                            saveWorkflowPartial({
-                                                status: workflow?.status === 'draft' ? 'active' : 'draft',
-                                            })
+                                            workflow?.status === 'draft'
+                                                ? enableWorkflow()
+                                                : saveWorkflowPartial({ status: 'draft' })
                                         }
                                         size="small"
                                         disabledReason={hasUnsavedChanges ? 'Save changes first' : undefined}

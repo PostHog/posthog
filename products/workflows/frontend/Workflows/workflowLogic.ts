@@ -357,6 +357,9 @@ export interface workflowLogicActions {
     confirmEnablePrompt: () => {
         value: true
     }
+    enableWorkflow: () => {
+        value: true
+    }
     confirmResumeEmailSending: () => {
         value: true
     }
@@ -2534,12 +2537,8 @@ export interface workflowLogicActions {
         error: string
         errorObject?: any
     }
-    saveWorkflowPartial: (
-        workflow: Partial<HogFlow>,
-        unverifiedSendersConfirmed?: boolean
-    ) => {
+    saveWorkflowPartial: (workflow: Partial<HogFlow>) => {
         workflow: Partial<HogFlow>
-        unverifiedSendersConfirmed: boolean
     }
     saveWorkflowSuccess: (
         originalWorkflow: HogFlow,
@@ -3278,10 +3277,8 @@ export const workflowLogic = kea<workflowLogicType>([
         setScheduleTimezone: (timezone: string, previousTimezone?: string) => ({ timezone, previousTimezone }),
         setScheduleRepeating: (repeating: boolean) => ({ repeating }),
         setSchedules: (schedules: HogFlowSchedule[]) => ({ schedules }),
-        saveWorkflowPartial: (workflow: Partial<HogFlow>, unverifiedSendersConfirmed: boolean = false) => ({
-            workflow,
-            unverifiedSendersConfirmed,
-        }),
+        saveWorkflowPartial: (workflow: Partial<HogFlow>) => ({ workflow }),
+        enableWorkflow: true,
         openEnablePrompt: true,
         confirmEnablePrompt: true,
         cancelEnablePrompt: true,
@@ -4355,18 +4352,13 @@ export const workflowLogic = kea<workflowLogicType>([
         submitWorkflow: () => {
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
         },
-        saveWorkflowPartial: async ({ workflow, unverifiedSendersConfirmed }) => {
+        saveWorkflowPartial: async ({ workflow }) => {
             // Recorded before the error guard: an enable attempt on an invalid draft must still
             // reveal the per-field step messages even though the save itself is aborted.
             actions.markSaveAttempted(values.workflow.actions.map((action) => action.id))
             const merged = { ...values.workflow, ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
-                return
-            }
-            const enabling = workflow.status === 'active' && values.originalWorkflow?.status === 'draft'
-            if (enabling && !unverifiedSendersConfirmed && values.unverifiedSenderDomains.length > 0) {
-                actions.openEnablePrompt()
                 return
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag
@@ -4406,8 +4398,16 @@ export const workflowLogic = kea<workflowLogicType>([
         loadWorkflowFailure: () => {
             actions.replayDeferredResourceEdited()
         },
+        enableWorkflow: () => {
+            const asksFirst = !values.workflowHasActionErrors && values.unverifiedSenderDomains.length > 0
+            if (asksFirst) {
+                actions.openEnablePrompt()
+            } else {
+                actions.saveWorkflowPartial({ status: 'active' })
+            }
+        },
         confirmEnablePrompt: () => {
-            actions.saveWorkflowPartial({ status: 'active' }, true)
+            actions.saveWorkflowPartial({ status: 'active' })
         },
         dismissStartedSendingNotice: () => {
             if (values.startedSendingNoticeKey) {
