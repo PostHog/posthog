@@ -620,7 +620,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
             cache.conversationsRetries = 0
             const backoffRemaining = (cache.ticketsRetryAt ?? 0) - Date.now()
             if (backoffRemaining > 0) {
-                if (onSupportSurface) {
+                if (onSupportSurface && document.visibilityState === 'visible') {
                     clearTimeout(cache.pollTimer)
                     cache.pollTimer = window.setTimeout(() => actions.loadTickets(), backoffRemaining)
                 }
@@ -671,8 +671,11 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                         cache.ticketsLoadErrorShown = true
                         lemonToast.error('Failed to load tickets.')
                     }
-                    clearTimeout(cache.pollTimer)
-                    cache.pollTimer = window.setTimeout(() => actions.loadTickets(), retryDelay)
+                    // A hidden tab retries from the visibilitychange handler instead
+                    if (document.visibilityState === 'visible') {
+                        clearTimeout(cache.pollTimer)
+                        cache.pollTimer = window.setTimeout(() => actions.loadTickets(), retryDelay)
+                    }
                 }
             } finally {
                 actions.setTicketsLoading(false)

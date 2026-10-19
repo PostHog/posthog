@@ -484,6 +484,23 @@ describe('sidepanelTicketsLogic', () => {
         errorToast.mockRestore()
     })
 
+    it('does not schedule a retry from a hidden tab', async () => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        ;(posthog as any).conversations.getTickets = jest.fn().mockRejectedValue(new Error('boom'))
+        sidePanelStateLogic.mount()
+        sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
+        const visibility = jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect((posthog as any).conversations.getTickets).toHaveBeenCalled()
+        expect(logic.cache.pollTimer).toBeFalsy()
+        visibility.mockRestore()
+        errorToast.mockRestore()
+    })
+
     it('reports a missing widget instead of silently dropping the composed message', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
