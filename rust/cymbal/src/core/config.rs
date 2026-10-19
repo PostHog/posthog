@@ -102,14 +102,23 @@ pub struct ResolverConfig {
     #[envconfig(default = "64")]
     pub symbol_resolution_concurrency: usize,
 
-    // Parsing a symbol set can need many times its fetched size in memory, and the symbol
-    // store cache does not count that memory. Parses of fetched blobs at least this large
-    // share a small concurrency limit, so a few of them cannot run the pod out of memory.
+    // Parsing a symbol set can need many times its decompressed size in memory, and the symbol
+    // store cache does not count that memory. Parses of symbol sets at least this large
+    // (decompressed) reserve their estimated peak memory from a shared budget, so together
+    // they cannot run the pod out of memory.
     #[envconfig(default = "10000000")]
     pub symbol_set_large_parse_bytes: usize,
 
     #[envconfig(default = "2")]
     pub symbol_set_max_concurrent_large_parses: usize,
+
+    // Set this below the memory limit minus the symbol store cache budget and the steady-state usage.
+    #[envconfig(default = "1000000000")]
+    pub symbol_set_parse_memory_budget_bytes: usize,
+
+    // Estimated peak parse memory, as a multiple of the decompressed symbol set size.
+    #[envconfig(default = "8")]
+    pub symbol_set_parse_memory_multiplier: usize,
 
     // Shared secret authenticating the cymbal <-> cymbal-resolution gRPC seam.
     #[envconfig(default = "")]
