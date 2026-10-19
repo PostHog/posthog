@@ -3,10 +3,13 @@ import { Form } from 'kea-forms'
 
 import { IconBalance, IconSend } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -84,6 +87,7 @@ export function LegalDocumentNewScene(): JSX.Element {
     const { isCloudOrDev } = useValues(preflightLogic)
     const { setDocumentType, setDpaMode } = useActions(legalDocumentsLogic)
     const { openSupportForm } = useActions(supportLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isCloudOrDev) {
         return (
@@ -153,16 +157,28 @@ export function LegalDocumentNewScene(): JSX.Element {
                     path: urls.legalDocuments(),
                 }}
                 actions={
-                    <LemonButton
-                        to={urls.legalDocuments()}
-                        type="tertiary"
-                        size="small"
-                        disabledReason={
-                            isLegalDocumentSubmitting ? 'Hang tight — your envelope is on its way' : undefined
-                        }
-                    >
-                        Cancel
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button
+                            variant="default"
+                            render={<LinkPrimitive to={urls.legalDocuments()} />}
+                            disabledReason={
+                                isLegalDocumentSubmitting ? 'Hang tight — your envelope is on its way' : undefined
+                            }
+                        >
+                            Cancel
+                        </Button>
+                    ) : (
+                        <LemonButton
+                            to={urls.legalDocuments()}
+                            type="tertiary"
+                            size="small"
+                            disabledReason={
+                                isLegalDocumentSubmitting ? 'Hang tight — your envelope is on its way' : undefined
+                            }
+                        >
+                            Cancel
+                        </LemonButton>
+                    )
                 }
             />
 

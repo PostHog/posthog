@@ -4,6 +4,7 @@ import { IconBalance, IconDownload, IconPlusSmall, IconTrash } from '@posthog/ic
 import { LemonBanner, LemonButton, LemonDialog, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -17,6 +18,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { getLegalDocumentsDownloadRetrieveUrl } from '../generated/api'
 import { LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
+import { QuillNewLegalDocumentMenu } from './QuillNewLegalDocumentMenu'
 
 function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItems {
     const alreadyExistsReason = (type: LegalDocumentType): string | undefined =>
@@ -80,6 +82,7 @@ export function LegalDocumentsScene(): JSX.Element {
     const { deleteLegalDocument } = useActions(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isCloudOrDev) {
         return (
@@ -124,17 +127,21 @@ export function LegalDocumentsScene(): JSX.Element {
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
                 scope={settingsSectionSceneScope('organization-legal-documents')}
                 actions={
-                    <LemonMenu items={buildNewMenuItems(existingDocumentTypes)} placement="bottom-end">
-                        <LemonButton
-                            type="primary"
-                            icon={<IconPlusSmall />}
-                            size="small"
-                            data-attr="new-legal-document-button"
-                            tooltip="Generate a new legal document"
-                        >
-                            New
-                        </LemonButton>
-                    </LemonMenu>
+                    todayRailNav ? (
+                        <QuillNewLegalDocumentMenu existingDocumentTypes={existingDocumentTypes} />
+                    ) : (
+                        <LemonMenu items={buildNewMenuItems(existingDocumentTypes)} placement="bottom-end">
+                            <LemonButton
+                                type="primary"
+                                icon={<IconPlusSmall />}
+                                size="small"
+                                data-attr="new-legal-document-button"
+                                tooltip="Generate a new legal document"
+                            >
+                                New
+                            </LemonButton>
+                        </LemonMenu>
+                    )
                 }
             />
 
