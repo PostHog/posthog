@@ -24,9 +24,15 @@ from posthog.models.user import User
 
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, list_configurations
-from products.alerts_platform.backend.facade.contracts import IncidentAction, PlatformConfigurationSnapshot, SourceKind
+from products.alerts_platform.backend.facade.contracts import (
+    DeliveryPath,
+    IncidentAction,
+    PlatformConfigurationSnapshot,
+    SourceKind,
+)
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.templates.fixtures import template_pagerduty, template_slack
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.cdp.backend.templates.microsoft_teams.template_microsoft_teams import template as template_microsoft_teams
@@ -64,6 +70,7 @@ def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: 
 
 # Where a request-side delivery meets Temporal and the transports, which the tests stand in for.
 _WEB_START = "products.alerts_platform.backend.temporal.web_start"
+_NATIVE_PAGERDUTY_DELIVER = "products.alerts_platform.backend.delivery.pagerduty.PagerDutyTransport.deliver"
 
 
 class TestLogsAlertAPI(APIBaseTest):
@@ -2422,6 +2429,78 @@ class TestLogsAlertAPI(APIBaseTest):
         next_check_at = self._copy(created["id"]).next_check_at
         earliest = datetime.now(UTC) + (timedelta(minutes=59) if _name == "logs_snooze" else timedelta(0))
         assert next_check_at is not None and next_check_at > earliest
+
+    def _customize_destinations(self) -> None:
+        # A destination edited after it was created keeps sending through its HogFunction.
+        for function in HogFunction.objects.filter(team=self.team, deleted=False):
+            HogFunctionRevision.objects.for_team(self.team.id).create(
+                team=self.team,
+                hog_function=function,
+                version=1,
+                content={
+                    "hog": function.hog,
+                    "inputs_schema": function.inputs_schema,
+                    "inputs": function.inputs,
+                    "filters": function.filters,
+                    "mappings": function.mappings,
+                    "masking": function.masking,
+                },
+            )
+            HogFunction.objects.filter(pk=function.pk).update(version=2, hog=f"// edited\n{function.hog}")
+
+    @parameterized.expand(
+        [
+            ("logs_disable", "logs", lambda: {"enabled": False}, "hog_function"),
+            ("logs_threshold_change", "logs", lambda: {"threshold_count": 50}, "hog_function"),
+            ("platform_disable", "platform", lambda: {"enabled": False}, "hog_function"),
+            ("logs_delete", "logs", None, "hog_function"),
+            # The resolve takes the path its trigger took, though the destination changed since.
+            ("logs_disable_after_a_native_trigger", "logs", lambda: {"enabled": False}, "native"),
+        ]
+    )
+    def test_ending_a_firing_with_a_customized_destination_sends_one_close(
+        self, _name: str, route: str, make_payload: Any, closed_via: str
+    ) -> None:
+        created, copy = self._firing_on_the_platform_with_pagerduty()
+        if closed_via == "native":
+            with team_scope(self.team.id):
+                platform_testing.start_firing(
+                    copy.id,
+                    team_id=self.team.id,
+                    at=datetime(2026, 10, 1, 9, tzinfo=UTC),
+                    delivered_via=DeliveryPath.NATIVE,
+                )
+        self._customize_destinations()
+        url = (
+            f"{self.base_url}{created['id']}/"
+            if route == "logs"
+            else f"/api/projects/{self.team.id}/platform_alerts/{copy.id}/"
+        )
+
+        with (
+            patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True),
+            # Sends the resolve inline, so the test sees which path delivered it.
+            patch(f"{_WEB_START}.async_connect", AsyncMock(side_effect=RuntimeError("temporal unreachable"))),
+            patch(_NATIVE_PAGERDUTY_DELIVER, return_value=None) as native,
+            patch("products.logs.backend.platform_alert_legacy_events.emit_alert_internal_events") as emit,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = (
+                self.client.delete(url)
+                if make_payload is None
+                else self.client.patch(url, make_payload(), format="json")
+            )
+
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
+        emitted = [
+            (event.event_name, event.properties["alert_id"])
+            for call in emit.call_args_list
+            for event in call.kwargs["events"]
+        ]
+        if closed_via == "native":
+            assert (emitted, native.call_count) == ([], 1)
+        else:
+            assert (emitted, native.call_count) == ([("$logs_alert_incident_closed", created["id"])], 0)
 
     def test_shortening_a_snooze_on_the_logs_page_brings_the_next_platform_check_forward(self) -> None:
         created = self._owned_by_the_platform()
