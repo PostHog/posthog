@@ -296,6 +296,10 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
                 "default_sequential_tuning_parameter",
                 "flag_cleanup_repository",
             ]
+            # Precomputation is rolled out by PostHog, through the auto-enrollment job and the
+            # staff tools. A customer write here would stamp the row as manual and stop the job
+            # from managing that team.
+            read_only_fields = ["experiment_precomputation_enabled"]
 
         def validate_experiment_recalculation_times(self, value: list[str] | None) -> list[str] | None:
             try:
@@ -303,13 +307,6 @@ def handle_experiments_config(request: request.Request, team: Team) -> response.
             except DjangoValidationError as e:
                 raise serializers.ValidationError(e.messages)
             return value
-
-        def update(self, instance: "TeamExperimentsConfig", validated_data: dict[str, Any]) -> "TeamExperimentsConfig":
-            # A human toggling precomputation must stick: the auto-enrollment job only
-            # writes when precomputation_enabled_set_by is null or "auto".
-            if "experiment_precomputation_enabled" in validated_data:
-                instance.precomputation_enabled_set_by = TeamExperimentsConfig.PrecomputationEnabledSetBy.MANUAL
-            return super().update(instance, validated_data)
 
         def validate_flag_cleanup_repository(self, value: str | None) -> str | None:
             # Keeps the sandbox/LLM runtime the repo-selection module pulls in off the
