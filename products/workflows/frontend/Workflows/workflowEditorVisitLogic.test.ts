@@ -1,8 +1,10 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -199,21 +201,23 @@ describe('workflowEditorVisitLogic', () => {
         expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'step_edited' })])
     })
 
-    it('reports the layout a person lands in and each switch they make', async () => {
+    it('reports the layout a person lands in, the one they leave from, and each real switch', async () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
             [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
         })
         useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
         const props = { id: SAVED_ID }
+        router.actions.push(urls.workflow(SAVED_ID, 'workflow'))
         const visit = await openEditor(props)
 
-        hogFlowEditorLogic(props).actions.switchEditorLayout('advanced')
         hogFlowEditorLogic(props).actions.switchEditorLayout('simple')
+        hogFlowEditorLogic(props).actions.switchEditorLayout('advanced')
+        router.actions.push(urls.workflow(SAVED_ID, 'metrics'))
         visit.unmount()
 
         expect(captured('workflow editor opened')).toEqual([expect.objectContaining({ editor_layout: 'list' })])
         expect(captured('workflow editor left')).toEqual([
-            expect.objectContaining({ editor_layout: 'list', layout_switch_count: 2 }),
+            expect.objectContaining({ editor_layout: 'graph', layout_switch_count: 1 }),
         ])
     })
 
