@@ -123,11 +123,13 @@ Several failure modes are handled explicitly:
 
 **Mid-stream watch reconnects don't replay missed events — bounded by reconciliation**: The snapshot-to-watch-attach gap is closed (watches are revision-anchored to the snapshot that seeded them), but if an *established* etcd watch stream drops and the underlying client reconnects, events that fired during the disconnect are not replayed. Every participant now bounds the resulting staleness with its level-triggered truth path — the coordinator's tick (which also wakes the planner unconditionally), the router's reconcile pass, and the pod's converge-all tick — so a missed event costs at most one reconcile interval, not correctness.
 
-## Changelog config
+## Changelog generations
 
-`config/changelog` (`{topic, partitions, epoch, writer_group, draining}`) is the one live object every participant reads. Every service loads it at boot; the router and the identity service also follow it through a watch, so the partition count they hash under is the live one.
+`config/changelog` (`{topic, partitions, epoch, gated_groups, draining}`) is the one live object every participant reads. A pod captures it by a strong read when it acquires a partition and serves the partition under that capture until it releases it.
 
-Routers park requests per key, so a key's requests keep one queue when the partition count changes: a request goes straight to a leader only when its key has nothing parked or in flight and its partition is not stashing, and the live count decides only which partition's drain takes a key. A drain takes the keys that map to its partition under the count the router has adopted.
+A leader serving a partition holds in its cache every acked write for that partition's keys that Postgres does not have yet, so a warm reads every source that can hold one: for each draining generation, the old partitions congruent to the new one modulo `gcd(old, new)`, from the writer's committed offset to their end and filtered to the keys that hash to the new partition, then the live partition itself. Marks from an old source keep their own stream (`topic`, source partition), so recovery fetches them from the old topic and the prune settles them against the writer's offsets there. A mark also names the cache partition it belongs to, and a release or prune of one partition only removes the marks and lifecycle fences homed there: an old partition and a new one on the same pod share keys, and either may be released or pruned first.
+
+Routers park requests per key, so a key's requests keep one queue when the partition count changes: a request goes straight to a leader only when its key has nothing parked or in flight and its partition is not stashing, and the live count decides only which partition's drain takes a key. A drain takes the keys that map to its partition under the count the router has adopted, and the leader bounces any key it took under an older one. A leader answers a stale `x-partition` with `FAILED_PRECONDITION`, which the router treats as a bounce, so the write lands once the router's config watch delivers the new count; a router that has not adopted within its retries answers `UNAVAILABLE`, never an ack; a lifecycle batch with a member off the routed partition is refused with `INVALID_ARGUMENT`, which the identity service answers by retrying each member alone.
 
 ## Modules
 

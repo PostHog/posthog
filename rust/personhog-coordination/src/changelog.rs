@@ -122,6 +122,65 @@ pub async fn watch_changelog_config_loop<F>(
     }
 }
 
+/// Keys a source contributes: those that hash to `target` under `modulus`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyFilter {
+    pub modulus: u32,
+    pub target: u32,
+}
+
+/// One changelog partition a warm replays from the writer's committed offset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WarmSource {
+    pub topic: Arc<str>,
+    pub partition: u32,
+    pub keep: Option<KeyFilter>,
+}
+
+impl WarmSource {
+    pub fn live(topic: &str, partition: u32) -> Self {
+        Self {
+            topic: Arc::from(topic),
+            partition,
+            keep: None,
+        }
+    }
+}
+
+fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
+}
+
+/// The sources a warm of `partition` replays: for each draining generation,
+/// oldest first, the old partitions congruent to it modulo `gcd(old, new)`
+/// filtered to its own keys, then the live partition. The partitioner is a
+/// hash reduced modulo the count, so a key's old home and new home agree
+/// modulo the gcd.
+pub fn warm_sources(config: &ChangelogConfig, partition: u32) -> Vec<WarmSource> {
+    let mut draining = config.draining.clone();
+    draining.sort_by_key(|g| g.epoch);
+    let mut sources = Vec::new();
+    for generation in &draining {
+        let g = gcd(generation.partitions, config.partitions);
+        for q in (0..generation.partitions).filter(|q| q % g == partition % g) {
+            sources.push(WarmSource {
+                topic: Arc::from(generation.topic.as_str()),
+                partition: q,
+                keep: Some(KeyFilter {
+                    modulus: config.partitions,
+                    target: partition,
+                }),
+            });
+        }
+    }
+    sources.push(WarmSource::live(&config.topic, partition));
+    sources
+}
+
 /// Bounds the staleness a dropped watch stream can hide.
 pub const CHANGELOG_RECONCILE_INTERVAL: Duration = Duration::from_secs(30);
 pub const CHANGELOG_BOOT_POLL_INTERVAL: Duration = Duration::from_secs(1);
@@ -218,4 +277,71 @@ where
         "adopted changelog config"
     );
     on_config(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::Generation;
+
+    fn config(partitions: u32, draining: Vec<(u32, u64)>) -> ChangelogConfig {
+        ChangelogConfig {
+            topic: "new".to_string(),
+            partitions,
+            epoch: 9,
+            gated_groups: vec![],
+            draining: draining
+                .into_iter()
+                .map(|(partitions, epoch)| Generation {
+                    topic: format!("old{epoch}"),
+                    partitions,
+                    epoch,
+                })
+                .collect(),
+        }
+    }
+
+    fn old_partitions(
+        partitions: u32,
+        draining: Vec<(u32, u64)>,
+        partition: u32,
+    ) -> Vec<(String, u32)> {
+        warm_sources(&config(partitions, draining), partition)
+            .into_iter()
+            .filter(|s| s.keep.is_some())
+            .map(|s| (s.topic.to_string(), s.partition))
+            .collect()
+    }
+
+    #[test]
+    fn a_warm_replays_the_congruent_old_partitions_then_the_live_one() {
+        // Doubling: one old partition feeds each new one.
+        assert_eq!(
+            old_partitions(128, vec![(64, 1)], 65),
+            vec![("old1".to_string(), 1)]
+        );
+        // Dev's shrink: four old partitions feed each new one.
+        assert_eq!(
+            old_partitions(64, vec![(256, 1)], 5),
+            vec![
+                ("old1".to_string(), 5),
+                ("old1".to_string(), 69),
+                ("old1".to_string(), 133),
+                ("old1".to_string(), 197)
+            ]
+        );
+        // Coprime counts: every old partition may hold the keys.
+        assert_eq!(old_partitions(4, vec![(3, 1)], 1).len(), 3);
+        // Two generations replay oldest first, whatever the list order.
+        let sources = warm_sources(&config(8, vec![(4, 2), (2, 1)]), 1);
+        let topics: Vec<String> = sources.iter().map(|s| s.topic.to_string()).collect();
+        assert_eq!(topics, vec!["old1", "old2", "new"]);
+        let live = sources.last().unwrap();
+        assert!(live.keep.is_none());
+        assert_eq!(live.partition, 1);
+        assert!(sources[0]
+            .keep
+            .as_ref()
+            .is_some_and(|k| k.modulus == 8 && k.target == 1));
+    }
 }

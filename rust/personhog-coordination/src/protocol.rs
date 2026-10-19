@@ -293,6 +293,7 @@ mod tests {
             created_at_ms: 0,
             phase_entered_at_ms: 0,
             new_owner_address: None,
+            config_epoch: 0,
         }
     }
 

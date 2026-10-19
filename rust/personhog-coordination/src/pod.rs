@@ -21,6 +21,7 @@ use k8s_awareness::{DepartureReason, K8sAwareness};
 use crate::authority::AuthorityClock;
 use crate::error::{Error, Result};
 use crate::store::{self, PersonhogStore};
+use crate::types::ChangelogConfig;
 use crate::types::{
     HandoffPhase, HandoffState, PartitionAssignment, PodDrainedAck, PodStatus, PodWarmedAck,
     RegisteredPod,
@@ -156,6 +157,9 @@ pub trait HandoffHandler: Send + Sync {
     /// on every convergence observing that window, so implementations
     /// must be idempotent and must not block: spawn and return.
     async fn prepare_acquire(&self, _partition: u32) {}
+
+    /// The config a strong read captured just before the `warm_partition` that follows.
+    async fn capture_changelog(&self, _partition: u32, _config: &ChangelogConfig) {}
 
     /// Old owner: release the partition from this pod's local state (drop cache,
     /// close consumers, etc.).
@@ -349,6 +353,44 @@ impl PodHandle {
             k8s_awareness,
             repair_nudge: None,
         }
+    }
+
+    /// A strong read, never the adopted copy: a lagging watch would warm from a retired topic.
+    async fn capture_changelog(
+        &self,
+        partition: u32,
+        required_epoch: u64,
+    ) -> Result<Option<ChangelogConfig>> {
+        let Some(config) = self.store.get_changelog_config().await? else {
+            counter!("personhog_coordination_acquisitions_parked_total").increment(1);
+            tracing::warn!(
+                partition,
+                "config/changelog is not seeded; parking the acquisition"
+            );
+            return Ok(None);
+        };
+        if config.epoch < required_epoch {
+            counter!("personhog_coordination_acquisitions_parked_total").increment(1);
+            tracing::warn!(
+                partition,
+                read_epoch = config.epoch,
+                required_epoch,
+                "config/changelog is older than the handoff's epoch; parking the acquisition"
+            );
+            return Ok(None);
+        }
+        self.handler.capture_changelog(partition, &config).await;
+        Ok(Some(config))
+    }
+
+    /// Release the partition from the handler and forget its warm here.
+    async fn release_warm(&self, partition: u32) -> Result<()> {
+        self.handler.release_partition(partition).await?;
+        self.warmed_partitions
+            .lock()
+            .expect("warmed partitions lock poisoned")
+            .remove(&partition);
+        Ok(())
     }
 
     /// Run a reconcile pass whenever `nudge` fires, in addition to the
@@ -895,7 +937,7 @@ impl PodHandle {
             if !quiesced.contains(&partition) {
                 continue;
             }
-            if let Err(e) = self.handler.release_partition(partition).await {
+            if let Err(e) = self.release_warm(partition).await {
                 failures.push(format!("release of partition {partition}: {e}"));
                 // Still held: the handler may retain the cache and the
                 // serving authority, so forgetting it here would make the
@@ -903,10 +945,6 @@ impl PodHandle {
                 // not. The run is about to end poisoned either way.
                 continue;
             }
-            self.warmed_partitions
-                .lock()
-                .expect("warmed partitions lock poisoned")
-                .remove(&partition);
             self.fenced_partitions
                 .lock()
                 .expect("fenced partitions lock poisoned")
@@ -1239,6 +1277,9 @@ impl PodHandle {
                 {
                     tracing::info!(pod, partition, "converging to Serving: warming");
                     let _warm_slot = self.acquire_warm_slot().await?;
+                    if self.capture_changelog(partition, 0).await?.is_none() {
+                        return Ok(did_work);
+                    }
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "restart")
@@ -1364,14 +1405,17 @@ impl PodHandle {
                             partition,
                             "converging to Acquiring: releasing a warm from an earlier era"
                         );
-                        self.handler.release_partition(partition).await?;
-                        self.warmed_partitions
-                            .lock()
-                            .expect("warmed partitions lock poisoned")
-                            .remove(&partition);
+                        self.release_warm(partition).await?;
                     }
                     tracing::info!(pod, partition, "converging to Acquiring: warming");
                     let _warm_slot = self.acquire_warm_slot().await?;
+                    if self
+                        .capture_changelog(partition, handoff.config_epoch)
+                        .await?
+                        .is_none()
+                    {
+                        return Ok(did_work);
+                    }
                     let start = Instant::now();
                     self.handler.warm_partition(partition).await?;
                     histogram!("personhog_coordination_partition_warm_ms", "trigger" => "handoff")
@@ -1424,11 +1468,7 @@ impl PodHandle {
                     .contains(&partition);
                 if was_warmed || was_fenced {
                     tracing::info!(pod, partition, "converging to Released: releasing");
-                    self.handler.release_partition(partition).await?;
-                    self.warmed_partitions
-                        .lock()
-                        .expect("warmed partitions lock poisoned")
-                        .remove(&partition);
+                    self.release_warm(partition).await?;
                     self.fenced_partitions
                         .lock()
                         .expect("fenced partitions lock poisoned")
@@ -1993,6 +2033,7 @@ mod tests {
             freeze_quorum_ref: None,
             created_at_ms: 0,
             phase_entered_at_ms: 0,
+            config_epoch: 0,
             new_owner_address: None,
         }
     }

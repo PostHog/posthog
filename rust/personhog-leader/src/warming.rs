@@ -12,10 +12,12 @@ use rdkafka::message::Message;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 use tokio::time::{sleep, timeout};
 
+use personhog_common::partitioning::partition_for_person;
+use personhog_coordination::changelog::WarmSource;
 use personhog_coordination::error::{Error as CoordError, Result as CoordResult};
 use personhog_proto::personhog::types::v1::Person;
 
-use crate::cache::{CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey};
+use crate::cache::{CachedPerson, DirtyIndex, DirtyMark, PartitionedCache, PersonCacheKey, Stream};
 
 /// Retry policy for transient warming-metadata failures.
 #[derive(Clone, Copy)]
@@ -89,11 +91,10 @@ where
 }
 
 /// Configuration for the warming pipeline. Owned by the leader handoff
-/// handler and borrowed at each `warm_from_kafka` call.
+/// handler and borrowed at each warm.
 #[derive(Clone)]
 pub struct WarmingConfig {
     pub kafka: KafkaConfig,
-    pub topic: String,
     pub pod_name: String,
     /// Writer's consumer group id. We query this group's committed offset
     /// for the partition to find "everything at or after this offset has
@@ -168,7 +169,9 @@ pub(crate) fn make_consumer(
         // Only committed transactions: with fencing on, aborted windows
         // and zombie leftovers must never reach the cache. Identical
         // behavior on a topic without transactional records.
-        .set("isolation.level", "read_committed");
+        .set("isolation.level", "read_committed")
+        // A warm learns it reached the end from an empty fetch, held 500ms by default.
+        .set("fetch.wait.max.ms", "10");
     if kafka.kafka_tls {
         cfg.set("security.protocol", "ssl")
             .set("enable.ssl.certificate.verification", "false");
@@ -458,21 +461,25 @@ impl Drop for WarmCleanup<'_> {
 ///     produce path awaits the Kafka delivery future before returning,
 ///     "no in-flight" implies "every acked write is durable in Kafka."
 ///
-/// Together those mean: by the time `warm_from_kafka` runs, no producer
+/// Together those mean: by the time a warm runs, no producer
 /// can append to this partition's Kafka log. The HWM we snapshot here
 /// is therefore stable, and we can consume to a known endpoint without
 /// racing producers.
-pub async fn warm_from_kafka(
+async fn warm_source(
     cfg: &WarmingConfig,
     pools: &WarmClientPools,
     cache: &PartitionedCache,
     dirty_index: &DirtyIndex,
     partition: u32,
-) -> CoordResult<()> {
-    let start = Instant::now();
-    let partition_i32 = i32::try_from(partition).map_err(|_| {
-        CoordError::invalid_state(format!("partition {partition} exceeds i32::MAX"))
+    source: &WarmSource,
+) -> CoordResult<(u64, u64)> {
+    let partition_i32 = i32::try_from(source.partition).map_err(|_| {
+        CoordError::invalid_state(format!("partition {} exceeds i32::MAX", source.partition))
     })?;
+    let stream = Stream {
+        topic: Arc::clone(&source.topic),
+        partition: source.partition,
+    };
 
     // Arc because the watermark retry closure needs its own handle for
     // the blocking pool; sole ownership returns once the retries finish.
@@ -493,15 +500,15 @@ pub async fn warm_from_kafka(
     let committed_fut = with_warm_retry("committed_offset", partition, cfg.retry, || async {
         fetch_writer_committed_offset(
             &pools.offsets,
-            &cfg.topic,
-            partition,
+            &source.topic,
+            source.partition,
             cfg.committed_offsets_timeout,
         )
         .await
     });
     let watermarks_fut = with_warm_retry("fetch_watermarks", partition, cfg.retry, || {
         let consumer = Arc::clone(&consumer);
-        let topic = cfg.topic.clone();
+        let topic = Arc::clone(&source.topic);
         let timeout = cfg.fetch_watermarks_timeout;
         async move {
             tokio::task::spawn_blocking(move || {
@@ -541,6 +548,8 @@ pub async fn warm_from_kafka(
 
     tracing::info!(
         partition,
+        topic = %source.topic,
+        source_partition = source.partition,
         writer_group = cfg.writer_consumer_group,
         committed = ?committed_offset,
         earliest = low,
@@ -551,51 +560,22 @@ pub async fn warm_from_kafka(
     );
 
     if hwm <= start_offset {
-        // Empty range — install an empty partition cache. Use the
-        // atomic install path so this matches the populated path's
-        // publication semantics (the partition becomes observable in
-        // a single dashmap insert). The consumer never got assigned, so
-        // it goes straight back to the pool.
-        cache.install_warmed_partition(partition, std::iter::empty());
-        tracing::info!(partition, hwm, start_offset, "no messages to warm in range");
+        tracing::info!(partition, topic = %source.topic, source_partition = source.partition, hwm, start_offset, "no messages to warm in range");
         if let Ok(consumer) = Arc::try_unwrap(consumer) {
             pools.warming.give_back(consumer);
         }
-        return Ok(());
+        return Ok((0, 0));
     }
 
     let span_start = Instant::now();
     let mut assign_tpl = TopicPartitionList::new();
     assign_tpl
-        .add_partition_offset(&cfg.topic, partition_i32, Offset::Offset(start_offset))
+        .add_partition_offset(&source.topic, partition_i32, Offset::Offset(start_offset))
         .map_err(|e| CoordError::invalid_state(format!("tpl add_partition_offset: {e}")))?;
     consumer
         .assign(&assign_tpl)
         .map_err(|e| CoordError::invalid_state(format!("consumer assign: {e}")))?;
 
-    // Stream records straight into an unpublished partition cache: the
-    // build evicts under the same per-partition byte budget as a serving
-    // cache, so the warm's peak memory is bounded no matter how large
-    // the range is. Each record writes its dirty mark BEFORE its insert,
-    // so at every instant an evicted unapplied person is already
-    // recoverable from the changelog — the same miss path a serving
-    // partition relies on. Nothing is observable until the publish at
-    // the end.
-    cache.begin_warm_partition(partition);
-    // Every non-published exit — an error, a panic, or the coordination
-    // loop dropping this future on lease loss or shutdown (the
-    // cancellation `HandoffHandler::warm_partition`'s contract names) —
-    // must leave no trace: the guard aborts the build and clears the
-    // partition's seeded marks on drop. A stale mark surviving into a
-    // later acquisition would redirect a miss to a superseded changelog
-    // offset; the re-warm only overwrites marks for records past the
-    // writer's *new* committed offset, so it cannot heal one.
-    let mut cleanup = WarmCleanup {
-        cache,
-        dirty_index,
-        partition,
-        armed: true,
-    };
     let mut consumed: u64 = 0;
     let mut seeded = 0u64;
     let mut last_offset: i64 = -1;
@@ -677,7 +657,7 @@ pub async fn warm_from_kafka(
                 let position_reached = consumer
                     .position()
                     .map_err(|e| CoordError::invalid_state(format!("warm position: {e}")))?
-                    .find_partition(&cfg.topic, partition_i32)
+                    .find_partition(&source.topic, partition_i32)
                     .is_some_and(|elem| matches!(elem.offset(), Offset::Offset(p) if p >= hwm));
                 if position_reached {
                     break;
@@ -708,6 +688,15 @@ pub async fn warm_from_kafka(
                 team_id: cached.team_id,
                 person_id: cached.id,
             };
+            // An old partition also holds keys that now belong elsewhere.
+            if let Some(keep) = &source.keep {
+                if partition_for_person(cached.team_id, cached.id, keep.modulus) != keep.target {
+                    if offset + 1 >= hwm {
+                        break;
+                    }
+                    continue;
+                }
+            }
             consumed += 1;
             // Records at or past the writer's committed offset are not
             // yet in PG: mark before insert, so if the build evicts this
@@ -720,6 +709,7 @@ pub async fn warm_from_kafka(
                         version: cached.version,
                         offset,
                         partition,
+                        stream: stream.clone(),
                         is_deleted: cached.is_deleted,
                     },
                 );
@@ -760,19 +750,42 @@ pub async fn warm_from_kafka(
 
     record_warm_span("consume", span_start);
 
-    // Atomic publish: one `DashMap` insert flips the fully-built cache
-    // from invisible to observable. The previous pattern
-    // (`create_partition` + per-record `put` loop) created a window
-    // where readers could observe `has_partition == true` while the
-    // cache was still being populated, and then fall through to PG —
-    // potentially returning stale values for records the writer hasn't
-    // yet persisted. Publishing at the end removes the dependency on the
-    // protocol invariant ("no reads during Warming") for correctness.
+    // Every error path above dropped the consumer: a client that just failed is not pool material.
+    if let Ok(consumer) = Arc::try_unwrap(consumer) {
+        pools.warming.give_back(consumer);
+    }
+
+    Ok((consumed, seeded))
+}
+
+/// Every source is sealed or fenced, so each replay runs to a known end.
+pub async fn warm_from_sources(
+    cfg: &WarmingConfig,
+    pools: &WarmClientPools,
+    cache: &PartitionedCache,
+    dirty_index: &DirtyIndex,
+    partition: u32,
+    sources: &[WarmSource],
+) -> CoordResult<()> {
+    let start = Instant::now();
+    // The build is invisible and evicts under the serving budget until the publish.
+    cache.begin_warm_partition(partition);
+    let mut cleanup = WarmCleanup {
+        cache,
+        dirty_index,
+        partition,
+        armed: true,
+    };
+    let mut consumed = 0u64;
+    let mut seeded = 0u64;
+    for source in sources {
+        let (c, s) = warm_source(cfg, pools, cache, dirty_index, partition, source).await?;
+        consumed += c;
+        seeded += s;
+    }
+
     let resident_bytes = cache.warm_usage_bytes(partition) as u64;
-    // Disarm before the publish: from here the marks and the cache are
-    // the partition's serving state, not warm residue. No await sits
-    // between the disarm and the publish, so no cancellation can land
-    // in between.
+    // One insert publishes the whole build, and no await sits between the disarm and it.
     cleanup.armed = false;
     cache.publish_warmed_partition(partition);
 
@@ -780,24 +793,15 @@ pub async fn warm_from_kafka(
     tracing::info!(
         pod = cfg.pod_name,
         partition,
+        sources = sources.len(),
         messages = consumed,
         resident_bytes,
         dirty_seeded = seeded,
-        hwm,
-        start_offset,
         elapsed_ms = elapsed.as_millis() as u64,
         "warmed partition from kafka"
     );
     histogram!("personhog_leader_warm_duration_ms").record(elapsed.as_secs_f64() * 1000.0);
     counter!("personhog_leader_warmed_messages_total").increment(consumed);
-
-    // Every error path above dropped the consumer instead of returning
-    // it — a client that just failed is not pool material. Failing to
-    // unwrap the Arc would only mean the same disposition.
-    if let Ok(consumer) = Arc::try_unwrap(consumer) {
-        pools.warming.give_back(consumer);
-    }
-
     Ok(())
 }
 
@@ -857,6 +861,10 @@ mod tests {
                     version: 1,
                     offset: 7,
                     partition: 0,
+                    stream: Stream {
+                        topic: Arc::from("personhog_updates"),
+                        partition: 0,
+                    },
                     is_deleted: false,
                 },
             );
@@ -901,6 +909,10 @@ mod tests {
                     version: 1,
                     offset: 7,
                     partition: 0,
+                    stream: Stream {
+                        topic: Arc::from("personhog_updates"),
+                        partition: 0,
+                    },
                     is_deleted: false,
                 },
             );
