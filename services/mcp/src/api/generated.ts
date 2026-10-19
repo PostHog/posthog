@@ -68507,10 +68507,12 @@ export namespace Schemas {
       /** Name of the data warehouse table the run saved its dataframe to. */
       name: string;
       /**
-         * Why the table wasn't saved. Absent or null when the save succeeded.
+         * Why the table wasn't saved. Absent or null when the save succeeded or is still pending.
          * @nullable
          */
       error?: string | null;
+      /** True while the table is still being saved after the run finished. Poll the run result again. */
+      pending?: boolean;
     }
 
     export interface NotebookSQLV2Envelope {
