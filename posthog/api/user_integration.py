@@ -12,7 +12,6 @@ is not controlled here.
 """
 
 import os
-from datetime import UTC, datetime
 from typing import Any, cast
 from urllib.parse import urlencode
 
@@ -1038,21 +1037,9 @@ def _serialize_github_integration(
         "installation_shared": installation_shared,
         "installation_status": "unavailable" if github.installation_unavailable() else "connected",
         "needs_reauthorization": github.needs_reauthorization,
-        "needs_reauthorization_at": _needs_reauthorization_at(integration),
+        "needs_reauthorization_at": github.needs_reauthorization_at,
         "created_at": integration.created_at,
     }
-
-
-def _needs_reauthorization_at(integration: UserIntegration) -> datetime | None:
-    """Read the reauthorization timestamp off the row as an aware datetime.
-
-    The row stores it as a unix timestamp, because the whole flag lives in the untyped `config`
-    JSON. The API hands out a datetime so clients do not have to know that.
-    """
-    flagged_at = (integration.config or {}).get("needs_reauthorization_at")
-    if not isinstance(flagged_at, int | float):
-        return None
-    return datetime.fromtimestamp(flagged_at, tz=UTC)
 
 
 def _serialize_slack_integration(integration: UserIntegration) -> dict[str, Any]:
