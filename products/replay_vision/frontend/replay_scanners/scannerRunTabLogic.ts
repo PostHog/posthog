@@ -50,6 +50,8 @@ const BULK_SKIP_REASONS: Record<BulkSkipOutcome, string> = {
 
 // Headroom per visible session for the observations a retry stacks on top of the original scan.
 const OBSERVATIONS_PER_SESSION_ALLOWANCE = 4
+// The lookup puts session ids in the query string, and a few hundred of them overflow the URL limit (HTTP 414).
+const SESSIONS_PER_LOOKUP = 50
 
 // The API rejects a whole batch over its per-request cap, so a select-all would start nothing at all.
 const MAX_SESSIONS_PER_REQUEST = visionScannersBulkObserveCreateBodySessionIdsMax
@@ -387,14 +389,22 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     // Ordering pinned: the newest-wins mapping below depends on it, not on the API default.
                     // Without a limit the server's default page truncates the tail and those sessions read
                     // as "Not scanned" when they have been.
-                    const response = await visionScannersObservationsList(String(teamId), props.scannerId, {
-                        session_id: sessionIds.join(','),
-                        order_by: '-created_at',
-                        limit: sessionIds.length * OBSERVATIONS_PER_SESSION_ALLOWANCE,
-                    })
+                    const chunks: string[][] = []
+                    for (let start = 0; start < sessionIds.length; start += SESSIONS_PER_LOOKUP) {
+                        chunks.push(sessionIds.slice(start, start + SESSIONS_PER_LOOKUP))
+                    }
+                    const responses = await Promise.all(
+                        chunks.map((chunk) =>
+                            visionScannersObservationsList(String(teamId), props.scannerId, {
+                                session_id: chunk.join(','),
+                                order_by: '-created_at',
+                                limit: chunk.length * OBSERVATIONS_PER_SESSION_ALLOWANCE,
+                            })
+                        )
+                    )
                     breakpoint()
                     const bySession: Record<string, RowObservation> = {}
-                    for (const observation of response.results ?? []) {
+                    for (const observation of responses.flatMap((response) => response.results ?? [])) {
                         // Results are newest-first — the first observation per session is the one the row reflects.
                         if (!(observation.session_id in bySession)) {
                             bySession[observation.session_id] = {

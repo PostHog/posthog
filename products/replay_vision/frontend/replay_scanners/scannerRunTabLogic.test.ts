@@ -80,6 +80,23 @@ describe('scannerRunTabLogic', () => {
         expect(lookupUrl).toContain('limit=12')
     })
 
+    it('splits a large selection into lookups short enough for the URL limit', async () => {
+        const sessionIds = Array.from(
+            { length: 120 },
+            (_, i) => `0190f5c2-0000-7000-8000-${String(i).padStart(12, '0')}`
+        )
+
+        await expectLogic(logic, () => logic.actions.setVisibleSessionIds(sessionIds)).toDispatchActions([
+            'loadObservationsSuccess',
+        ])
+
+        const lookedUp = requestedUrls
+            .filter((url) => url.includes('session_id='))
+            .map((url) => new URL(url).searchParams.get('session_id')!.split(','))
+        expect(lookedUp.every((ids) => ids.length <= 50)).toBe(true)
+        expect(lookedUp.flat().sort()).toEqual([...sessionIds].sort())
+    })
+
     it('releases the pending bridge once the scanned session lands in the lookup', async () => {
         await expectLogic(logic, () => {
             logic.actions.setPendingId('s1')
