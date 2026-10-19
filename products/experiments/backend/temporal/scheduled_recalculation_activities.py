@@ -29,6 +29,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_DISPATCH_UNCERTAIN,
     SKIP_EXPOSURE_QUERY_FAILED,
     SKIP_INSUFFICIENT_EXPOSURES,
+    SKIP_START_WINDOW_ELAPSED,
     ScheduledRecalculationDiscovery,
     count_total_exposures,
     find_scheduled_recalculation_candidates,
@@ -127,7 +128,7 @@ def _start_scheduled_recalculation_sync(
 ) -> ScheduledRecalculationStartResult:
     if start_before is not None and timezone.now() >= start_before:
         return ScheduledRecalculationStartResult(
-            experiment_id=experiment_id, started=False, skip_reason="start_window_elapsed"
+            experiment_id=experiment_id, started=False, skip_reason=SKIP_START_WINDOW_ELAPSED
         )
 
     # Deferred: recalculation.py imports temporal.recalculation_logic at module level, and this
@@ -156,7 +157,7 @@ def _start_scheduled_recalculation_sync(
 
     if start_before is not None and timezone.now() >= start_before:
         return ScheduledRecalculationStartResult(
-            experiment_id=experiment_id, started=False, skip_reason="start_window_elapsed"
+            experiment_id=experiment_id, started=False, skip_reason=SKIP_START_WINDOW_ELAPSED
         )
 
     try:

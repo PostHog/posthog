@@ -17,6 +17,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
     from products.experiments.backend.temporal.scheduled_recalculation_logic import (
         SKIP_DISPATCH_UNCERTAIN,
+        SKIP_START_WINDOW_ELAPSED,
         ScheduledRecalculationDiscovery,
     )
 
@@ -111,7 +112,7 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
                     stop_starting = True
                     raise
                 if not result.started:
-                    if result.skip_reason == "start_window_elapsed":
+                    if result.skip_reason == SKIP_START_WINDOW_ELAPSED:
                         deferred += 1
                     elif result.skip_reason == SKIP_DISPATCH_UNCERTAIN:
                         stop_starting = True

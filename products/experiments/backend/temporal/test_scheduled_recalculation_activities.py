@@ -37,6 +37,7 @@ from products.experiments.backend.temporal.scheduled_recalculation_logic import 
     SKIP_INSUFFICIENT_EXPOSURES,
     SKIP_NO_METRICS,
     SKIP_RECENT_RUN,
+    SKIP_START_WINDOW_ELAPSED,
     SKIP_ZERO_ROLLOUT,
     ScheduledRecalculationDiscovery,
 )
@@ -311,6 +312,6 @@ def test_start_picked_up_after_deadline_does_not_create_a_run(seconds_late):
     ):
         result = _start_recalculation_raw(1, 2, deadline)
     assert result.started is False
-    assert result.skip_reason == "start_window_elapsed"
+    assert result.skip_reason == SKIP_START_WINDOW_ELAPSED
     request.assert_not_called()
     dispatch.assert_not_called()

@@ -63,6 +63,7 @@ SKIP_ZERO_ROLLOUT: Final = "zero_rollout"
 SKIP_NO_METRICS: Final = "no_metrics"
 SKIP_EXPOSURE_BACKOFF: Final = "exposure_backoff"
 SKIP_DISPATCH_UNCERTAIN: Final = "dispatch_uncertain"
+SKIP_START_WINDOW_ELAPSED: Final = "start_window_elapsed"
 
 NEVER_SCHEDULED = datetime.min.replace(tzinfo=UTC)
 
