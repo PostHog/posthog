@@ -89,6 +89,18 @@ const notebook = {
 const meta: Meta = {
     component: App,
     title: 'Scenes-App/Notebooks/Jupyter mode',
+    beforeEach: () => {
+        const key = 'scenes.notebooks.notebooks.notebookSettingsLogic.isJupyterMode'
+        const previous = localStorage.getItem(key)
+        localStorage.setItem(key, JSON.stringify(true))
+        return () => {
+            if (previous === null) {
+                localStorage.removeItem(key)
+            } else {
+                localStorage.setItem(key, previous)
+            }
+        }
+    },
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
