@@ -2186,6 +2186,36 @@ class TestRunEvaluationWorkflow:
         assert mock_emit.await_args_list[0].args[0].event_data == full_event
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("evaluation_type", ["hog", "sentiment"])
+    @pytest.mark.parametrize("change", [{"enabled": False}, {"deleted": True}], ids=["disabled", "deleted"])
+    async def test_backfill_does_not_run_a_local_evaluation_turned_off(
+        self, evaluation_type: str, change: dict[str, bool]
+    ) -> None:
+        evaluation = _local_evaluation(
+            **{"evaluation_type": evaluation_type, "enabled": True, "deleted": False, **change}
+        )
+        module = "posthog.temporal.ai_observability.evaluation_workflow_activities"
+        with (
+            patch(f"{module}.fetch_evaluation", return_value=evaluation),
+            patch(f"{module}.run_hog_eval_for_event", new_callable=AsyncMock) as run_hog,
+            patch(f"{module}.run_sentiment_eval", new_callable=AsyncMock) as run_sentiment,
+            patch(f"{module}.emit_generation_evaluation_event", new_callable=AsyncMock) as emit,
+        ):
+            outcome = await run_local_evaluation_activity(
+                RunLocalEvaluationInputs(
+                    evaluation_id="eval-1",
+                    event_data=dict(THIN_REFERENCE),
+                    start_time=datetime(2024, 1, 1, 12, 0, tzinfo=UTC),
+                    backfill_id="B",
+                )
+            )
+
+        assert (outcome.result, outcome.emitted) == (None, False)
+        run_hog.assert_not_awaited()
+        run_sentiment.assert_not_awaited()
+        emit.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_the_generation_emit_activity_hydrates_a_thin_reference(self):
         full_event = create_mock_event_data(team_id=1, uuid="g1")
         with (
