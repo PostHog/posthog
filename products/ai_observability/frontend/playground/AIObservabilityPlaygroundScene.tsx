@@ -181,7 +181,7 @@ function PlaygroundHeaderActions(): JSX.Element {
                         data-attr="llma-playground-run-button"
                     >
                         {playgroundSubmitting ? <QuillSpinner /> : <IconPlay />}
-                        {playgroundSubmitting ? 'Stop' : 'Run'}
+                        <span>{playgroundSubmitting ? 'Stop' : 'Run'}</span>
                     </Button>
                 </AccessControlAction>
             </>
