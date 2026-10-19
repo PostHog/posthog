@@ -8,10 +8,11 @@ use anyhow::{bail, Context, Result};
 use health::HealthHandle;
 use personhog_common::cdc_parity::{DecodeError, DistinctIdRow, MergeEvent};
 use rdkafka::consumer::{Consumer, StreamConsumer};
+use rdkafka::error::KafkaError;
 use rdkafka::message::BorrowedMessage;
 use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::config::FeedConfig;
 use crate::join::{Event, Kind, Record, Topic};
@@ -114,6 +115,13 @@ impl TopicReader {
             }
             let message = match tokio::time::timeout(RECV_TIMEOUT, self.consumer.recv()).await {
                 Err(_) => continue,
+                // The consumer cannot recover; the reader stops reporting, so
+                // liveness fails and the pod restarts into a fresh window.
+                Ok(Err(KafkaError::MessageConsumptionFatal(code))) => {
+                    error!(topic = %self.name, %code, "the consumer failed for good; stopping the reader");
+                    read_errors.increment(1);
+                    return;
+                }
                 Ok(Err(error)) => {
                     warn!(topic = %self.name, %error, "reading the topic failed");
                     read_errors.increment(1);
