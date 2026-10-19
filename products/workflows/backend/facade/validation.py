@@ -18,7 +18,17 @@ def _to_realtime_audience_cohort(cohort: Cohort | None) -> RealtimeAudienceCohor
     if cohort is None:
         return None
     return RealtimeAudienceCohort(
-        id=cohort.pk, name=str(cohort.name), ready=batch_audience_cohorts.realtime_cohort_is_ready(cohort)
+        id=cohort.pk,
+        name=str(cohort.name),
+        ready=batch_audience_cohorts.realtime_cohort_is_ready(cohort),
+        can_finish=batch_audience_cohorts.realtime_cohort_can_finish(cohort),
+    )
+
+
+def realtime_cohort_cant_finish_error(cohort: RealtimeAudienceCohort) -> str:
+    return (
+        f"Cohort '{cohort.name}' can't be calculated in real time for this project, so a send to it would never "
+        "start. Use another cohort."
     )
 
 
@@ -42,4 +52,5 @@ __all__ = [
     "is_duration",
     "is_signed_duration",
     "realtime_audience_cohort",
+    "realtime_cohort_cant_finish_error",
 ]

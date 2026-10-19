@@ -1,6 +1,8 @@
 """Batch audience sizing and paging: the preview counts the editor shows, and the pages the Node
 batch resolver walks when it sends."""
 
+from django.core.cache import cache
+
 from posthog.models.property import GroupTypeIndex
 from posthog.models.team.team import Team
 
@@ -15,8 +17,21 @@ from products.workflows.backend.services.account_audience import (
 )
 from products.workflows.backend.services.audience_v2 import get_dedupe_audience_count_v2, get_person_audience_count_v2
 from products.workflows.backend.services.batch_audience import audience_page_size, get_batch_audience_person_ids
-from products.workflows.backend.services.batch_audience_cohorts import realtime_audience_cohort
+from products.workflows.backend.services.batch_audience_cohorts import realtime_audience_cohort, realtime_cohort_status
 from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+
+# An open send screen re-sizes a realtime cohort audience every few seconds while the cohort calculates. The
+# project's person total only gives the count context, so it is counted once per window, not on every check.
+REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS = 600
+
+
+def _realtime_audience_total(team: Team) -> int:
+    cache_key = f"workflows:realtime_audience_person_total:{team.pk}"
+    total = cache.get(cache_key)
+    if not isinstance(total, int):
+        total = get_person_audience_count_v2(team, {"properties": []}).total
+        cache.set(cache_key, total, REALTIME_AUDIENCE_TOTAL_CACHE_SECONDS)
+    return total
 
 
 def get_audience_size(
@@ -38,12 +53,12 @@ def get_audience_size(
         # The send reads the realtime pipeline's Postgres table, which this process can't query. The
         # cohort's count from its periodic calculation stands in as an estimate, and the send skips the
         # email dedupe.
-        everyone = get_person_audience_count_v2(team, {"properties": []})
         return AudienceSize(
             affected=realtime_cohort.count or 0,
-            total=everyone.total,
+            total=_realtime_audience_total(team),
             limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
             dedupe_key=None,
+            realtime_cohort=realtime_cohort_status(realtime_cohort),
         )
     if group_type_index is not None:
         blast_radius = get_user_blast_radius(team, filters, group_type_index)
