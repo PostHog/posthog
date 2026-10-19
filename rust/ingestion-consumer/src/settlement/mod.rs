@@ -13,6 +13,8 @@ use std::time::{Duration, Instant};
 
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 
+use tracing::warn;
+
 use crate::config::CompletionGranularity;
 use crate::order_sentinel::OffsetSpan;
 use crate::partition_budget::BudgetLimits;
@@ -125,9 +127,6 @@ impl Commit {
     }
 }
 
-pub(crate) const BUDGET_NEEDS_GROUP: &str =
-    "a partition budget needs CONSUMER_COMPLETION_GRANULARITY=group";
-
 pub(crate) fn for_granularity(
     granularity: CompletionGranularity,
     ledger: Arc<TopicOffsetLedger>,
@@ -136,7 +135,11 @@ pub(crate) fn for_granularity(
 ) -> Arc<dyn Settlement> {
     match granularity {
         CompletionGranularity::Poll => {
-            assert!(!limits.is_set(), "{BUDGET_NEEDS_GROUP}");
+            if limits.is_set() {
+                warn!(
+                    "Ignoring the partition budget: it needs CONSUMER_COMPLETION_GRANULARITY=group"
+                );
+            }
             Arc::new(PollSettlement::new(ledger))
         }
         CompletionGranularity::Group => {
