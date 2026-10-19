@@ -26,6 +26,7 @@ import {
     calendarRange,
     calendarSendsForFlow,
     mergeCalendarFlows,
+    sendAudience,
     splitRange,
     groupSendsByDay,
     shiftAnchor,
@@ -62,6 +63,7 @@ export interface sendDayPickerLogicValues {
     isTransactional: boolean
     loadFailed: boolean
     loadRange: CalendarRange
+    otherFlows: SendCalendarFlowApi[]
     otherSends: CalendarSend[]
     rule: SendingRule
     scheduledFlows: SendCalendarFlowApi[] | null
@@ -124,17 +126,19 @@ export interface sendDayPickerLogicMeta {
         anchorDate: (anchor: string | null, selectedDay: string | null, today: string) => string
         days: (anchorDate: string, weekStartDay: number) => string[]
         loadRange: (days: string[], effectiveTimezone: string, rule: SendingRule) => CalendarRange
-        otherSends: (
-            scheduledFlows: SendCalendarFlowApi[] | null,
-            loadRange: CalendarRange,
-            id: string
-        ) => CalendarSend[]
+        otherFlows: (scheduledFlows: SendCalendarFlowApi[] | null, id: string) => SendCalendarFlowApi[]
+        otherSends: (otherFlows: any, days: string[], effectiveTimezone: string) => CalendarSend[]
         countingSends: (
-            otherSends: CalendarSend[],
+            otherFlows: any,
+            loadRange: CalendarRange,
             draftAudience: SendAudience,
             isTransactional: boolean
         ) => CalendarSend[]
-        countingKeys: (countingSends: CalendarSend[]) => Record<string, boolean>
+        countingKeys: (
+            otherSends: CalendarSend[],
+            draftAudience: SendAudience,
+            isTransactional: boolean
+        ) => Record<string, boolean>
         sendsByDay: (otherSends: CalendarSend[], effectiveTimezone: string) => Record<string, CalendarSend[]>
         crowdedDays: (
             days: string[],
@@ -279,25 +283,59 @@ export const sendDayPickerLogic = kea<sendDayPickerLogicType>([
                 }
             },
         ],
+        otherFlows: [
+            (s, p) => [s.scheduledFlows, p.id],
+            (scheduledFlows: SendCalendarFlowApi[] | null, id: string): SendCalendarFlowApi[] =>
+                (scheduledFlows ?? []).filter((flow) => flow.id !== id),
+        ],
+        // The sends the grid shows: only the month on screen, at the calendar's usual limit per schedule.
         otherSends: [
-            (s, p) => [s.scheduledFlows, s.loadRange, p.id],
-            (scheduledFlows: SendCalendarFlowApi[] | null, loadRange: CalendarRange, id: string): CalendarSend[] => {
+            (s) => [s.otherFlows, s.days, s.effectiveTimezone],
+            (otherFlows: SendCalendarFlowApi[], days: string[], timezone: string): CalendarSend[] => {
                 const now = dayjs()
-                return (scheduledFlows ?? [])
-                    .filter((flow) => flow.id !== id)
-                    .flatMap((flow) => calendarSendsForFlow(flow, loadRange, now, MAX_COUNTED_SENDS_PER_SCHEDULE))
+                const grid = calendarRange(days, timezone)
+                return otherFlows
+                    .flatMap((flow) => calendarSendsForFlow(flow, grid, now))
                     .filter((send) => send.state !== 'paused' && send.state !== 'failed')
             },
         ],
+        // The sends the cap counts, over the whole range and without the display limit. Only flows that can reach
+        // the same people are expanded, and these are never sorted for display.
         countingSends: [
-            (s) => [s.otherSends, s.draftAudience, s.isTransactional],
-            (otherSends: CalendarSend[], draftAudience: SendAudience, isTransactional: boolean): CalendarSend[] =>
-                isTransactional ? [] : otherSends.filter((send) => countsTowardRule(send, draftAudience)),
+            (s) => [s.otherFlows, s.loadRange, s.draftAudience, s.isTransactional],
+            (
+                otherFlows: SendCalendarFlowApi[],
+                loadRange: CalendarRange,
+                draftAudience: SendAudience,
+                isTransactional: boolean
+            ): CalendarSend[] => {
+                if (isTransactional) {
+                    return []
+                }
+                const now = dayjs()
+                return (
+                    otherFlows
+                        .filter((flow) => countsTowardRule({ audience: sendAudience(flow) }, draftAudience))
+                        .flatMap((flow) => calendarSendsForFlow(flow, loadRange, now, MAX_COUNTED_SENDS_PER_SCHEDULE))
+                        // A run cancelled partway shows as failed, but the emails it already sent still count.
+                        .filter((send) => send.state !== 'paused')
+                )
+            },
         ],
         countingKeys: [
-            (s) => [s.countingSends],
-            (countingSends: CalendarSend[]): Record<string, boolean> =>
-                Object.fromEntries(countingSends.map((send) => [send.key, true])),
+            (s) => [s.otherSends, s.draftAudience, s.isTransactional],
+            (
+                otherSends: CalendarSend[],
+                draftAudience: SendAudience,
+                isTransactional: boolean
+            ): Record<string, boolean> =>
+                isTransactional
+                    ? {}
+                    : Object.fromEntries(
+                          otherSends
+                              .filter((send) => countsTowardRule(send, draftAudience))
+                              .map((send) => [send.key, true])
+                      ),
         ],
         sendsByDay: [
             (s) => [s.otherSends, s.effectiveTimezone],
