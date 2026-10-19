@@ -49,6 +49,9 @@ def ready_dimensional_job_ids(
     # The tables are built without a user, so they cannot honor per-user property restrictions.
     if team_has_property_access_rules(team_id=runner.team.pk):
         return None
+    # The writer builds all traffic, so the rows cannot exclude the team's test accounts.
+    if runner._test_account_filters:
+        return None
 
     start = runner.query_date_range.date_from()
     if runner.query_compare_to_date_range:

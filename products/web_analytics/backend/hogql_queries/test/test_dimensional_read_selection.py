@@ -31,18 +31,25 @@ _STATS_IDS = [uuid.uuid4()]
 _BOUNCES_IDS = [uuid.uuid4()]
 _JOB_IDS = DimensionalJobIds(stats=_STATS_IDS, bounces=_BOUNCES_IDS)
 _NEW_YORK = ZoneInfo("America/New_York")
+_TEST_ACCOUNT_FILTERS = [{"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}]
 
 
-def _runner(opted_in: bool | None, compare_from: datetime | None = None) -> MagicMock:
+def _runner(
+    opted_in: bool | None,
+    compare_from: datetime | None = None,
+    tz: ZoneInfo = _NEW_YORK,
+    test_account_filters: list | None = None,
+) -> MagicMock:
     runner = MagicMock()
     runner.team.pk = 1
     runner.query.webQueryModifiers = (
         None if opted_in is None else WebAnalyticsQueryModifiers(useDimensionalTables=opted_in)
     )
     runner.query.properties = []
+    runner._test_account_filters = test_account_filters or []
     # A project-local range: the current day in New York ends after the UTC now below.
-    runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=_NEW_YORK)
-    runner.query_date_range.date_to.return_value = datetime(2026, 3, 31, 23, 59, 59, tzinfo=_NEW_YORK)
+    runner.query_date_range.date_from.return_value = datetime(2026, 3, 1, tzinfo=tz)
+    runner.query_date_range.date_to.return_value = datetime(2026, 3, 31, 23, 59, 59, tzinfo=tz)
     if compare_from is None:
         runner.query_compare_to_date_range = None
     else:
@@ -58,20 +65,21 @@ def _result(ready: bool, job_ids: list[uuid.UUID]) -> LazyComputationResult:
 class TestDimensionalReadSelection(SimpleTestCase):
     @parameterized.expand(
         [
-            ("no_compare", None, datetime(2026, 3, 1, 5, tzinfo=UTC)),
+            ("no_compare", None, _NEW_YORK, datetime(2026, 3, 1, 5, tzinfo=UTC)),
             (
                 "compare_period_widens_start",
                 datetime(2026, 2, 1, tzinfo=_NEW_YORK),
+                _NEW_YORK,
                 datetime(2026, 2, 1, 5, tzinfo=UTC),
             ),
         ]
     )
-    def test_opted_in_query_checks_the_utc_range_up_to_now(self, _name, compare_from, expected_start):
+    def test_opted_in_query_checks_the_utc_range_up_to_now(self, _name, compare_from, tz, expected_start):
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=False),
             patch(f"{_READ}.dimensional_job_ids", return_value=_JOB_IDS) as mock_job_ids,
         ):
-            assert ready_dimensional_job_ids(_runner(True, compare_from)) == _JOB_IDS
+            assert ready_dimensional_job_ids(_runner(True, compare_from, tz=tz)) == _JOB_IDS
 
         _team, start, end = mock_job_ids.call_args.args
         assert (start, end) == (expected_start, datetime(2026, 3, 31, 12, tzinfo=UTC))
@@ -79,19 +87,20 @@ class TestDimensionalReadSelection(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("no_modifiers", None, False, _JOB_IDS),
-            ("opted_out", False, False, _JOB_IDS),
-            ("property_access_rules", True, True, _JOB_IDS),
-            ("not_ready", True, False, None),
-            ("lookup_fails", True, False, RuntimeError("postgres down")),
+            ("no_modifiers", _runner(None), False, _JOB_IDS),
+            ("opted_out", _runner(False), False, _JOB_IDS),
+            ("property_access_rules", _runner(True), True, _JOB_IDS),
+            ("test_account_filters", _runner(True, test_account_filters=_TEST_ACCOUNT_FILTERS), False, _JOB_IDS),
+            ("not_ready", _runner(True), False, None),
+            ("lookup_fails", _runner(True), False, RuntimeError("postgres down")),
         ]
     )
-    def test_query_falls_back(self, _name, opted_in, has_rules, job_ids):
+    def test_query_falls_back(self, _name, runner, has_rules, job_ids):
         with (
             patch(f"{_READ}.team_has_property_access_rules", return_value=has_rules),
             patch(f"{_READ}.dimensional_job_ids", side_effect=[job_ids]),
         ):
-            assert ready_dimensional_job_ids(_runner(opted_in)) is None
+            assert ready_dimensional_job_ids(runner) is None
 
     @parameterized.expand(
         [
