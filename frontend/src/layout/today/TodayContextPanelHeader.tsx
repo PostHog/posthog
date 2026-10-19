@@ -1,9 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45, IconExternal, IconPlus, IconSidePanel, IconX } from '@posthog/icons'
+import { IconMinus, IconPlus, IconX } from '@posthog/icons'
 import { Button, CardHeader, Tooltip, TooltipContent, TooltipTrigger, cn } from '@posthog/quill'
-
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
 import { SidePanelTab } from '~/types'
@@ -11,6 +9,7 @@ import { SidePanelTab } from '~/types'
 import { todayAiChatLogic } from './todayAiChatLogic'
 import { TodayAiChatTitleMenu } from './TodayAiChatTitleMenu'
 import { todayContextPanelLogic } from './todayContextPanelLogic'
+import { TodayContextPanelMenu } from './TodayContextPanelMenu'
 
 interface TodayContextPanelHeaderProps {
     docked: boolean
@@ -22,13 +21,11 @@ function HeaderIconButton({
     label,
     dataAttr,
     onClick,
-    render,
     children,
 }: {
     label: string
     dataAttr: string
     onClick?: () => void
-    render?: React.ReactElement
     children: React.ReactNode
 }): JSX.Element {
     return (
@@ -41,7 +38,6 @@ function HeaderIconButton({
                         aria-label={label}
                         className="text-muted-foreground hover:text-foreground"
                         onClick={onClick}
-                        render={render}
                         data-attr={dataAttr}
                     />
                 }
@@ -54,11 +50,9 @@ function HeaderIconButton({
 }
 
 export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPanelHeaderProps): JSX.Element {
-    const { activeTab, fullScreenUrl: tabFullScreenUrl, canUndock } = useValues(todayContextPanelLogic)
-    const { dock, undock, close, openFullScreen } = useActions(todayContextPanelLogic)
-    const { fullScreenUrl: aiFullScreenUrl } = useValues(todayAiChatLogic)
-    const { startNewChat, carryContextToFullScreen } = useActions(todayAiChatLogic)
-    const fullScreenUrl = activeTab === SidePanelTab.Max ? aiFullScreenUrl : tabFullScreenUrl
+    const { activeTab } = useValues(todayContextPanelLogic)
+    const { close } = useActions(todayContextPanelLogic)
+    const { startNewChat } = useActions(todayAiChatLogic)
 
     return (
         <CardHeader
@@ -69,7 +63,7 @@ export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPan
             onPointerDown={onDragStart}
         >
             {activeTab === SidePanelTab.Max ? (
-                <TodayAiChatTitleMenu />
+                <TodayAiChatTitleMenu showChevron={docked} />
             ) : (
                 // As tall as the chat's title button, so the header keeps its height across tabs.
                 <span className="flex h-7 min-w-0 items-center px-1.5 font-semibold">
@@ -82,32 +76,12 @@ export function TodayContextPanelHeader({ docked, onDragStart }: TodayContextPan
                         <IconPlus />
                     </HeaderIconButton>
                 )}
-                {fullScreenUrl && (
-                    <HeaderIconButton
-                        label="Open full screen"
-                        dataAttr="today-context-panel-full-screen"
-                        onClick={() => {
-                            if (activeTab === SidePanelTab.Max) {
-                                carryContextToFullScreen()
-                            }
-                            openFullScreen()
-                        }}
-                        render={<LinkPrimitive to={fullScreenUrl} />}
-                    >
-                        <IconExpand45 />
+                {!docked && (
+                    <HeaderIconButton label="Minimize" onClick={close} dataAttr="today-context-panel-minimize">
+                        <IconMinus />
                     </HeaderIconButton>
                 )}
-                {docked ? (
-                    canUndock && (
-                        <HeaderIconButton label="Undock" onClick={undock} dataAttr="today-context-panel-undock">
-                            <IconExternal />
-                        </HeaderIconButton>
-                    )
-                ) : (
-                    <HeaderIconButton label="Dock to the right" onClick={dock} dataAttr="today-context-panel-dock">
-                        <IconSidePanel />
-                    </HeaderIconButton>
-                )}
+                <TodayContextPanelMenu docked={docked} />
                 <HeaderIconButton label="Close" onClick={close} dataAttr="today-context-panel-close">
                     <IconX />
                 </HeaderIconButton>
