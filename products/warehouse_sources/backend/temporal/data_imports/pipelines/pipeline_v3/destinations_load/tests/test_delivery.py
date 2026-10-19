@@ -36,6 +36,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     destination_named_in_failure,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources_queue.backend.core.batch_consumer import OwnershipLostError
 
 
 class RecordingWriter:
@@ -488,6 +489,45 @@ class TestDestinationHealth(DeliveryTestCase):
         destination.refresh_from_db()
         assert destination.status == expected_status
         assert destination.consecutive_configuration_failures == expected_failures
+
+    def test_an_empty_run_lets_an_ownership_loss_through_unchanged(self) -> None:
+        a = self._destination("warehouse a")
+        self._set_health(a, ExternalDataDestination.Status.HEALTHY, 0)
+
+        def verify_ownership() -> None:
+            raise OwnershipLostError("lease lost")
+
+        with self.assertRaises(OwnershipLostError):
+            delivery.finalize_empty_run_to_destinations(
+                self._signal([str(a.id)], is_final=True), verify_ownership=verify_ownership
+            )
+
+        a.refresh_from_db()
+        assert a.status == ExternalDataDestination.Status.HEALTHY
+
+    def test_a_failed_empty_run_marks_the_destination_failing(self) -> None:
+        a = self._destination("warehouse a")
+        self._set_health(a, ExternalDataDestination.Status.HEALTHY, 0)
+
+        with (
+            mock.patch.object(RecordingWriter, "finalize_run", side_effect=RuntimeError("destination unreachable")),
+            self.captureOnCommitCallbacks(execute=True),
+            self.assertRaises(delivery.DestinationDeliveryError),
+        ):
+            delivery.finalize_empty_run_to_destinations(self._signal([str(a.id)], is_final=True))
+
+        a.refresh_from_db()
+        assert a.status == ExternalDataDestination.Status.FAILING
+
+    def test_a_published_empty_run_resets_a_failing_destination(self) -> None:
+        a = self._destination("warehouse a")
+        self._set_health(a, ExternalDataDestination.Status.FAILING, 2)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            delivery.finalize_empty_run_to_destinations(self._signal([str(a.id)], is_final=True))
+
+        a.refresh_from_db()
+        assert a.status == ExternalDataDestination.Status.HEALTHY
 
     def test_repeated_configuration_errors_pause_only_the_links_to_that_destination(self) -> None:
         broken = self._destination("customer redshift")

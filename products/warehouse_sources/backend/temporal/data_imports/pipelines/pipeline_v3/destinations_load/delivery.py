@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     mark_batch_as_processed,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
+from products.warehouse_sources_queue.backend.core.batch_consumer import OwnershipLostError
 
 logger = structlog.get_logger(__name__)
 
@@ -225,6 +226,10 @@ def finalize_empty_run_to_destinations(
                 destination_type=destination.type,
                 table_name=run_ctx.table_name,
             )
+        except OwnershipLostError:
+            # Fencing, not a delivery failure: the engine decides what a lost lease means, and
+            # neither a retry nor the destination's health should be charged for it.
+            raise
         except Exception as e:
             logger.warning(
                 "destination_empty_run_failed",
@@ -233,7 +238,12 @@ def finalize_empty_run_to_destinations(
                 table_name=run_ctx.table_name,
                 error=str(e),
             )
+            record_delivery_failure(destination, e)
+            if isinstance(e, DestinationConfigurationError):
+                raise
             raise DestinationDeliveryError(destination.name, e) from e
+
+        record_delivery_success(destination)
 
     return finalized
 
