@@ -224,6 +224,52 @@ describe('inboxReportDetailLogic', () => {
             logic.unmount()
         })
 
+        it('retains older activity, task runs, and reviewers after observation pages', async () => {
+            const observation = {
+                id: 'observation-1',
+                type: 'check_observation',
+                content: {},
+                created_at: '2026-10-01T00:00:00Z',
+            }
+            const taskRun = {
+                id: 'task-run-1',
+                type: 'task_run',
+                content: { task_id: 'task-1', product: 'signals', type: 'implementation' },
+                created_at: '2026-01-01T00:00:00Z',
+            }
+            const note = {
+                id: 'note-1',
+                type: 'note',
+                content: { note: 'Earlier activity' },
+                created_at: '2026-01-01T00:00:00Z',
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': ({ request }) =>
+                        new URL(request.url).searchParams.has('offset')
+                            ? { results: [artefact, taskRun, note], next: null }
+                            : {
+                                  results: [observation],
+                                  next: '/api/projects/2/signals/reports/report-1/artefacts/?limit=1000&offset=1000',
+                              },
+                    '/api/projects/:team_id/tasks/:id/': {
+                        id: 'task-1',
+                        latest_run: { status: TaskRunStatus.COMPLETED },
+                    },
+                },
+            })
+            logic.actions.loadReportArtefacts()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.reportArtefacts?.map((row) => row.id)).toEqual([
+                'observation-1',
+                'reviewers-1',
+                'task-run-1',
+                'note-1',
+            ])
+            expect(logic.values.reportReviewers).toEqual([reviewer])
+            expect(logic.values.reportTasks?.map((entry) => entry.task.id)).toEqual(['task-1'])
+        })
+
         it('keeps a removed reviewer hidden until the refreshed list arrives', async () => {
             let releaseRefresh: () => void = () => {}
             const heldRefresh = new Promise<void>((resolve) => {

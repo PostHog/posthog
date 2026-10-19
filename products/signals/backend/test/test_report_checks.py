@@ -26,6 +26,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.product_analytics.backend.facade.contracts import TrendsQueryRunResult
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import CheckResult, Dismissal
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
@@ -651,6 +652,48 @@ class TestReportCheckExecution(APIBaseTest):
         assert self._results() == []
         assert SignalReport.objects.filter(team_id=self.team.id).count() == 1
 
+    @time_machine.travel("2026-10-02T12:00:00Z", tick=False)
+    def test_tick_budget_exhaustion_defers_without_spending_the_query_error_budget(self) -> None:
+        now = timezone.now()
+        query = trends_metric_query(
+            series=[
+                {"kind": "EventsNode", "event": "checkout_failed"},
+                {"kind": "EventsNode", "event": "checkout_started"},
+            ]
+        )
+        query["source"]["trendsFilter"] = {"formula": "A / B"}
+        check = self._monitoring_check(
+            start=now - timedelta(days=1),
+            next_run_at=now,
+            consecutive_errors=MAX_CONSECUTIVE_CHECK_ERRORS - 1,
+            config=_threshold_config(
+                query=query, monitoring={"reference_period_minutes": 10080, "threshold_scaling": "fixed"}
+            ),
+        )
+        with (
+            patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
+            patch("time.monotonic", return_value=100.0),
+            patch(
+                "products.signals.backend.report_metric_refresh.run_cached_trends_query",
+                return_value=TrendsQueryRunResult(results=[{"aggregated_value": 2.0}], last_refresh=now),
+            ) as run_query,
+        ):
+            with patch("products.signals.backend.report_check_execution.CHECK_RUN_TIME_BUDGET_SECONDS", 1):
+                for _ in range(3):
+                    run_due_report_checks(now=now)
+            run_query.assert_not_called()
+            check.refresh_from_db()
+            assert check.status == SignalReportCheck.Status.ACTIVE
+            assert check.consecutive_errors == MAX_CONSECUTIVE_CHECK_ERRORS - 1
+            assert check.last_run_at is None and check.next_run_at == now
+            assert not self.report.artefacts.filter(type="check_observation").exists()
+            run_due_report_checks(now=now)
+            run_query.assert_called_once()
+        check.refresh_from_db()
+        assert check.consecutive_errors == 0
+        content = json.loads(self.report.artefacts.get(type="check_observation").content)
+        assert content["observed_value"] == 2 and content["error"] is None
+
     @parameterized.expand(
         [("duplicate",), ("cancelled",), ("new_period",), ("resolved",), ("flag_off",), ("config_changed",)]
     )
@@ -816,10 +859,16 @@ class TestReportCheckExecution(APIBaseTest):
             ("retry", 0, SignalReportCheck.Status.ACTIVE),
             ("error_limit", MAX_CONSECUTIVE_CHECK_ERRORS - 1, SignalReportCheck.Status.ERRORED),
             ("rolling_active_users", 0, SignalReportCheck.Status.ACTIVE, "weekly_active"),
+            ("query_timeout", 0, SignalReportCheck.Status.ACTIVE, None, TimeoutError),
         ]
     )
     def test_monitoring_query_errors_remain_operational_errors(
-        self, _name: str, errors: int, expected: str, math: str | None = None
+        self,
+        _name: str,
+        errors: int,
+        expected: str,
+        math: str | None = None,
+        query_error: type[Exception] = RuntimeError,
     ) -> None:
         now = timezone.now()
         check = self._monitoring_check(start=now - timedelta(days=1), consecutive_errors=errors)
@@ -831,7 +880,9 @@ class TestReportCheckExecution(APIBaseTest):
             patch("products.signals.backend.report_content_gates.feature_enabled_or_false", return_value=True),
             patch(
                 "products.signals.backend.report_check_monitoring.measure_metric",
-                side_effect=RuntimeError("private query detail"),
+                side_effect=query_error(
+                    "metric query timed out" if query_error is TimeoutError else "private query detail"
+                ),
             ) as measure,
         ):
             run_due_report_checks(now=now)
@@ -843,6 +894,8 @@ class TestReportCheckExecution(APIBaseTest):
         assert content["observed_value"] is None and content["matches"] is None
         assert check.status == expected and check.runs_remaining == 1
         assert check.last_outcome is None
+        assert check.consecutive_errors == errors + 1
+        assert check.next_run_at == now + CHECK_ERROR_RETRY_AFTER
         self.report.refresh_from_db()
         assert self.report.status == SignalReport.Status.MONITORING
 

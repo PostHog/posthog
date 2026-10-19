@@ -77,7 +77,7 @@ from products.signals.backend.report_checks import (
     soak_minutes_from_gap,
 )
 from products.signals.backend.report_lifecycle import check_monitoring_disabled_organizations, report_status_filter
-from products.signals.backend.report_metric_refresh import measure_metric
+from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 from products.signals.backend.report_metrics import validate_live_metric_query
 
 logger = structlog.get_logger(__name__)
@@ -797,6 +797,8 @@ def run_due_report_checks(*, now: datetime | None = None, limit: int = MAX_CHECK
             try:
                 observation = measure_monitoring_check(check, now=now, deadline=deadline)
                 counts["observed"] += int(record_monitoring_observation(check, observation))
+            except MetricQueryBudgetExhausted:
+                counts["deferred"] += 1
             except Exception:
                 logger.exception(
                     "signals.report_check.monitoring_step_failed", check_id=str(check.id), team_id=check.team_id

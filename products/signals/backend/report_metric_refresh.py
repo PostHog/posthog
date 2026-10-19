@@ -55,6 +55,10 @@ REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS = 20
 CURRENT_REPORT_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 
 
+class MetricQueryBudgetExhausted(TimeoutError):
+    pass
+
+
 @frozen
 class MetricMeasurement:
     value: float
@@ -129,7 +133,7 @@ def _run_metric_query(
     remaining = deadline - time.monotonic()
     source_count = _source_count(query)
     if remaining < source_count:
-        raise TimeoutError("report metric refresh budget expired")
+        raise MetricQueryBudgetExhausted("report metric refresh budget expired")
     timeout = (
         REPORT_METRIC_REFRESH_QUERY_TIMEOUT_SECONDS
         if math.isinf(remaining)

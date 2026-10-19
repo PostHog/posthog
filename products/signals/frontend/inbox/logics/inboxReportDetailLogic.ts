@@ -28,6 +28,7 @@ import { userLogic } from 'scenes/userLogic'
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import {
     signalsReportArtefactsDiff,
+    signalsReportArtefactsList,
     signalsReportChecksApproveCreate,
     signalsReportChecksDestroy,
     signalsReportChecksList,
@@ -45,6 +46,7 @@ import {
 } from 'products/signals/frontend/generated/api'
 import type {
     CommitDiffResponseApi,
+    PaginatedSignalReportArtefactListApi,
     PullRequestCheckApi,
     PullRequestCommentApi,
     PullRequestCommentReactionApi,
@@ -77,13 +79,7 @@ import {
 } from '../inboxAnalytics'
 import { inboxSceneLogic } from '../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../inboxTaskKickoffLogic'
-import {
-    EnrichedReviewer,
-    SignalReport,
-    SignalReportArtefact,
-    SignalReportArtefactResponse,
-    SignalReportStatus,
-} from '../types'
+import { EnrichedReviewer, SignalReport, SignalReportArtefact, SignalReportStatus } from '../types'
 import { ChartPlacements, resolveChartPlacements } from '../utils/chartPlacement'
 import { reportPullRequests, primaryReportPullRequest, type ReportPullRequest } from '../utils/reportPullRequests'
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
@@ -832,11 +828,22 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
         reportArtefacts: [
             null as SignalReportArtefact[] | null,
             {
-                loadReportArtefacts: async () => {
-                    const response: SignalReportArtefactResponse = await api.signalReports.artefacts(props.reportId, {
-                        limit: ARTEFACT_FETCH_LIMIT,
-                    })
-                    return response.results
+                loadReportArtefacts: async (_: void, breakpoint): Promise<SignalReportArtefact[]> => {
+                    let response = await signalsReportArtefactsList(
+                        String(teamLogic.values.currentTeamId),
+                        props.reportId,
+                        {
+                            limit: ARTEFACT_FETCH_LIMIT,
+                        }
+                    )
+                    await breakpoint()
+                    const artefacts = [...response.results]
+                    while (response.next) {
+                        response = await api.get<PaginatedSignalReportArtefactListApi>(response.next)
+                        await breakpoint()
+                        artefacts.push(...response.results)
+                    }
+                    return artefacts as SignalReportArtefact[]
                 },
             },
         ],

@@ -20,7 +20,7 @@ from products.signals.backend.report_checks import (
     validate_metric_check_for_write,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
-from products.signals.backend.report_metric_refresh import measure_metric
+from products.signals.backend.report_metric_refresh import MetricQueryBudgetExhausted, measure_metric
 
 logger = structlog.get_logger(__name__)
 MONITORING_ERROR_RETRY_AFTER = timedelta(hours=6)
@@ -49,6 +49,8 @@ def measure_monitoring_check(check: SignalReportCheck, *, now: datetime, deadlin
             matches=verdict.outcome == "passed",
             explanation=f"Interim measurement: {verdict.explanation}",
         )
+    except MetricQueryBudgetExhausted:
+        raise
     except Exception as error:
         logger.exception(
             "signals.report_check.monitoring_measurement_failed", check_id=str(check.id), team_id=check.team_id
