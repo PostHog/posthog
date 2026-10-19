@@ -609,6 +609,8 @@ def test_first_regex_replacement_preserves_capture_indices_and_literal_dollars()
         ("[^]x]", r"[^\]x]"),
         (r"[a-z]\\[", r"[a-z]\["),
         ("[[:alpha:]]+", "[[:alpha:]]+"),
+        (r"\\Q[\\E[a-z]", r"\Q[\E[a-z]"),
+        ("[[:a[[:a", r"[\[:a\[\[:a"),
     ],
 )
 def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected: str) -> None:

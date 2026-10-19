@@ -195,6 +195,9 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
 }
 
 
+_POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
+
+
 def _escape_regex_class_brackets(pattern: str) -> str:
     """Keep RE2 bracket-expression meaning under Trino's Joni engine.
 
@@ -207,6 +210,12 @@ def _escape_regex_class_brackets(pattern: str) -> str:
     while index < len(pattern):
         char = pattern[index]
         if char == "\\":
+            if pattern.startswith("\\Q", index):
+                quote_end = pattern.find("\\E", index + 2)
+                end = len(pattern) if quote_end == -1 else quote_end + 2
+                result.append(pattern[index:end])
+                index = end
+                continue
             result.append(pattern[index : index + 2])
             index += 2
             continue
@@ -222,12 +231,11 @@ def _escape_regex_class_brackets(pattern: str) -> str:
                     result.append("\\]")
                     index += 1
             continue
-        if pattern.startswith("[:", index):
-            end = pattern.find(":]", index + 2)
-            if end != -1:
-                result.append(pattern[index : end + 2])
-                index = end + 2
-                continue
+        posix_class = _POSIX_CLASS_PATTERN.match(pattern, index)
+        if posix_class:
+            result.append(posix_class.group())
+            index = posix_class.end()
+            continue
         if char == "[":
             result.append("\\[")
         else:
