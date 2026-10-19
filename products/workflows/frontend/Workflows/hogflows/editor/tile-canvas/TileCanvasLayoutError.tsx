@@ -4,10 +4,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { tileCanvasLogic } from './tileCanvasLogic'
 
-/** Laying out the same steps fails the same way again, so the way out is another view or an earlier version. */
+/** Laying out the same steps fails the same way again, so the way out is an earlier version. */
 export function TileCanvasLayoutError({ message }: { message: string }): JSX.Element {
-    const { canShowListView, hasUnsavedChanges, isSavedWorkflow } = useValues(tileCanvasLogic)
-    const { setEditorLayout, discardChanges, openPanel } = useActions(tileCanvasLogic)
+    const { hasUnsavedChanges, isSavedWorkflow } = useValues(tileCanvasLogic)
+    const { discardChanges, openPanel } = useActions(tileCanvasLogic)
     return (
         <div
             className="absolute inset-0 z-10 flex items-center justify-center p-6"
@@ -23,11 +23,6 @@ export function TileCanvasLayoutError({ message }: { message: string }): JSX.Ele
                 </p>
                 <code className="block break-words rounded bg-surface-secondary px-2 py-1 text-xs">{message}</code>
                 <div className="flex flex-wrap justify-end gap-2">
-                    {canShowListView && (
-                        <LemonButton type="secondary" onClick={() => setEditorLayout('simple')}>
-                            Show it as a list
-                        </LemonButton>
-                    )}
                     {hasUnsavedChanges ? (
                         <LemonButton type="primary" onClick={discardChanges}>
                             Discard changes

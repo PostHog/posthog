@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { IconDecisionTree, IconInfo, IconList } from '@posthog/icons'
-import { LemonDivider, LemonSegmentedButton, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconInfo } from '@posthog/icons'
+import { LemonDivider, LemonSwitch, LemonTag, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LastSavedIndicator } from 'lib/components/LastSavedIndicator'
 import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
@@ -11,15 +11,11 @@ import { SceneDescription } from '~/layout/scenes/components/SceneDescription'
 import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitlePanelButton'
 import { SceneName } from '~/layout/scenes/components/SceneTitleSection'
 
-import type { HogFlowEditorLayout } from './hogflows/hogFlowEditorLogic'
 import { WorkflowActions } from './WorkflowActions'
 import { workflowBackTo } from './workflowBackTo'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 type WorkflowHeaderBarProps = WorkflowLogicProps & {
-    editorLayout: HogFlowEditorLayout
-    showEditorLayoutToggle: boolean
-    onEditorLayoutChange: (layout: HogFlowEditorLayout) => void
     commands?: JSX.Element
 }
 
@@ -37,13 +33,7 @@ function WorkflowHeaderBarLoading(): JSX.Element {
     )
 }
 
-export function WorkflowHeaderBar({
-    editorLayout,
-    showEditorLayoutToggle,
-    onEditorLayoutChange,
-    commands,
-    ...props
-}: WorkflowHeaderBarProps): JSX.Element {
+export function WorkflowHeaderBar({ commands, ...props }: WorkflowHeaderBarProps): JSX.Element {
     const logic = workflowLogic(props)
     const {
         originalWorkflow,
@@ -76,28 +66,6 @@ export function WorkflowHeaderBar({
                     className="mt-0.5 shrink-0"
                     forceBackTo={workflowBackTo(workflow, props.id)}
                 />
-                {showEditorLayoutToggle && (
-                    <LemonSegmentedButton
-                        value={editorLayout}
-                        onChange={onEditorLayoutChange}
-                        size="small"
-                        className="mr-1 shrink-0"
-                        options={[
-                            {
-                                value: 'simple',
-                                icon: <IconList />,
-                                tooltip: 'List view',
-                                'data-attr': 'workflow-switch-to-simple-view',
-                            },
-                            {
-                                value: 'advanced',
-                                icon: <IconDecisionTree />,
-                                tooltip: 'Graph view',
-                                'data-attr': 'workflow-switch-to-advanced-view',
-                            },
-                        ]}
-                    />
-                )}
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex min-w-0 items-center gap-2">
                         <div className="min-w-0">

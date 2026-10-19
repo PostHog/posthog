@@ -25,13 +25,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="relative flex h-[calc(100vh-13rem)] max-h-full min-h-[25rem] grow flex-col overflow-hidden rounded-md border">
             {showsHeaderInWorkflowBar ? (
-                <WorkflowHeaderBar
-                    {...props}
-                    editorLayout={editorLayout}
-                    showEditorLayoutToggle={treeViewEnabled}
-                    onEditorLayoutChange={setEditorLayout}
-                    commands={<CanvasCommandGroup {...logicProps} />}
-                />
+                <WorkflowHeaderBar {...props} commands={<CanvasCommandGroup {...logicProps} />} />
             ) : (
                 <WorkflowStatusBar
                     {...props}

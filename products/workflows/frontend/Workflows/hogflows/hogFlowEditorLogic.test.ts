@@ -182,7 +182,13 @@ describe('hogFlowEditorLogic', () => {
 
     it.each([
         { name: 'the tile canvas', flags: ['tile'], layout: 'advanced', id: 'flow-1', expected: true },
-        { name: 'the list view', flags: ['tile', 'linear'], layout: 'simple', id: 'flow-1', expected: false },
+        {
+            name: 'the list view of both flags',
+            flags: ['tile', 'linear'],
+            layout: 'simple',
+            id: 'flow-1',
+            expected: true,
+        },
         {
             name: 'the graph view of both flags',
             flags: ['tile', 'linear'],
