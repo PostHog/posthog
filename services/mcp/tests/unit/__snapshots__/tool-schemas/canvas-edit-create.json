@@ -99,15 +99,8 @@
             "type": "object"
         },
         "expected_current_version_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded."
+            "description": "Required optimistic-concurrency guard: the current_version_id the edits are based on (null when the canvas has never been published). Diff edits against a moved head are rejected with 409 version_conflict — they cannot be published unguarded.",
+            "type": ["string", "null"]
         },
         "id": {
             "description": "ID of the canvas whose source to edit.",
@@ -124,15 +117,8 @@
                 "description": "One file edit: replace text in a file, write a whole file, delete it, or rename it.",
                 "properties": {
                     "content": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "For 'write': the file's complete new content."
+                        "description": "For 'write': the file's complete new content.",
+                        "type": ["string", "null"]
                     },
                     "new_path": {
                         "description": "For 'rename': the file's new project-relative path.",

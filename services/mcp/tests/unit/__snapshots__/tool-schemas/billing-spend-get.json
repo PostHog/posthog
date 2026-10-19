@@ -29,26 +29,12 @@
             "description": "Dimensions to break spend down by. Pass `[\"type\"]` for per-product series, `[\"team\"]` for one series per project summed across products, or `[\"type\",\"team\"]` for per-project series within each product. Omit for one aggregate series."
         },
         "end_date": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided."
+            "description": "End date (YYYY-MM-DD, UTC), inclusive. Defaults to yesterday if both dates are omitted, or today if only start_date is provided.",
+            "type": ["string", "null"]
         },
         "interval": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Time bucket size, one of \"day\", \"week\" or \"month\". Default \"day\"."
+            "description": "Time bucket size, one of \"day\", \"week\" or \"month\". Default \"day\".",
+            "type": ["string", "null"]
         },
         "page_size": {
             "anyOf": [
@@ -64,15 +50,8 @@
             "description": "Return at most this many series, ranked by total, with a `next` cursor for the page after. A caller that pages never approaches the size this endpoint refuses oversized breakdowns at. Requires a project breakdown."
         },
         "start_date": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago."
+            "description": "Start date (YYYY-MM-DD, UTC), or \"all\" for 2020-01-01. If both dates are omitted, defaults to 30 days ago.",
+            "type": ["string", "null"]
         },
         "team_ids": {
             "anyOf": [

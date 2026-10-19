@@ -173,15 +173,8 @@
                                     "type": "string"
                                 },
                                 "date_to": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day."
+                                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                                    "type": ["string", "null"]
                                 }
                             },
                             "required": ["date_from"],
@@ -701,15 +694,8 @@
                                                 "type": "string"
                                             },
                                             "value": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "boolean"
-                                                    },
-                                                    {
-                                                        "type": "string"
-                                                    }
-                                                ],
-                                                "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                                "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                                                "type": ["boolean", "string"]
                                             }
                                         },
                                         "required": ["key", "value"],
@@ -785,31 +771,11 @@
                                                         "value": {
                                                             "anyOf": [
                                                                 {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "boolean"
-                                                                        }
-                                                                    ]
+                                                                    "type": ["string", "number", "boolean"]
                                                                 },
                                                                 {
                                                                     "items": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "string"
-                                                                            },
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "boolean"
-                                                                            }
-                                                                        ]
+                                                                        "type": ["string", "number", "boolean"]
                                                                     },
                                                                     "type": "array"
                                                                 },
@@ -883,31 +849,11 @@
                                                         "value": {
                                                             "anyOf": [
                                                                 {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "boolean"
-                                                                        }
-                                                                    ]
+                                                                    "type": ["string", "number", "boolean"]
                                                                 },
                                                                 {
                                                                     "items": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "string"
-                                                                            },
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "boolean"
-                                                                            }
-                                                                        ]
+                                                                        "type": ["string", "number", "boolean"]
                                                                     },
                                                                     "type": "array"
                                                                 },
@@ -981,31 +927,11 @@
                                                         "value": {
                                                             "anyOf": [
                                                                 {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "boolean"
-                                                                        }
-                                                                    ]
+                                                                    "type": ["string", "number", "boolean"]
                                                                 },
                                                                 {
                                                                     "items": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "string"
-                                                                            },
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "boolean"
-                                                                            }
-                                                                        ]
+                                                                        "type": ["string", "number", "boolean"]
                                                                     },
                                                                     "type": "array"
                                                                 },
@@ -1079,31 +1005,11 @@
                                                         "value": {
                                                             "anyOf": [
                                                                 {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "boolean"
-                                                                        }
-                                                                    ]
+                                                                    "type": ["string", "number", "boolean"]
                                                                 },
                                                                 {
                                                                     "items": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "string"
-                                                                            },
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "boolean"
-                                                                            }
-                                                                        ]
+                                                                        "type": ["string", "number", "boolean"]
                                                                     },
                                                                     "type": "array"
                                                                 },
@@ -1132,31 +1038,11 @@
                                                         "value": {
                                                             "anyOf": [
                                                                 {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        },
-                                                                        {
-                                                                            "type": "boolean"
-                                                                        }
-                                                                    ]
+                                                                    "type": ["string", "number", "boolean"]
                                                                 },
                                                                 {
                                                                     "items": {
-                                                                        "anyOf": [
-                                                                            {
-                                                                                "type": "string"
-                                                                            },
-                                                                            {
-                                                                                "type": "number"
-                                                                            },
-                                                                            {
-                                                                                "type": "boolean"
-                                                                            }
-                                                                        ]
+                                                                        "type": ["string", "number", "boolean"]
                                                                     },
                                                                     "type": "array"
                                                                 },
@@ -1243,15 +1129,8 @@
                                         "type": "string"
                                     },
                                     "event": {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ],
-                                        "description": "The event or `null` for all events."
+                                        "description": "The event or `null` for all events.",
+                                        "type": ["string", "null"]
                                     },
                                     "kind": {
                                         "const": "EventsNode",
@@ -1895,15 +1774,8 @@
                                                             "type": "string"
                                                         },
                                                         "value": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "boolean"
-                                                                },
-                                                                {
-                                                                    "type": "string"
-                                                                }
-                                                            ],
-                                                            "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                                            "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                                                            "type": ["boolean", "string"]
                                                         }
                                                     },
                                                     "required": ["key", "value"],
@@ -2573,15 +2445,8 @@
                                                             "type": "string"
                                                         },
                                                         "value": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "boolean"
-                                                                },
-                                                                {
-                                                                    "type": "string"
-                                                                }
-                                                            ],
-                                                            "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                                            "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                                                            "type": ["boolean", "string"]
                                                         }
                                                     },
                                                     "required": ["key", "value"],
@@ -2742,15 +2607,8 @@
                                                             "type": "string"
                                                         },
                                                         "event": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "null"
-                                                                }
-                                                            ],
-                                                            "description": "The event or `null` for all events."
+                                                            "description": "The event or `null` for all events.",
+                                                            "type": ["string", "null"]
                                                         },
                                                         "kind": {
                                                             "const": "EventsNode",
@@ -3493,15 +3351,8 @@
                                                                                 "type": "string"
                                                                             },
                                                                             "value": {
-                                                                                "anyOf": [
-                                                                                    {
-                                                                                        "type": "boolean"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "string"
-                                                                                    }
-                                                                                ],
-                                                                                "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                                                                "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                                                                                "type": ["boolean", "string"]
                                                                             }
                                                                         },
                                                                         "required": ["key", "value"],
@@ -4270,15 +4121,8 @@
                                                                                 "type": "string"
                                                                             },
                                                                             "value": {
-                                                                                "anyOf": [
-                                                                                    {
-                                                                                        "type": "boolean"
-                                                                                    },
-                                                                                    {
-                                                                                        "type": "string"
-                                                                                    }
-                                                                                ],
-                                                                                "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags."
+                                                                                "description": "`true`/`false` for boolean flags, or a variant name string for multivariate flags.",
+                                                                                "type": ["boolean", "string"]
                                                                             }
                                                                         },
                                                                         "required": ["key", "value"],

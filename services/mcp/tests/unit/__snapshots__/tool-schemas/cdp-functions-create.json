@@ -91,15 +91,8 @@
             "type": "string"
         },
         "icon_url": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "URL for the function's icon displayed in the UI."
+            "description": "URL for the function's icon displayed in the UI.",
+            "type": ["string", "null"]
         },
         "inputs": {
             "additionalProperties": {
@@ -418,15 +411,8 @@
                             "type": "string"
                         },
                         "threshold": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Optional threshold count before masking applies."
+                            "description": "Optional threshold count before masking applies.",
+                            "type": ["number", "null"]
                         },
                         "ttl": {
                             "description": "Time-to-live in seconds for the masking cache (60–86400).",

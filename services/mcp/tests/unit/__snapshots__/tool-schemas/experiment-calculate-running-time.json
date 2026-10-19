@@ -8,26 +8,12 @@
                     "description": "Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio/retention)\nthe delta-method variance, instead of passing `baseline_value`/`variance` directly.",
                     "properties": {
                         "denominator_sum": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Sum of the denominator values. Required for ratio/retention metrics."
+                            "description": "Sum of the denominator values. Required for ratio/retention metrics.",
+                            "type": ["number", "null"]
                         },
                         "denominator_sum_squares": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Sum of squared denominator values (ratio/retention variance)."
+                            "description": "Sum of squared denominator values (ratio/retention variance).",
+                            "type": ["number", "null"]
                         },
                         "number_of_samples": {
                             "description": "Number of control-group samples (users/units) observed.",
@@ -35,15 +21,8 @@
                             "type": "number"
                         },
                         "numerator_denominator_sum_product": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Sum of numerator×denominator products, used for the delta-method covariance term."
+                            "description": "Sum of numerator×denominator products, used for the delta-method covariance term.",
+                            "type": ["number", "null"]
                         },
                         "step_counts": {
                             "description": "Per-step counts for funnel metrics; the last entry is the final-step count.",
@@ -72,15 +51,8 @@
             "description": "Raw control-group statistics. When provided, the server derives baseline_value and variance."
         },
         "baseline_value": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats."
+            "description": "Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats.",
+            "type": ["number", "null"]
         },
         "exposure_rate_per_day": {
             "anyOf": [
@@ -111,15 +83,8 @@
             "type": "number"
         },
         "variance": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly."
+            "description": "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly.",
+            "type": ["number", "null"]
         }
     },
     "required": ["metric_type", "minimum_detectable_effect"],

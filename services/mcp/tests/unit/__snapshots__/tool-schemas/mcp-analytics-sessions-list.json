@@ -15,15 +15,8 @@
             "type": "boolean"
         },
         "has_errors": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both."
+            "description": "Filter by session outcome. true keeps sessions with at least one errored tool call ($mcp_is_error), false keeps sessions with none. Omit to list both.",
+            "type": ["boolean", "null"]
         },
         "limit": {
             "default": 100,

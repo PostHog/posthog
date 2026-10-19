@@ -40,7 +40,7 @@ import {
     markNoncanonicalMetricRun,
     parseExecCallInnerArgs,
     parseExecCallInnerToolName,
-    repairArgumentNesting,
+    repairToolArguments,
     UNRECOGNIZED_EXEC_TOKEN,
     type ExecCommandMeta,
     type ExecInnerCallTracker,
@@ -375,11 +375,9 @@ export class ToolExecutor {
         // Computed on the raw input, before any alias is folded away by preprocess.
         const inputShape = inputShapeAnalyticsProperties(rawToolArgs, tool.schema)
         const firstPass = tool.schema.safeParse(rawToolArgs, { reportInput: true })
-        const rewrapped = firstPass.success
-            ? undefined
-            : repairArgumentNesting(firstPass.error, rawToolArgs, tool.schema)
-        const toolArgs = rewrapped ?? rawToolArgs
-        const validation = rewrapped ? tool.schema.safeParse(toolArgs, { reportInput: true }) : firstPass
+        const repaired = firstPass.success ? undefined : repairToolArguments(firstPass.error, rawToolArgs, tool.schema)
+        const toolArgs = repaired ?? rawToolArgs
+        const validation = repaired ? tool.schema.safeParse(toolArgs, { reportInput: true }) : firstPass
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
             const message = formatInputValidationError(tool.name, validation.error, toolArgs, tool.schema)

@@ -10,15 +10,8 @@
             "type": "object"
         },
         "group_type_index": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Group type index for group-based flags (null for person-based flags)"
+            "description": "Group type index for group-based flags (null for person-based flags)",
+            "type": ["number", "null"]
         }
     },
     "required": ["condition"],

@@ -45,15 +45,8 @@
             "type": "string"
         },
         "directory_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Directory containing the evaluation. Pass null to move the evaluation to the top level."
+            "description": "Directory containing the evaluation. Pass null to move the evaluation to the top level.",
+            "type": ["string", "null"]
         },
         "enabled": {
             "description": "Whether the evaluation runs automatically on new $ai_generation events.",
@@ -141,25 +134,11 @@
                             "type": "string"
                         },
                         "provider_key_id": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed."
+                            "description": "Optional team provider key to run this evaluation with; it must use the same provider. May be null when no key is pinned or after the selected key is removed.",
+                            "type": ["string", "null"]
                         },
                         "provider_key_name": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["string", "null"]
                         }
                     },
                     "required": ["provider", "model"],
@@ -184,26 +163,12 @@
                     "type": "boolean"
                 },
                 "max": {
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min."
+                    "description": "Inclusive maximum numeric score. Omit for no upper bound. Required for numeric decision models and must exceed min.",
+                    "type": ["number", "null"]
                 },
                 "min": {
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models."
+                    "description": "Inclusive minimum numeric score. Omit for no lower bound. Required for numeric decision models.",
+                    "type": ["number", "null"]
                 },
                 "options": {
                     "description": "Categorical output options. Keys identify stored results; labels are displayed to users.",

@@ -10,26 +10,12 @@
             "description": "Data to summarize. For traces: {trace, hierarchy}. For events: {event}. Not required when using trace_id or generation_id."
         },
         "date_from": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d."
+            "description": "Start of date range for ID-based lookup (e.g. '-7d' or '2026-01-01'). Defaults to -30d.",
+            "type": ["string", "null"]
         },
         "date_to": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "End of date range for ID-based lookup. Defaults to now."
+            "description": "End of date range for ID-based lookup. Defaults to now.",
+            "type": ["string", "null"]
         },
         "force_refresh": {
             "default": false,
@@ -47,15 +33,8 @@
             "type": "string"
         },
         "model": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "LLM model to use (defaults based on provider)"
+            "description": "LLM model to use (defaults based on provider)",
+            "type": ["string", "null"]
         },
         "summarize_type": {
             "description": "Type of entity to summarize. Inferred automatically when using trace_id or generation_id.\n\n* `trace` - trace\n* `event` - event",

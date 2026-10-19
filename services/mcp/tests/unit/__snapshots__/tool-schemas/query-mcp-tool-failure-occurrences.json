@@ -4,26 +4,12 @@
         "dateRange": {
             "properties": {
                 "date_from": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year)."
+                    "description": "Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago),\n-1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year).",
+                    "type": ["string", "null"]
                 },
                 "date_to": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set."
+                    "description": "End of the date range. Same format as date_from. Omit or null for \"now\". A calendar day without a time (2024-01-15) is inclusive: it rounds to the last moment of that day in the project timezone, unless explicitDate is set.",
+                    "type": ["string", "null"]
                 },
                 "daysOfWeek": {
                     "anyOf": [
@@ -69,28 +55,14 @@
                     "description": "Restrict the query to events occurring on these ISO days of week (1=Monday to 7=Sunday), evaluated in the project timezone. Omit or empty for all days. Only applied by insight queries."
                 },
                 "excludeIncompletePeriods": {
-                    "anyOf": [
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
                     "default": false,
-                    "description": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries."
+                    "description": "Exclude the current, still-collecting period by clipping date_to to the end of the last complete interval (evaluated in the project timezone). No-op when the range contains no complete interval. Only applied by insight queries.",
+                    "type": ["boolean", "null"]
                 },
                 "explicitDate": {
-                    "anyOf": [
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
                     "default": false,
-                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period."
+                    "description": "Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period.",
+                    "type": ["boolean", "null"]
                 }
             },
             "type": "object"
@@ -176,31 +148,11 @@
                             "value": {
                                 "anyOf": [
                                     {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "number"
-                                            },
-                                            {
-                                                "type": "boolean"
-                                            }
-                                        ]
+                                        "type": ["string", "number", "boolean"]
                                     },
                                     {
                                         "items": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "boolean"
-                                                }
-                                            ]
+                                            "type": ["string", "number", "boolean"]
                                         },
                                         "type": "array"
                                     },
@@ -274,31 +226,11 @@
                             "value": {
                                 "anyOf": [
                                     {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "number"
-                                            },
-                                            {
-                                                "type": "boolean"
-                                            }
-                                        ]
+                                        "type": ["string", "number", "boolean"]
                                     },
                                     {
                                         "items": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "boolean"
-                                                }
-                                            ]
+                                            "type": ["string", "number", "boolean"]
                                         },
                                         "type": "array"
                                     },
@@ -371,31 +303,11 @@
                             "value": {
                                 "anyOf": [
                                     {
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "number"
-                                            },
-                                            {
-                                                "type": "boolean"
-                                            }
-                                        ]
+                                        "type": ["string", "number", "boolean"]
                                     },
                                     {
                                         "items": {
-                                            "anyOf": [
-                                                {
-                                                    "type": "string"
-                                                },
-                                                {
-                                                    "type": "number"
-                                                },
-                                                {
-                                                    "type": "boolean"
-                                                }
-                                            ]
+                                            "type": ["string", "number", "boolean"]
                                         },
                                         "type": "array"
                                     },

@@ -23,15 +23,8 @@
             "description": "Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`."
         },
         "ensure_experience_continuity": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Whether to persist the flag's value for a user across the anonymous-to-identified transition (the \"persist across authentication steps\" option in the UI). Keeps a user's evaluated value stable once they log in. Incompatible with `device_id` bucketing."
+            "description": "Whether to persist the flag's value for a user across the anonymous-to-identified transition (the \"persist across authentication steps\" option in the UI). Keeps a user's evaluated value stable once they log in. Incompatible with `device_id` bucketing.",
+            "type": ["boolean", "null"]
         },
         "evaluation_contexts": {
             "description": "Evaluation contexts that control where this flag evaluates at runtime.",
@@ -57,15 +50,8 @@
             "description": "Full release-condition object (replaces filters at the API). For group flags set aggregation_group_type_index and property type \"group\" + group_type_index. Omitted type / group_type_index / aggregation_group_type_index are filled from the existing flag to prevent silent person demotion (see #46501). When conditions don't all target the same thing (persons and a group type, or different group types) and you add, remove, reorder, or change the properties of conditions, set aggregation_group_type_index on each condition (null for persons), or the update is refused.",
             "properties": {
                 "aggregation_group_type_index": {
-                    "anyOf": [
-                        {
-                            "type": "number"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Group type index for group-based feature flags."
+                    "description": "Group type index for group-based feature flags.",
+                    "type": ["number", "null"]
                 },
                 "early_exit": {
                     "default": false,
@@ -73,30 +59,16 @@
                     "type": "boolean"
                 },
                 "feature_enrollment": {
-                    "anyOf": [
-                        {
-                            "type": "boolean"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}."
+                    "description": "Whether this flag has early access feature enrollment enabled. When true, the flag is evaluated against the person property $feature_enrollment/{flag_key}.",
+                    "type": ["boolean", "null"]
                 },
                 "groups": {
                     "description": "Release condition groups for the feature flag.",
                     "items": {
                         "properties": {
                             "aggregation_group_type_index": {
-                                "anyOf": [
-                                    {
-                                        "type": "number"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Group type index for this condition set. None means person-level aggregation."
+                                "description": "Group type index for this condition set. None means person-level aggregation.",
+                                "type": ["number", "null"]
                             },
                             "properties": {
                                 "description": "Property conditions for this release condition group.",
@@ -105,26 +77,12 @@
                                         {
                                             "properties": {
                                                 "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
+                                                    "description": "Resolved cohort name for cohort-type filters.",
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -165,26 +123,12 @@
                                         {
                                             "properties": {
                                                 "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
+                                                    "description": "Resolved cohort name for cohort-type filters.",
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -210,26 +154,12 @@
                                         {
                                             "properties": {
                                                 "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
+                                                    "description": "Resolved cohort name for cohort-type filters.",
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -256,26 +186,12 @@
                                         {
                                             "properties": {
                                                 "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
+                                                    "description": "Resolved cohort name for cohort-type filters.",
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -312,26 +228,12 @@
                                         {
                                             "properties": {
                                                 "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
+                                                    "description": "Resolved cohort name for cohort-type filters.",
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -361,26 +263,12 @@
                                         {
                                             "properties": {
                                                 "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
+                                                    "description": "Resolved cohort name for cohort-type filters.",
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -406,26 +294,12 @@
                                         {
                                             "properties": {
                                                 "cohort_name": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Resolved cohort name for cohort-type filters."
+                                                    "description": "Resolved cohort name for cohort-type filters.",
+                                                    "type": ["string", "null"]
                                                 },
                                                 "group_type_index": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "null"
-                                                        }
-                                                    ],
-                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`."
+                                                    "description": "Group type index a `group` filter reads properties from. Defaults to the condition set's `aggregation_group_type_index`.",
+                                                    "type": ["number", "null"]
                                                 },
                                                 "key": {
                                                     "description": "Property key used in this feature flag condition.",
@@ -457,15 +331,8 @@
                                 "type": "number"
                             },
                             "variant": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Variant key override for multivariate flags."
+                                "description": "Variant key override for multivariate flags.",
+                                "type": ["string", "null"]
                             }
                         },
                         "type": "object"
@@ -526,15 +393,8 @@
             "type": "number"
         },
         "is_remote_configuration": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter."
+            "description": "Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded string. There is no dedicated payload parameter.",
+            "type": ["boolean", "null"]
         },
         "key": {
             "description": "Feature flag key.",

@@ -23,6 +23,7 @@ import {
     type ExecInnerCallProperties,
     type ExecToolOptions,
     formatInputValidationError,
+    repairToolArguments,
     rewrapFlattenedArguments,
     parseExecCallInnerToolName,
 } from '@/tools/exec'
@@ -2701,6 +2702,85 @@ describe('exec tool', () => {
                 expect(formatInputValidationError('logs-patterns-diff', result.error!, input, tool.schema)).toContain(
                     '"baselineDateRange": ...'
                 )
+            })
+
+            describe('adding the seconds a minute-precision datetime lacks', () => {
+                const datetimeSchema = z.object({
+                    at: z.iso.datetime({ offset: true }).optional(),
+                    range: z.object({ from: z.iso.datetime({ offset: true }).nullish() }).optional(),
+                    limit: z.number().optional(),
+                })
+                const repairFor = (schema: ZodObjectAny, input: unknown): Record<string, unknown> | undefined => {
+                    const result = schema.safeParse(input, { reportInput: true })
+                    expect(result.success).toBe(false)
+                    return repairToolArguments(result.error!, input, schema)
+                }
+
+                it.each([
+                    ['a UTC time', { at: '2026-10-12T10:00Z' }, { at: '2026-10-12T10:00:00Z' }],
+                    ['an offset time', { at: '2026-10-12T10:00+02:00' }, { at: '2026-10-12T10:00:00+02:00' }],
+                    [
+                        'a nested nullable field',
+                        { range: { from: '2026-10-12T10:00-05:00' }, limit: 5 },
+                        { range: { from: '2026-10-12T10:00:00-05:00' }, limit: 5 },
+                    ],
+                ])('repairs %s', (_label, input, expected) => {
+                    expect(repairFor(datetimeSchema, input)).toEqual(expected)
+                })
+
+                it('repairs a generated datetime field and leaves free text alone', () => {
+                    const tool = GENERATED_TOOL_MAP['annotation-create']!()
+                    const repaired = repairFor(tool.schema, {
+                        content: '2026-10-12T10:00Z',
+                        date_marker: '2026-10-12T10:00Z',
+                    })
+
+                    expect(repaired).toMatchObject({
+                        content: '2026-10-12T10:00Z',
+                        date_marker: '2026-10-12T10:00:00Z',
+                    })
+                })
+
+                it('repairs a datetime inside a union with another string format', () => {
+                    // Zod reports this as one `invalid_union` issue, with the datetime branch's
+                    // `invalid_format` issue nested in `issue.errors` under a path relative to the union.
+                    const unionSchema = z.object({
+                        at: z.union([z.iso.datetime({ offset: true }), z.email()]),
+                    })
+
+                    expect(repairFor(unionSchema, { at: '2026-10-12T10:00Z' })).toEqual({
+                        at: '2026-10-12T10:00:00Z',
+                    })
+                })
+
+                it('repairs a call that is also nested one level too deep', () => {
+                    const tool = GENERATED_TOOL_MAP['reminder-create']!()
+                    const input = {
+                        query: { organization: 'org-1', title: 'check the rollout', scheduled_at: '2030-10-12T10:00Z' },
+                    }
+
+                    expect(repairFor(tool.schema, input)).toMatchObject({
+                        organization: 'org-1',
+                        scheduled_at: '2030-10-12T10:00:00Z',
+                    })
+                })
+
+                it('rejects a deeply nested input without throwing', () => {
+                    let deep: Record<string, unknown> = { at: '2026-10-12T10:00Z' }
+                    for (let i = 0; i < 3000; i++) {
+                        deep = { inner: deep }
+                    }
+
+                    expect(repairFor(datetimeSchema, { at: 'soon', extra: deep })).toBeUndefined()
+                })
+
+                it.each([
+                    ['a date with no time', { at: '2026-10-12' }],
+                    ['a time with no offset', { at: '2026-10-12T10:00' }],
+                    ['another invalid field beside it', { at: '2026-10-12T10:00Z', limit: 'many' }],
+                ])('leaves %s to its own rejection', (_label, input) => {
+                    expect(repairFor(datetimeSchema, input)).toBeUndefined()
+                })
             })
 
             describe('rewrapping it into the call the caller meant', () => {

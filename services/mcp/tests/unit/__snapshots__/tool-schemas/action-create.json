@@ -21,7 +21,7 @@
             "anyOf": [
                 {
                     "format": "date-time",
-                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
                     "type": "string"
                 },
                 {
@@ -44,26 +44,12 @@
             "items": {
                 "properties": {
                     "event": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Event name to match (e.g. '$pageview', '$autocapture', or a custom event name)."
+                        "description": "Event name to match (e.g. '$pageview', '$autocapture', or a custom event name).",
+                        "type": ["string", "null"]
                     },
                     "href": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Link href attribute to match."
+                        "description": "Link href attribute to match.",
+                        "type": ["string", "null"]
                     },
                     "href_matching": {
                         "anyOf": [
@@ -393,59 +379,24 @@
                         "description": "Event or person property filters. Each item should have 'key' (string), 'value' (string, number, boolean, or array), optional 'operator' (exact, is_not, is_set, is_not_set, icontains, not_icontains, regex, not_regex, gt, gte, lt, lte), and optional 'type' (event, person)."
                     },
                     "selector": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "CSS selector to match the target element (e.g. 'div > button.cta')."
+                        "description": "CSS selector to match the target element (e.g. 'div > button.cta').",
+                        "type": ["string", "null"]
                     },
                     "selector_regex": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Compiled regex the selector matches against the event elements chain. Null when no selector is set."
+                        "description": "Compiled regex the selector matches against the event elements chain. Null when no selector is set.",
+                        "type": ["string", "null"]
                     },
                     "selector_warning": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent."
+                        "description": "Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent.",
+                        "type": ["string", "null"]
                     },
                     "tag_name": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "HTML tag name to match (e.g. \"button\", \"a\", \"input\")."
+                        "description": "HTML tag name to match (e.g. \"button\", \"a\", \"input\").",
+                        "type": ["string", "null"]
                     },
                     "text": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Element text content to match."
+                        "description": "Element text content to match.",
+                        "type": ["string", "null"]
                     },
                     "text_matching": {
                         "anyOf": [
@@ -461,15 +412,8 @@
                         "description": "How to match the text value. Defaults to exact.\n\n* `contains` - contains\n* `regex` - regex\n* `exact` - exact"
                     },
                     "url": {
-                        "anyOf": [
-                            {
-                                "type": "string"
-                            },
-                            {
-                                "type": "null"
-                            }
-                        ],
-                        "description": "Page URL to match."
+                        "description": "Page URL to match.",
+                        "type": ["string", "null"]
                     },
                     "url_matching": {
                         "anyOf": [

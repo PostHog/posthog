@@ -85,15 +85,8 @@
                                     "type": "boolean"
                                 },
                                 "max_file_size_mb": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB.",
+                                    "type": ["number", "null"]
                                 },
                                 "prefix": {
                                     "default": "",
@@ -217,15 +210,8 @@
                                     "description": "Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd"
                                 },
                                 "encryption": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms')."
+                                    "description": "Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').",
+                                    "type": ["string", "null"]
                                 },
                                 "file_format": {
                                     "default": "JSONLines",
@@ -234,30 +220,16 @@
                                     "type": "string"
                                 },
                                 "kms_key_id": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "KMS key ID to use when encryption is 'aws:kms'."
+                                    "description": "KMS key ID to use when encryption is 'aws:kms'.",
+                                    "type": ["string", "null"]
                                 },
                                 "legacy_parquet_extension": {
                                     "description": "Whether Parquet files keep the compression codec in their extension, for example '.parquet.zst' rather than '.parquet'. Parquet records its codec inside the file, so new exports leave it out. An export that already wrote Parquet files before this setting existed keeps it, so that pipelines matching on the old names do not break. Has no effect on JSON Lines, which always carries the codec in its extension.",
                                     "type": "boolean"
                                 },
                                 "max_file_size_mb": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB.",
+                                    "type": ["number", "null"]
                                 },
                                 "prefix": {
                                     "description": "Object key prefix applied to every exported file.",
@@ -317,15 +289,8 @@
                                     "type": "boolean"
                                 },
                                 "max_file_size_mb": {
-                                    "anyOf": [
-                                        {
-                                            "type": "number"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB."
+                                    "description": "If set, rolls to a new file once the current file exceeds this size in MB.",
+                                    "type": ["number", "null"]
                                 },
                                 "prefix": {
                                     "description": "Object key prefix applied to every exported file.",
@@ -367,15 +332,8 @@
                                     "type": "string"
                                 },
                                 "role": {
-                                    "anyOf": [
-                                        {
-                                            "type": "string"
-                                        },
-                                        {
-                                            "type": "null"
-                                        }
-                                    ],
-                                    "description": "Optional Snowflake role to assume for the session."
+                                    "description": "Optional Snowflake role to assume for the session.",
+                                    "type": ["string", "null"]
                                 },
                                 "schema": {
                                     "description": "Schema inside the database containing the destination table.",
@@ -542,14 +500,7 @@
                 {
                     "properties": {
                         "bounceRateDurationSeconds": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["number", "null"]
                         },
                         "bounceRatePageViewMode": {
                             "anyOf": [
@@ -563,25 +514,11 @@
                             ]
                         },
                         "convertToProjectTimezone": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "cookielessTrafficIsRegular": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients."
+                            "description": "Do not treat a missing user agent as automation on cookieless events. Positive bot signals and custom project rules still apply. Resolved server-side; not intended to be set by clients.",
+                            "type": ["boolean", "null"]
                         },
                         "customBotDefinitions": {
                             "anyOf": [
@@ -589,15 +526,8 @@
                                     "items": {
                                         "properties": {
                                             "category": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Reported by `$virt_traffic_category`. Defaults to `custom`."
+                                                "description": "Reported by `$virt_traffic_category`. Defaults to `custom`.",
+                                                "type": ["string", "null"]
                                             },
                                             "combiner": {
                                                 "description": "Whether every condition must match (AND) or any one of them (OR).",
@@ -770,14 +700,7 @@
                             ]
                         },
                         "debug": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "forceClickhouseDataSkippingIndexes": {
                             "anyOf": [
@@ -794,14 +717,7 @@
                             "description": "If these are provided, the query will fail if these skip indexes are not used"
                         },
                         "formatCsvAllowDoubleQuotes": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "inCohortVia": {
                             "anyOf": [
@@ -848,46 +764,18 @@
                             ]
                         },
                         "mergeFederatedAggregateJoins": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap"
+                            "description": "Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap",
+                            "type": ["boolean", "null"]
                         },
                         "negatedPersonFiltersNotIn": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN."
+                            "description": "Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.",
+                            "type": ["boolean", "null"]
                         },
                         "optimizeJoinedFilters": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "optimizeProjections": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "parserMode": {
                             "anyOf": [
@@ -910,15 +798,8 @@
                             "description": "HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip."
                         },
                         "personIdPushdown": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
+                            "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                            "type": ["boolean", "null"]
                         },
                         "personsArgMaxVersion": {
                             "anyOf": [
@@ -970,46 +851,18 @@
                             ]
                         },
                         "pushDownPredicates": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "s3TableUseInvalidColumns": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "sessionIdPushdown": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter."
+                            "description": "Push a `session_id_v7 IN (SELECT … FROM events WHERE …)` predicate into the raw_sessions subquery to limit aggregation to sessions that participate in the outer events filter.",
+                            "type": ["boolean", "null"]
                         },
                         "sessionPropertyPreAggregation": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`)."
+                            "description": "Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).",
+                            "type": ["boolean", "null"]
                         },
                         "sessionsV2JoinMode": {
                             "anyOf": [
@@ -1034,110 +887,40 @@
                             ]
                         },
                         "sessionTimestampBufferMinutes": {
-                            "anyOf": [
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range."
+                            "description": "Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.",
+                            "type": ["number", "null"]
                         },
                         "timings": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "typeAwareCastSimplification": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types"
+                            "description": "Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types",
+                            "type": ["boolean", "null"]
                         },
                         "useMaterializedViews": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "useNewEventsCluster": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported."
+                            "description": "Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.",
+                            "type": ["boolean", "null"]
                         },
                         "useNewEventsSchema": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                            "description": "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it.",
+                            "type": ["boolean", "null"]
                         },
                         "usePreaggregatedIntermediateResults": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "usePreaggregatedTableTransforms": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *"
+                            "description": "Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+                            "type": ["boolean", "null"]
                         },
                         "useWebAnalyticsPreAggregatedTables": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
+                            "type": ["boolean", "null"]
                         },
                         "webAnalyticsFirstPageviewFilters": {
-                            "anyOf": [
-                                {
-                                    "type": "boolean"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients."
+                            "description": "Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients.",
+                            "type": ["boolean", "null"]
                         }
                     },
                     "type": "object"
@@ -1149,15 +932,8 @@
             "description": "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
         },
         "hogql_query": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
+            "description": "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'.",
+            "type": ["string", "null"]
         },
         "id": {
             "description": "A UUID string identifying this batch export.",
@@ -1208,15 +984,8 @@
             "type": "boolean"
         },
         "timezone": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries."
+            "description": "IANA timezone name (e.g. 'America/New_York', 'Europe/London', 'UTC') controlling daily and weekly interval boundaries.",
+            "type": ["string", "null"]
         }
     },
     "required": ["id"],

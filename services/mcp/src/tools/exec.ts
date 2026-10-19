@@ -870,6 +870,96 @@ function acceptedTopLevelShape(nested: unknown, schema: ZodObjectAny | undefined
     return named.length > 0 ? renderFieldShape(named) : '{...}'
 }
 
+const MINUTE_PRECISION_DATETIME = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(Z|[+-]\d{2}:\d{2})$/
+
+function valueAtPath(value: unknown, path: readonly PropertyKey[]): unknown {
+    return path.reduce<unknown>(
+        (node, key) =>
+            isRecord(node) || Array.isArray(node) ? (node as Record<PropertyKey, unknown>)[key] : undefined,
+        value
+    )
+}
+
+type PathEdit = { path: readonly PropertyKey[]; value: string }
+
+/** Applies every edit in one pass, copying a shared container once no matter how many edits sit under it. */
+function withValuesAtPaths(value: unknown, edits: readonly PathEdit[]): unknown {
+    if (edits.length === 0) {
+        return value
+    }
+    const container = value as Record<PropertyKey, unknown>
+    const copy = (Array.isArray(value) ? [...value] : { ...container }) as Record<PropertyKey, unknown>
+    const childEdits = new Map<PropertyKey, PathEdit[]>()
+    for (const edit of edits) {
+        const [key, ...rest] = edit.path as [PropertyKey, ...PropertyKey[]]
+        if (rest.length === 0) {
+            copy[key] = edit.value
+            continue
+        }
+        const group = childEdits.get(key) ?? []
+        group.push({ path: rest, value: edit.value })
+        childEdits.set(key, group)
+    }
+    for (const [key, group] of childEdits) {
+        copy[key] = withValuesAtPaths(container[key], group)
+    }
+    return copy
+}
+
+/**
+ * Collects a seconds-added edit for every minute-precision datetime zod rejected.
+ *
+ * Zod reports a datetime inside a union with another string branch as one `invalid_union`
+ * issue, with the per-branch `invalid_format` issues nested in `issue.errors` and their
+ * `path` relative to the union's own path, so those are walked with the union's path as
+ * the prefix.
+ */
+function datetimeEdits(
+    issues: readonly z.core.$ZodIssue[],
+    input: Record<string, unknown>,
+    prefix: readonly PropertyKey[] = []
+): PathEdit[] {
+    const edits: PathEdit[] = []
+    for (const issue of issues) {
+        if (issue.code === 'invalid_format') {
+            const path = [...prefix, ...issue.path]
+            const value = valueAtPath(input, path)
+            const match = typeof value === 'string' ? MINUTE_PRECISION_DATETIME.exec(value) : null
+            if (match) {
+                edits.push({ path, value: `${match[1]}:00${match[2]}` })
+            }
+        } else if (issue.code === 'invalid_union') {
+            for (const branch of issue.errors) {
+                edits.push(...datetimeEdits(branch, input, [...prefix, ...issue.path]))
+            }
+        }
+    }
+    return edits
+}
+
+/**
+ * RFC 3339 needs seconds, so zod rejects `2026-10-12T10:00Z`. Callers send that form and the
+ * API accepts it, so the missing `:00` is added to each value zod rejected, and to nothing else.
+ */
+function withDatetimeSecondsAdded(
+    error: z.ZodError,
+    input: Record<string, unknown>,
+    schema: ZodObjectAny
+): Record<string, unknown> | undefined {
+    const edits = datetimeEdits(error.issues, input)
+    if (edits.length === 0) {
+        return undefined
+    }
+    const dated = withValuesAtPaths(input, edits) as Record<string, unknown>
+    return schema.safeParse(dated).success ? dated : undefined
+}
+
+/** The repaired payload when it parses as it is or once its datetimes have seconds. */
+function parsedRepair(candidate: Record<string, unknown>, schema: ZodObjectAny): Record<string, unknown> | undefined {
+    const result = schema.safeParse(candidate)
+    return result.success ? candidate : withDatetimeSecondsAdded(result.error, candidate, schema)
+}
+
 /**
  * Rebuilds a flattened payload under the wrapper the schema wanted, so the call the caller meant runs.
  *
@@ -901,7 +991,7 @@ export function rewrapFlattenedArguments(
         return undefined
     }
 
-    return schema.safeParse(rebuilt).success ? rebuilt : undefined
+    return parsedRepair(rebuilt, schema)
 }
 
 /**
@@ -933,16 +1023,28 @@ export function unwrapOverWrappedArguments(
         return undefined
     }
     const unwrapped = { ...siblings, ...inner }
-    return schema.safeParse(unwrapped).success ? unwrapped : undefined
+    return parsedRepair(unwrapped, schema)
 }
 
 /** Repairs a call whose payload sits one level off from where the schema wants it, in either direction. */
-export function repairArgumentNesting(
+function repairArgumentNesting(
     error: z.ZodError,
     input: unknown,
     schema: ZodObjectAny | undefined
 ): Record<string, unknown> | undefined {
     return rewrapFlattenedArguments(error, input, schema) ?? unwrapOverWrappedArguments(input, schema)
+}
+
+/** Repairs the caller mistakes that have one safe reading, so the call runs instead of failing validation. */
+export function repairToolArguments(
+    error: z.ZodError,
+    input: unknown,
+    schema: ZodObjectAny | undefined
+): Record<string, unknown> | undefined {
+    if (!schema || !isRecord(input)) {
+        return undefined
+    }
+    return repairArgumentNesting(error, input, schema) ?? withDatetimeSecondsAdded(error, input, schema)
 }
 
 function topLevelFieldNames(schema: ZodObjectAny): ReadonlySet<string> {
@@ -2040,9 +2142,9 @@ export function createExecTool(
                     // field. Dispatch the parsed output so coerced values and defaults apply.
                     let validation = toolSchema.safeParse(input, { reportInput: true })
                     if (!validation.success) {
-                        const rewrapped = repairArgumentNesting(validation.error, input, toolSchema)
-                        if (rewrapped) {
-                            input = rewrapped
+                        const repaired = repairToolArguments(validation.error, input, toolSchema)
+                        if (repaired) {
+                            input = repaired
                             validation = toolSchema.safeParse(input, { reportInput: true })
                         }
                     }

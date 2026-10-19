@@ -108,16 +108,34 @@ describe("convertJsonSchemaToTypebox", () => {
     expect(result.anyOf?.[1]).toMatchObject({ type: "null" });
   });
 
-  it("validates nullable arrays", () => {
-    const schema = convertJsonSchemaToTypebox({
-      type: ["array", "null"],
-      items: { type: "string" },
-    });
-    const check = Compile(schema);
+  it.each([
+    [
+      "nullable arrays",
+      { type: ["array", "null"], items: { type: "string" } },
+      [null, ["value"]],
+      [[1]],
+    ],
+    [
+      "every listed type",
+      { type: ["number", "string"] },
+      [42, "AaVQ8Ijw"],
+      [null, true],
+    ],
+    [
+      "nullable multi-type",
+      { type: ["string", "number", "null"] },
+      ["a", 1, null],
+      [false],
+    ],
+  ])("validates type arrays: %s", (_label, input, accepted, rejected) => {
+    const check = Compile(convertJsonSchemaToTypebox(input));
 
-    expect(check.Check(null)).toBe(true);
-    expect(check.Check(["value"])).toBe(true);
-    expect(check.Check([1])).toBe(false);
+    for (const value of accepted) {
+      expect(check.Check(value)).toBe(true);
+    }
+    for (const value of rejected) {
+      expect(check.Check(value)).toBe(false);
+    }
   });
 
   it.each([["oneOf"], ["anyOf"]])("converts %s to a union", (key) => {

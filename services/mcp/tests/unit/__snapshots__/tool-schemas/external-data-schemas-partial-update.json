@@ -70,15 +70,8 @@
             "type": "string"
         },
         "incremental_field": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Column name used to track sync progress."
+            "description": "Column name used to track sync progress.",
+            "type": ["string", "null"]
         },
         "incremental_field_lookback_seconds": {
             "anyOf": [

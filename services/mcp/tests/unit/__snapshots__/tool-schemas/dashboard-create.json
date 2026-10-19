@@ -7,26 +7,12 @@
                     "items": {
                         "properties": {
                             "breakdownProperty": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property."
+                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+                                "type": ["string", "null"]
                             },
                             "breakdownType": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`."
+                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+                                "type": ["string", "null"]
                             },
                             "breakdownValue": {
                                 "description": "The breakdown value this color applies to, as it appears in the chart legend.",
@@ -70,15 +56,8 @@
             "description": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
         },
         "data_color_theme_id": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of the color theme used for chart visualizations."
+            "description": "ID of the color theme used for chart visualizations.",
+            "type": ["number", "null"]
         },
         "delete_insights": {
             "default": false,
@@ -159,15 +138,8 @@
             "type": "array"
         },
         "use_dashboard": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of an existing dashboard to duplicate."
+            "description": "ID of an existing dashboard to duplicate.",
+            "type": ["number", "null"]
         },
         "use_template": {
             "description": "Template key to create the dashboard from a predefined template.",

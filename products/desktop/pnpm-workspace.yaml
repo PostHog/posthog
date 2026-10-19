@@ -79,6 +79,7 @@ minimumReleaseAgeExclude:
     - '@tanstack/store'
     - '@tanstack/virtual-core'
     - '@tanstack/virtual-file-routes'
+    - zod@4.6.6
 
 overrides:
     # node-abi predates Electron 42; ^3.92.0 is the first release that knows its ABI
@@ -86,7 +87,7 @@ overrides:
     node-abi: ^3.92.0
     # Dedupe the zod 4.x line to one version so cross-package schema types stay
     # nameable (TS2742). Scoped to 4.x; 3.x consumers are untouched.
-    'zod@^4.0.0': 4.4.3
+    'zod@^4.0.0': 4.6.6
     # Keep one React across the monorepo so shared packages resolve one runtime.
     react: 19.2.6
     react-dom: 19.2.6

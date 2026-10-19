@@ -2,35 +2,14 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "allow_impersonation": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ]
+            "type": ["boolean", "null"]
         },
         "allow_sidebar_suggestions": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ]
+            "type": ["boolean", "null"]
         },
         "anonymize_data": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Whether PostHog should anonymize events captured for this user when identified."
+            "description": "Whether PostHog should anonymize events captured for this user when identified.",
+            "type": ["boolean", "null"]
         },
         "current_password": {
             "description": "The user's current password. Required when changing `password` if the user already has a usable password set.",
@@ -39,7 +18,7 @@
         "email": {
             "format": "email",
             "maxLength": 254,
-            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
+            "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$",
             "type": "string"
         },
         "events_column_config": {},
@@ -66,15 +45,8 @@
             "type": "object"
         },
         "passkeys_enabled_for_2fa": {
-            "anyOf": [
-                {
-                    "type": "boolean"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login."
+            "description": "Whether passkeys are enabled for 2FA authentication. Users can disable this to use only TOTP for 2FA while keeping passkeys for login.",
+            "type": ["boolean", "null"]
         },
         "password": {
             "maxLength": 128,

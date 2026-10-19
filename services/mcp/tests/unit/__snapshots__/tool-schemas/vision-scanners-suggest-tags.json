@@ -18,15 +18,8 @@
             "type": "string"
         },
         "scanner_id": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner."
+            "description": "Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.",
+            "type": ["string", "null"]
         },
         "tags": {
             "description": "The categories already configured, so suggestions never duplicate one the user has.",

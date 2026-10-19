@@ -13,15 +13,8 @@
             "type": "string"
         },
         "text_content": {
-            "anyOf": [
-                {
-                    "type": "string"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Plain text representation of the notebook content for search."
+            "description": "Plain text representation of the notebook content for search.",
+            "type": ["string", "null"]
         },
         "title": {
             "anyOf": [

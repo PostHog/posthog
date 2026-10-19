@@ -8,26 +8,12 @@
                     "description": "Window to bucket. Defaults to last hour. Use a bucket's date_from/date_to from a prior response to recursively narrow into a sub-range.",
                     "properties": {
                         "date_from": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc."
+                            "description": "Start of the date range. Accepts ISO 8601 timestamps or relative formats: -7d, -1h, -1mStart, etc.",
+                            "type": ["string", "null"]
                         },
                         "date_to": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\"."
+                            "description": "End of the date range. Same format as date_from. Omit or null for \"now\".",
+                            "type": ["string", "null"]
                         }
                     },
                     "type": "object"

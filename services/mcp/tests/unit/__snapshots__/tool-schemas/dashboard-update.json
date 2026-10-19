@@ -7,26 +7,12 @@
                     "items": {
                         "properties": {
                             "breakdownProperty": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property."
+                                "description": "Breakdown property the color is scoped to, so the color applies only to tiles that break down by that property. Omit to apply it under every property.",
+                                "type": ["string", "null"]
                             },
                             "breakdownType": {
-                                "anyOf": [
-                                    {
-                                        "type": "string"
-                                    },
-                                    {
-                                        "type": "null"
-                                    }
-                                ],
-                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`."
+                                "description": "Breakdown type the value came from, such as `event`, `person`, `session`, or `cohort`.",
+                                "type": ["string", "null"]
                             },
                             "breakdownValue": {
                                 "description": "The breakdown value this color applies to, as it appears in the chart legend.",
@@ -70,15 +56,8 @@
             "description": "Colors pinned to specific breakdown values across the dashboard's tiles. A list of entries, not an object keyed by breakdown value. Send an empty list to clear them."
         },
         "data_color_theme_id": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of the color theme used for chart visualizations."
+            "description": "ID of the color theme used for chart visualizations.",
+            "type": ["number", "null"]
         },
         "delete_insights": {
             "description": "When deleting, also delete insights that are only on this dashboard.",
@@ -91,26 +70,12 @@
             "description": "Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
             "properties": {
                 "date_from": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles."
+                    "description": "Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.",
+                    "type": ["string", "null"]
                 },
                 "date_to": {
-                    "anyOf": [
-                        {
-                            "type": "string"
-                        },
-                        {
-                            "type": "null"
-                        }
-                    ],
-                    "description": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now."
+                    "description": "Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.",
+                    "type": ["string", "null"]
                 },
                 "properties": {
                     "description": "Dashboard-level property filters applied to every tile (PostHog property filter group)."
@@ -317,15 +282,8 @@
                                                 "description": "Source notebook short ID."
                                             },
                                             "snapshotId": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Immutable notebook widget snapshot. Add one from a notebook widget's menu."
+                                                "description": "Immutable notebook widget snapshot. Add one from a notebook widget's menu.",
+                                                "type": ["string", "null"]
                                             }
                                         },
                                         "type": "object"
@@ -378,14 +336,7 @@
                                                 "description": "Limit the feed to a single event name. Omit or null for all events."
                                             },
                                             "filterTestAccounts": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "boolean"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
+                                                "type": ["boolean", "null"]
                                             },
                                             "limit": {
                                                 "default": 25,
@@ -617,14 +568,7 @@
                                                     {
                                                         "properties": {
                                                             "id": {
-                                                                "anyOf": [
-                                                                    {
-                                                                        "type": "string"
-                                                                    },
-                                                                    {
-                                                                        "type": "number"
-                                                                    }
-                                                                ]
+                                                                "type": ["string", "number"]
                                                             },
                                                             "type": {
                                                                 "enum": ["user", "role"],
@@ -674,14 +618,7 @@
                                                 ]
                                             },
                                             "filterTestAccounts": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "boolean"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
+                                                "type": ["boolean", "null"]
                                             },
                                             "limit": {
                                                 "default": 10,
@@ -824,15 +761,8 @@
                                     {
                                         "properties": {
                                             "collectionId": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply."
+                                                "description": "short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply.",
+                                                "type": ["string", "null"]
                                             },
                                             "dateRange": {
                                                 "anyOf": [
@@ -868,14 +798,7 @@
                                                 ]
                                             },
                                             "filterTestAccounts": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "boolean"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
+                                                "type": ["boolean", "null"]
                                             },
                                             "limit": {
                                                 "default": 10,
@@ -904,15 +827,8 @@
                                                 "type": "string"
                                             },
                                             "savedFilterId": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection."
+                                                "description": "short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection.",
+                                                "type": ["string", "null"]
                                             },
                                             "widgetFilters": {
                                                 "anyOf": [
@@ -1016,15 +932,8 @@
                                     {
                                         "properties": {
                                             "createdBy": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Filter by creator (user id). Omit for any creator."
+                                                "description": "Filter by creator (user id). Omit for any creator.",
+                                                "type": ["number", "null"]
                                             },
                                             "limit": {
                                                 "default": 10,
@@ -1064,15 +973,8 @@
                                     {
                                         "properties": {
                                             "experimentId": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "number"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Experiment to show results for. Null until the user picks one in the widget settings."
+                                                "description": "Experiment to show results for. Null until the user picks one in the widget settings.",
+                                                "type": ["number", "null"]
                                             }
                                         },
                                         "type": "object"
@@ -1121,15 +1023,8 @@
                                                 "type": "number"
                                             },
                                             "surveyId": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Survey to show performance stats and recent responses for. Null until the user picks one."
+                                                "description": "Survey to show performance stats and recent responses for. Null until the user picks one.",
+                                                "type": ["string", "null"]
                                             }
                                         },
                                         "type": "object"
@@ -1183,15 +1078,8 @@
                                                 "type": "string"
                                             },
                                             "savedViewId": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply."
+                                                "description": "short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply.",
+                                                "type": ["string", "null"]
                                             },
                                             "serviceNames": {
                                                 "description": "Only show logs from these services. Empty shows all services.",
@@ -1235,14 +1123,7 @@
                                                         {
                                                             "properties": {
                                                                 "id": {
-                                                                    "anyOf": [
-                                                                        {
-                                                                            "type": "string"
-                                                                        },
-                                                                        {
-                                                                            "type": "number"
-                                                                        }
-                                                                    ]
+                                                                    "type": ["string", "number"]
                                                                 },
                                                                 "type": {
                                                                     "enum": ["user", "role"],
@@ -1308,15 +1189,8 @@
                                     {
                                         "properties": {
                                             "canvasId": {
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ],
-                                                "description": "Canvas to render in the tile. Null until the user picks one in the widget settings."
+                                                "description": "Canvas to render in the tile. Null until the user picks one in the widget settings.",
+                                                "type": ["string", "null"]
                                             }
                                         },
                                         "type": "object"
@@ -1369,15 +1243,8 @@
             "type": "array"
         },
         "use_dashboard": {
-            "anyOf": [
-                {
-                    "type": "number"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "ID of an existing dashboard to duplicate."
+            "description": "ID of an existing dashboard to duplicate.",
+            "type": ["number", "null"]
         },
         "use_template": {
             "description": "Template key to create the dashboard from a predefined template.",
