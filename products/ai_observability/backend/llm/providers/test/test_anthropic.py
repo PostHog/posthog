@@ -365,10 +365,13 @@ class TestAnthropicStreamErrorSurfacing:
         assert errors == ["The provider is rate limiting this key. Wait a moment, then try again."]
 
 
-def _make_status_error(error_class: type[anthropic.APIStatusError], status_code: int) -> anthropic.APIStatusError:
-    request = httpx.Request("POST", "https://my-resource.services.ai.azure.com/anthropic/v1/messages")
-    response = httpx.Response(status_code=status_code, request=request, json={"error": {"message": "error"}})
-    return error_class("error", response=response, body={"error": {"message": "error"}})
+def _make_status_error(
+    error_class: type[anthropic.APIStatusError], status_code: int, body: dict | None = None
+) -> anthropic.APIStatusError:
+    body = body or {"error": {"message": "error"}}
+    request = httpx.Request("POST", "https://my-resource.services.ai.azure.com/anthropic/v1/messages/count_tokens")
+    response = httpx.Response(status_code=status_code, request=request, json=body)
+    return error_class("error", response=response, body=body)
 
 
 class TestAnthropicFoundry:
@@ -418,8 +421,40 @@ class TestAnthropicFoundry:
     @parameterized.expand(
         [
             ("accepted", None, "ok", None),
-            # Foundry checks the key first, so a missing default deployment still proves the key works.
-            ("default_deployment_missing", _make_status_error(anthropic.NotFoundError, 404), "ok", None),
+            (
+                "default_deployment_missing",
+                _make_status_error(
+                    anthropic.NotFoundError,
+                    404,
+                    {"type": "error", "error": {"type": "not_found_error", "message": "model: claude-haiku-4-5"}},
+                ),
+                "ok",
+                None,
+            ),
+            (
+                "azure_deployment_not_found",
+                _make_status_error(
+                    anthropic.NotFoundError,
+                    404,
+                    {"error": {"code": "DeploymentNotFound", "message": "The API deployment does not exist."}},
+                ),
+                "ok",
+                None,
+            ),
+            (
+                "invalid_model_parameter",
+                _make_status_error(anthropic.BadRequestError, 400, {"error": {"message": "Invalid model parameter"}}),
+                "ok",
+                None,
+            ),
+            (
+                "unknown_route",
+                _make_status_error(
+                    anthropic.NotFoundError, 404, {"error": {"code": "404", "message": "Resource not found"}}
+                ),
+                "invalid",
+                "azure_endpoint",
+            ),
             ("rejected_key", _make_status_error(anthropic.AuthenticationError, 401), "invalid", "api_key"),
             ("forbidden_key", _make_status_error(anthropic.PermissionDeniedError, 403), "invalid", "api_key"),
             (
@@ -432,7 +467,7 @@ class TestAnthropicFoundry:
     )
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
     def test_validate_key(self, _name, error, expected_state, expected_field, foundry):
-        foundry.return_value.messages.create.side_effect = error
+        foundry.return_value.messages.count_tokens.side_effect = error
 
         state, message = AnthropicAdapter.validate_key(
             "no-sk-ant-prefix", azure_endpoint="https://my-resource.services.ai.azure.com/"

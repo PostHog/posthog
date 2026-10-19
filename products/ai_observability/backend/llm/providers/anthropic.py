@@ -50,9 +50,15 @@ DISALLOWED_FOUNDRY_ENDPOINT_MESSAGE = (
     "Microsoft Foundry endpoint must be an https:// URL on an Azure domain (e.g. *.services.ai.azure.com)"
 )
 
+FOUNDRY_ENDPOINT_NOT_FOUND_MESSAGE = (
+    "Microsoft Foundry endpoint not found. Check that the URL is the endpoint of your Foundry resource, "
+    "for example https://my-resource.services.ai.azure.com/"
+)
+
 # Keep aligned with the `return` statements in `AnthropicAdapter._validate_foundry_key`.
 _FOUNDRY_ERROR_FIELD_BY_PREFIX: tuple[tuple[str, str], ...] = (
     ("Microsoft Foundry endpoint must be", "azure_endpoint"),
+    ("Microsoft Foundry endpoint not found", "azure_endpoint"),
     ("Could not connect to Microsoft Foundry", "azure_endpoint"),
     ("Invalid API key", "api_key"),
 )
@@ -64,6 +70,21 @@ FOUNDRY_VALIDATION_TIMEOUT = 10.0
 def error_field_for_validation_message(error_message: str | None) -> str | None:
     """Map an Anthropic `validate_key` error message to the UI form field that should be highlighted."""
     return error_field_for_message(_FOUNDRY_ERROR_FIELD_BY_PREFIX, error_message)
+
+
+def _names_a_missing_deployment(error: anthropic.APIStatusError) -> bool:
+    """Return True when a Foundry 4xx is about the model or deployment, which means the key passed auth.
+
+    Azure answers an unknown route with a generic 404 ("Resource not found") before it checks
+    anything, so a 404 alone does not prove the endpoint or the key is right.
+    """
+    body = error.body if isinstance(error.body, dict) else {}
+    nested = body.get("error")
+    details = nested if isinstance(nested, dict) else body
+    if details.get("code") == "DeploymentNotFound":
+        return True
+    message = str(details.get("message", "")).lower()
+    return "deployment" in message or "model" in message
 
 
 def foundry_base_url(azure_endpoint: str) -> str:
@@ -445,7 +466,11 @@ class AnthropicAdapter:
 
     @staticmethod
     def _validate_foundry_key(api_key: str, azure_endpoint: str) -> tuple[str, str | None]:
-        """Validate a Microsoft Foundry key with a one-token Claude request."""
+        """Validate a Microsoft Foundry key with a token count, which Foundry serves and does not bill.
+
+        Foundry has no models endpoint, so the probe has to name a deployment. The default model ID
+        is the default deployment name, but the user may have picked another name.
+        """
         from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
         if not is_allowed_azure_endpoint(azure_endpoint):
@@ -457,21 +482,24 @@ class AnthropicAdapter:
                 timeout=FOUNDRY_VALIDATION_TIMEOUT,
                 max_retries=0,
             )
-            client.messages.create(
+            client.messages.count_tokens(
                 model=AnthropicConfig.DEFAULT_MODEL,
-                max_tokens=1,
                 messages=[{"role": "user", "content": "hi"}],
             )
-            return (LLMProviderKey.State.OK, None)
-        except anthropic.NotFoundError:
-            # Foundry checks the key before it looks up the deployment, so a 404 means the key
-            # works and only the default deployment name is missing. The user picks the
-            # deployment name later, in the model picker.
             return (LLMProviderKey.State.OK, None)
         except (anthropic.AuthenticationError, anthropic.PermissionDeniedError):
             return (LLMProviderKey.State.INVALID, "Invalid API key")
         except anthropic.RateLimitError:
             return (LLMProviderKey.State.ERROR, "Rate limited, please try again later")
+        except (anthropic.NotFoundError, anthropic.BadRequestError) as e:
+            # The user picks the deployment later, in the model picker, so a missing default
+            # deployment still counts as a working key.
+            if _names_a_missing_deployment(e):
+                return (LLMProviderKey.State.OK, None)
+            if isinstance(e, anthropic.NotFoundError):
+                return (LLMProviderKey.State.INVALID, FOUNDRY_ENDPOINT_NOT_FOUND_MESSAGE)
+            logger.exception("Microsoft Foundry key validation error")
+            return (LLMProviderKey.State.ERROR, "Validation failed, please try again")
         except anthropic.APIConnectionError:
             return (LLMProviderKey.State.ERROR, "Could not connect to Microsoft Foundry endpoint")
         except Exception:
