@@ -122,6 +122,16 @@
     display: none;
 }
 
+@keyframes dashboard-resize-handle-reveal {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
 .react-grid-item {
     box-sizing: border-box;
     transition:
@@ -143,6 +153,7 @@
         align-items: flex-end;
         justify-content: center;
         pointer-events: none;
+        animation: dashboard-resize-handle-reveal 300ms step-end;
 
         &.horizontal {
             svg {
@@ -215,6 +226,10 @@
                 }
             }
         }
+    }
+
+    &.resizing > .handle {
+        animation: none;
     }
 
     & > .react-resizable-handle {
