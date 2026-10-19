@@ -46,8 +46,8 @@ jest.mock('kea-router', () => ({
     router: { __mock: 'router' },
 }))
 
-jest.mock('lib/hooks/useResizeObserver', () => ({
-    useResizeObserver: () => ({ width: 1200, ref: { current: null } }),
+jest.mock('products/dashboards/frontend/useDashboardContainerWidth', () => ({
+    useDashboardContainerWidth: () => ({ width: 1200, containerRef: { current: null } }),
 }))
 
 jest.mock('lib/hooks/useFeatureFlag', () => ({
