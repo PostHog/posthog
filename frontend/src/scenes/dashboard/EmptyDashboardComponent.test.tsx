@@ -92,7 +92,7 @@ describe('EmptyDashboardComponent', () => {
         expect(document.querySelector('[data-attr="dashboard-loading-controls"]')).toBeInTheDocument()
     })
 
-    it('shows clear paths to add an existing chart or create one with PostHog AI', () => {
+    it('shows clear paths to add a chart or create one with PostHog AI', () => {
         const { logic } = renderEmptyState()
 
         expect(screen.getByText('Build your dashboard')).toBeInTheDocument()
@@ -101,7 +101,7 @@ describe('EmptyDashboardComponent', () => {
                 'Add a chart from your library, or start with a question about what matters to your product.'
             )
         ).toBeInTheDocument()
-        expect(screen.getByText('Add an existing chart')).toBeInTheDocument()
+        expect(screen.getByText('Add a chart')).toBeInTheDocument()
         expect(screen.getByText('or View Web Analytics')).toBeInTheDocument()
         expect(screen.getByText('What do you want to learn?')).toBeInTheDocument()
 
