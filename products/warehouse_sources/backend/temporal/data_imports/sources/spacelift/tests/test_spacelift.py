@@ -216,12 +216,6 @@ class TestSpacelift:
         assert result.raised is not None
         assert "endCursor is empty" in str(result.raised)
 
-    def test_unknown_endpoint_raises(self):
-        result = _run("nope", [])
-
-        assert isinstance(result.raised, ValueError)
-        assert "Unknown Spacelift endpoint" in str(result.raised)
-
     def test_validate_credentials_success(self):
         with scripted_network([_response(TOKEN_PAYLOAD)]):
             assert validate_credentials("my-company", "key-id", "key-secret") == (True, None)

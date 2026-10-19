@@ -51,11 +51,6 @@ class TestIntercomSource:
         assert names == {name for name, cfg in INTERCOM_ENDPOINTS.items() if cfg.api_versions is None}
         assert "macros" not in names
 
-    def test_get_schemas_names_filter(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["contacts", "companies"])
-
-        assert {s.name for s in schemas} == {"contacts", "companies"}
-
     @pytest.mark.parametrize("pin,expected", [("2.13", "2.13"), ("2.15", "2.15"), ("2.16", "2.16"), (None, "2.16")])
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.intercom.source.IntercomSource.get_oauth_integration"

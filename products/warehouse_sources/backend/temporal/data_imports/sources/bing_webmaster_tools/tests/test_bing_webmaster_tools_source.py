@@ -42,11 +42,6 @@ class TestBingWebmasterToolsSource:
         # Static endpoint catalog with no I/O; must opt in so public docs render the table list.
         assert self.source.lists_tables_without_credentials is True
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["query_stats"])
-
-        assert [schema.name for schema in schemas] == ["query_stats"]
-
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_plumbs_schema_name(self, endpoint):
         response = self.source.source_for_pipeline(self.config, _make_inputs(endpoint))

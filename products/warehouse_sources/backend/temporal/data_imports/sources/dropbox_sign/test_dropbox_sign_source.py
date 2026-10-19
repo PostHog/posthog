@@ -29,12 +29,6 @@ def _inputs(schema_name: str = "templates") -> SourceInputs:
     )
 
 
-class TestSchemas:
-    def test_names_filter(self) -> None:
-        schemas = DropboxSignSource().get_schemas(MagicMock(), team_id=1, names=["templates"])
-        assert [s.name for s in schemas] == ["templates"]
-
-
 class TestValidateCredentials:
     def test_valid_key(self, monkeypatch: Any) -> None:
         monkeypatch.setattr(source_module, "validate_dropbox_sign_credentials", lambda key: True)

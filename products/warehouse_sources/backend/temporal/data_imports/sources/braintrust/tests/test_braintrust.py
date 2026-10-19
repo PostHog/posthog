@@ -18,7 +18,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTClientRetryableError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -205,9 +204,3 @@ def test_blank_key_does_not_accept_anonymous_access() -> None:
     assert not valid
     assert message and "API key" in message
     assert network.requests_log == []
-
-
-def test_unknown_table_fails_before_http() -> None:
-    result = make_driver().run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []

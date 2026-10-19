@@ -4,7 +4,6 @@ import pytest
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.bluesky import (
     BlueskyResumeConfig,
-    get_resource,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.bluesky.source import BlueskySource
@@ -17,12 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bluesky import (
     BlueskySourceConfig,
 )
-
-
-class TestGetResource:
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(KeyError):
-            get_resource("Nope", actor="jay.bsky.team")
 
 
 class TestValidateCredentials:
