@@ -22,6 +22,7 @@ def locate_report_team_id(*, user: User, report_id: str) -> int | None:
     """The project of a report that the user can read, in any project they can access."""
     visible_team_ids = UserPermissions(user).team_ids_visible_for_user
     team_id = (
+        # nosemgrep: idor-lookup-without-team (scoped to team_ids_visible_for_user)
         SignalReport.objects.filter(id=report_id, team_id__in=visible_team_ids)
         .exclude(status=SignalReport.Status.DELETED)
         .values_list("team_id", flat=True)

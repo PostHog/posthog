@@ -584,15 +584,15 @@ export interface inboxSceneLogicActions {
             id: string
         }
     }
-    refreshSelectedReportMetrics: (id: string) => {
-        id: string
-    }
     redirectToReportProject: (
         id: string,
         teamId: number
     ) => {
         id: string
         teamId: number
+    }
+    refreshSelectedReportMetrics: (id: string) => {
+        id: string
     }
     reportDetailScrolled: () => {
         value: true
