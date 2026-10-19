@@ -148,7 +148,7 @@ export function BroadcastRecipientsStep(): JSX.Element {
     const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
     const { audienceProperties, linkAudienceRejected, blastRadius } = useValues(broadcastWizardLogic)
     // A realtime cohort has to be the audience's only condition.
-    const realtimeCohortAlone = !!blastRadius?.realtime_cohort
+    const realtimeCohortAlone = !!blastRadius?.realtime_cohort || !!blastRadius?.realtime_cohort_with_other_conditions
     const { setAudienceProperties, sendToEveryoneAfterRejectedLink } = useActions(broadcastWizardLogic)
     const { props } = useMountedLogic(broadcastWizardLogic)
     const { openListModal } = useActions(broadcastAudienceListLogic(props))
