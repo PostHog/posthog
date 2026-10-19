@@ -37,6 +37,11 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, check_alert_per_series
 from products.alerts.backend.insight_alert_state_machine import INSIGHT_ALERT_POLICY, insight_snapshot
+from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.llm_detector_limits import is_llm_detector_config
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -125,9 +130,9 @@ _EVENT_IDS_BY_KIND: Final[dict[str, str]] = {
 
 
 def is_evaluated_on_the_platform(alert: AlertConfiguration) -> bool:
-    """Threshold and statistical detector alerts on every cadence. The AI detector makes a charged
-    model call, so evaluating it in parallel costs twice."""
-    return not is_llm_detector_config(alert.detector_config) and alert.calculation_interval in EVALUATED_INTERVALS
+    """Every alert production evaluates. An AI detector check makes a charged model call, so while
+    both stacks run, each of those checks is paid for twice."""
+    return alert.calculation_interval in EVALUATED_INTERVALS
 
 
 def plan_insight_batch(
@@ -187,7 +192,7 @@ def legacy_alerts_of(
         if check.legacy_configuration_id is not None
     }
     alerts = AlertConfiguration.objects.filter(team_id=team_id, id__in=list(legacy_ids)).only(
-        "id", "calculation_interval"
+        "id", "calculation_interval", "detector_config"
     )
     return {legacy_ids[alert.id]: alert for alert in alerts}
 
@@ -200,13 +205,21 @@ def evaluate_insight_check(
     *,
     held_until: float,
     evaluation_id: str,
+    attempt: int = 1,
+    final_attempt: bool = True,
+    uses_llm_detector: bool = False,
 ) -> SourceBatchEvaluation | None:
     """Decides one admitted check, then frees its slot.
 
     Returns the outcome with its delivery, if it asks for one. Returns None when the configuration
     is no longer due, because an earlier attempt already recorded it or it was edited out of the
-    batch. Writes nothing.
+    batch, or when its detector no longer matches the worker it was routed to. Writes nothing.
+
+    `evaluation_id` names the check across its attempts, so the AI detector reuses a verdict an
+    earlier attempt paid for. An AI detector that reaches no verdict raises
+    `LLMDetectorUnavailableError` for a retry, and keeps the slot for it, unless `final_attempt`.
     """
+    retrying = False
     try:
         checks = due_checks(team_id, SourceKind.INSIGHT.value, slot, cutoff, configuration_ids=[configuration_id])
         if not checks:
@@ -217,11 +230,25 @@ def evaluate_insight_check(
             lag_ms = int((datetime.now(UTC) - checks[0].next_check_at).total_seconds() * 1000)
             if lag_ms > 0:
                 safe_record(record_scheduler_lag, SourceKind.INSIGHT.value, lag_ms)
-        outcome = _decide(checks[0], cutoff, evaluation_id=evaluation_id)
+        try:
+            outcome = _decide(
+                checks[0],
+                cutoff,
+                evaluation_id=evaluation_id,
+                attempt=attempt,
+                final_attempt=final_attempt,
+                uses_llm_detector=uses_llm_detector,
+            )
+        except LLMDetectorUnavailableError:
+            retrying = True
+            raise
+        if outcome is None:
+            return None
         delivery = _delivery(checks[0], outcome)
         return SourceBatchEvaluation(outcomes=(outcome,), deliveries=(delivery,) if delivery is not None else ())
     finally:
-        release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
+        if not retrying:
+            release_evaluation_slot(configuration_id, held_until=held_until, key=INFLIGHT_KEY)
 
 
 def _delivery(check: PlatformAlertCheckInput, outcome: PlatformAlertOutcome) -> AlertDeliveryRequest | None:
@@ -291,7 +318,15 @@ def slot_of_evaluation_key(evaluation_key: str) -> datetime | None:
         return None
 
 
-def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str) -> PlatformAlertOutcome:
+def _decide(
+    check: PlatformAlertCheckInput,
+    now: datetime,
+    *,
+    evaluation_id: str,
+    attempt: int,
+    final_attempt: bool,
+    uses_llm_detector: bool,
+) -> PlatformAlertOutcome | None:
     snapshot = _snapshot(check)
     alert = _legacy_alert(check)
     if alert is None:
@@ -301,6 +336,10 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
         return _skipped(check, snapshot, now=now)
     if skip_because_of_weekend(alert) or is_utc_datetime_blocked(alert, now):
         return _skipped(check, snapshot, now=now)
+    if is_llm_detector_config(alert.detector_config) != uses_llm_detector:
+        # As production: an edit since the plan means this worker may not hold the model
+        # credentials. No outcome keeps the check due, so the next tick plans and routes it again.
+        return None
 
     # Production gates evaluation on a snooze and holds the alert in SNOOZED, then clears it to
     # NOT_FIRING on the first check after the snooze ends. The legacy row is read for the snooze,
@@ -317,7 +356,7 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
     tag_queries(
         ch_user=ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
         team_id=alert.team_id,
-        client_query_id=f"{QUERY_ID_PREFIX}{evaluation_id}",
+        client_query_id=f"{QUERY_ID_PREFIX}{evaluation_id}:{attempt}",
         alert_config_id=str(alert.id),
         product=Product.PRODUCT_ANALYTICS,
         feature=Feature.ALERTING,
@@ -333,7 +372,19 @@ def _decide(check: PlatformAlertCheckInput, now: datetime, *, evaluation_id: str
     started_at = time.monotonic()
     try:
         result = check_alert_for_insight(alert, evaluation_id=evaluation_id)
-    except AlertExtractionError as error:
+    except LLMDetectorUnavailableError:
+        if not final_attempt:
+            # As production: a judge that reached no verdict gets another attempt, and only the
+            # last one records the failure.
+            raise
+        return _verdict(
+            check,
+            snapshot,
+            CheckInput(threshold_breached=False, error_message=LLM_DETECTOR_UNAVAILABLE_MESSAGE),
+            now=now,
+            skip=SkipReason.QUERY_FAILED,
+        )
+    except (AlertExtractionError, LLMDetectorMisconfiguredError) as error:
         return _broken(check, snapshot, now=now, message=str(error))
     except Exception as error:
         return _query_failed(check, snapshot, error, now=now)

@@ -11,6 +11,7 @@ another would put the last check minutes behind the first.
 import asyncio
 import datetime as dt
 from collections.abc import Callable
+from dataclasses import replace
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -20,6 +21,8 @@ from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
 
 with workflow.unsafe.imports_passed_through():
+    from django.conf import settings
+
     from posthog.schema_enums import AlertCalculationInterval
     from posthog.temporal.alerts.retry_policy import alert_timeouts
     from posthog.temporal.common.utils import close_db_connections
@@ -51,6 +54,9 @@ _REAL_TIME_TIMEOUTS = alert_timeouts(AlertCalculationInterval.REAL_TIME)
 REAL_TIME_CHECK_START_TO_CLOSE = _REAL_TIME_TIMEOUTS.evaluate_start_to_close
 REAL_TIME_CHECK_SCHEDULE_TO_CLOSE = _REAL_TIME_TIMEOUTS.activity_schedule_to_close + CHECK_QUEUE_TOLERANCE
 REAL_TIME_CHECK_RETRY_POLICY = _REAL_TIME_TIMEOUTS.evaluate_retry_policy
+# Production's retries for an AI detector check, inside the default budget. A judge that reaches
+# no verdict raises for another attempt, and the last attempt records the failure.
+LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
@@ -71,6 +77,9 @@ _PATCH_READMISSION = "platform-insight-readmission-2026-10"
 _PATCH_CHUNKED_RECORD = "platform-insight-chunked-record-2026-10"
 # Runs started before it planned bare ids, and gave every check the default budget.
 _PATCH_CHECK_BUDGETS = "platform-insight-check-budgets-2026-10"
+# Runs started before it evaluated every check on this queue. A plan can return an AI detector
+# check into such a run during a deploy, and replay must schedule the activity that run recorded.
+_PATCH_AI_DETECTOR_QUEUE = "platform-insight-ai-detector-queue-2026-10"
 
 
 @frozen
@@ -86,6 +95,7 @@ class AdmittedInsightCheck:
 
     configuration_id: str
     real_time: bool = False
+    uses_llm_detector: bool = False
 
 
 @frozen
@@ -93,6 +103,8 @@ class InsightCheckInputs:
     evaluation: SourceEvaluationInputs
     configuration_id: str
     held_until: float
+    # The worker this check was routed to. Only the AI queue's worker holds the model credentials.
+    uses_llm_detector: bool = False
 
 
 @activity.defn
@@ -138,29 +150,31 @@ def plan_platform_insight_round_activity(inputs: InsightBatchPlanInputs) -> list
 def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
     """`plan_platform_insight_round_activity` with each check's cadence, under its own name, because
     a run that recorded the old name must decode bare ids on replay."""
+    from products.alerts.backend.llm_detector_limits import is_llm_detector_config  # noqa: PLC0415
     from products.alerts.backend.platform_source_cycle import legacy_alerts_of, plan_insight_batch  # noqa: PLC0415
 
     key = inputs.evaluation.batch_key
     cutoff = dt.datetime.fromisoformat(inputs.evaluation.cutoff)
     admitted = plan_insight_batch(key.team_id, key.slot, cutoff, expires_at=inputs.expires_at, exclude=inputs.exclude)
     alerts = legacy_alerts_of(key.team_id, key.slot, cutoff, admitted)
-    return [
-        AdmittedInsightCheck(
-            configuration_id=configuration_id,
-            real_time=configuration_id in alerts
-            and alerts[configuration_id].calculation_interval == AlertCalculationInterval.REAL_TIME,
+    checks: list[AdmittedInsightCheck] = []
+    for configuration_id in admitted:
+        alert = alerts.get(configuration_id)
+        checks.append(
+            AdmittedInsightCheck(
+                configuration_id=configuration_id,
+                real_time=alert is not None and alert.calculation_interval == AlertCalculationInterval.REAL_TIME,
+                uses_llm_detector=alert is not None and is_llm_detector_config(alert.detector_config),
+            )
         )
-        for configuration_id in admitted
-    ]
+    return checks
 
 
-@activity.defn
-@close_db_connections
-def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
-    """Sync, so the thread this blocks is a slot Temporal is accounting for."""
+def _evaluate_check(
+    inputs: InsightCheckInputs, info: activity.Info, *, final_attempt: bool
+) -> SourceBatchEvaluation | None:
     from products.alerts.backend.platform_source_cycle import evaluate_insight_check  # noqa: PLC0415
 
-    info = activity.info()
     key = inputs.evaluation.batch_key
     return evaluate_insight_check(
         key.team_id,
@@ -168,7 +182,33 @@ def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> Sour
         dt.datetime.fromisoformat(inputs.evaluation.cutoff),
         inputs.configuration_id,
         held_until=inputs.held_until,
-        evaluation_id=f"{info.workflow_run_id}:{info.activity_id}:{info.attempt}",
+        evaluation_id=f"{info.workflow_run_id}:{info.activity_id}",
+        attempt=info.attempt,
+        final_attempt=final_attempt,
+        uses_llm_detector=inputs.uses_llm_detector,
+    )
+
+
+@activity.defn
+@close_db_connections
+def evaluate_platform_insight_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+    """Sync, so the thread this blocks is a slot Temporal is accounting for."""
+    return _evaluate_check(inputs, activity.info(), final_attempt=True)
+
+
+@activity.defn
+@close_db_connections
+async def evaluate_platform_insight_llm_check_activity(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+    """An AI detector check. It runs on the AI queue, because only that worker holds the model
+    credentials, and on the executor production's AI checks use, so the two stacks together never
+    run more model calls than the judge has slots."""
+    from posthog.sync import database_sync_to_async  # noqa: PLC0415
+
+    from products.alerts.backend.judge.executor import LLM_EVALUATE_EXECUTOR  # noqa: PLC0415
+
+    info = activity.info()
+    return await database_sync_to_async(_evaluate_check, thread_sensitive=False, executor=LLM_EVALUATE_EXECUTOR)(
+        inputs, info, final_attempt=info.attempt >= LLM_CHECK_RETRY_POLICY.maximum_attempts
     )
 
 
@@ -254,6 +294,15 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         check_inputs = InsightCheckInputs(
             evaluation=inputs, configuration_id=admitted.configuration_id, held_until=expires_at
         )
+        if admitted.uses_llm_detector and workflow.patched(_PATCH_AI_DETECTOR_QUEUE):
+            return await workflow.execute_activity(
+                evaluate_platform_insight_llm_check_activity,
+                replace(check_inputs, uses_llm_detector=True),
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                start_to_close_timeout=CHECK_START_TO_CLOSE,
+                schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
+                retry_policy=LLM_CHECK_RETRY_POLICY,
+            )
         if admitted.real_time:
             return await workflow.execute_activity(
                 evaluate_platform_insight_check_activity,
@@ -317,6 +366,8 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
 
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
+# Registered on the AI queue's worker, which holds the model credentials.
+PLATFORM_AI_QUEUE_ACTIVITIES = [evaluate_platform_insight_llm_check_activity]
 PLATFORM_EVALUATION_ACTIVITIES = [
     plan_platform_insight_batch_activity,
     plan_platform_insight_round_activity,

@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -17,9 +18,15 @@ from posthog.models.scoping import team_scope
 from posthog.redis import get_client
 from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
+from posthog.temporal.alerts.admission import inflight_alert_ids
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
+from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+    LLMDetectorMisconfiguredError,
+    LLMDetectorUnavailableError,
+)
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_source_cycle import (
@@ -135,7 +142,7 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         ]
 
     def _evaluate(
-        self, configuration: PlatformConfigurationSnapshot, *, result: Any = None
+        self, configuration: PlatformConfigurationSnapshot, *, result: Any = None, uses_llm_detector: bool = False
     ) -> tuple[PlatformAlertOutcome | None, MagicMock]:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
@@ -144,7 +151,13 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         returned = result if isinstance(result, AlertEvaluationResult) else None
         with patch(f"{_MODULE}.check_alert_for_insight", side_effect=side_effect, return_value=returned) as query:
             evaluation = evaluate_insight_check(
-                self.team.id, slot, CUTOFF, str(configuration.id), held_until=expires_at, evaluation_id="test"
+                self.team.id,
+                slot,
+                CUTOFF,
+                str(configuration.id),
+                held_until=expires_at,
+                evaluation_id="test",
+                uses_llm_detector=uses_llm_detector,
             )
         self.deliveries = evaluation.deliveries if evaluation is not None else ()
         return (evaluation.outcomes[0] if evaluation is not None else None), query
@@ -222,7 +235,6 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ai_detector", {"detector_config": {"type": "llm"}}, "not_firing"),
             ("disabled", {"enabled": False}, "not_firing"),
             ("snoozed", {"snoozed_until": CUTOFF + timedelta(hours=1)}, "snoozed"),
         ]
@@ -239,6 +251,20 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             state,
             False,
         )
+
+    @parameterized.expand(
+        [
+            ("ai_detector_on_the_default_worker", {"detector_config": {"type": "llm"}}, False),
+            ("threshold_on_the_ai_worker", {}, True),
+        ]
+    )
+    def test_a_check_routed_for_another_detector_stays_due_without_a_query(
+        self, _name: str, overrides: dict[str, Any], uses_llm_detector: bool
+    ) -> None:
+        outcome, query = self._evaluate(self._copy(self._alert(**overrides)), uses_llm_detector=uses_llm_detector)
+
+        query.assert_not_called()
+        assert outcome is None
 
     def test_a_copy_whose_production_alert_is_gone_is_disabled(self) -> None:
         outcome, query = self._evaluate(self._copy(None))
@@ -263,8 +289,16 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             False,
         )
 
-    def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(self) -> None:
-        outcome, _ = self._evaluate(self._copy(self._alert()), result=AlertExtractionError("bad query shape"))
+    @parameterized.expand(
+        [
+            ("bad_query_shape", AlertExtractionError("bad query shape")),
+            ("ai_consent_withdrawn", LLMDetectorMisconfiguredError("consent withdrawn")),
+        ]
+    )
+    def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(
+        self, _name: str, error: Exception
+    ) -> None:
+        outcome, _ = self._evaluate(self._copy(self._alert()), result=error)
 
         assert outcome is not None
         assert outcome.failure is not None and outcome.groups == ()
@@ -272,6 +306,50 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             AlertEventKind.ERRORED,
             "errored",
             True,
+        )
+
+    @parameterized.expand([("retried", False), ("last_attempt", True)])
+    def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(
+        self, _name: str, final_attempt: bool
+    ) -> None:
+        configuration = self._copy(self._alert(detector_config={"type": "llm"}))
+        slot = slot_of(configuration.next_check_at, CUTOFF)
+        expires_at = time.time() + 3600
+        plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at)
+
+        with patch(f"{_MODULE}.check_alert_for_insight", side_effect=LLMDetectorUnavailableError("timed out")):
+            if not final_attempt:
+                with pytest.raises(LLMDetectorUnavailableError):
+                    evaluate_insight_check(
+                        self.team.id,
+                        slot,
+                        CUTOFF,
+                        str(configuration.id),
+                        held_until=expires_at,
+                        evaluation_id="test",
+                        final_attempt=False,
+                        uses_llm_detector=True,
+                    )
+                # The retry still holds the slot, so the pool cannot hand it to another check.
+                assert inflight_alert_ids(INFLIGHT_KEY) == {str(configuration.id)}
+                return
+            evaluation = evaluate_insight_check(
+                self.team.id,
+                slot,
+                CUTOFF,
+                str(configuration.id),
+                held_until=expires_at,
+                evaluation_id="test",
+                uses_llm_detector=True,
+            )
+
+        assert evaluation is not None
+        (outcome,) = evaluation.outcomes
+        assert outcome.failure is not None
+        assert (outcome.failure.kind, outcome.error_message, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            LLM_DETECTOR_UNAVAILABLE_MESSAGE,
+            False,
         )
 
     @override_settings(ALERTS_PLATFORM_INSIGHT_MAX_INFLIGHT_EVALUATIONS=1)

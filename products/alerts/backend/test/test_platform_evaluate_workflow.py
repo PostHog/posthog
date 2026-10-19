@@ -36,6 +36,7 @@ from products.alerts_platform.backend.facade.temporal import source_evaluation_t
 
 QUEUE = "test-platform-insight-evaluation"
 ADMITTED = ("00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002")
+AI_CHECK = "00000000-0000-0000-0000-000000000003"
 
 
 @pytest_asyncio.fixture
@@ -47,12 +48,13 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(environment: WorkflowEnvironment) -> None:
     recorded: list[SourceOutcomeInputs] = []
 
-    # Only the real-time check has a retry, so the same first failure loses the other one.
+    # Only the real-time and AI checks have a retry, so the same first failure loses the other one.
     @activity.defn(name="plan_platform_insight_checks_activity")
     async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
         admitted = [
             AdmittedInsightCheck(configuration_id=ADMITTED[0]),
             AdmittedInsightCheck(configuration_id=ADMITTED[1], real_time=True),
+            AdmittedInsightCheck(configuration_id=AI_CHECK, uses_llm_detector=True),
         ]
         return [check for check in admitted if check.configuration_id not in inputs.exclude]
 
@@ -60,6 +62,18 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
     async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
         if activity.info().attempt == 1:
             raise ApplicationError("worker lost")
+        return _fired(inputs)
+
+    # Registered only on the AI queue, so an AI check routed anywhere else never runs.
+    @activity.defn(name="evaluate_platform_insight_llm_check_activity")
+    async def evaluate_on_the_ai_queue(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        if not inputs.uses_llm_detector:
+            raise ApplicationError("routed without the AI flag", non_retryable=True)
+        if activity.info().attempt == 1:
+            raise ApplicationError("model timed out")
+        return _fired(inputs)
+
+    def _fired(inputs: InsightCheckInputs) -> SourceBatchEvaluation:
         outcome = PlatformAlertOutcome(
             configuration_id=uuid.UUID(inputs.configuration_id),
             evaluation_key="slot:2026-09-16T10:00:00+00:00",
@@ -81,12 +95,15 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
         recorded.append(inputs)
         return len(inputs.outcomes)
 
-    async with Worker(
-        environment.client,
-        task_queue=QUEUE,
-        workflows=[InsightAlertPlatformEvaluateWorkflow],
-        activities=[plan, evaluate, record],
-        workflow_runner=UnsandboxedWorkflowRunner(),
+    async with (
+        Worker(
+            environment.client,
+            task_queue=QUEUE,
+            workflows=[InsightAlertPlatformEvaluateWorkflow],
+            activities=[plan, evaluate, record],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ),
+        Worker(environment.client, task_queue=settings.MAX_AI_TASK_QUEUE, activities=[evaluate_on_the_ai_queue]),
     ):
         handle = await environment.client.start_workflow(
             InsightAlertPlatformEvaluateWorkflow.run,
@@ -102,15 +119,16 @@ async def test_a_check_that_fails_does_not_stop_the_batch_recording_the_rest(env
         result = await handle.result()
         history = await handle.fetch_history()
 
-    assert result == 1
-    assert [[str(o.configuration_id) for o in batch.outcomes] for batch in recorded] == [[ADMITTED[1]]]
+    assert result == 2
+    assert [sorted(str(o.configuration_id) for o in batch.outcomes) for batch in recorded] == [[ADMITTED[1], AI_CHECK]]
     children = [
         event.child_workflow_execution_started_event_attributes
         for event in history.events
         if event.event_type == EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED
     ]
-    assert [child.workflow_execution.workflow_id for child in children] == [
-        f"alerts-deliver-preview-{ADMITTED[1]}:slot:2026-09-16T10:00:00+00:00"
+    assert sorted(child.workflow_execution.workflow_id for child in children) == [
+        f"alerts-deliver-preview-{configuration_id}:slot:2026-09-16T10:00:00+00:00"
+        for configuration_id in (ADMITTED[1], AI_CHECK)
     ]
     child = await environment.client.get_workflow_handle(children[0].workflow_execution.workflow_id).describe()
     assert child.task_queue == settings.ALERTS_PLATFORM_DELIVERY_TASK_QUEUE

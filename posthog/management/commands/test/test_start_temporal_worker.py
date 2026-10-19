@@ -10,6 +10,7 @@ from posthog.management.commands.start_temporal_worker import (
     AI_WORKFLOWS,
     ALERT_AI_QUEUE_ACTIVITIES,
     DATA_SYNC_WORKFLOWS,
+    INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES,
     WA_DIGEST_ACTIVITIES,
     WA_DIGEST_WORKFLOWS,
     WEEKLY_DIGEST_WORKFLOWS,
@@ -125,3 +126,4 @@ def test_ai_queue_registers_the_alert_evaluate_activity() -> None:
     assert len(entries) == 1
     assert ALERT_AI_QUEUE_ACTIVITIES
     assert set(ALERT_AI_QUEUE_ACTIVITIES) <= set(entries[0])
+    assert set(INSIGHT_PLATFORM_AI_QUEUE_ACTIVITIES) <= set(entries[0])
