@@ -228,9 +228,6 @@ export function Navigation({
                                 '--scene-layout-rect-right': mainContentRect?.right + 'px',
                                 '--scene-layout-rect-width': mainContentRect?.width + 'px',
                                 '--scene-layout-rect-height': mainContentRect?.height + 'px',
-                                '--scene-layout-scrollbar-width': mainRef?.current?.clientWidth
-                                    ? mainRef.current.clientWidth - (mainContentRect?.width ?? 0) + 'px'
-                                    : '0px',
                             } as React.CSSProperties
                         }
                     >

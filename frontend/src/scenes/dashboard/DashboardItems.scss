@@ -1,4 +1,7 @@
 .dashboard-items-wrapper {
+    // Sidebar geometry changes must not invalidate styles throughout the tile grid.
+    --scene-layout-rect-width: initial;
+
     width: 100%; // This provides the width for the dashboard items grid
     padding-top: 0.5rem;
 

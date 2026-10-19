@@ -345,13 +345,24 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                         if (!ref.current) {
                             return () => {}
                         }
-                        const observer = new ResizeObserver(() => {
-                            if (ref?.current) {
+                        let resizeTimer: ReturnType<typeof setTimeout> | undefined
+                        const updateRect = (): void => {
+                            clearTimeout(resizeTimer)
+                            // Keep sidebar drags from rendering navigation again for each scene measurement.
+                            if (document.body.classList.contains('is-resizing')) {
+                                resizeTimer = setTimeout(updateRect, 100)
+                                return
+                            }
+                            if (ref.current) {
                                 actions.setMainContentRect(ref.current.getBoundingClientRect())
                             }
-                        })
+                        }
+                        const observer = new ResizeObserver(updateRect)
                         observer.observe(ref.current)
-                        return () => observer.disconnect()
+                        return () => {
+                            observer.disconnect()
+                            clearTimeout(resizeTimer)
+                        }
                     }, 'resizeObserver')
                 }
             }

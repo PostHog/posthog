@@ -1,0 +1,42 @@
+import { RefObject, useEffect, useRef, useState } from 'react'
+
+export function useDashboardContainerWidth(): { width: number; containerRef: RefObject<HTMLDivElement> } {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const [width, setWidth] = useState(1280)
+
+    useEffect(() => {
+        const container = containerRef.current
+        if (!container) {
+            return
+        }
+
+        let pendingWidth = Math.round(container.getBoundingClientRect().width)
+        setWidth(pendingWidth)
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const commitWidth = (): void => {
+            if (document.body.classList.contains('is-resizing')) {
+                timer = setTimeout(commitWidth, 100)
+                return
+            }
+            setWidth(Math.round(pendingWidth))
+        }
+        const observer = new ResizeObserver(([entry]) => {
+            if (!entry) {
+                return
+            }
+
+            // Commit after resize settles so sidebar drags do not render every dashboard tile each frame.
+            clearTimeout(timer)
+            pendingWidth = entry.contentRect.width
+            timer = setTimeout(commitWidth, 100)
+        })
+        observer.observe(container)
+
+        return () => {
+            observer.disconnect()
+            clearTimeout(timer)
+        }
+    }, [])
+
+    return { width, containerRef }
+}

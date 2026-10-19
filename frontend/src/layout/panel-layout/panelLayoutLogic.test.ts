@@ -60,4 +60,46 @@ describe('panelLayoutLogic', () => {
             isLayoutNavCollapsed: false,
         })
     })
+
+    it('defers scene geometry during a sidebar drag and cancels pending measurements when the ref changes', () => {
+        jest.useFakeTimers()
+        const originalObserver = global.ResizeObserver
+        let notify: ResizeObserverCallback = () => {}
+        const disconnect = jest.fn()
+        global.ResizeObserver = jest.fn().mockImplementation((callback: ResizeObserverCallback) => {
+            notify = callback
+            return { observe: jest.fn(), disconnect }
+        })
+        const container = document.createElement('main')
+        const bounds = jest.spyOn(container, 'getBoundingClientRect')
+        bounds.mockReturnValue({ width: 1200 } as DOMRect)
+
+        try {
+            panelLayoutLogic.actions.setMainContentRef({ current: container })
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1200)
+            bounds.mockReturnValue({ width: 1100 } as DOMRect)
+            notify([], {} as ResizeObserver)
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1100)
+
+            document.body.classList.add('is-resizing')
+            bounds.mockReturnValue({ width: 900 } as DOMRect)
+            notify([], {} as ResizeObserver)
+            jest.advanceTimersByTime(500)
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(1100)
+            document.body.classList.remove('is-resizing')
+            jest.advanceTimersByTime(100)
+            expect(panelLayoutLogic.values.mainContentRect?.width).toBe(900)
+
+            document.body.classList.add('is-resizing')
+            notify([], {} as ResizeObserver)
+            panelLayoutLogic.actions.setMainContentRef({ current: container })
+            expect(disconnect).toHaveBeenCalledTimes(1)
+            expect(jest.getTimerCount()).toBe(0)
+        } finally {
+            document.body.classList.remove('is-resizing')
+            global.ResizeObserver = originalObserver
+            jest.useRealTimers()
+            bounds.mockRestore()
+        }
+    })
 })
