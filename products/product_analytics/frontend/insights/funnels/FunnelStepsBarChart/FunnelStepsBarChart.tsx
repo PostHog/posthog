@@ -68,6 +68,7 @@ export function FunnelStepsBarChart({
         insightData,
         funnelsFilter,
         isStepOptional,
+        hasPartialBreakdownSelection,
     } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
@@ -129,11 +130,20 @@ export function FunnelStepsBarChart({
                 breakdownFilter={breakdownFilter}
                 groupTypeLabel={groupTypeLabel}
                 showPersonsModal={showPersonsModal}
+                isPartialBreakdownSelection={hasPartialBreakdownSelection}
                 resolvedDateRange={insightData?.resolved_date_range}
                 compareTo={querySource?.compareFilter?.compare_to}
             />
         ),
-        [steps, breakdownFilter, groupTypeLabel, showPersonsModal, insightData?.resolved_date_range, querySource]
+        [
+            steps,
+            breakdownFilter,
+            groupTypeLabel,
+            showPersonsModal,
+            hasPartialBreakdownSelection,
+            insightData?.resolved_date_range,
+            querySource,
+        ]
     )
 
     const renderStepFooter = useCallback(
