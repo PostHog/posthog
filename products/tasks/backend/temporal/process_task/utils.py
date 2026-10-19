@@ -38,10 +38,19 @@ from products.tasks.backend.constants import (
     is_same_run_resume_idle_state,
     is_same_run_resume_state,
 )
-from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    GatewayTokenUnavailableError,
+    ProcessTaskError,
+    ProcessTaskTransientError,
+)
 from products.tasks.backend.facade.gateway import mint_private_gateway_token, revoke_private_gateway_token
 from products.tasks.backend.feature_flags import is_mcp_exec_skills_enabled
 from products.tasks.backend.logic.model_access import ModelAccess, resolve_model_access
+from products.tasks.backend.logic.services.desktop_gateway_token import (
+    POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
+    record_gateway_token_refusal,
+)
 from products.tasks.backend.logic.services.gateway_model_pin import (
     FREE_TIER_PIN_KEY,
     GATEWAY_PRODUCT_STATE_KEY,
@@ -456,7 +465,8 @@ MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
 def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
-    """Cache scope for marks describing a run's live sandbox.
+    """Cache scope for the MCP-session mark, whose readers reach the agent server over HTTP
+    and hold no sandbox handle to key on. The GitHub mark takes a sandbox id directly.
 
     Keyed on the sandbox id so a replacement sandbox (fresh provision,
     snapshot restore, workflow retry) starts unmarked — nothing ever needs
@@ -492,24 +502,28 @@ def get_sandbox_mcp_session_user(scope: str) -> int | None:
     return _get_sandbox_identity_user("mcp-session", scope)
 
 
-def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
+def mark_sandbox_github_identity(sandbox_id: str, user_id: int) -> None:
     """Record which actor the sandbox's in-place GitHub credentials reflect.
 
     The value is the actor whose token was applied, or who was logged out (no usable
     access) — either way the sandbox no longer carries a *different* actor's identity,
-    which is what owner-scoped refreshes check before re-applying the owner's token.
+    which is what every other writer checks before applying a token of its own.
+
+    Takes the sandbox's own id rather than a scope derived from run state: a reader that
+    resolved the id from a snapshot taken before the sandbox existed would look under a key
+    nobody writes and read every sandbox as unmarked.
 
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an absent entry reads as
     "must re-establish", which is always safe because re-establishing re-applies or
     clears rather than trusting stale creds.
     """
-    _mark_sandbox_identity("github-identity", scope, user_id)
+    _mark_sandbox_identity("github-identity", sandbox_id, user_id)
 
 
-def get_sandbox_github_identity_user(scope: str) -> int | None:
+def get_sandbox_github_identity_user(sandbox_id: str) -> int | None:
     """Actor id the sandbox's GitHub credentials were last bound to (or logged
     out for) within the freshness window, or None when unknown."""
-    return _get_sandbox_identity_user("github-identity", scope)
+    return _get_sandbox_identity_user("github-identity", sandbox_id)
 
 
 @dataclass(frozen=True)
@@ -1471,11 +1485,15 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
         record_gateway_routing(run_id=ctx.run_id, team_id=ctx.team_id, uses_gateway=False)
         return {}
+    ai_stage = (ctx.state or {}).get("ai_stage")
+    requires_go = resolve_sandbox_ai_product(ctx.origin_product, ai_stage, internal=task.internal) == (
+        POSTHOG_CODE_PRODUCT
+    )
     try:
         env_vars = ai_gateway_env_vars(
             team_id=ctx.team_id,
             origin_product=ctx.origin_product,
-            ai_stage=(ctx.state or {}).get("ai_stage"),
+            ai_stage=ai_stage,
             internal=task.internal,
             prior_slack_run=_task_has_stamped_slack_run(task, ctx.origin_product, ctx.state),
             distinct_id=ctx.distinct_id,
@@ -1485,10 +1503,16 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
         )
         pinned = env_vars.pop(_PIN_KEY_ENV, None) or env_vars.get("AI_GATEWAY_PRODUCT")
         if not _record_pinned_gateway_product(ctx.run_id, ctx.state, pinned):
+            if requires_go:
+                raise posthog_code_token_unavailable("pin_unrecorded", ctx.team_id)
             # The model-change guard reads that stamp; unstamped, a run can move off its pin with no fallback.
             for key in _TOKEN_ENV_KEYS:
                 env_vars.pop(key, None)
-    except Exception:
+    except ProcessTaskError:
+        raise
+    except Exception as e:
+        if requires_go:
+            raise posthog_code_token_unavailable("mint_failed", ctx.team_id) from e
         # Degrading to the Python gateway beats failing the provisioning activity and the run.
         AI_GATEWAY_TOKEN_MINTS.labels(result="error").inc()
         logger.warning(
@@ -1566,19 +1590,32 @@ def ai_gateway_env_vars(
     treats its own task-run fetch as the fallback. The agent server routes to the
     Go gateway only when the token is present, so a missing token (mint failure,
     or a caller that cannot supply run context) degrades the run to the Python
-    gateway.
+    gateway, except a `posthog_code` run, which raises: the Python gateway
+    refuses `posthog_code`.
     """
+    ai_product = (
+        resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal) if team_id is not None else None
+    )
+    requires_go = ai_product == POSTHOG_CODE_PRODUCT
     if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
+        if requires_go:
+            raise posthog_code_token_unavailable("not_configured", team_id)
         return {}
+    # Without a mint key no attempt can mint.
+    if requires_go and not settings.SANDBOX_AI_GATEWAY_MINT_KEY:
+        raise posthog_code_token_unavailable("not_configured", team_id)
     env_vars = {
         "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
         "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
     }
-    if team_id is not None:
-        ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
-        if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
-            ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
+    if team_id is not None and ai_product is not None:
+        if not (
+            ai_product in MINTABLE_PRODUCTS
+            and sandbox_product_routed(ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS)
         ):
+            if requires_go:
+                raise posthog_code_token_unavailable("not_configured", team_id)
+        else:
             refusal = mint_refusal(
                 ai_product,
                 team_id=team_id,
@@ -1588,10 +1625,12 @@ def ai_gateway_env_vars(
                 internal=internal,
                 prior_slack_run=prior_slack_run,
                 origin_product=origin_product,
-                distinct_id=distinct_id,
             )
             if refusal:
                 AI_GATEWAY_TOKEN_MINTS.labels(result="skipped").inc()
+                # posthog_code_token_unavailable counts posthog_code refusals.
+                if not requires_go:
+                    record_gateway_token_refusal("sandbox", refusal, ai_product=ai_product)
                 # The deploy's log formatter drops `extra`, so the message carries the fields.
                 # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure -- logs product, team id and a refusal code, no credential present
                 logger.info(
@@ -1601,6 +1640,8 @@ def ai_gateway_env_vars(
                     refusal,
                     extra={"ai_product": ai_product, "team_id": team_id, "reason": refusal},
                 )
+                if requires_go:
+                    raise posthog_code_token_unavailable(refusal, team_id)
                 return env_vars
             mint_kwargs: dict[str, Any] = {}
             if ai_product == POSTHOG_CODE_PRODUCT:
@@ -1617,7 +1658,39 @@ def ai_gateway_env_vars(
                     env_vars[_PIN_KEY_ENV] = FREE_TIER_PIN_KEY
                 if ai_stage:
                     env_vars["AI_GATEWAY_AI_STAGE"] = ai_stage
+            elif requires_go:
+                raise posthog_code_token_unavailable("mint_failed", team_id)
     return env_vars
+
+
+# Messages for reasons a retry won't change.
+_POSTHOG_CODE_REFUSAL_MESSAGES = {
+    "model_outside_free_pin": "This run's model isn't included in the free plan. Choose a free-plan model or upgrade.",
+    "model_outside_pin": "This run's model isn't available for PostHog Code cloud runs. Choose another model.",
+    "posthog_code_credits_exhausted": POSTHOG_CODE_CREDITS_EXHAUSTED_DETAIL,
+    "org_deactivated": "This organization is deactivated.",
+    "team_not_found": "This run's project no longer exists.",
+    "not_configured": "Cloud runs can't reach PostHog AI: the AI gateway isn't configured for posthog_code.",
+}
+# A credit lookup or mint can succeed on the next attempt.
+_POSTHOG_CODE_TRANSIENT_REFUSALS = frozenset({"posthog_code_credits_unknown", "mint_failed", "pin_unrecorded"})
+
+
+def posthog_code_token_unavailable(reason: str, team_id: int | None) -> ProcessTaskError:
+    record_gateway_token_refusal("sandbox", reason, ai_product=POSTHOG_CODE_PRODUCT)
+    context: dict[str, Any] = {"team_id": team_id, "reason": reason}
+    if reason in _POSTHOG_CODE_TRANSIENT_REFUSALS:
+        # Also the run's final error after the last retry, so it can't promise one.
+        return ProcessTaskTransientError(
+            f"Couldn't get a PostHog AI token for this run (reason: {reason}). Try again in a few minutes.",
+            context,
+            RuntimeError(reason),
+            capture=False,
+        )
+    message = _POSTHOG_CODE_REFUSAL_MESSAGES.get(reason, f"PostHog AI refused this run (reason: {reason}).")
+    if reason == "not_configured":
+        logger.error("ai_gateway: posthog_code run with no gateway configured (team_id=%s)", team_id)
+    return GatewayTokenUnavailableError(message, context)
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
@@ -1742,28 +1815,55 @@ def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -
     }
 
 
-def _message_actor_cache_key(run_id: str, message_id: str) -> str:
-    return f"tasks:followup-actor:{run_id}:{message_id}"
+def _message_record_key(kind: str, run_id: str, message_id: str) -> str:
+    return f"tasks:followup-{kind}:{run_id}:{message_id}"
 
 
 # Bounds how long after delivery a turn can finish and still get exact
 # per-message attribution; longer turns fall back to the run-state actors.
-MESSAGE_ACTOR_TTL_SECONDS = 2 * 60 * 60
+DELIVERED_MESSAGE_TTL_SECONDS = 2 * 60 * 60
 
 
-def record_message_actor(run_id: str, message_id: str, slack_user_id: str) -> None:
-    """Correlate a delivered message with its sender's Slack id, so a relay
-    echoing the message id can tag the exact speaker it answers. The sandbox
-    only ever echoes an opaque id — resolution happens against actors this
-    server recorded itself, so a compromised sandbox cannot pick an arbitrary
-    mention target."""
-    get_tasks_cache().set(
-        _message_actor_cache_key(run_id, message_id), slack_user_id, timeout=MESSAGE_ACTOR_TTL_SECONDS
-    )
+def record_delivered_message(
+    run_id: str, message_id: str, *, actor_slack_user_id: str | None, person_message: str | None
+) -> None:
+    """Correlate a delivered message with its sender's Slack id and the sender's own words, so a
+    relay echoing the message id can tag the exact speaker it answers and offer replies that fit
+    what they asked. The sandbox only ever echoes an opaque id — resolution happens against values
+    this server recorded itself, so a compromised sandbox cannot pick an arbitrary mention target."""
+    records = {
+        _message_record_key(kind, run_id, message_id): value
+        for kind, value in (("actor", actor_slack_user_id), ("person-message", person_message))
+        if value
+    }
+    if records:
+        get_tasks_cache().set_many(records, timeout=DELIVERED_MESSAGE_TTL_SECONDS)
 
 
 def get_message_actor(run_id: str, message_id: str) -> str | None:
-    return get_tasks_cache().get(_message_actor_cache_key(run_id, message_id))
+    return get_tasks_cache().get(_message_record_key("actor", run_id, message_id))
+
+
+def turn_person_message(run_id: str | None, message_id: str | None, *, mention: str | None = None) -> str | None:
+    """What the person said to start the turn that answers ``message_id``.
+
+    ``mention`` is the message that opened the run, and only the run's first turn passes it: a later
+    turn never falls back to it, because the mention is not what that turn answers.
+    """
+    if run_id and message_id:
+        # The answer must still go out when the cache is down; the buttons then come from the answer alone.
+        try:
+            recorded = get_tasks_cache().get(_message_record_key("person-message", run_id, message_id))
+        except Exception:
+            logger.warning(
+                "turn_person_message_lookup_failed",
+                extra={"run_id": run_id, "message_id": message_id},
+                exc_info=True,
+            )
+            recorded = None
+        if isinstance(recorded, str) and recorded:
+            return recorded
+    return mention or None
 
 
 def slack_reply_target(task_run: TaskRun, mapping: SlackThreadTaskMapping | None, message_id: str | None) -> str | None:

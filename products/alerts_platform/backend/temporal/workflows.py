@@ -154,6 +154,7 @@ async def alerts_platform_deliver_preview_activity(request: AlertDeliveryRequest
         evaluation_key=request.evaluation_key,
         sent=outcome.sent,
         skipped_without_transport=outcome.skipped_without_transport,
+        emitted=outcome.emitted,
     )
 
 

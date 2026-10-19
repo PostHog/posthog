@@ -16,26 +16,24 @@ use serde_json::Value;
 use tonic::Status;
 
 use personhog_proto::personhog::identity::v1::{
-    MergePersonsRequest, MergePersonsResponse, MergeSourceOutcome, MergeSourceResult,
+    MergePersonsRequest, MergePersonsResponse, MergeSource, MergeSourceOutcome, MergeSourceResult,
 };
 use personhog_proto::personhog::types::v1::{Person as ProtoPerson, UpdatePersonPropertiesRequest};
 
 use crate::leader::{PersonStateReader, PropertyWriter};
 use crate::lifecycle::engine::{OpRow, STEP_COMPLETED};
 use crate::lifecycle::merge::{
-    record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome, MergeRequest,
-    MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ERROR, OUTCOME_MERGED,
-    OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED, OUTCOME_SKIPPED_CONFLICT,
-    OUTCOME_SKIPPED_MOVE_LIMIT, OUTCOME_SKIPPED_REFUSED,
+    outcome_settled, record_conflict, record_outcome_count, MergeOpExecutor, MergeOutcome,
+    MergeRequest, MergeSourceEntry, MergeSourceRecord, OP_TYPE_MERGE, OUTCOME_ATTACHED,
+    OUTCOME_ERROR, OUTCOME_MERGED, OUTCOME_NOOP_SAME_PERSON, OUTCOME_SKIPPED_ALREADY_IDENTIFIED,
+    OUTCOME_SKIPPED_CONFLICT, OUTCOME_SKIPPED_ILLEGAL, OUTCOME_SKIPPED_MOVE_LIMIT,
+    OUTCOME_SKIPPED_REFUSED,
 };
 use crate::lifecycle::validation::{
-    is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons,
+    is_distinct_id_illegal, is_distinct_id_oversized, validate_merge_persons, UnmergeableId,
 };
 use crate::storage::{AttachOutcome, IdentityStorage, Person, PersonStub, StubOutcome};
-
-/// Handler-decided outcomes that never reach the saga.
-const OUTCOME_SKIPPED_ILLEGAL: &str = "skipped_illegal";
-const OUTCOME_ATTACHED: &str = "attached";
+use crate::warnings::{effective_event_uuid, MergePair, MergeWarnings, MERGE_ENTRANCE};
 
 const MERGE_SOURCES_PER_CALL: &str = "personhog_identity_merge_sources_per_call";
 const MERGE_PHASE_DURATION: &str = "personhog_identity_merge_phase_duration_ms";
@@ -179,6 +177,7 @@ pub struct MergeEntrance {
     property_writer: Arc<dyn PropertyWriter>,
     person_state: Arc<dyn PersonStateReader>,
     ops: MergeOpExecutor,
+    warnings: MergeWarnings,
 }
 
 impl MergeEntrance {
@@ -193,6 +192,48 @@ impl MergeEntrance {
             property_writer,
             person_state,
             ops,
+            warnings: MergeWarnings::disabled(),
+        }
+    }
+
+    pub fn with_warnings(mut self, warnings: MergeWarnings) -> Self {
+        self.warnings = warnings;
+        self
+    }
+
+    fn emit_rejection_warning(&self, request: &MergePersonsRequest, id: UnmergeableId) {
+        if !self.warnings.is_enabled() {
+            return;
+        }
+        // An illegal target is one warning about the target, whatever the
+        // batch size; the first source stands in as the other side.
+        let source: Option<&MergeSource> = match id {
+            UnmergeableId::Target => request.sources.first(),
+            UnmergeableId::Source(index) => request.sources.get(index),
+        };
+        let Some(source) = source else {
+            return;
+        };
+        let pair = MergePair {
+            source_distinct_id: &source.source_distinct_id,
+            target_distinct_id: &request.target_distinct_id,
+            event_uuid: effective_event_uuid(&source.event_uuid, &request.creator_event_uuid),
+            source_person_id: None,
+            source_person_uuid: None,
+            survivor_uuid: None,
+        };
+        match id {
+            UnmergeableId::Target => {
+                self.warnings
+                    .emit_illegal_target(request.team_id, MERGE_ENTRANCE, &pair)
+            }
+            UnmergeableId::Source(_) => self.warnings.emit_verdict(
+                request.team_id,
+                MERGE_ENTRANCE,
+                OUTCOME_SKIPPED_ILLEGAL,
+                true,
+                &pair,
+            ),
         }
     }
 
@@ -216,7 +257,15 @@ impl MergeEntrance {
         request: MergePersonsRequest,
         shape: &mut MergeShape,
     ) -> Result<MergePersonsResponse, Status> {
-        let (op_id, move_limit) = validate_merge_persons(&request)?;
+        let (op_id, move_limit) = match validate_merge_persons(&request) {
+            Ok(validated) => validated,
+            Err(rejection) => {
+                if let Some(id) = rejection.unmergeable {
+                    self.emit_rejection_warning(&request, id);
+                }
+                return Err(rejection.status);
+            }
+        };
         common_metrics::histogram(MERGE_SOURCES_PER_CALL, &[], request.sources.len() as f64);
         let mut event_set = parse_json_map(&request.event_set, "event_set")?;
         let mut event_set_once = parse_json_map(&request.event_set_once, "event_set_once")?;
@@ -401,6 +450,32 @@ impl MergeEntrance {
         }
         for (outcome, count) in inline_counts {
             record_outcome_count(PATH_INLINE, outcome, count);
+        }
+        if self.warnings.is_enabled() {
+            for source in &request.sources {
+                let Some(outcome) = inline_results.get(&source.source_distinct_id) else {
+                    continue;
+                };
+                let source_person =
+                    resolved.get(&(request.team_id, source.source_distinct_id.clone()));
+                self.warnings.emit_verdict(
+                    request.team_id,
+                    MERGE_ENTRANCE,
+                    outcome,
+                    outcome_settled(outcome),
+                    &MergePair {
+                        source_distinct_id: &source.source_distinct_id,
+                        target_distinct_id: &request.target_distinct_id,
+                        event_uuid: effective_event_uuid(
+                            &source.event_uuid,
+                            &request.creator_event_uuid,
+                        ),
+                        source_person_id: source_person.map(|p| p.id),
+                        source_person_uuid: source_person.map(|p| p.uuid),
+                        survivor_uuid: Some(target_person.uuid),
+                    },
+                );
+            }
         }
 
         if saga_sources.is_empty() {
@@ -821,13 +896,6 @@ fn same_merge(recorded: Option<&Value>, incoming: &Value) -> bool {
         Some(recorded) => strip(recorded) == strip(incoming),
         None => false,
     }
-}
-
-/// The caller's durability decision: every outcome is final under retry
-/// except a claim conflict, and only where a retry actually re-runs it
-/// (a discarded claim abort, or an inline answer with no op row).
-fn outcome_settled(outcome: &str) -> bool {
-    outcome != OUTCOME_SKIPPED_CONFLICT
 }
 
 fn outcome_enum(outcome: &str) -> MergeSourceOutcome {

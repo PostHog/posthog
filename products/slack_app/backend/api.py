@@ -138,10 +138,6 @@ from products.slack_app.backend.temporal import (
     SlackAppMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
-from products.slack_app.backend.temporal.posthog_code_slack_mention import (
-    LegacyPostHogCodeSlackMentionWorkflow,
-    SlackAppMentionProcessingWorkflow,
-)
 from products.slack_app.backend.temporal.posthog_code_slack_mention_command import (
     PostHogCodeSlackMentionCommandWorkflow,
 )
@@ -150,6 +146,7 @@ from products.slack_app.backend.temporal.slack_app_mention import (
     SlackAppMentionWorkflow,
     derive_slack_app_mention_workflow_id,
 )
+from products.slack_app.backend.temporal.slack_app_mention_processing import SlackAppMentionProcessingWorkflow
 from products.slack_app.backend.temporal.types import SlackAppForkThreadInputs
 
 logger = structlog.get_logger(__name__)
@@ -4360,9 +4357,9 @@ def _start_mention_workflow(
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent
     _start_posthog_code_workflow(
-        LegacyPostHogCodeSlackMentionWorkflow,
+        SlackAppMentionProcessingWorkflow,
         workflow_inputs,
-        id_prefix="posthog-code-mention",
+        id_prefix="slack-app-mention-processing",
         slack_team_id=slack_team_id,
         event=event,
         event_id=event_id,
@@ -4546,11 +4543,13 @@ def _link_shared_url_region(event: dict[str, Any]) -> str | None:
 
 
 def _link_shared_url_team_ids(event: dict[str, Any]) -> set[int]:
-    """Team ids named by ``/project/:id`` in the event's unfurlable links."""
+    """Team ids named by ``/project/:id`` or ``/api/projects/:id`` in the event's unfurlable links."""
     team_ids: set[int] = set()
     for url in _link_shared_resource_urls(event):
         parts = [part for part in urlparse(url).path.split("/") if part]
-        if len(parts) >= 2 and parts[0] == "project":
+        if parts[:2] == ["api", "projects"]:
+            parts = parts[1:]
+        if len(parts) >= 2 and parts[0] in ("project", "projects"):
             try:
                 team_ids.add(int(parts[1]))
             except ValueError:

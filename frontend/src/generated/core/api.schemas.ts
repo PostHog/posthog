@@ -7,6 +7,28 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+export interface ConnectedAppApi {
+    /** The OAuth application ID */
+    id: string
+    /** The application name */
+    name: string
+    /**
+     * URL to the application's logo
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Scopes granted to this application */
+    scopes: string[]
+    /** When the user first authorized this application */
+    authorized_at: string
+    /** Whether this application has been verified by PostHog */
+    is_verified: boolean
+    /** Whether this is a first-party PostHog application */
+    is_first_party: boolean
+    /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
+    requires_access_confirmation: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1344,6 +1366,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -5193,6 +5216,11 @@ export interface ProjectSecretAPIKeyApi {
     readonly last_rolled_at: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential: string | null
 }
 
 export interface PaginatedProjectSecretAPIKeyListApi {
@@ -5219,6 +5247,11 @@ export interface PatchedProjectSecretAPIKeyApi {
     readonly last_rolled_at?: string | null
     /** Project-wide API scopes granted to this key. Project secret API keys do not honor object-level access controls, so a scope can access resources of that type even when per-resource RBAC would hide them from an individual user. */
     scopes?: string[]
+    /**
+     * Value the AI gateway stamps as $ai_credential on generations made with this key, so gateway spend can be grouped by key. Derived from the key's hash, so it changes when the key is rolled.
+     * @nullable
+     */
+    readonly ai_credential?: string | null
 }
 
 /**

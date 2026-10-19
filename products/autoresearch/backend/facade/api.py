@@ -55,6 +55,7 @@ from ..evaluation.segment_thresholds import (
 )
 from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from ..models import (
+    RESEARCH_INTERVAL_DAYS_CHOICES as _RESEARCH_INTERVAL_DAYS_CHOICES,
     AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
@@ -70,6 +71,7 @@ from ..training.explanation import (
     normalize_model_explanation,
 )
 from ..training.recipe_validation import RecipeValidationError, feature_sql_hints, validate_feature_sql, validate_recipe
+from ..training.schedule import ScheduleRun, research_schedule, schedule_runs_for
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
     ArtifactContent,
@@ -185,6 +187,7 @@ class _PipelineActivity:
     training_run_count: int
     experiment_count: int
     live_training_run: LiveTrainingRun | None
+    schedule_runs: list[ScheduleRun]
 
 
 def _best_so_far_trend(scores: Iterable[tuple[int, float | None]]) -> list[TrainingTrendPoint]:
@@ -340,6 +343,7 @@ def _pipeline_activity(
     training_trends = _champion_training_trends(team_id, champions)
     likely_counts = _champion_likely_counts(team_id, champions)
     first_checks = _first_checks_expected(team_id, champions)
+    schedule_runs = schedule_runs_for(pipeline_ids, team_id)
     return {
         pipeline_id: _PipelineActivity(
             champion_realized_auc_trend=[
@@ -358,6 +362,7 @@ def _pipeline_activity(
                 if pipeline_id in live_runs
                 else None
             ),
+            schedule_runs=schedule_runs.get(pipeline_id, []),
         )
         for pipeline_id in pipeline_ids
     }
@@ -369,6 +374,11 @@ def _pipeline_to_contract(
     champion: AutoresearchModel | None = None,
     activity: _PipelineActivity,
 ) -> Pipeline:
+    schedule = research_schedule(
+        research_interval_days=row.research_interval_days,
+        pipeline_created_at=row.created_at,
+        runs=activity.schedule_runs,
+    )
     return Pipeline(
         id=row.id,
         name=row.name,
@@ -386,6 +396,10 @@ def _pipeline_to_contract(
         # The column is nullable (an admin can clear it); read that as no budget left
         # rather than widening the contract type.
         iteration_budget_remaining=row.iteration_budget_remaining or 0,
+        iterations_per_run=row.iterations_per_run,
+        research_interval_days=row.research_interval_days,
+        training_phase=schedule.phase,
+        next_research_at=schedule.next_research_at,
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
@@ -465,6 +479,7 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         task_run_id=row.task_run_id,
         task_url=f"/tasks/{row.task_id}" if row.task_id else None,
         status=row.status,
+        kickoff_reason=row.kickoff_reason,
         iteration_budget=row.iteration_budget,
         iteration_count=row.iteration_count,
         best_holdout_score=row.best_holdout_score,
@@ -902,6 +917,8 @@ def get_pipeline_definition(team_id: int, pipeline_id: str | UUID) -> PipelineWr
         inference_population=row.inference_population or {},
         cadence_days=row.cadence_days,
         iteration_budget=row.iteration_budget,
+        iterations_per_run=row.iterations_per_run,
+        research_interval_days=row.research_interval_days,
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
@@ -1417,9 +1434,14 @@ def start_training(
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")
-        budget = iteration_budget or pipeline.iteration_budget
+        budget = iteration_budget or pipeline.iterations_per_run
         try:
-            training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=user_id)
+            training_run = run_training(
+                pipeline=pipeline,
+                iteration_budget=budget,
+                user_id=user_id,
+                kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
+            )
         except Action.DoesNotExist:
             raise AutoresearchConflict("The pipeline's target action no longer exists.")
         except (ValueError, SandboxInferenceError) as exc:
@@ -1446,7 +1468,8 @@ def open_training_run(
         row = AutoresearchTrainingRun.objects.create(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
-            iteration_budget=iteration_budget or pipeline.iteration_budget,
+            kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
+            iteration_budget=iteration_budget or pipeline.iterations_per_run,
             started_at=django_timezone.now(),
         )
     return _training_run_to_contract(row)
@@ -2051,6 +2074,9 @@ TEMPLATE_KEY_CHOICES = _TemplateKey.choices
 VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
+KICKOFF_REASON_CHOICES = AutoresearchTrainingRun.KickoffReason.choices
+RESEARCH_INTERVAL_DAYS_CHOICES = list(_RESEARCH_INTERVAL_DAYS_CHOICES)
+TRAINING_PHASE_CHOICES = [("explore", "Explore"), ("maintain", "Maintain")]
 ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices
 SUGGESTION_PRIORITY_CHOICES = AutoresearchSuggestion.Priority.choices
 SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
