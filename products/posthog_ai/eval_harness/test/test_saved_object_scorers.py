@@ -2,15 +2,22 @@ from __future__ import annotations
 
 import asyncio
 from copy import deepcopy
+from datetime import timedelta
 from typing import Any
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 
-from products.dashboards.evals.scorers import SavedDashboardContents
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.evals.scorers import SavedDashboardContents, SQLTilesFollowDashboardDateRange
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.evals.creation_scorers import CreatedFlagConfiguration
+from products.product_analytics.backend.facade.models import Insight
 
 
 @parameterized.expand(
@@ -117,3 +124,39 @@ def test_dashboard_scores_saved_charts_and_preserves_existing_tile(
             )
         )
     assert score.score == expected_score
+
+
+class TestSQLTilesFollowDashboardDateRange(ClickhouseTestMixin, APIBaseTest):
+    @parameterized.expand(
+        [
+            ("SELECT count() FROM events WHERE {filters}", 1.0),
+            ("SELECT count() FROM events WHERE {filters} AND timestamp >= now() - INTERVAL 30 DAY", 0.0),
+            ("SELECT count() FROM events", 0.0),
+        ]
+    )
+    def test_scores_sql_tiles_by_dashboard_date_range_response(self, sql: str, expected_score: float) -> None:
+        for days_ago in (10, 75):
+            _create_event(
+                team=self.team,
+                event="signed_up",
+                distinct_id="user",
+                timestamp=timezone.now() - timedelta(days=days_ago),
+            )
+        flush_persons_and_events()
+        dashboard = Dashboard.objects.create(team=self.team, name="SQL dashboard")
+        insight = Insight.objects.create(
+            team=self.team,
+            query={"kind": "DataVisualizationNode", "source": {"kind": "HogQLQuery", "query": sql}},
+        )
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+
+        state = SQLTilesFollowDashboardDateRange._read_state(self.team.id, "SQL dashboard")
+        with patch.object(SQLTilesFollowDashboardDateRange, "_read_state", return_value=state):
+            score = asyncio.run(
+                SQLTilesFollowDashboardDateRange().eval_async(
+                    {"seed": {"team_id": self.team.id}},
+                    {"sql_tiles_follow_dashboard_date_range": {"name": "SQL dashboard", "min_sql_tiles": 1}},
+                )
+            )
+
+        assert score.score == expected_score, score.metadata
