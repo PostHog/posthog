@@ -34,12 +34,12 @@ describe('broadcastLifecycle', () => {
             { action: 'pressing Escape', answer: () => userEvent.keyboard('{Escape}'), choice: null },
         ])('resolves to $choice after $action', async ({ answer, choice }) => {
             const result = confirmCreateAsBroadcast()
-            await screen.findByText('Create this as a broadcast?')
+            await screen.findByText('Make this a broadcast?')
 
             await answer()
 
             await expect(result).resolves.toBe(choice)
-            await waitFor(() => expect(screen.queryByText('Create this as a broadcast?')).not.toBeInTheDocument())
+            await waitFor(() => expect(screen.queryByText('Make this a broadcast?')).not.toBeInTheDocument())
         })
     })
 })

@@ -141,9 +141,8 @@ export function confirmCreateAsBroadcast(): Promise<CreateAsBroadcastChoice | nu
     return new Promise((resolve) => {
         LemonDialog.open({
             width: 500,
-            title: 'Create this as a broadcast?',
-            description:
-                'This workflow sends one email to a batch of people. That is a broadcast. A broadcast opens in the broadcast editor, where you set the audience, content and send time step by step, preview the email and send a test before you launch. The Broadcasts list shows its send status. A broadcast does not show in the Workflows list.',
+            title: 'Make this a broadcast?',
+            description: 'Get a step-by-step editor, email previews, test sends and send status tracking.',
             primaryButton: {
                 children: 'Create broadcast',
                 type: 'primary',
