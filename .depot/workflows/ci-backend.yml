@@ -4355,7 +4355,7 @@ jobs:
                   status=completed
                   if [[ "$DRAFT" == "true" ]]; then
                       status=in_progress
-                      title="Draft: ${title,}. Mark the PR ready for review for the merge verdict."
+                      title="${title/ on Depot/ on a draft run}. The merge verdict comes from the run on the ready-for-review PR."
                   fi
                   # One request carries the verdict and the output. A PATCH sent right after the POST
                   # can answer 404, because GitHub does not always find a check it just created.
