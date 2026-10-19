@@ -55,9 +55,9 @@ logger = structlog.get_logger(__name__)
 
 BACKFILL_WORKFLOW_NAME = "llma-evaluation-backfill"
 BACKFILL_TICK_INTERVAL = timedelta(seconds=60)
-# Long enough for the slowest child: a trace evaluation can settle for its 2 hour maximum age
-# before the judge even starts.
-CHILD_EXECUTION_TIMEOUT = timedelta(hours=3)
+# A backfill child skips the settle wait, so its activity budgets add up to under an hour. A page waits
+# on every child, so a stuck child holds it this long before it counts as a failed run.
+CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
 
 ACTIVITY_TIMEOUT = timedelta(seconds=30)
 # A tick that cannot reach a worker must fail rather than sit in the queue, because the loop only
@@ -480,11 +480,8 @@ async def find_evaluation_backfill_candidates_activity(inputs: FindCandidatesInp
     return await database_sync_to_async(_find_backfill_candidates, thread_sensitive=False)(inputs)
 
 
-_TERMINAL_FIELDS = ("status", "status_reason", "finished_at", "remaining_count")
-
-
 def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput:
-    updates: dict[str, Any] = {
+    counts: dict[str, Any] = {
         "dispatched_count": F("dispatched_count") + inputs.dispatched_delta,
         "skipped_count": F("skipped_count") + inputs.skipped_delta,
         "failed_count": F("failed_count") + inputs.failed_delta,
@@ -492,25 +489,28 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
     if inputs.completed_delta is not None:
         # Runs that already dispatched without tracking outcomes must retain unknown totals.
         tracks_outcomes = Q(cursor_timestamp__isnull=True) | Q(completed_count__isnull=False)
-        updates["completed_count"] = Case(
+        counts["completed_count"] = Case(
             When(tracks_outcomes, then=Coalesce(F("completed_count"), 0) + inputs.completed_delta),
             default=None,
         )
-        updates["evaluation_skipped_count"] = F("evaluation_skipped_count") + inputs.evaluation_skipped_delta
+        counts["evaluation_skipped_count"] = F("evaluation_skipped_count") + inputs.evaluation_skipped_delta
     if inputs.new_cursor_timestamp is not None:
-        updates["cursor_timestamp"] = datetime.fromisoformat(inputs.new_cursor_timestamp)
-        updates["cursor_unit_id"] = inputs.new_cursor_unit_id
+        counts["cursor_timestamp"] = datetime.fromisoformat(inputs.new_cursor_timestamp)
+        counts["cursor_unit_id"] = inputs.new_cursor_unit_id
+    terminal: dict[str, Any] = {}
     if inputs.stop_reason:
-        updates["status"] = EvaluationBackfillStatus.INTERRUPTED
-        updates["status_reason"] = inputs.stop_reason
-        updates["finished_at"] = timezone.now()
+        terminal = {
+            "status": EvaluationBackfillStatus.INTERRUPTED,
+            "status_reason": inputs.stop_reason,
+            "finished_at": timezone.now(),
+        }
     elif inputs.exhausted:
-        updates["status"] = EvaluationBackfillStatus.COMPLETED
-        updates["finished_at"] = timezone.now()
+        terminal = {"status": EvaluationBackfillStatus.COMPLETED, "finished_at": timezone.now()}
         if inputs.completed_delta is not None:
-            updates["remaining_count"] = Case(
+            terminal["remaining_count"] = Case(
                 When(tracks_outcomes, then=F("failed_count") + inputs.failed_delta), default=None
             )
+    updates = {**counts, **terminal}
 
     expected_timestamp = (
         datetime.fromisoformat(inputs.expected_cursor_timestamp) if inputs.expected_cursor_timestamp else None
@@ -550,7 +550,6 @@ def _advance_backfill_cursor(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput
     if not inputs.cancelled and inputs.new_cursor_timestamp is not None:
         # A cancel can land after this page's runs finished. They still billed, so the cancelled
         # row keeps their counts. Moving the cursor keeps a retried advance from counting twice.
-        counts = {key: value for key, value in updates.items() if key not in _TERMINAL_FIELDS}
         if row.filter(
             status=EvaluationBackfillStatus.CANCELLED,
             cursor_timestamp=expected_timestamp,

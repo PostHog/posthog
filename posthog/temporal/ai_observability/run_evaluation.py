@@ -332,6 +332,24 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
         evaluation_type = evaluation.get("evaluation_type", "llm_judge")
 
+        # A backfill can outlive the evaluation it runs, so it checks before the billed judge call.
+        # The skip also tells the backfill to stop the rest of its page.
+        if (
+            result is None
+            and inputs.backfill_id is not None
+            and (evaluation["deleted"] or not evaluation["enabled"])
+            and temporalio.workflow.patched("evaluation-backfill-skips-disabled-evaluation")
+        ):
+            disabled_result: WorkflowResult = {
+                "skipped": True,
+                "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
+                "evaluation_id": inputs.evaluation_id,
+                "evaluation_type": evaluation_type,
+            }
+            if evaluation.get("output_type") not in ("numeric", "categorical"):
+                disabled_result["verdict"] = None
+            return disabled_result
+
         if result is None:
             if evaluation_type == "hog":
                 result = await temporalio.workflow.execute_activity(

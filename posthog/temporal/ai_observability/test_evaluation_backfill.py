@@ -13,6 +13,7 @@ from django.test import override_settings
 
 import temporalio
 from asgiref.sync import async_to_sync
+from temporalio.api.enums.v1 import EventType
 from temporalio.client import WorkflowFailureError
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import (
@@ -35,7 +36,6 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     AdvanceCursorInputs,
     AdvanceCursorOutput,
     CandidatePayload,
-    ChildOutcome,
     EvaluationBackfillInputs,
     EvaluationBackfillWorkflow,
     FindCandidatesInputs,
@@ -43,7 +43,6 @@ from posthog.temporal.ai_observability.evaluation_backfill import (
     MeasureRemainderInputs,
     PrepareTickOutput,
     TickAction,
-    _child_outcome,
     advance_evaluation_backfill_cursor_activity,
     child_workflow_name_and_id,
     fail_evaluation_backfill_activity,
@@ -193,6 +192,22 @@ def _advance_input(mocks: _BackfillMocks) -> AdvanceCursorInputs:
     return next(call for fn, call in mocks.activity_calls if fn is advance_evaluation_backfill_cursor_activity)
 
 
+@temporalio.workflow.defn(name="run-evaluation")
+class _StubEvaluationRun:
+    """Fails every run, or finishes u0 and u1 and leaves the rest running until cancelled."""
+
+    fail = True
+
+    @temporalio.workflow.run
+    async def run(self, _: Any) -> WorkflowResult:
+        if self.fail:
+            raise ApplicationError("judge unavailable", non_retryable=True)
+        if temporalio.workflow.info().workflow_id.endswith(("-u0-ingestion", "-u1-ingestion")):
+            return {"evaluation_id": "E", "evaluation_type": "hog", "skipped": False}
+        await temporalio.workflow.wait_condition(lambda: False)
+        raise AssertionError("unreachable")
+
+
 class TestEvaluationBackfillWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("target", ["generation", "trace", "session"])
@@ -328,23 +343,85 @@ class TestEvaluationBackfillWorkflow:
             workflow_runner=UnsandboxedWorkflowRunner(),
         ).replay_workflow(history)
 
-    @pytest.mark.parametrize(
-        "reason,outcome",
-        [
-            ("parse_error", ChildOutcome.SKIPPED),
-            ("unparsable_response", ChildOutcome.SKIPPED),
-            ("content_filtered", ChildOutcome.SKIPPED),
-        ],
-    )
-    def test_skips_do_not_count_as_failures_because_retry_cannot_restart_them(
-        self, reason: str, outcome: ChildOutcome
-    ) -> None:
-        assert (
-            _child_outcome(
-                {"evaluation_id": "E", "evaluation_type": "llm_judge", "skipped": True, "skip_reason": reason}
-            )
-            == outcome
-        )
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("cancel", [False, True], ids=["persistent_outage_across_pages", "cancel_mid_page"])
+    async def test_bounded_backfill_on_a_real_worker(self, cancel: bool, caplog: pytest.LogCaptureFixture) -> None:
+        caplog.set_level("INFO", logger="temporalio.workflow")
+        caplog.set_level("INFO", logger="temporalio.activity")
+        units = [_candidate(f"u{i}") for i in range(5 if cancel else 70)]
+        page_size = 5 if cancel else 35
+        advances: list[AdvanceCursorInputs] = []
+        measured: list[MeasureRemainderInputs] = []
+
+        @temporalio.activity.defn(name="prepare_evaluation_backfill_tick_activity")
+        async def prepare(_: EvaluationBackfillInputs) -> PrepareTickOutput:
+            return _tick(max_in_flight=page_size if cancel else 1)
+
+        @temporalio.activity.defn(name="find_evaluation_backfill_candidates_activity")
+        async def find(_: FindCandidatesInputs) -> FindCandidatesOutput:
+            first = page_size * sum(advance.new_cursor_timestamp is not None for advance in advances)
+            return _found(units[first : first + page_size], exhausted=first + page_size >= len(units))
+
+        @temporalio.activity.defn(name="advance_evaluation_backfill_cursor_activity")
+        async def advance(inputs: AdvanceCursorInputs) -> AdvanceCursorOutput:
+            advances.append(inputs)
+            return AdvanceCursorOutput(finished=inputs.exhausted or inputs.stop_reason is not None or inputs.cancelled)
+
+        @temporalio.activity.defn(name="measure_evaluation_backfill_remainder_activity")
+        async def measure(inputs: MeasureRemainderInputs) -> None:
+            measured.append(inputs)
+
+        _StubEvaluationRun.fail = not cancel
+        task_queue = settings.LLMA_EVALS_TASK_QUEUE
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[EvaluationBackfillWorkflow, _StubEvaluationRun],
+                activities=[prepare, find, advance, measure],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                handle = await env.client.start_workflow(
+                    EvaluationBackfillWorkflow.run,
+                    _inputs(),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(hours=6),
+                )
+                if cancel:
+                    # Cancel once the parent has taken in both finished runs and every start.
+                    for _ in range(200):
+                        events = [event.event_type for event in (await handle.fetch_history()).events]
+                        if (
+                            events.count(EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED) == 2
+                            and events.count(EventType.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED) == 5
+                            and events[-1] == EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED
+                        ):
+                            break
+                        await asyncio.sleep(0.05)
+                    await handle.cancel()
+                    with pytest.raises(WorkflowFailureError):
+                        await handle.result()
+                else:
+                    await handle.result()
+                histories = [
+                    await env.client.get_workflow_handle(handle.id, run_id=handle.run_id).fetch_history(),
+                    await env.client.get_workflow_handle(handle.id).fetch_history(),
+                ]
+
+        last = advances[-1]
+        if cancel:
+            assert last.cancelled
+            assert (last.dispatched_delta, last.completed_delta, last.failed_delta) == (5, 2, 0)
+            assert measured == []
+        else:
+            assert len(advances) == 2
+            assert sum(page.dispatched_delta for page in advances) == 60
+            assert last.stop_reason == "execution_failed"
+            assert len(measured) == 1
+        replayer = Replayer(workflows=[EvaluationBackfillWorkflow], workflow_runner=UnsandboxedWorkflowRunner())
+        for history in histories:
+            await replayer.replay_workflow(history)
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("max_in_flight,peak", [(0, 16), (4, 4)])

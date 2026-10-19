@@ -2534,6 +2534,51 @@ class TestRunEvaluationWorkflow:
         assert result["skipped"] is False
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "change,skip_reason", [({"enabled": False}, "evaluation_disabled"), ({"deleted": True}, "evaluation_deleted")]
+    )
+    async def test_backfill_run_skips_the_judge_for_a_disabled_evaluation(
+        self, change: dict[str, bool], skip_reason: str
+    ) -> None:
+        @activity.defn(name="run_local_evaluation_activity")
+        async def mock_run_local_evaluation(inputs: RunLocalEvaluationInputs) -> LocalEvaluationOutcome:
+            evaluation = {
+                "id": inputs.evaluation_id,
+                "evaluation_type": "llm_judge",
+                "output_type": "boolean",
+                "team_id": 1,
+                "enabled": True,
+                "deleted": False,
+            }
+            return LocalEvaluationOutcome(evaluation={**evaluation, **change}, result=None, emitted=False)
+
+        @activity.defn(name="execute_llm_judge_activity")
+        async def mock_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+            raise AssertionError("a backfill must not bill a judge call for a disabled evaluation")
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunEvaluationWorkflow],
+                activities=[mock_run_local_evaluation, mock_judge],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: WorkflowResult = await env.client.execute_workflow(
+                    RunEvaluationWorkflow.run,
+                    RunEvaluationInputs(
+                        evaluation_id=str(uuid.uuid4()), event_data=create_mock_event_data(team_id=1), backfill_id="B"
+                    ),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                    execution_timeout=timedelta(minutes=5),
+                )
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == skip_reason
+
+    @pytest.mark.asyncio
     async def test_terminal_user_error_does_not_email_when_evaluation_was_already_disabled(self):
         calls: list[str] = []
 
