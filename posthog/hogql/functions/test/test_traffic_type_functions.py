@@ -1,8 +1,11 @@
 import ipaddress
+from contextlib import nullcontext
 from uuid import uuid4
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events, materialized
+
+from django.conf import settings
 
 from parameterized import parameterized
 
@@ -953,7 +956,11 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
         properties: dict,
         cookieless_traffic_is_regular: bool = True,
         definitions: list[CustomBotRule] | None = None,
+        materialize_cookieless_mode: bool = False,
     ) -> tuple:
+        if materialize_cookieless_mode and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            pytest.skip("events_json has no mat_ columns")
+
         modifiers: dict = {"cookielessTrafficIsRegular": cookieless_traffic_is_regular}
         if definitions:
             modifiers["customBotDefinitions"] = [d.model_dump(mode="json") for d in definitions]
@@ -969,20 +976,39 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
         )
         flush_persons_and_events()
 
-        response = execute_hogql_query(
-            "SELECT `$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, "
-            "`$virt_bot_operator`, getBotType(properties.`$raw_user_agent`, properties.`$ip`) "
-            f"FROM events WHERE properties._test_tag = '{tag}'",
-            self.team,
-        )
+        with (
+            materialized("events", "$cookieless_mode", is_nullable=True)
+            if materialize_cookieless_mode
+            else nullcontext()
+        ):
+            response = execute_hogql_query(
+                "SELECT `$virt_is_bot`, `$virt_traffic_type`, `$virt_traffic_category`, `$virt_bot_name`, "
+                "`$virt_bot_operator`, getBotType(properties.`$raw_user_agent`, properties.`$ip`) "
+                f"FROM events WHERE properties._test_tag = '{tag}'",
+                self.team,
+            )
+            if materialize_cookieless_mode:
+                assert "mat_$cookieless_mode" in (response.clickhouse or "")
         assert response.results is not None
         return response.results[0]
 
     @parameterized.expand(
-        [("missing", {}), ("empty", {"$raw_user_agent": ""}), ("string_flag", {"$cookieless_mode": "true"})]
+        [
+            ("missing", {}, False),
+            ("empty", {"$raw_user_agent": ""}, False),
+            ("string_flag", {"$cookieless_mode": "true"}, False),
+            ("materialized", {}, True),
+        ]
     )
-    def test_a_cookieless_event_is_regular_traffic(self, _name: str, properties: dict) -> None:
-        assert self._classify({"$cookieless_mode": True, **properties}) == (False, "Regular", "regular", "", "", "")
+    def test_a_cookieless_event_is_regular_traffic(self, _name: str, properties: dict, materialize: bool) -> None:
+        assert self._classify({"$cookieless_mode": True, **properties}, materialize_cookieless_mode=materialize) == (
+            False,
+            "Regular",
+            "regular",
+            "",
+            "",
+            "",
+        )
 
     @parameterized.expand(
         [
@@ -1019,12 +1045,22 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
             "no_user_agent",
         )
 
-    def test_a_non_cookieless_event_with_no_user_agent_is_still_automation(self):
-        assert self._classify({}) == (True, "Automation", "no_user_agent", "", "", "no_user_agent")
+    @parameterized.expand([("json", False), ("materialized", True)])
+    def test_a_non_cookieless_event_with_no_user_agent_is_still_automation(self, _name: str, materialize: bool):
+        assert self._classify({}, materialize_cookieless_mode=materialize) == (
+            True,
+            "Automation",
+            "no_user_agent",
+            "",
+            "",
+            "no_user_agent",
+        )
 
-    def test_the_flag_is_read_as_a_value_not_as_presence(self):
-        is_bot, traffic_type, _category, _name, _operator, _bot_type = self._classify(
-            {"$cookieless_mode": False, "$raw_user_agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"}
+    @parameterized.expand([("json", False), ("materialized", True)])
+    def test_the_flag_is_read_as_a_value_not_as_presence(self, _name: str, materialize: bool):
+        is_bot, traffic_type, *_ = self._classify(
+            {"$cookieless_mode": False, "$raw_user_agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"},
+            materialize_cookieless_mode=materialize,
         )
 
         assert (is_bot, traffic_type) == (True, "Bot")

@@ -1335,6 +1335,7 @@ CREATE TABLE posthog.sharded_events (
   historical_migration Bool,
   mat_$ai_prompt_name Nullable(String) MATERIALIZED JSONExtract(properties, '$ai_prompt_name', 'Nullable(String)'),
   mat_$ai_experiment_id Nullable(String) MATERIALIZED JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)'),
+  mat_$cookieless_mode Nullable(String) DEFAULT JSONExtract(properties, '$cookieless_mode', 'Nullable(String)'),
   INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3,
   INDEX minmax_$group_0 `$group_0` TYPE minmax GRANULARITY 1,
   INDEX minmax_$group_1 `$group_1` TYPE minmax GRANULARITY 1,
@@ -3194,7 +3195,8 @@ CREATE TABLE posthog.events (
   dmat_string_9 Nullable(String),
   historical_migration Bool,
   mat_$ai_prompt_name Nullable(String) COMMENT 'column_materializer::properties::$ai_prompt_name',
-  mat_$ai_experiment_id Nullable(String) COMMENT 'column_materializer::properties::$ai_experiment_id'
+  mat_$ai_experiment_id Nullable(String) COMMENT 'column_materializer::properties::$ai_experiment_id',
+  mat_$cookieless_mode Nullable(String) COMMENT 'column_materializer::properties::$cookieless_mode'
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events', sipHash64(distinct_id));
 CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,

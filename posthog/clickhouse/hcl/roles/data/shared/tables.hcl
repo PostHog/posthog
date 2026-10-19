@@ -89,6 +89,10 @@ database "posthog" {
       type    = "Nullable(String)"
       default = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
     }
+    column "mat_$cookieless_mode" {
+      type    = "Nullable(String)"
+      default = "JSONExtract(properties, '$cookieless_mode', 'Nullable(String)')"
+    }
     order_by     = ["team_id", "toDate(timestamp)", "event", "cityHash64(distinct_id)", "cityHash64(uuid)"]
     partition_by = "toYYYYMM(timestamp)"
     sample_by    = "cityHash64(distinct_id)"
@@ -268,6 +272,10 @@ database "posthog" {
     }
     patch_column "mat_$ai_prompt_name" {
       comment = "column_materializer::properties::$ai_prompt_name"
+    }
+    column "mat_$cookieless_mode" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$cookieless_mode"
     }
     engine "distributed" {
       cluster_name    = "posthog"

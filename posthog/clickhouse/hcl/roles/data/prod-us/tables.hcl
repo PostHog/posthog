@@ -442,6 +442,10 @@ database "posthog" {
       type         = "Nullable(String)"
       materialized = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
     }
+    column "mat_$cookieless_mode" {
+      type    = "Nullable(String)"
+      default = "JSONExtract(properties, '$cookieless_mode', 'Nullable(String)')"
+    }
     index "kafka_timestamp_minmax_sharded_events" {
       expr        = "_timestamp"
       type        = "minmax"

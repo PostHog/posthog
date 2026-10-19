@@ -1421,6 +1421,10 @@ database "posthog" {
       type    = "Nullable(String)"
       comment = "column_materializer::properties::$ai_prompt_name"
     }
+    column "mat_$cookieless_mode" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$cookieless_mode"
+    }
     column "elements_chain" {
       type = "String"
     }
@@ -11855,6 +11859,10 @@ SQL
     column "mat_$ai_experiment_id" {
       type    = "Nullable(String)"
       default = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
+    }
+    column "mat_$cookieless_mode" {
+      type    = "Nullable(String)"
+      default = "JSONExtract(properties, '$cookieless_mode', 'Nullable(String)')"
     }
     column "elements_chain" {
       type = "String"

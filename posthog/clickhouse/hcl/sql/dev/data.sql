@@ -1139,6 +1139,7 @@ CREATE TABLE posthog.sharded_events (
   properties_map_ephemeral Map(String, String),
   person_properties_map_ephemeral Map(String, String),
   mat_$ai_experiment_id Nullable(String) DEFAULT JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)'),
+  mat_$cookieless_mode Nullable(String) DEFAULT JSONExtract(properties, '$cookieless_mode', 'Nullable(String)'),
   INDEX minmax_inserted_at coalesce(inserted_at, _timestamp) TYPE minmax GRANULARITY 1,
   INDEX properties_group_custom_keys_bf mapKeys(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
   INDEX properties_group_custom_values_bf mapValues(properties_group_custom) TYPE bloom_filter GRANULARITY 1,
@@ -2980,7 +2981,8 @@ CREATE TABLE posthog.events (
   dmat_string_8 Nullable(String),
   dmat_string_9 Nullable(String),
   historical_migration Bool,
-  mat_$ai_prompt_name Nullable(String) COMMENT 'column_materializer::properties::$ai_prompt_name'
+  mat_$ai_prompt_name Nullable(String) COMMENT 'column_materializer::properties::$ai_prompt_name',
+  mat_$cookieless_mode Nullable(String) COMMENT 'column_materializer::properties::$cookieless_mode'
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events', sipHash64(distinct_id));
 CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,

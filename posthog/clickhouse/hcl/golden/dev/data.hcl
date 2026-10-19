@@ -1503,6 +1503,10 @@ database "posthog" {
       type    = "Nullable(String)"
       comment = "column_materializer::properties::$ai_prompt_name"
     }
+    column "mat_$cookieless_mode" {
+      type    = "Nullable(String)"
+      comment = "column_materializer::properties::$cookieless_mode"
+    }
     engine "distributed" {
       cluster_name    = "posthog"
       remote_database = "posthog"
@@ -5391,6 +5395,10 @@ database "posthog" {
     column "mat_$ai_experiment_id" {
       type    = "Nullable(String)"
       default = "JSONExtract(properties, '$ai_experiment_id', 'Nullable(String)')"
+    }
+    column "mat_$cookieless_mode" {
+      type    = "Nullable(String)"
+      default = "JSONExtract(properties, '$cookieless_mode', 'Nullable(String)')"
     }
     index "minmax_inserted_at" {
       expr        = "coalesce(inserted_at, _timestamp)"
