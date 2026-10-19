@@ -14,7 +14,7 @@ import { retentionLogic } from '../retentionLogic'
 
 export function RetentionDatePicker(): JSX.Element {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
-    const { dateRange, dateMappings } = useValues(retentionLogic(insightProps))
+    const { dateRange, dateMappings, retentionFilter } = useValues(retentionLogic(insightProps))
     const { updateDateRange } = useActions(retentionLogic(insightProps))
     const { reportInsightDateExclusionsChanged } = useActions(eventUsageLogic)
 
@@ -35,7 +35,7 @@ export function RetentionDatePicker(): JSX.Element {
                     reportInsightDateExclusionsChanged(NodeKind.RetentionQuery, incomplete, 0)
                 }
             }}
-            showIncompletePeriodExclusion
+            showIncompletePeriodExclusion={retentionFilter?.timeWindowMode !== '24_hour_windows'}
             makeLabel={(key) => (
                 <>
                     <IconCalendar /> {key}
