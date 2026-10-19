@@ -1,7 +1,7 @@
 # Web app specific settings/middleware/apps setup
 import os
 import json
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.core.exceptions import ImproperlyConfigured
 
@@ -12,7 +12,13 @@ from whitenoise.compress import Compressor
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
 from posthog.scopes import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
-from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
+from posthog.settings.utils import (
+    generate_rsa_private_key_pem,
+    get_from_env,
+    get_list,
+    str_to_bool,
+    str_to_utc_datetime,
+)
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
 
 logger = structlog.get_logger(__name__)
@@ -43,6 +49,7 @@ AXES_HTTP_RESPONSE_CODE = 403
 # TODO: Automatically generate these like we do for the frontend
 # NOTE: Add these definitions here and on `tach.toml`
 PRODUCTS_APPS = [
+    "products.account_audits.backend.apps.AccountAuditsConfig",
     "products.ai_training.backend.apps.AiTrainingConfig",
     "products.ml_inference.backend.apps.MlInferenceConfig",
     "products.analytics_platform.backend.apps.AnalyticsPlatformConfig",
@@ -98,7 +105,7 @@ PRODUCTS_APPS = [
     "products.platform_features.backend.apps.PlatformFeaturesConfig",
     "products.streamlit_apps.backend.apps.StreamlitAppsConfig",
     "products.legal_documents.backend.apps.LegalDocumentsConfig",
-    "products.github_commands.backend.apps.GithubCommandsConfig",
+    "products.commands.backend.apps.CommandsConfig",
     "products.access_control.backend.apps.AccessControlConfig",
     "products.warehouse_sources_queue.backend.apps.WarehouseSourcesQueueConfig",
     "products.business_knowledge.backend.apps.BusinessKnowledgeConfig",
@@ -128,6 +135,7 @@ PRODUCTS_APPS = [
     "products.webmcp.backend.apps.WebmcpConfig",
     "products.warehouse_suggestions.backend.apps.WarehouseSuggestionsConfig",
     "products.groups.backend.apps.GroupsConfig",
+    "products.subscriptions.backend.apps.SubscriptionsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -638,6 +646,8 @@ SPECTACULAR_SETTINGS = {
             "AggregationEnum": ["sum", "avg", "count", "min", "max", "p95", "rate", "increase", "histogram_quantile"],
             # AutoresearchRun.Status and AutoresearchTrainingRun.Status share this set.
             "ZendeskImportJobStatusEnum": "products.conversations.backend.models.zendesk_import_job.ZendeskImportJob.Status",
+            # Workflow steps and workflow template steps both take a field named `type` with this set.
+            "HogFlowActionTypeEnum": "products.workflows.backend.models.hog_flow.hog_flow.SUPPORTED_ACTION_TYPES",
             #
             # The published name is already derived by a different choice set, so the
             # entry holds this one apart.
@@ -665,10 +675,6 @@ SPECTACULAR_SETTINGS = {
             "ErrorTrackingIssueWritableStatusEnum": ["active", "resolved", "suppressed"],
             # ResolvedAccess types source and source_subject as literals on a dataclass, so no Choices
             # class carries them. The lists are derived from those literals.
-            # today facade enums are StrEnums on generic field names (`group`, `source`, `reason`).
-            "TodayItemGroupEnum": "products.today.backend.facade.enums.ItemGroup",
-            "TodayItemSourceEnum": "products.today.backend.facade.enums.ItemSource",
-            "TodayItemReasonEnum": "products.today.backend.facade.enums.ItemReason",
             "ResolvedAccessSourceEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_CHOICES",
             "ResolvedAccessSourceSubjectEnum": "products.access_control.backend.facade.enums.RESOLVED_ACCESS_SOURCE_SUBJECT_CHOICES",
             "RuleResourceEnum": "products.access_control.backend.facade.user_access_control.RULE_RESOURCE_CHOICES",
@@ -890,6 +896,8 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 # Deploy-static source catalog (no user input or secrets reflected): several
                 # hundred KB of JSON that compresses ~7x.
                 "^/?api/(environments|projects)/(\\d+|@current)/external_data_sources/wizard/?$",
+                # The wizard tool catalog: deploy-static public JSON that compresses ~5x.
+                "^/?api/wizard/tool_catalog/?$",
                 "^/?api/instance_status/?$",
                 "^/array/.*$",
             ]
@@ -1268,6 +1276,14 @@ OAUTH2_PROVIDER_REFRESH_TOKEN_MODEL = "posthog.OAuthRefreshToken"
 OAUTH2_PROVIDER_ID_TOKEN_MODEL = "posthog.OAuthIDToken"
 OAUTH2_PROVIDER_GRANT_MODEL = "posthog.OAuthGrant"
 
+# A provisioning partner whose app predates the signing requirement may call unsigned until the grace period ends.
+PROVISIONING_SIGNING_REQUIRED_SINCE: datetime = get_from_env(
+    "PROVISIONING_SIGNING_REQUIRED_SINCE", datetime(2026, 10, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
+PROVISIONING_UNSIGNED_GRACE_UNTIL: datetime = get_from_env(
+    "PROVISIONING_UNSIGNED_GRACE_UNTIL", datetime(2026, 10, 23, 16, tzinfo=UTC), type_cast=str_to_utc_datetime
+)
+
 ID_JAG_ACCESS_TOKEN_TTL_SECONDS: int = get_from_env("ID_JAG_ACCESS_TOKEN_TTL_SECONDS", 60 * 60 * 2, type_cast=int)
 ID_JAG_CLOCK_SKEW_SECONDS: int = get_from_env("ID_JAG_CLOCK_SKEW_SECONDS", 30, type_cast=int)
 # IdPs issue ID-JAGs for immediate use (5 minutes is typical); the cap leaves headroom above that.
@@ -1348,11 +1364,6 @@ WIZARD_GATEWAY_CLIENT_IDS = [
     client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
 ]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
-# Wizard programs that may mint, each getting its own pinned product node and so
-# its own per-program budget and mint quota. The list is authoritative: a program
-# absent here is refused, not folded into a generic node, so listing a new program
-# is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
-WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 # Per-posture limits, JSON {"new"|"active"|"paid": {"cap_usd", "max_cap_usd",
 # "mints_per_week", "ttl_seconds"}}, each field optional and falling back to that
@@ -1391,10 +1402,8 @@ DESKTOP_GATEWAY_TOKEN_CAP_USD = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD", "2
 DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES = get_from_env("DESKTOP_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
 # A plan, access or membership change outlives a token by at most this long. All mints share the
 # gateway's relay-key mint ceiling, so a shorter TTL supports fewer concurrent sessions; past it the
-# gateway answers 429 and the app stays on the legacy gateway.
+# gateway answers 429 and the mint fails.
 DESKTOP_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("DESKTOP_GATEWAY_TOKEN_TTL_SECONDS", 300, type_cast=int)
-# Org-targeted; gates the desktop mint and the sandbox worker's posthog_code mint alike.
-DESKTOP_GATEWAY_ROLLOUT_FLAG = get_from_env("DESKTOP_GATEWAY_ROLLOUT_FLAG", "posthog-desktop-ai-gateway")
 # Per-user mint ceiling because OAuth callers skip DRF's default throttles. At the default TTL each
 # open project on each device mints about 13 times an hour.
 DESKTOP_GATEWAY_MINTS_PER_HOUR = get_from_env("DESKTOP_GATEWAY_MINTS_PER_HOUR", 120, type_cast=int)
@@ -1556,3 +1565,5 @@ WEB_ANALYTICS_SESSION_ID_SET_TEAM_IDS: list[int] = [
 # header, so those consumers must reconnect from their onerror handler.
 # 0 rejects every stream (emergency lever).
 SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS = get_from_env("SSE_MAX_CONCURRENT_STREAMS_PER_PROCESS", 500, type_cast=int)
+
+CONTEXT_SELECTION_TIMEOUT_SECONDS = 3.0

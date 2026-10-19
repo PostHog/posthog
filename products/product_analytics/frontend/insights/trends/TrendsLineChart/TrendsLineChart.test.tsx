@@ -252,7 +252,10 @@ describe('TrendsLineChart', () => {
         it('shows zero-count series alongside active ones', async () => {
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                 }),
             })
 
@@ -506,7 +509,10 @@ describe('TrendsLineChart', () => {
         it('renders without crashing when series contain zero values', async () => {
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                     trendsFilter: { yAxisScaleType: 'log10' },
                 }),
             })
@@ -596,7 +602,10 @@ describe('TrendsLineChart', () => {
             // later series (here, ActiveSeries) had real counts.
             renderInsight({
                 query: buildTrendsQuery({
-                    series: [{ kind: NodeKind.EventsNode, event: 'ZeroCounts', name: 'ZeroCounts' }],
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'EmptySeries', name: 'EmptySeries' },
+                        { kind: NodeKind.EventsNode, event: 'ActiveSeries', name: 'ActiveSeries' },
+                    ],
                 }),
             })
 

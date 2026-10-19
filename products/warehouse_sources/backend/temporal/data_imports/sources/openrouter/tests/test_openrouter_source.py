@@ -9,7 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.openrouter.source import OpenRouterSource
 
-MANAGEMENT_ENDPOINTS = ["activity", "api_keys", "credits", "organization_members", "workspaces"]
+MANAGEMENT_ENDPOINTS = ["activity", "api_keys", "credits", "end_users", "organization_members", "workspaces"]
 CATALOG_ENDPOINTS = ["models", "providers"]
 
 
@@ -60,3 +60,14 @@ class TestOpenRouterSource:
             assert result[name] is None
         for name in MANAGEMENT_ENDPOINTS:
             assert result[name] is not None
+
+    def test_batches_rejected_for_management_key(self):
+        with _patch_key_info({"is_management_key": True}):
+            ok, error = self.source.validate_credentials(self.config, self.team_id, schema_name="batches")
+            result = self.source.get_endpoint_permissions(
+                self.config, self.team_id, ["batches", *MANAGEMENT_ENDPOINTS, *CATALOG_ENDPOINTS]
+            )
+        assert ok is False
+        assert error is not None
+        assert result.pop("batches") is not None
+        assert all(reason is None for reason in result.values())

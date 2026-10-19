@@ -255,6 +255,7 @@ dev = [
     "orjson==3.11.9",
     "packaging==25.0",
     "parameterized==0.9.0",
+    "prompt-toolkit~=3.0.51",
     "prance==23.6.21.0",
     "pyarrow==23.0.1",
     "pyarrow-stubs==20.0.0.20260625",
@@ -302,8 +303,8 @@ sentiment = [
     "optimum[onnxruntime]~=1.25.0",
     "torch~=2.9.0",
 ]
-# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Dev only:
-# no image installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
+# The inbox ranking multi-head network (products/signals/dags/inbox_ranking/multihead/). Only
+# Dockerfile.dagster-ml installs it. torch comes from the CPU wheel index, see [tool.uv.sources].
 inbox-ranking = [
     "onnx~=1.21.0",
     "onnxruntime~=1.30.0",
@@ -760,6 +761,14 @@ ignore_imports = [
     "products.batch_exports.backend.presentation.views.batch_export.exports -> products.batch_exports.backend.temporal.sql.events",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.models.batch_export",
     "products.batch_exports.backend.presentation.views.batch_export.runs -> products.batch_exports.backend.service",
+    # TODO: subscriptions presentation wave. The viewsets and model serializers moved from ee/
+    # with their ORM access: the product's own subscription models and the dashboard models
+    # behind dashboard and tile selection. Thin them to parse -> facade -> serialize and delete
+    # each entry. backend:contract-check stays off until this list is empty.
+    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard",
+    "products.subscriptions.backend.presentation.views -> products.dashboards.backend.models.dashboard_tile",
+    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription",
+    "products.subscriptions.backend.presentation.views -> products.subscriptions.backend.models.subscription_context",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
@@ -814,7 +823,6 @@ ignore_imports = [
     "products.reminders.backend.routes -> products.reminders.backend.api.reminder",
     "products.replay_vision.backend.routes -> products.replay_vision.backend.api",
     "products.revenue_analytics.backend.routes -> products.revenue_analytics.backend.api",
-    "products.review_hog.backend.routes -> products.review_hog.backend.api",
     "products.signals.backend.routes -> products.signals.backend.views",
     "products.signals.backend.routes -> products.signals.backend.scout_chat",
     "products.signals.backend.routes -> products.signals.backend.scout_harness.views",

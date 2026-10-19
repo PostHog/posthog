@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
@@ -141,9 +142,32 @@ class TestFanout:
         assert result.raised is None
         assert result.paths[1] == f"/{endpoint}"
         assert result.requests[1].param(resolve_param) == parent_id
+        assert result.requests[1].param("value_date_from") is None
         assert result.requests[2].param("after") == "X1"
         assert [row["type"] for row in result.rows] == ["a", "b"]
         assert all(row[injected_key] == parent_id for row in result.rows)
+
+    @time_machine.travel(datetime(2026, 3, 31, 23, 30, tzinfo=UTC), tick=False)
+    def test_payment_account_transactions_are_fetched_per_account_with_value_date_range(self) -> None:
+        result = _driver().run(
+            "payment_account_transactions",
+            [
+                _page("payment_accounts", [{"id": "BA1"}]),
+                _page("payment_account_transactions", [{"id": "PATR1"}], after="PATR1"),
+                _page("payment_account_transactions", [{"id": "PATR2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [
+            "/payment_accounts",
+            "/payment_accounts/BA1/transactions",
+            "/payment_accounts/BA1/transactions",
+        ]
+        assert result.params("value_date_from") == [None, "2015-01-01", "2015-01-01"]
+        assert result.params("value_date_to") == [None, "2026-04-01", "2026-04-01"]
+        assert result.requests[2].param("after") == "PATR1"
+        assert [(row["id"], row["payment_account_id"]) for row in result.rows] == [("PATR1", "BA1"), ("PATR2", "BA1")]
 
     def test_balances_lists_every_creditor(self) -> None:
         result = _driver().run("balances", [_page("creditors", [{"id": "CR1"}]), _page("balances", [])])
@@ -163,11 +187,10 @@ class TestGoCardlessSourceResponse:
         response = result.response
         assert response is not None
         assert response.name == endpoint
-        if config.primary_key is None:
-            assert response.primary_keys is None
+        assert response.primary_keys == ([config.primary_key] if config.primary_key else None)
+        if config.partition_key is None:
             assert response.partition_keys is None
             return
-        assert response.primary_keys == [config.primary_key]
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["created_at"]
         # Lists are reverse-chronological; only the incremental events stream
