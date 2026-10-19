@@ -13,10 +13,13 @@ permissions:
 jobs:
     stack-depth:
         name: Stack depth
-        # The merge queue's batch PR is not a stack layer. The skip sits here, not on the
-        # caller job, because a skipped caller reports only `stack-depth` and never the
+        # `stack.position` counts merged layers too, so it is an upper bound on the open
+        # depth and a PR at position 5 or lower cannot fail. Keep 5 equal to MAX_OPEN_DEPTH
+        # in check-stack-depth.mjs. A PR outside a stack, which
+        # includes every merge queue batch PR, has no `stack`. The skip sits here, not on
+        # the caller job, because a skipped caller reports only `stack-depth` and never the
         # `stack-depth / Stack depth` context that the ruleset requires.
-        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
+        if: ${{ github.event.pull_request.stack.position > 5 }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
 

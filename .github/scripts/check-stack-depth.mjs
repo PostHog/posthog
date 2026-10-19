@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 import {
@@ -62,16 +63,16 @@ async function main() {
     }
     const { token, repo, prNumber } = context
 
+    const event = JSON.parse(fs.readFileSync(process.env.GITHUB_EVENT_PATH, 'utf-8'))
     let stack
     try {
-        const pr = await gh(token, `/repos/${repo}/pulls/${prNumber}`)
-        stack = pr.stack ? await gh(token, `/repos/${repo}/stacks/${pr.stack.number}`) : null
+        stack = await gh(token, `/repos/${repo}/stacks/${event.pull_request.stack.number}`)
     } catch (err) {
         await markUnchecked(context, err.message)
         return
     }
 
-    const depth = stack ? openDepth(stack, prNumber) : 0
+    const depth = openDepth(stack, prNumber)
     if (depth <= MAX_OPEN_DEPTH) {
         await clearSectionIfPresent({
             id: SECTION_ID,
