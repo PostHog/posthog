@@ -92,6 +92,14 @@ RIPPLING_ENDPOINTS: dict[str, RipplingEndpointConfig] = {
         path="/compensations",
         partition_key="created_at",
     ),
+    # Variable compensation payouts accept no OData filter and no order_by, so full refresh only.
+    "variable_compensation_payouts": RipplingEndpointConfig(
+        name="variable_compensation_payouts",
+        path="/variable-compensation-payouts",
+        incremental_fields=[],
+        partition_key="created_at",
+        order_by=None,
+    ),
     # Time entries filter on updated_at but not on created_at.
     "time_entries": RipplingEndpointConfig(
         name="time_entries",
