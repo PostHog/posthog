@@ -85,11 +85,16 @@ mod tests {
     use std::num::NonZeroU64;
 
     use common_kafka_consumer::{Held, Offset};
+    use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
     use super::*;
 
     fn p0() -> TopicPartition {
         TopicPartition::new("events", 0)
+    }
+
+    fn p1() -> TopicPartition {
+        TopicPartition::new("events", 1)
     }
 
     fn events(events: u64) -> Charge {
@@ -123,17 +128,18 @@ mod tests {
         assert_eq!(budget.charged(&p0(), events(12)), None);
     }
 
-    fn hand_out_leaving(budget: &PartitionBudget, remaining_events: u64) -> Vec<TopicPartition> {
-        budget.handed_out(&HashMap::from([(
-            p0(),
-            HandedOut {
-                offset: Offset(1),
-                remaining: Held {
-                    offsets: remaining_events as usize,
-                    charge: events(remaining_events),
-                },
+    fn handed_out(remaining_events: u64) -> HandedOut {
+        HandedOut {
+            offset: Offset(1),
+            remaining: Held {
+                offsets: remaining_events as usize,
+                charge: events(remaining_events),
             },
-        )]))
+        }
+    }
+
+    fn hand_out_leaving(budget: &PartitionBudget, remaining_events: u64) -> Vec<TopicPartition> {
+        budget.handed_out(&HashMap::from([(p0(), handed_out(remaining_events))]))
     }
 
     #[rstest::rstest]
@@ -177,5 +183,66 @@ mod tests {
         budget.forget_partitions(&[p0()]);
 
         assert_eq!(budget.charged(&p0(), events(10)), Some(Pause));
+    }
+
+    #[derive(Debug, PartialEq)]
+    struct Recorded {
+        paused_partitions: f64,
+        pauses: HashMap<String, u64>,
+    }
+
+    fn recorded(snapshotter: &Snapshotter) -> Recorded {
+        let mut recorded = Recorded {
+            paused_partitions: f64::NAN,
+            pauses: HashMap::new(),
+        };
+        for (key, _, _, value) in snapshotter.snapshot().into_vec() {
+            match (key.key().name(), value) {
+                (PAUSED_PARTITIONS, DebugValue::Gauge(value)) => {
+                    recorded.paused_partitions = value.into_inner();
+                }
+                (PAUSES, DebugValue::Counter(count)) => {
+                    let partition = key
+                        .key()
+                        .labels()
+                        .find(|label| label.key() == "partition")
+                        .expect("a partition label")
+                        .value()
+                        .to_string();
+                    recorded.pauses.insert(partition, count);
+                }
+                _ => {}
+            }
+        }
+        recorded
+    }
+
+    #[test]
+    fn the_metrics_follow_pauses_resumes_and_revokes() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let budget = budget_of_10_events_resuming_under_8();
+
+        budget.charged(&p0(), events(10));
+        budget.charged(&p1(), events(10));
+        budget.charged(&p0(), events(12));
+        assert_eq!(
+            recorded(&snapshotter),
+            Recorded {
+                paused_partitions: 2.0,
+                pauses: HashMap::from([("0".to_string(), 1), ("1".to_string(), 1)]),
+            }
+        );
+
+        let resume = budget.handed_out(&HashMap::from([
+            (p0(), handed_out(0)),
+            (p1(), handed_out(9)),
+        ]));
+        assert_eq!(resume, vec![p0()]);
+        assert_eq!(recorded(&snapshotter).paused_partitions, 1.0);
+
+        budget.forget_partitions(&[p1()]);
+        assert_eq!(recorded(&snapshotter).paused_partitions, 0.0);
     }
 }

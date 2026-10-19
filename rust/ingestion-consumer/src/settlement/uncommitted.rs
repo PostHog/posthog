@@ -153,12 +153,23 @@ mod tests {
         Uncommitted::new(Arc::new(TopicOffsetLedger::new()), CommitPacer::immediate())
     }
 
-    fn published(snapshotter: &Snapshotter) -> Held {
+    fn published(snapshotter: &Snapshotter, topic_partition: &TopicPartition) -> Held {
+        let partition = topic_partition.partition.to_string();
         let mut published = Held::default();
         for (key, _, _, value) in snapshotter.snapshot().into_vec() {
             let DebugValue::Gauge(value) = value else {
                 continue;
             };
+            let labelled =
+                key.key()
+                    .labels()
+                    .any(|label| label.key() == "partition" && label.value() == partition)
+                    && key.key().labels().any(|label| {
+                        label.key() == "topic" && label.value() == topic_partition.topic
+                    });
+            if !labelled {
+                continue;
+            }
             let value = value.into_inner();
             match key.key().name() {
                 UNCOMMITTED_OFFSETS => published.offsets = value as usize,
@@ -237,6 +248,48 @@ mod tests {
     }
 
     #[test]
+    fn a_hand_out_carries_each_partitions_own_remaining_charge() {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        let uncommitted = uncommitted();
+        let p1 = TopicPartition::new("events", 1);
+        charge(&uncommitted, 0, 10);
+        charge(&uncommitted, 0, 11);
+        for offset in [20, 21, 22] {
+            uncommitted
+                .charge(&p1, 0, &[(Offset(offset), EACH)])
+                .expect("the ledger accepts the charge");
+        }
+        settled(&uncommitted, &[10]);
+        uncommitted
+            .settled(&p1, 0, [Offset(20)])
+            .expect("the ledger settles");
+
+        assert_eq!(
+            uncommitted.take_due(Instant::now()).expect("due"),
+            HashMap::from([
+                (
+                    p0(),
+                    HandedOut {
+                        offset: Offset(11),
+                        remaining: held(1),
+                    }
+                ),
+                (
+                    p1.clone(),
+                    HandedOut {
+                        offset: Offset(21),
+                        remaining: held(2),
+                    }
+                ),
+            ])
+        );
+        assert_eq!(published(&snapshotter, &p0()), held(1));
+        assert_eq!(published(&snapshotter, &p1), held(2));
+    }
+
+    #[test]
     fn a_forgotten_partition_drops_its_window_and_its_pending_take() {
         let uncommitted = uncommitted();
         charge(&uncommitted, 0, 10);
@@ -282,15 +335,19 @@ mod tests {
 
         charge(&uncommitted, 0, 10);
         charge(&uncommitted, 0, 11);
-        assert_eq!(published(&snapshotter), held(2));
+        assert_eq!(published(&snapshotter, &p0()), held(2));
 
         settled(&uncommitted, &[10]);
-        assert_eq!(published(&snapshotter), held(2), "a take moves the charge");
+        assert_eq!(
+            published(&snapshotter, &p0()),
+            held(2),
+            "a take moves the charge"
+        );
 
         uncommitted.take_due(Instant::now()).expect("due");
-        assert_eq!(published(&snapshotter), held(1));
+        assert_eq!(published(&snapshotter, &p0()), held(1));
 
         uncommitted.forget_partitions(&[p0()]);
-        assert_eq!(published(&snapshotter), Held::default());
+        assert_eq!(published(&snapshotter, &p0()), Held::default());
     }
 }
