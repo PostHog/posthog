@@ -365,6 +365,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 raise serializers.ValidationError(
                     {"short_id": "short_id must be an alphanumeric string up to 12 characters."}
                 )
+            # A PostHog AI artifact card reuses its artifact ID, so a notebook with this ID can already exist.
+            if Notebook.objects.filter(team=team, short_id=short_id).exists():
+                raise Conflict("A notebook with this short_id already exists.")
             validated_data["short_id"] = short_id
 
         # Counted before conversion, so the event keeps reporting the size of the document the caller sent.

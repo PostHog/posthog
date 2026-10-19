@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { addProductIntent } from 'lib/utils/product-intents'
@@ -220,12 +220,24 @@ export const notebooksModel = kea<notebooksModelType>([
             [] as NotebookListItemType[],
             {
                 createNotebook: async ({ title, location, content, onCreate, shortId }) => {
-                    const notebook = await api.notebooks.create({
-                        title,
-                        content: defaultNotebookContent(title, content),
-                        _create_in_folder: getLastNewFolder(),
-                        ...(shortId ? { short_id: shortId } : {}),
-                    })
+                    let notebook: NotebookType
+                    try {
+                        notebook = await api.notebooks.create({
+                            title,
+                            content: defaultNotebookContent(title, content),
+                            _create_in_folder: getLastNewFolder(),
+                            ...(shortId ? { short_id: shortId } : {}),
+                        })
+                    } catch (error) {
+                        // A notebook with the requested short ID is already saved, so open it instead.
+                        if (shortId && error instanceof ApiError && error.status === 409) {
+                            await openNotebook(shortId, location, (logic) => {
+                                onCreate?.(logic)
+                            })
+                            return values.notebooks
+                        }
+                        throw error
+                    }
 
                     await openNotebook(notebook.short_id, location, (logic) => {
                         onCreate?.(logic)
