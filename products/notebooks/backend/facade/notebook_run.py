@@ -13,6 +13,7 @@ from ..notebook_run import (
     NotebookRunStarted as NotebookRunStarted,
     NotebookRunStopped as NotebookRunStopped,
     fail_notebook_run as fail_notebook_run,
+    notebook_saves_warehouse_tables as notebook_saves_warehouse_tables,
     read_notebook_run as read_notebook_run,
     start_notebook_run as start_notebook_run,
     stop_notebook_run as stop_notebook_run,

@@ -6,7 +6,6 @@ posthog/urls.py at internal/notebooks/runs/<run_id>/result/.
 """
 
 import json
-from typing import Any
 
 from django.core import signing
 from django.db.models import Q
@@ -16,16 +15,13 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from posthog.exceptions_capture import capture_exception
-
-from products.data_modeling.backend.facade.api import sync_notebook_table_to_dag
-from products.data_warehouse.backend.facade.api import NotebookTableError, save_notebook_table
 from products.notebooks.backend.models import KernelRuntime, NotebookNodeRun
 from products.notebooks.backend.sql_v2 import verify_callback_token
 from products.notebooks.backend.sql_v2_concurrency import release_run_slots
 from products.notebooks.backend.sql_v2_metrics import outcome_for_status, record_node_run_terminal
 from products.notebooks.backend.sql_v2_serializers import NotebookSQLV2CallbackRequestSerializer
-from products.notebooks.backend.sql_v2_state import upstream_hogql_queries
+from products.notebooks.backend.tasks.warehouse_tables import save_notebook_warehouse_table
+from products.notebooks.backend.warehouse_tables import upload_outcome
 
 logger = structlog.get_logger(__name__)
 
@@ -106,7 +102,8 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
     run.status = status_by_envelope.get(envelope.get("status"), NotebookNodeRun.Status.FAILED)
     warehouse_upload = envelope.pop("warehouse_upload", None)
     if run.status == NotebookNodeRun.Status.DONE and run.warehouse_table_name:
-        envelope["warehouse_table"] = _save_warehouse_table(run, team_id, warehouse_upload)
+        envelope["warehouse_table"] = upload_outcome(run.warehouse_table_name, warehouse_upload)
+    stored_warehouse_table = run.envelope.get("warehouse_table") if isinstance(run.envelope, dict) else None
     run.envelope = envelope
     run.result_id = envelope.get("result_id")
     run.error = envelope.get("error")
@@ -126,7 +123,12 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         )
     )
     if not won_transition:
+        if stored_warehouse_table is not None:
+            # Only the winning delivery saves the table, so a re-delivery keeps its outcome.
+            envelope["warehouse_table"] = stored_warehouse_table
         run.save(update_fields=["status", "envelope", "result_id", "error", "updated_at"])
+    elif envelope.get("warehouse_table", {}).get("pending"):
+        save_notebook_warehouse_table.delay(team_id, str(run.id))
 
     _store_frame_snapshot(run, frames, team_id)
 
@@ -139,38 +141,6 @@ def notebook_sql_v2_callback(request, run_id: str) -> JsonResponse:
         record_node_run_terminal(run, outcome_for_status(run.status))
 
     return JsonResponse({"ok": True})
-
-
-def _save_warehouse_table(run: NotebookNodeRun, team_id: int, upload: Any) -> dict[str, str | None]:
-    """Point the run's warehouse table at the Parquet object the sandbox uploaded.
-
-    The name comes from the run row, not the envelope: the sandbox runs user code, so it only
-    reports whether the upload worked.
-    """
-    name = run.warehouse_table_name or ""
-    if not isinstance(upload, dict) or upload.get("ok") is not True:
-        error = upload.get("error") if isinstance(upload, dict) else None
-        return {"name": name, "error": str(error or "The sandbox didn't upload the dataframe.")}
-    try:
-        table_id = save_notebook_table(team_id, name, run.user_id)
-    except NotebookTableError as e:
-        return {"name": name, "error": str(e)}
-    except Exception as e:
-        capture_exception(e)
-        return {"name": name, "error": "The warehouse table couldn't be saved."}
-    try:
-        sync_notebook_table_to_dag(
-            team_id,
-            name,
-            table_id,
-            upstream_hogql_queries(team_id, run.notebook, run.node_id),
-            run.notebook.short_id,
-            run.node_id,
-        )
-    except Exception as e:
-        # The table is saved. Lineage is extra, so a failure here must not report the save as failed.
-        capture_exception(e)
-    return {"name": name, "error": None}
 
 
 def _store_frame_snapshot(run: NotebookNodeRun, frames: list | None, team_id: int) -> None:

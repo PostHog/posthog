@@ -290,7 +290,12 @@ class NotebookSQLV2WarehouseTableSerializer(serializers.Serializer):
     error = serializers.CharField(
         required=False,
         allow_null=True,
-        help_text="Why the table wasn't saved. Absent or null when the save succeeded.",
+        help_text="Why the table wasn't saved. Absent or null when the save succeeded or is still pending.",
+    )
+    pending = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="True while the table is still being saved after the run finished. Poll the run result again.",
     )
 
 

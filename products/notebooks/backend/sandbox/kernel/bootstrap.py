@@ -612,19 +612,31 @@ class KernelSession:
         """PUT the frame as Parquet to the presigned warehouse URL; return {"ok": bool, "error": str}."""
         if df is None:
             return {"ok": False, "error": "This run didn't produce a dataframe to save."}
+        # Written to disk and streamed from there, so the upload adds no second copy of the frame
+        # to the kernel's memory.
+        path = os.path.join(self._results_dir, f"warehouse-{uuid.uuid4()}.parquet")
         try:
-            buffer = io.BytesIO()
-            pq.write_table(pa.Table.from_pandas(df, preserve_index=False), buffer)
-            request = urllib.request.Request(upload_url, data=buffer.getvalue(), method="PUT")
-            # upload_url is a presigned object-store URL from the signed run payload, never user-controlled.
-            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
-            with urllib.request.urlopen(request, timeout=_WAREHOUSE_UPLOAD_TIMEOUT_SECONDS):
-                pass
+            pq.write_table(pa.Table.from_pandas(df, preserve_index=False), path)
+            with open(path, "rb") as body:
+                request = urllib.request.Request(
+                    upload_url,
+                    data=body,
+                    method="PUT",
+                    # A presigned PUT refuses a chunked body, so the length has to be known up front.
+                    headers={"Content-Length": str(os.path.getsize(path))},
+                )
+                # upload_url is a presigned object-store URL from the signed run payload, never user-controlled.
+                # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+                with urllib.request.urlopen(request, timeout=_WAREHOUSE_UPLOAD_TIMEOUT_SECONDS):
+                    pass
         except (pa.ArrowException, ValueError, TypeError) as exc:
             return {"ok": False, "error": f"The dataframe can't be written as a table: {exc}"}
         except Exception:  # noqa: BLE001 — a failed upload must not fail a run whose compute succeeded
             logger.exception("nb_kernel warehouse table upload failed")
             return {"ok": False, "error": "The dataframe couldn't be uploaded to the warehouse."}
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
         return {"ok": True}
 
     def _write_result_frame(self, df: "pd.DataFrame") -> str | None:

@@ -205,6 +205,12 @@ def start_notebook_run(
     )
 
 
+def notebook_saves_warehouse_tables(*, team_id: int, notebook_short_id: str) -> bool:
+    """Whether a whole-notebook run would save any cell's dataframe as a warehouse table."""
+    notebook = resolve_team_notebook(team_id, notebook_short_id)
+    return any(cell.warehouse_table_name for cell in extract_cells(notebook.content))
+
+
 def read_notebook_run(*, team_id: int, notebook_short_id: str, run_id: str | UUID) -> dict[str, Any] | None:
     """One run as a client reads it, or None when this notebook has no such run."""
     notebook = resolve_team_notebook(team_id, notebook_short_id)
@@ -440,6 +446,7 @@ __all__ = [
     "interrupt_notebook_run",
     "node_run_request_for",
     "notebook_run_status",
+    "notebook_saves_warehouse_tables",
     "plan_notebook_cells",
     "start_notebook_run",
     "stop_current_cell",

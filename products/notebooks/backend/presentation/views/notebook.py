@@ -45,6 +45,7 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
 from posthog.models.utils import UUIDT
+from posthog.permissions import get_authenticator_scopes
 from posthog.renderers import ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
@@ -81,6 +82,7 @@ from products.notebooks.backend.facade.notebook_run import (
     NotebookRunInput,
     NotebookRunNothingToRun,
     fail_notebook_run,
+    notebook_saves_warehouse_tables,
     read_notebook_run,
     start_notebook_run,
     start_notebook_run_workflow,
@@ -753,6 +755,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # (which carry no scopes) and enforces real RBAC for tokens too.
         if not self._has_query_access():
             raise PermissionDenied("You need query access to run SQL in a notebook.")
+
+    def _require_warehouse_write_scope(self) -> None:
+        # Saving a run's dataframe writes a warehouse table, which the table API gates behind
+        # warehouse_table:write. A token must carry it too. Sessions carry no scopes, and the
+        # dispatch checks their warehouse access control instead.
+        scopes = get_authenticator_scopes(self.request.successful_authenticator)
+        if scopes is not None and "*" not in scopes and "warehouse_table:write" not in scopes:
+            raise PermissionDenied("Saving a warehouse table needs a token with the warehouse_table:write scope.")
 
     def _require_run_connection_access(self, run: NotebookNodeRun, user: User | None) -> None:
         # Dispatch resolved the source for the user who ran the cell, but the run row outlives
@@ -2005,6 +2015,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
+        if serializer.validated_data["warehouse_table_name"]:
+            self._require_warehouse_write_scope()
 
         node_type = serializer.validated_data["node_type"]
         # Only SQL nodes carry a connection; python always runs in the kernel against PostHog.
@@ -2085,6 +2097,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             raise Http404()
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
+        if notebook_saves_warehouse_tables(team_id=self.team_id, notebook_short_id=notebook.short_id):
+            self._require_warehouse_write_scope()
 
         try:
             # One transaction, because a refused run must not leave the variables changed.

@@ -4708,6 +4708,7 @@ const api = {
                 stderr?: string
                 media?: { mime_type: string; data: string }[]
                 result_text?: string
+                warehouse_table?: { name: string; error?: string | null; pending?: boolean }
             } | null
             error: string | null
             // Direct (no-sandbox) runs only: the full capped row set for client-side paging,

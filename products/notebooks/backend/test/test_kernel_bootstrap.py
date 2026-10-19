@@ -3,7 +3,7 @@ import os
 import json
 import tempfile
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -46,7 +46,15 @@ class TestKernelSessionRunNode(SimpleTestCase):
         ]
     )
     def test_uploads_the_frame_as_parquet_to_the_warehouse_url(self, _name, code, expected):
-        with patch("products.notebooks.backend.sandbox.kernel.bootstrap.urllib.request.urlopen") as urlopen:
+        uploaded: dict[str, bytes] = {}
+
+        def read_body(request, timeout):
+            uploaded["body"] = request.data.read()
+            return MagicMock()
+
+        with patch(
+            "products.notebooks.backend.sandbox.kernel.bootstrap.urllib.request.urlopen", side_effect=read_body
+        ) as urlopen:
             envelope = self.session.run_node(
                 {"node": {"type": "python", "code": code, "warehouse_upload_url": "https://bucket.example.com/put"}}
             )
@@ -55,7 +63,8 @@ class TestKernelSessionRunNode(SimpleTestCase):
         if expected["ok"]:
             request = urlopen.call_args.args[0]
             self.assertEqual((request.method, request.full_url), ("PUT", "https://bucket.example.com/put"))
-            self.assertEqual(pq.read_table(io.BytesIO(request.data)).to_pydict(), {"a": [1, 2]})
+            self.assertEqual(pq.read_table(io.BytesIO(uploaded["body"])).to_pydict(), {"a": [1, 2]})
+            self.assertEqual(request.get_header("Content-length"), str(len(uploaded["body"])))
         else:
             urlopen.assert_not_called()
 

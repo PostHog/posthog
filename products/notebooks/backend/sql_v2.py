@@ -459,7 +459,7 @@ def dispatch_sql_v2_run(
             # The URL only reaches the key for this team and table name, so the sandbox can't
             # write anywhere else in the bucket.
             payload["node"]["warehouse_upload_url"] = presign_notebook_table_upload(
-                notebook.team_id, run.warehouse_table_name
+                notebook.team_id, run.warehouse_table_name, str(run.id)
             )
         payload["inputs"] = inputs or []
     else:

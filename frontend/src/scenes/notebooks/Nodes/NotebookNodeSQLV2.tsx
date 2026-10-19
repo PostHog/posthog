@@ -38,8 +38,10 @@ export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
 
 export type NotebookNodeSQLV2WarehouseTable = {
     name: string
-    // Why the save failed, or null when it worked.
+    // Why the save failed, or null when it worked or is still pending.
     error?: string | null
+    // True while the backend is still saving the table after the run finished.
+    pending?: boolean
 }
 
 export type NotebookNodeSQLV2Result = {

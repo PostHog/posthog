@@ -9,8 +9,9 @@ from django.test.utils import CaptureQueriesContext
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 
 from products.notebooks.backend.models import Notebook, NotebookNodeRun, NotebookRun
 from products.notebooks.backend.notebook_run import node_run_request_for, plan_notebook_cells
@@ -123,6 +124,31 @@ class TestNotebookRunEndpoints(APIBaseTest):
             assert mock_start.call_args.args[0].node_ids == ["insight"]
         else:
             mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("saves_a_table", 'saveToWarehouse={true} warehouseTableName="scores"', 403),
+            ("saves_nothing", "", 200),
+        ]
+    )
+    def test_token_without_warehouse_scope_cannot_run_a_notebook_that_saves_tables(
+        self, mock_start: MagicMock, _flag: MagicMock, _name: str, props: str, expected_status: int
+    ) -> None:
+        self.notebook.content = markdown_content(f'<PythonV2 nodeId="p1" code="df = 1" returnVariable="df" {props} />')
+        self.notebook.save(update_fields=["content"])
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user,
+            label="notebook-key",
+            secure_value=hash_key_value(key_value),
+            scopes=["notebook:write", "query:read"],
+        )
+        self.client.logout()
+
+        response = self.client.post(self.runs_url, data={}, format="json", HTTP_AUTHORIZATION=f"Bearer {key_value}")
+
+        assert response.status_code == expected_status
+        assert mock_start.called == (expected_status == 200)
 
     def test_a_notebook_with_nothing_to_run_is_refused(self, mock_start, _flag) -> None:
         notebook = Notebook.objects.create(

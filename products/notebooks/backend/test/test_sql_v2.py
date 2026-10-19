@@ -35,14 +35,14 @@ from posthog import redis
 from posthog.clickhouse.client.execute_async import QueryNotFoundError
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import UUIDT
+from posthog.models.utils import UUIDT, generate_random_token_personal, hash_key_value
 from posthog.uuidt import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.data_warehouse.backend.facade.api import NotebookTableError
 from products.notebooks.backend import sql_v2_concurrency
 from products.notebooks.backend.kernel_package import kernel_package_bytes_and_hash
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun, NotebookRun
@@ -305,47 +305,32 @@ class TestSQLV2Callback(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("saved", {"ok": True}, None, {"name": "scores", "error": None}),
-            ("upload_failed", {"ok": False, "error": "No frame."}, None, {"name": "scores", "error": "No frame."}),
-            ("upload_missing", None, None, {"name": "scores", "error": "The sandbox didn't upload the dataframe."}),
-            (
-                "save_refused",
-                {"ok": True},
-                NotebookTableError("Name taken."),
-                {"name": "scores", "error": "Name taken."},
-            ),
+            ("uploaded", {"ok": True}, {"name": "scores", "error": None, "pending": True}),
+            ("upload_failed", {"ok": False, "error": "No frame."}, {"name": "scores", "error": "No frame."}),
+            ("upload_missing", None, {"name": "scores", "error": "The sandbox didn't upload the dataframe."}),
         ]
     )
-    def test_saves_the_warehouse_table_the_run_asked_for(self, _name, upload, save_error, expected):
+    def test_hands_the_warehouse_table_save_to_a_task(self, _name, upload, expected):
         NotebookNodeRun.objects.for_team(self.team.id).filter(id=self.node_run.id).update(warehouse_table_name="scores")
         token = mint_callback_token(str(self.node_run.id), self.team.id)
         envelope = {**self.envelope, "warehouse_upload": upload} if upload is not None else self.envelope
-        with (
-            patch(
-                "products.notebooks.backend.sql_v2_callback.save_notebook_table",
-                side_effect=save_error,
-                return_value="table-id",
-            ) as save,
-            patch("products.notebooks.backend.sql_v2_callback.sync_notebook_table_to_dag") as sync_to_dag,
-        ):
+        with patch("products.notebooks.backend.sql_v2_callback.save_notebook_warehouse_table") as task:
+            self._post(token, envelope=envelope)
+            # A re-delivery must neither save again nor reset the outcome the task stores.
             self._post(token, envelope=envelope)
         run = self._reload_run()
         self.assertEqual(run.envelope["warehouse_table"], expected)
         self.assertNotIn("warehouse_upload", run.envelope)
-        if upload and upload["ok"]:
-            save.assert_called_once_with(self.team.id, "scores", self.user.id)
+        if expected.get("pending"):
+            task.delay.assert_called_once_with(self.team.id, str(self.node_run.id))
         else:
-            save.assert_not_called()
-        if expected["error"] is None:
-            sync_to_dag.assert_called_once_with(self.team.id, "scores", "table-id", [], "nbcb123", "node-1")
-        else:
-            sync_to_dag.assert_not_called()
+            task.delay.assert_not_called()
 
     def test_skips_the_warehouse_table_when_the_run_asked_for_none(self):
         token = mint_callback_token(str(self.node_run.id), self.team.id)
-        with patch("products.notebooks.backend.sql_v2_callback.save_notebook_table") as save:
+        with patch("products.notebooks.backend.sql_v2_callback.save_notebook_warehouse_table") as task:
             self._post(token, envelope={**self.envelope, "warehouse_upload": {"ok": True}})
-        save.assert_not_called()
+        task.delay.assert_not_called()
         self.assertNotIn("warehouse_table", self._reload_run().envelope)
 
     def test_oversized_envelope_is_rejected(self):
@@ -989,6 +974,30 @@ class TestSQLV2Run(APIBaseTest):
             self.assertEqual(run.warehouse_table_name, table_name)
         else:
             mock_start.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("without_warehouse_scope", ["notebook:write", "query:read"], 403),
+            ("with_warehouse_scope", ["notebook:write", "query:read", "warehouse_table:write"], 200),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_token_needs_warehouse_write_scope_to_save_a_table(
+        self, _name, scopes, expected_status, _mock_enabled, mock_start
+    ):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            user=self.user, label="notebook-key", secure_value=hash_key_value(key_value), scopes=scopes
+        )
+        self.client.logout()
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "py", "node_type": "python", "code": "1", "warehouse_table_name": "scores"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
+        self.assertEqual(response.status_code, expected_status)
 
     @patch("products.notebooks.backend.sql_v2_dispatch.start_sql_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)

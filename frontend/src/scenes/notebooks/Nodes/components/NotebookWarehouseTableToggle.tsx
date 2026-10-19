@@ -55,7 +55,9 @@ export function NotebookWarehouseTableToggle({
                 />
             ) : null}
             {saveToWarehouse && lastSave ? (
-                lastSave.error ? (
+                lastSave.pending ? (
+                    <span>Saving to {lastSave.name}…</span>
+                ) : lastSave.error ? (
                     <span className="text-danger">{lastSave.error}</span>
                 ) : (
                     <Link to={urls.sqlEditor({ query: `SELECT * FROM ${lastSave.name}` })} target="_blank">
