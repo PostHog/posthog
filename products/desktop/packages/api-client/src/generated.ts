@@ -9926,6 +9926,7 @@ export namespace Schemas {
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9938,7 +9939,8 @@ export namespace Schemas {
         | "zero_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
-        | "split_changed_mid_run";
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9982,6 +9984,7 @@ export namespace Schemas {
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
