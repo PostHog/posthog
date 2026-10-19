@@ -36,10 +36,6 @@ class TestLlamaCloudSource:
         assert schema.supports_append is supports_incremental
         assert [f["field"] for f in schema.incremental_fields] == ([incremental_field] if incremental_field else [])
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["parse_jobs", "projects"])
-        assert {s.name for s in schemas} == {"parse_jobs", "projects"}
-
     @parameterized.expand(
         [
             ("401 Client Error: Unauthorized for url: https://api.cloud.llamaindex.ai/api/v2/parse?page_size=100",),

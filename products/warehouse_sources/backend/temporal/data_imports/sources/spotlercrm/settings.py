@@ -17,6 +17,8 @@ SPOTLERCRM_ENDPOINTS: dict[str, SpotlerCRMEndpoint] = {
     "Accounts": SpotlerCRMEndpoint(name="Accounts", path="/accounts", partition_key="createddate"),
     "Activities": SpotlerCRMEndpoint(name="Activities", path="/activities", partition_key="createddate"),
     "Campaigns": SpotlerCRMEndpoint(name="Campaigns", path="/campaigns"),
+    "CampaignDetails": SpotlerCRMEndpoint(name="CampaignDetails", path="/campaigndetails"),
+    "CampaignStages": SpotlerCRMEndpoint(name="CampaignStages", path="/campaignstages"),
     "Cases": SpotlerCRMEndpoint(name="Cases", path="/cases", partition_key="createddate"),
     "Contacts": SpotlerCRMEndpoint(name="Contacts", path="/contacts", partition_key="createddate"),
     "Documents": SpotlerCRMEndpoint(name="Documents", path="/documents"),
@@ -36,6 +38,8 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "Accounts": "Companies and organizations stored in the CRM.",
     "Activities": "Tasks, calls, meetings, and other activities logged against records.",
     "Campaigns": "Marketing campaigns. Requires the Spotler CRM Marketing tool add-on.",
+    "CampaignDetails": "Campaign membership rows that link records to campaigns. Requires the Spotler CRM Marketing tool add-on.",
+    "CampaignStages": "Stages that campaigns and campaign members move through. Requires the Spotler CRM Marketing tool add-on.",
     "Cases": "Customer service cases. Requires the Spotler CRM Service & Support tool add-on.",
     "Contacts": "People linked to accounts.",
     "Documents": "Documents attached to CRM records.",
@@ -48,5 +52,7 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 # permanently fail for accounts without the add-on.
 ENDPOINT_SHOULD_SYNC_DEFAULT: dict[str, bool] = {
     "Campaigns": False,
+    "CampaignDetails": False,
+    "CampaignStages": False,
     "Cases": False,
 }
