@@ -405,8 +405,6 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
                     email_integration.apply_verification({"status": "success", "dnsRecords": []})
                 case "wizard_verify":
                     email_integration.verify()
-                case "wizard_status_poll":
-                    email_integration.status(refresh=True)
         return callbacks
 
     def _captured_events(self) -> list[tuple[str, str, dict]]:
@@ -422,7 +420,6 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
             param("second_sender_unverified", second_sender=True, expected_status="waiting_for_domain"),
             param("turned_off_before_the_task", turned_off=True, expected_status="draft"),
             param("wizard_verify", write="wizard_verify", expected_status="active"),
-            param("wizard_status_poll", write="wizard_status_poll", expected_status="active"),
         ]
     )
     def test_verifying_a_sender_takes_its_waiting_workflows_live(
@@ -472,7 +469,8 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
         assert datetime.fromisoformat(properties["enable_requested_at"]) == enabled_at
         assert "source" not in properties
 
-    def test_a_go_live_that_cannot_be_queued_keeps_the_verification(self) -> None:
+    @parameterized.expand([("sweep",), ("wizard_verify",)])
+    def test_a_go_live_that_cannot_be_queued_keeps_the_verification(self, write: str) -> None:
         sender = self._sender("example.com")
         flow_id = self._waiting_flow(sender)
         failures_before = REGISTRY.get_sample_value("workflows_enable_waiting_failed_total") or 0
@@ -481,7 +479,7 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
             patch.object(enable_waiting_workflows_task, "delay", side_effect=OSError("broker unreachable")),
             capture_logs() as logs,
         ):
-            for callback in self._verify(sender):
+            for callback in self._verify(sender, write):
                 callback()
 
         sender.refresh_from_db()

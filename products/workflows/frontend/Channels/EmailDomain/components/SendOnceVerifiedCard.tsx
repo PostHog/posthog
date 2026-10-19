@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { Link } from '@posthog/lemon-ui'
+import { LemonCard, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -11,7 +11,7 @@ import { CreateWelcomeWorkflowAction } from './CreateWelcomeWorkflowAction'
 export function SendOnceVerifiedCard(): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
     return (
-        <section className="rounded-xl border border-primary p-6 @md:p-8 flex flex-col gap-5">
+        <LemonCard hoverEffect={false} className="rounded-xl @md:p-8 flex flex-col gap-5">
             <div className="flex items-start gap-4">
                 <HedgehogMailbox className="w-20 shrink-0" />
                 <div className="flex flex-col gap-1 min-w-0">
@@ -29,6 +29,6 @@ export function SendOnceVerifiedCard(): JSX.Element {
                     Go to workflows
                 </Link>
             </div>
-        </section>
+        </LemonCard>
     )
 }
