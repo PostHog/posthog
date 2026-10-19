@@ -80,7 +80,6 @@ pub struct TakenFrontier {
     pub gap_offset_count: usize,
 }
 
-/// A number of offsets and the charge they carry.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Held {
     pub offsets: usize,

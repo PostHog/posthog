@@ -35,8 +35,7 @@ impl CommitPacer {
         }
     }
 
-    /// Replace the partition's pending offset and add the take's charge;
-    /// frontiers only move forward.
+    /// Replace the partition's pending offset; frontiers only move forward.
     pub fn advance_frontier(&mut self, topic_partition: &TopicPartition, taken: TakenFrontier) {
         let taken_offsets = usize::try_from(taken.offset - taken.first)
             .expect("a frontier is above its window base");

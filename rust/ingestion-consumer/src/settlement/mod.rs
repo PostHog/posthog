@@ -29,8 +29,6 @@ pub(crate) struct ChargedSlice<'a> {
 }
 
 pub(crate) trait Settlement: Send + Sync {
-    /// One poll's delivered offsets on a partition. Returns what the partition
-    /// holds uncommitted after the charge.
     fn charge(
         &self,
         topic_partition: &TopicPartition,
@@ -56,10 +54,8 @@ pub(crate) trait Settlement: Send + Sync {
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]);
 }
 
-/// A partition's uncommitted charge is in exactly one of two places: the
-/// ledger's window until a take, then the pacer until the commit goes out.
-/// Every move between them and every read of both hold the pacer's lock, so
-/// no read counts a take twice or misses it.
+/// Moves of charge between the ledger and the pacer, and reads of both, hold
+/// the pacer's lock, so no read counts a take twice or misses it.
 struct Uncommitted {
     ledger: Arc<TopicOffsetLedger>,
     pacer: Mutex<CommitPacer>,
@@ -90,8 +86,6 @@ impl Uncommitted {
         Ok(uncommitted)
     }
 
-    /// Move the partition's completed prefix from the ledger to the pacer.
-    /// `false` when nothing has completed at the front of its window.
     fn take_frontier(&self, topic_partition: &TopicPartition) -> bool {
         let mut pacer = self.pacer.lock().unwrap();
         match self.ledger.take_frontier(topic_partition) {
@@ -111,8 +105,6 @@ impl Uncommitted {
         self.take(CommitPacer::take_all)
     }
 
-    /// The pacer's charge for what it hands out ends here: the consumer
-    /// submits the commit next.
     fn take(
         &self,
         take: impl FnOnce(&mut CommitPacer) -> Option<HashMap<TopicPartition, Offset>>,
