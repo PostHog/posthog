@@ -5066,9 +5066,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     def _unusable_cohort_id(self, cohort_state: str) -> int | str:
         if cohort_state == "missing":
-            return 5151
+            return (Cohort.objects.order_by("-id").values_list("id", flat=True).first() or 0) + 1
         if cohort_state == "malformed":
             return "not-an-id"
+        if cohort_state == "boolean":
+            # A live cohort with id 1 is what a boolean value would wrongly resolve to.
+            Cohort.objects.update_or_create(pk=1, defaults={"team": self.team, "name": "First cohort"})
+            return True
         return Cohort.objects.create(
             team=self.team,
             name=None if cohort_state == "deleted_unnamed" else "Retired cohort",
@@ -5087,7 +5091,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @staticmethod
     def _unusable_cohort_detail(cohort_state: str, cohort_id: int | str) -> str:
-        if cohort_state in ("missing", "malformed"):
+        if cohort_state in ("missing", "malformed", "boolean"):
             return f"Cohort with id {cohort_id} does not exist"
         label = (
             f"Cohort with id {cohort_id}"
@@ -5129,7 +5133,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
     @parameterized.expand(
         [(mode, mode, "deleted") for mode in (*TURN_ON_MODES, "restore_disabled", "unarchive")]
-        + [("patch_missing_cohort", "patch", "missing"), ("patch_malformed_cohort", "patch", "malformed")]
+        + [
+            ("patch_missing_cohort", "patch", "missing"),
+            ("patch_malformed_cohort", "patch", "malformed"),
+            ("patch_boolean_cohort", "patch", "boolean"),
+        ]
     )
     def test_enabling_restoring_or_unarchiving_checks_stored_cohorts(
         self, _name: str, mode: str, cohort_state: str

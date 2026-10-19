@@ -1190,6 +1190,9 @@ def _validate_cohort_reference(cohort_id: Any, project_id: int) -> Cohort:
     error can name the cohort.
     """
     try:
+        # A JSON true is the Python integer 1, so the lookup would match the cohort with id 1.
+        if isinstance(cohort_id, bool):
+            raise TypeError(cohort_id)
         cohort = Cohort.objects.get(pk=cast(str | int, cohort_id), team__project_id=project_id)
     except (Cohort.DoesNotExist, ValueError, TypeError):
         raise serializers.ValidationError(
