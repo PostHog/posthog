@@ -449,6 +449,7 @@ export function WorkflowsTable(): JSX.Element {
                             options={[
                                 { label: 'All', value: 'all' },
                                 { label: 'Active', value: 'active' },
+                                { label: 'Waiting for domain', value: 'waiting_for_domain' },
                                 { label: 'Draft', value: 'draft' },
                                 { label: 'Archived', value: 'archived' },
                             ]}

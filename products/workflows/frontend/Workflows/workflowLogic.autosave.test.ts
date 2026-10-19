@@ -381,27 +381,45 @@ describe('workflowLogic auto-save', () => {
             expect(logic.values.hasStagedDraft).toBe(false)
         })
 
-        it('reports enabling a workflow once, with the product surface it was opened from', async () => {
-            const captureSpy = jest.spyOn(posthog, 'capture')
-            saveEntrySource(WORKFLOW_ID, 'survey')
-            useMocks(activeMocks({ ...activeWorkflow, status: 'draft' }))
-            initKeaTests()
-            logic = workflowLogic({ id: WORKFLOW_ID })
-            logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        it.each([
+            ['goes live', 'active', [['workflow enabled', { workflow_id: WORKFLOW_ID, entry_source: 'survey' }]]],
+            ['waits for its email domain', 'waiting_for_domain', []],
+        ] as [string, HogFlow['status'], unknown[]][])(
+            'reports an enable that %s at most once, with the product surface it was opened from',
+            async (_name, enabledStatus, expectedCalls) => {
+                const captureSpy = jest.spyOn(posthog, 'capture')
+                saveEntrySource(WORKFLOW_ID, 'survey')
+                const draftWorkflow: HogFlow = { ...activeWorkflow, status: 'draft' }
+                // The enable lands with `enabledStatus`; by the next save the domain has verified.
+                const responseStatuses: HogFlow['status'][] = [enabledStatus, 'active']
+                useMocks({
+                    ...activeMocks(draftWorkflow),
+                    patch: {
+                        '/api/environments/:team_id/hog_flows/:id/': async ({ request }) => {
+                            const body = (await request.json()) as Record<string, any>
+                            return [200, { ...draftWorkflow, ...body, status: responseStatuses.shift() }]
+                        },
+                    },
+                })
+                initKeaTests()
+                logic = workflowLogic({ id: WORKFLOW_ID })
+                logic.mount()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
 
-            await expectLogic(logic, () => {
-                logic.actions.saveWorkflowPartial({ status: 'active' })
-            }).toDispatchActions(['saveWorkflowSuccess'])
-            await expectLogic(logic, () => {
-                logic.actions.setWorkflowValue('name', 'Renamed while live')
-                logic.actions.saveWorkflowPartial({ name: 'Renamed while live' })
-            }).toDispatchActions(['saveWorkflowSuccess'])
+                await expectLogic(logic, () => {
+                    logic.actions.saveWorkflowPartial({ status: 'active' })
+                }).toDispatchActions(['saveWorkflowSuccess'])
+                await expectLogic(logic, () => {
+                    logic.actions.setWorkflowValue('name', 'Renamed while live')
+                    logic.actions.markAutoSave(true)
+                    logic.actions.saveWorkflow(logic.values.workflow)
+                }).toDispatchActions(['saveWorkflowSuccess'])
 
-            const enabledCalls = captureSpy.mock.calls.filter(([event]) => event === 'workflow enabled')
-            expect(enabledCalls).toEqual([['workflow enabled', { workflow_id: WORKFLOW_ID, entry_source: 'survey' }]])
-            captureSpy.mockRestore()
-        })
+                const enabledCalls = captureSpy.mock.calls.filter(([event]) => event === 'workflow enabled')
+                expect(enabledCalls).toEqual(expectedCalls)
+                captureSpy.mockRestore()
+            }
+        )
 
         it('a status transition sends lifecycle and metadata only, never stage_draft', async () => {
             useMocks(

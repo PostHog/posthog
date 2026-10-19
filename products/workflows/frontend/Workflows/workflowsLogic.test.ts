@@ -51,18 +51,22 @@ describe('workflowsLogic', () => {
 
     afterEach(() => logic.unmount())
 
-    it.each(['/workflows', '/workflows/workflows'])('fills the filters from the query params on %s', (path) => {
+    it.each([
+        ['/workflows', 'active'],
+        ['/workflows/workflows', 'waiting_for_domain'],
+    ])('fills the filters from the query params on %s with status %s', (path, status) => {
         mountWith()
-        router.actions.push(`${path}?created_by=user-uuid&status=active&trigger_type=event&type=messaging`)
+        router.actions.push(`${path}?created_by=user-uuid&status=${status}&trigger_type=event&type=messaging`)
 
         expect(logic.values.filters).toEqual({
             search: '',
             createdBy: 'user-uuid',
-            status: 'active',
+            status,
             type: 'messaging',
             triggerType: 'event',
             page: 1,
         })
+        expect(logic.values.paramsFromFilters.status).toEqual(status)
     })
 
     it('asks before the list toggle enables a workflow with an unverified sender, naming the domain', async () => {

@@ -102,6 +102,7 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
                 domains={enablePromptDomains}
                 onConfirm={confirmEnablePrompt}
                 onCancel={cancelEnablePrompt}
+                loading={workflowLoading}
             />
             {sceneMenuBarEnabled && isSavedWorkflow && (
                 <SceneMenuBar>

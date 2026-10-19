@@ -239,6 +239,7 @@ function pickWorkflowEdits(workflow: HogFlow): Partial<HogFlow> {
 interface SaveContext {
     initiatedByAutoSave: boolean
     pendingSchedule: { rrule: string; starts_at: string; timezone?: string } | null | false
+    enablesWorkflow: boolean
 }
 
 function omitWorkflowContent(workflow: HogFlow): Partial<HogFlow> {
@@ -3375,13 +3376,6 @@ export const workflowLogic = kea<workflowLogicType>([
                     // auto-save's own 409 would then take the manual path and raise the banner.
                     // Read the origin at dispatch time, while it still describes this save.
                     const initiatedByAutoSave = values.isAutoSave
-                    // Saves run one at a time, so their success and failure actions arrive in
-                    // dispatch order. Queue what each save needs alongside them, so the success
-                    // listener reads its own values rather than shared state a later save moved.
-                    // The pending schedule rides along because an earlier save's reset clears it,
-                    // which would drop a schedule change the user asked a manual save to persist.
-                    const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
-                    saveContexts.push({ initiatedByAutoSave, pendingSchedule: values.pendingSchedule })
                     // Whether this save means to change the lifecycle. Only the enable and disable
                     // control does, and it says so when it dispatches. Comparing the payload's
                     // status against the stored one cannot tell the difference: that control does
@@ -3389,6 +3383,18 @@ export const workflowLogic = kea<workflowLogicType>([
                     // carries the old value and reads as a transition back to it.
                     const isStatusSave = cache.nextSaveChangesStatus === true
                     cache.nextSaveChangesStatus = false
+                    // Saves run one at a time, so their success and failure actions arrive in
+                    // dispatch order. Queue what each save needs alongside them, so the success
+                    // listener reads its own values rather than shared state a later save moved.
+                    // The pending schedule rides along because an earlier save's reset clears it,
+                    // which would drop a schedule change the user asked a manual save to persist.
+                    const saveContexts = (cache.saveContexts ??= []) as SaveContext[]
+                    saveContexts.push({
+                        initiatedByAutoSave,
+                        pendingSchedule: values.pendingSchedule,
+                        enablesWorkflow:
+                            isStatusSave && updates.status === 'active' && values.originalWorkflow?.status !== 'active',
+                    })
 
                     const runSave = async (): Promise<HogFlow> => {
                         updates = sanitizeWorkflow(updates, values.hogFunctionTemplatesById)
@@ -3734,8 +3740,10 @@ export const workflowLogic = kea<workflowLogicType>([
             false,
             {
                 openEnablePrompt: () => true,
-                confirmEnablePrompt: () => false,
                 cancelEnablePrompt: () => false,
+                // Stays open while the enable saves, so its loading confirm blocks a second enable.
+                saveWorkflowSuccess: () => false,
+                saveWorkflowFailure: () => false,
             },
         ],
         dismissedStartedSendingNotices: [
@@ -4364,7 +4372,6 @@ export const workflowLogic = kea<workflowLogicType>([
             // This is the one path that means to change the lifecycle. The loader reads the flag
             // as it handles the action below, so it describes this save and no other.
             cache.nextSaveChangesStatus = 'status' in workflow
-            cache.enablingWorkflow = workflow.status === 'active' && values.originalWorkflow?.status !== 'active'
             actions.saveWorkflow(merged)
         },
         loadWorkflowSuccess: async ({ originalWorkflow }) => {
@@ -4420,7 +4427,6 @@ export const workflowLogic = kea<workflowLogicType>([
         saveWorkflowFailure: () => {
             // Keep the queue aligned with the saves still in flight.
             ;(cache.saveContexts as SaveContext[] | undefined)?.shift()
-            cache.enablingWorkflow = false
             actions.replayDeferredResourceEdited()
         },
         replayDeferredResourceEdited: () => {
@@ -4436,8 +4442,8 @@ export const workflowLogic = kea<workflowLogicType>([
             const saveContext = (cache.saveContexts as SaveContext[] | undefined)?.shift()
             const isAutoSave = saveContext?.initiatedByAutoSave ?? values.isAutoSave
 
-            if (cache.enablingWorkflow && originalWorkflow.status === 'active') {
-                cache.enablingWorkflow = false
+            // An enable that waits for its email domain is not reported here: the server records the request.
+            if (saveContext?.enablesWorkflow && originalWorkflow.status === 'active') {
                 // pinned: analytics event name
                 posthog.capture('workflow enabled', {
                     workflow_id: originalWorkflow.id,

@@ -17,9 +17,9 @@ import type { HogFlow } from './hogflows/types'
 import { unverifiedSenderDomains } from './unverifiedSenderDomains'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 
-export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
+export type WorkflowStatusFilter = 'all' | 'active' | 'waiting_for_domain' | 'draft' | 'archived'
 
-const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'draft', 'archived']
+const WORKFLOW_STATUS_FILTERS: WorkflowStatusFilter[] = ['all', 'active', 'waiting_for_domain', 'draft', 'archived']
 
 export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation' | 'loop'
 
