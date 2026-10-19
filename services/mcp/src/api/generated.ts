@@ -78084,11 +78084,48 @@ export namespace Schemas {
       hidden_count: number;
     }
 
+    /**
+     * * `full` - Full
+     * * `incremental` - Incremental
+     */
+    export type WarehouseSuggestionRefreshModeEnum = typeof WarehouseSuggestionRefreshModeEnum[keyof typeof WarehouseSuggestionRefreshModeEnum];
+
+
+    export const WarehouseSuggestionRefreshModeEnum = {
+      Full: 'full',
+      Incremental: 'incremental',
+    } as const;
+
+    /**
+     * * `source_sync` - Source sync
+     * * `read_rate` - Read rate
+     * * `savings` - Savings
+     */
+    export type WarehouseSuggestionRefreshIntervalBasisEnum = typeof WarehouseSuggestionRefreshIntervalBasisEnum[keyof typeof WarehouseSuggestionRefreshIntervalBasisEnum];
+
+
+    export const WarehouseSuggestionRefreshIntervalBasisEnum = {
+      SourceSync: 'source_sync',
+      ReadRate: 'read_rate',
+      Savings: 'savings',
+    } as const;
+
     export interface WarehouseSuggestionMaterializePayload {
       /** Sources that are always current, such as PostHog tables and direct connections. */
       live_sources: WarehouseSuggestionVisibleSources;
       /** Sources with no sync schedule, so their freshness is unknown. */
       unknown_sources: WarehouseSuggestionVisibleSources;
+      /** incremental: each refresh reads only rows with a new incremental_key value and updates rows by unique_key. full: each refresh rebuilds the whole table. Incremental is proposed only when the keys are certain from the query.
+       *
+       * * `full` - Full
+       * * `incremental` - Incremental */
+      refresh_mode: WarehouseSuggestionRefreshModeEnum;
+      /** Why the interval is not shorter. source_sync: the view's sources sync no faster. read_rate: people read the view no more often. savings: a shorter interval would cost more than it saves. Null on suggestions made before this was recorded.
+       *
+       * * `source_sync` - Source sync
+       * * `read_rate` - Read rate
+       * * `savings` - Savings */
+      refresh_interval_basis: WarehouseSuggestionRefreshIntervalBasisEnum | null;
       /** Name of the view to materialize. */
       subject_name: string;
       /** Proposed refresh interval, in seconds. */
@@ -78104,6 +78141,15 @@ export namespace Schemas {
       freshness_today_seconds: number | null;
       /** How old the data can be once materialized, in seconds. */
       freshness_after_seconds: number;
+      /**
+         * Date or datetime output column whose advancing value marks new rows. Null for a full refresh.
+         * @nullable
+         */
+      incremental_key?: string | null;
+      /** Output columns that identify a row, so a refresh updates rows instead of adding duplicates. Empty for a full refresh. */
+      unique_key?: string[];
+      /** How far before the last refresh's highest incremental_key value each refresh reads again, in seconds. The last incremental_key value is always read again. */
+      lookback_seconds?: number;
     }
 
     export type WarehouseSuggestionPayload = WarehouseSuggestionCertifyPayload | WarehouseSuggestionDeprecatePayload | WarehouseSuggestionMaterializePayload;
