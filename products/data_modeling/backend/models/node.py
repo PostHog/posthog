@@ -25,7 +25,7 @@ SAVED_QUERY_NODE_TYPES = frozenset({NodeType.VIEW, NodeType.MAT_VIEW, NodeType.E
 _SAVED_QUERY_NODE_TYPE_VALUES = sorted(node_type.value for node_type in SAVED_QUERY_NODE_TYPES)
 
 
-# properties["system"] marker set by consolidate_dags --adopt-unresolvable when a query's SQL
+# properties["system"] marker set by adopt_saved_query_without_edges when a query's SQL
 # would not resolve and its node was created without edges. A successful sync clears it.
 DEGRADED_SYNC_KEY = "degraded_sync"
 

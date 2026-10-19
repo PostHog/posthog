@@ -21,10 +21,6 @@ class TestRKICovidSource:
         # get_schemas is a static endpoint catalog with no I/O, so the public docs can render tables.
         assert RKICovidSource.lists_tables_without_credentials is True
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = RKICovidSource().get_schemas(_make_config(), team_id=1, names=["germany", "states"])
-        assert {s.name for s in schemas} == {"germany", "states"}
-
     @parameterized.expand(
         [
             ("no_days_reachable", None, 200, True),

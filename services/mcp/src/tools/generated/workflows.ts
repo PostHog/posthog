@@ -625,6 +625,22 @@ const workflowsRestoreRevision = (): ToolBase<ReturnType<typeof WorkflowsRestore
     },
 })
 
+const WorkflowsSetupStatusSchema = () => z.object({})
+
+const workflowsSetupStatus = (): ToolBase<ReturnType<typeof WorkflowsSetupStatusSchema>, Schemas.WorkflowSetupStatus> =>
+    withUiApp('workflow-setup-status', {
+        name: 'workflows-setup-status',
+        schema: WorkflowsSetupStatusSchema(),
+        handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsSetupStatusSchema>>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.WorkflowSetupStatus>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/workflow_setup/status/`,
+            })
+            return result
+        },
+    })
+
 const WorkflowsStatsSchema = () => {
     const HogFlowsMetricsRetrieveParams = orvalSchemas.HogFlowsMetricsRetrieveParams()
     const HogFlowsMetricsRetrieveQueryParams = orvalSchemas.HogFlowsMetricsRetrieveQueryParams()
@@ -865,6 +881,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-patch-graph': workflowsPatchGraph,
     'workflows-publish': workflowsPublish,
     'workflows-restore-revision': workflowsRestoreRevision,
+    'workflows-setup-status': workflowsSetupStatus,
     'workflows-stats': workflowsStats,
     'workflows-suggest': workflowsSuggest,
     'workflows-test-run': workflowsTestRun,

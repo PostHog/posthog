@@ -54,6 +54,7 @@ from products.signals.backend.models import (
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
 from products.signals.backend.quota import SelfDrivingQuotaGate
+from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
 from products.signals.backend.scout_harness.lazy_seed import (
     HARNESS_SEEDED_BY,
@@ -763,6 +764,15 @@ class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
 
+    def test_skill_name_returns_only_that_scouts_runs(self) -> None:
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        wanted = _make_run(self.team, skill_name="signals-scout-errors")
+        _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"skill_name": "signals-scout-errors"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["run_id"] for row in response.json()] == [str(wanted.id)]
+
     def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
         response = self.client.get(self._url(), data={"per_scout_limit": 5000})
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -864,6 +874,24 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         # The errors scout's only touched report fell outside the cap — it must not count either,
         # or the callout advertises a scout the findings page's filter won't show.
         assert body["scout_count"] == 1
+
+    def test_summary_caps_runs_by_completion_among_the_newest_candidates(self) -> None:
+        # The page keeps the most recently *completed* runs, so a run that completes after a newer
+        # one must win the cap. Runs older than the candidate set are never ranked.
+        now = timezone.now()
+        timings = {"outside": (3, 0), "late": (2, 1), "newest": (1, 50)}
+        for emitted_count, (name, (created_hours_ago, completed_minutes_ago)) in zip((4, 2, 1), timings.items()):
+            run = _make_run(self.team, skill_name=f"signals-scout-{name}", emitted_count=emitted_count)
+            SignalScoutRun.objects.filter(id=run.id).update(created_at=now - timedelta(hours=created_hours_ago))
+            run.task_run.completed_at = now - timedelta(minutes=completed_minutes_ago)
+            run.task_run.save(update_fields=["completed_at"])
+        with (
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_RUN_CAP", 1),
+            patch("products.signals.backend.scout_harness.tools.runs.FLEET_FINDINGS_SUMMARY_CANDIDATE_RUNS", 2),
+        ):
+            response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["count"] == 2
 
     def test_summary_excludes_runs_outside_the_window(self) -> None:
         # Guards the `created_at` window filter: a finding emitted before the lookback must not count,
@@ -4272,7 +4300,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 
-    def test_sync_materializes_fleet_for_fresh_team(self) -> None:
+    @parameterized.expand([(None, True), ("onboarding", False)])
+    def test_sync_materializes_fleet_for_fresh_team(self, surface: str | None, enabled: bool) -> None:
         canonical_names = {c.name for c in discover_canonical_skills()}
         scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
         companion_names = canonical_names - scout_names
@@ -4280,7 +4309,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert "authoring-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-        response = self.client.post(self._sync_url())
+        response = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -4288,10 +4317,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         # into the team's LLMSkill namespace below but never materialize a scout config.
         assert {c["skill_name"] for c in body} == scout_names
         assert [c["skill_name"] for c in body] == sorted(scout_names)
-        assert all(c["enabled"] is True for c in body)
+        assert all(c["enabled"] is enabled for c in body)
         assert all(c["emit"] is True for c in body)
         assert all(c["run_interval_minutes"] == 1440 for c in body)
         assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
+        register_missing_configs(self.team.id)
+        assert not SignalScoutConfig.objects.filter(team=self.team).exclude(enabled=enabled).exists()
         # Every canonical skill — fleet and companions — was seeded into the team's
         # LLMSkill namespace.
         assert (
@@ -4450,7 +4481,8 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
-    def test_sync_is_idempotent_and_preserves_tuned_configs(self) -> None:
+    @parameterized.expand([(None,), ("onboarding",)])
+    def test_sync_is_idempotent_and_preserves_tuned_configs(self, surface: str | None) -> None:
         first = self.client.post(self._sync_url())
         assert first.status_code == status.HTTP_200_OK
         fleet_size = len(first.json())
@@ -4461,13 +4493,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         tuned.enabled = False
         tuned.save(update_fields=["enabled"])
 
-        second = self.client.post(self._sync_url())
+        second = self.client.post(self._sync_url() + (f"?surface={surface}" if surface else ""))
 
         assert second.status_code == status.HTTP_200_OK
         assert len(second.json()) == fleet_size
         assert SignalScoutConfig.objects.filter(team=self.team).count() == fleet_size
         tuned.refresh_from_db()
         assert tuned.enabled is False, "sync must not reset existing configs"
+        assert sum(config["enabled"] for config in second.json()) == fleet_size - 1
 
     def test_list_is_side_effect_free_for_unregistered_scout_skills(self) -> None:
         # The list MCP tool is annotated readOnly — a scout skill without a config must not

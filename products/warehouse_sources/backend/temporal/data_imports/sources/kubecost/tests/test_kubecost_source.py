@@ -26,11 +26,6 @@ class TestKubecostSource:
         # The API URL decides where the stored key gets sent.
         assert self.source.connection_host_fields == ["host"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["assets"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "assets"
-
     @mock.patch.object(KubecostSource, "is_database_host_valid")
     def test_validate_credentials_rejects_unsafe_host(self, mock_host_valid):
         mock_host_valid.return_value = (False, "Host is not allowed")

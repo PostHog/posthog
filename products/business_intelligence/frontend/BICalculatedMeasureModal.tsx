@@ -10,7 +10,13 @@ import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 
 export function BICalculatedMeasureModal(): JSX.Element | null {
-    const { calculatedMeasureDraft: draft, calculatedFieldError, config } = useValues(biEditorLogic)
+    const {
+        calculatedMeasureDraft: draft,
+        calculatedFieldError,
+        calculatedFieldValidation,
+        calculatedFieldMetadata,
+        config,
+    } = useValues(biEditorLogic)
     const { setCalculatedMeasureDraft, saveCalculatedMeasure } = useActions(biEditorLogic)
 
     if (!draft || !config.source) {
@@ -32,7 +38,11 @@ export function BICalculatedMeasureModal(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         onClick={saveCalculatedMeasure}
-                        disabledReason={calculatedFieldError}
+                        loading={calculatedFieldValidation === 'checking'}
+                        disabledReason={
+                            calculatedFieldError ??
+                            (calculatedFieldValidation !== 'valid' ? 'Enter a valid SQL expression' : undefined)
+                        }
                         data-attr="bi-calculated-measure-save"
                     >
                         {draft.index === null && !draft.fieldId ? 'Add field' : 'Save field'}
@@ -53,9 +63,7 @@ export function BICalculatedMeasureModal(): JSX.Element | null {
                             { value: 'dimension', label: 'Dimension · one value per row' },
                             { value: 'measure', label: 'Measure · aggregate each group' },
                         ]}
-                        onChange={(kind) =>
-                            setCalculatedMeasureDraft({ ...draft, kind, type: kind === 'measure' ? 'float' : 'string' })
-                        }
+                        onChange={(kind) => setCalculatedMeasureDraft({ ...draft, kind })}
                         disabledReason={
                             draft.fieldId || draft.index !== null ? 'Create a new field to change its role' : undefined
                         }
@@ -71,8 +79,9 @@ export function BICalculatedMeasureModal(): JSX.Element | null {
                                 { value: 'boolean', label: 'Boolean' },
                                 { value: 'date', label: 'Date' },
                                 { value: 'datetime', label: 'Date and time' },
+                                { value: 'boolean', label: 'Boolean' },
                             ]}
-                            onChange={(type) => setCalculatedMeasureDraft({ ...draft, type })}
+                            onChange={(type) => setCalculatedMeasureDraft({ ...draft, type, typeOverride: true })}
                         />
                     )}
                 </div>
@@ -91,7 +100,9 @@ export function BICalculatedMeasureModal(): JSX.Element | null {
                     <LemonLabel>HogQL expression</LemonLabel>
                     <CodeEditorInline
                         value={draft.expression}
-                        onChange={(expression) => setCalculatedMeasureDraft({ ...draft, expression: expression ?? '' })}
+                        onChange={(expression) =>
+                            setCalculatedMeasureDraft({ ...draft, expression: expression ?? '', typeOverride: false })
+                        }
                         language="hogQLExpr"
                         minHeight="100px"
                         options={{ ariaLabel: 'Calculated field expression' }}
@@ -103,6 +114,18 @@ export function BICalculatedMeasureModal(): JSX.Element | null {
                         onPressCmdEnter={saveCalculatedMeasure}
                         data-attr="bi-calculated-measure-formula"
                     />
+                    <p className="m-0 text-xs text-secondary">
+                        Press Cmd+Space (Ctrl+Space on Windows or Linux) to autocomplete fields.
+                    </p>
+                    <p className="m-0 text-xs" role="status">
+                        {calculatedFieldValidation === 'checking'
+                            ? 'Checking SQL…'
+                            : calculatedFieldValidation === 'valid'
+                              ? 'Valid SQL'
+                              : calculatedFieldValidation === 'invalid'
+                                ? (calculatedFieldMetadata?.metadata.errors[0]?.message ?? 'Invalid SQL expression')
+                                : ''}
+                    </p>
                     <p className="m-0 text-xs text-secondary">
                         {draft.kind === 'dimension'
                             ? "Use a row expression, such as coalesce(properties.plan, 'Unknown'). Refer to fields from the selected table using HogQL."

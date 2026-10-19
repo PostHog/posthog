@@ -7,6 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
+import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scoutCostLineParts, scoutCostWindowLabel } from '../../../utils/scoutCosts'
 import { nextRunAt, SCOUT_GROUP_LABEL, ScoutGroupKey, scoutGroup } from '../../../utils/scoutGroups'
@@ -59,7 +60,8 @@ export function ScoutHealthStrip({
     noteCount: number
     learnedCount: number
 }): JSX.Element {
-    const { scoutCostRollups, scoutRunsLoadedOnce, scoutRunsCoverFleet } = useValues(scoutFleetLogic)
+    const { scoutCostRollups } = useValues(scoutFleetLogic)
+    const { scoutRunsLoadedOnce, scoutRunsCoverScout } = useValues(scoutDetailLogic({ skillName: config.skill_name }))
     const { currentTeam } = useValues(teamLogic)
     const now = new Date()
 
@@ -120,7 +122,7 @@ export function ScoutHealthStrip({
                     <span className="text-muted">
                         {runStripEmptyLabel({
                             loadedOnce: scoutRunsLoadedOnce,
-                            coversFleet: scoutRunsCoverFleet,
+                            coversFleet: scoutRunsCoverScout,
                         })}
                     </span>
                 )}

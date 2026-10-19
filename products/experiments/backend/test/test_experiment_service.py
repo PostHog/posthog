@@ -799,24 +799,38 @@ class TestExperimentService(APIBaseTest):
 
         assert expected_error in str(ctx.exception)
 
-    def test_create_experiment_rejects_saved_metrics_from_another_team(self) -> None:
-        self._create_flag(key="saved-metrics-team-check")
-        other_team = Team.objects.create(organization=self.organization, name="Other Team")
-        saved_metric = ExperimentSavedMetric.objects.create(
-            team=other_team,
-            name="Other Team Metric",
-            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
-        )
+    @parameterized.expand(
+        [
+            (
+                "from_another_team",
+                True,
+                {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+                "Saved metric does not exist or does not belong to this project",
+            ),
+            (
+                "legacy_query",
+                False,
+                {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
+                "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
+            ),
+        ]
+    )
+    def test_create_experiment_rejects_unlinkable_saved_metric(
+        self, _: str, from_other_team: bool, query: dict, expected_error: str
+    ) -> None:
+        self._create_flag(key="saved-metrics-link-check")
+        team = Team.objects.create(organization=self.organization, name="Other Team") if from_other_team else self.team
+        saved_metric = ExperimentSavedMetric.objects.create(team=team, name="Unlinkable Metric", query=query)
         service = self._service()
 
         with self.assertRaises(ValidationError) as ctx:
             service.create_experiment(
-                name="Wrong Team Metric",
-                feature_flag_key="saved-metrics-team-check",
+                name="Unlinkable Metric Experiment",
+                feature_flag_key="saved-metrics-link-check",
                 saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
             )
 
-        assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
+        assert expected_error in str(ctx.exception)
 
     @parameterized.expand(
         [
@@ -2410,8 +2424,8 @@ class TestExperimentService(APIBaseTest):
         ctx = service._build_serializer_context()
 
         # fresh payload per call — update_experiment mutates update_data in place
-        def attach(metric_type: str) -> dict:
-            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+        def attach(role: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": role}}]}
 
         if initial_type is not None:
             service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
@@ -3166,18 +3180,30 @@ class TestExperimentService(APIBaseTest):
         assert flag.archived is False
         assert experiment.feature_flag_auto_archived is False
 
-    def test_unarchive_experiment_skips_flag_without_feature_flag_write_scope(self):
-        # Unarchiving the flag is a feature_flag write — skipped (flag stays archived, bookkeeping
-        # intact) for an experiment-only token, recoverable on a later unarchive with the scope.
-        experiment = self._create_ended_experiment(name="Unarchive No Scope", feature_flag_key="unarchive-no-scope")
+    @parameterized.expand(
+        [
+            ("no_feature_flag_write_scope", False, False),
+            ("flag_targets_deleted_cohort", True, True),
+        ]
+    )
+    def test_unarchive_experiment_leaves_flag_archived_when_flag_cannot_be_unarchived(
+        self, _name: str, can_write_feature_flag: bool, targets_deleted_cohort: bool
+    ):
+        # The bookkeeping stays so that a later unarchive can bring the flag back.
+        experiment = self._create_ended_experiment(name="Unarchive Blocked", feature_flag_key="unarchive-blocked")
         experiment.feature_flag.active = False
         experiment.feature_flag.save()
         service = self._service()
         service.archive_experiment(experiment)
         experiment.refresh_from_db()
         assert experiment.feature_flag_auto_archived is True
+        if targets_deleted_cohort:
+            cohort = Cohort.objects.create(team=self.team, name="Retired cohort", deleted=True)
+            FeatureFlag.objects.filter(pk=experiment.feature_flag_id).update(
+                filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.id}]}]}
+            )
 
-        service.unarchive_experiment(experiment, can_write_feature_flag=False)
+        service.unarchive_experiment(experiment, can_write_feature_flag=can_write_feature_flag)
 
         experiment.refresh_from_db()
         assert experiment.archived is False
@@ -3919,7 +3945,7 @@ class TestExperimentService(APIBaseTest):
                         0,
                         ["forced_variant_release_condition"],
                         ["forced_variant_release_condition:some_conditions_pinned"],
-                        ["forced_variant_release_condition:some_conditions_pinned:info:"],
+                        ["forced_variant_release_condition:some_conditions_pinned:info:not_measured"],
                     )
                 ],
             ),
@@ -6370,7 +6396,7 @@ class TestExperimentService(APIBaseTest):
         _name: str,
         field: str,
         other_field: str,
-        metric_type: str,
+        role: str,
         collides: bool,
     ) -> None:
         self._create_flag(key="attach-dedup-with-saved")
@@ -6414,7 +6440,7 @@ class TestExperimentService(APIBaseTest):
         )
 
         updated = service.update_experiment(
-            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": metric_type}}]}
+            experiment, {"saved_metrics_ids": [{"id": sm.id, "metadata": {"type": role}}]}
         )
 
         sm.refresh_from_db()
@@ -6435,7 +6461,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_update_regenerates_stored_inline_copy_that_collides_with_saved_metric_uuid(
-        self, _name: str, field: str, ordering_attr: str, metric_type: str, attach_another: bool
+        self, _name: str, field: str, ordering_attr: str, role: str, attach_another: bool
     ) -> None:
         self._create_flag(key="stored-collision")
         shared_uuid = "77bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6454,7 +6480,7 @@ class TestExperimentService(APIBaseTest):
             name="Stored collision",
             feature_flag_key="stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(
             **{
@@ -6471,9 +6497,9 @@ class TestExperimentService(APIBaseTest):
         )
         experiment.refresh_from_db()
 
-        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": metric_type}}]
+        saved_metrics_ids = [{"id": sm.id, "metadata": {"type": role}}]
         if attach_another:
-            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": metric_type}})
+            saved_metrics_ids.append({"id": self._make_saved_metric("Another").id, "metadata": {"type": role}})
             payload: dict = {"saved_metrics_ids": saved_metrics_ids}
         else:
             payload = {field: deepcopy(getattr(experiment, field))}
@@ -6526,7 +6552,7 @@ class TestExperimentService(APIBaseTest):
         ]
     )
     def test_detaching_saved_metric_keeps_uuid_its_stored_inline_copy_uses(
-        self, metric_type: str, field: str, ordering_attr: str
+        self, role: str, field: str, ordering_attr: str
     ) -> None:
         self._create_flag(key="detach-stored-collision")
         shared_uuid = "99bfb66a-51f5-48d0-a87e-bde2b4c958a6"
@@ -6542,7 +6568,7 @@ class TestExperimentService(APIBaseTest):
             name="Detach stored collision",
             feature_flag_key="detach-stored-collision",
             allow_unknown_events=True,
-            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": metric_type}}],
+            saved_metrics_ids=[{"id": sm.id, "metadata": {"type": role}}],
         )
         Experiment.objects.filter(id=experiment.id).update(**{field: [metric], ordering_attr: [shared_uuid]})
         experiment.refresh_from_db()
@@ -7569,6 +7595,59 @@ class TestValidateExcludedVariants:
     def test_invalid_raises(self, value):
         with pytest.raises(ValidationError, match="must be a list of strings"):
             ExperimentService.validate_excluded_variants(value)
+
+
+class TestExperimentServiceWarehouseTimestampColumn(APIBaseTest):
+    def _table_with_timestamp_type(self, column_type: str) -> DataWarehouseTable:
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        return DataWarehouseTable.objects.create(
+            name="orders",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/orders/*",
+            columns={"id": "String", "ordered_at": column_type},
+        )
+
+    def _dw_metric(self, table: DataWarehouseTable) -> dict:
+        return {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "ExperimentDataWarehouseNode",
+                "table_name": table.name,
+                "events_join_key": "distinct_id",
+                "data_warehouse_join_key": "id",
+                "timestamp_field": "ordered_at",
+                "math": "total",
+            },
+        }
+
+    @parameterized.expand([("string", "String"), ("integer", "Int64")])
+    def test_create_experiment_rejects_non_datetime_timestamp_column(self, _name: str, column_type: str):
+        table = self._table_with_timestamp_type(column_type)
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(ValidationError, match="is not a date or datetime column"):
+            service.create_experiment(
+                name="DW experiment",
+                feature_flag_key="dw-timestamp",
+                metrics=[self._dw_metric(table)],
+                allow_unknown_events=True,
+            )
+        assert not Experiment.objects.filter(team=self.team, name="DW experiment").exists()
+
+    @parameterized.expand([("datetime", "DateTime"), ("date", "Date")])
+    def test_create_experiment_accepts_date_timestamp_column(self, _name: str, column_type: str):
+        table = self._table_with_timestamp_type(column_type)
+        service = ExperimentService(team=self.team, user=self.user)
+        experiment = service.create_experiment(
+            name="DW experiment",
+            feature_flag_key="dw-timestamp",
+            metrics=[self._dw_metric(table)],
+            allow_unknown_events=True,
+        )
+        assert experiment.metrics is not None
+        assert experiment.metrics[0]["source"]["timestamp_field"] == "ordered_at"
 
 
 @patch("posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
