@@ -185,7 +185,9 @@ describe("createPiConversationTranslator", () => {
       });
 
       expect(ended.map((event) => event.type)).toEqual(runtimeErrors);
-      expect(translator.translateEvent({ type: "agent_settled" })).toEqual([
+      expect(
+        translator.translateEvent({ type: "agent_settled", aborted: false }),
+      ).toEqual([
         expect.objectContaining({ type: "turn_completed", stopReason }),
       ]);
     },

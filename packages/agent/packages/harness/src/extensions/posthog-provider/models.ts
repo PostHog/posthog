@@ -135,19 +135,6 @@ export function gatewayBaseUrlForApi(
   return `${normalizedBaseUrl}/v1`;
 }
 
-// The Go gateway's /v1/models sends no supports_vision, and pi drops every image for a text-only model.
-// An absent flag falls back to what this list, then pi, knows about the model.
-function supportsVision(
-  model: GatewayModel,
-  builtin: ReturnType<typeof findBuiltinModel>,
-): boolean {
-  if (model.supports_vision !== undefined) return model.supports_vision;
-  const known = FALLBACK_GATEWAY_MODELS.find(
-    (fallback) => fallback.id === model.id,
-  );
-  return known?.supports_vision ?? builtin?.input.includes("image") ?? false;
-}
-
 function toModelConfig(
   model: GatewayModel,
   region: CloudRegion,
