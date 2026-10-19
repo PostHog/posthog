@@ -83,7 +83,7 @@ describe('emailDomainStatusLogic', () => {
         }
     )
 
-    it('restarts the schedule with an uncached check when the person checks again after polling stopped', async () => {
+    it('asks the provider to set the domain up again and restarts the schedule when the person checks again', async () => {
         await mountAndLoad()
         await jest.advanceTimersByTimeAsync(31 * MINUTE)
         expect(logic.values.pollingStopped).toBe(true)
@@ -91,6 +91,7 @@ describe('emailDomainStatusLogic', () => {
 
         logic.actions.checkAgain()
         await jest.advanceTimersByTimeAsync(0)
+        expect(backend.requestsTo('email_verify')).toHaveLength(1)
         expect(backend.requestsTo('email_status').at(-1)?.url).toContain('refresh=true')
         expect(logic.values.pollingStopped).toBe(false)
 
@@ -146,6 +147,25 @@ describe('emailDomainStatusLogic', () => {
 
         await jest.advanceTimersByTimeAsync(MINUTE)
         expect(statusChecks()).toBe(1)
+    })
+
+    it('shows a check as running only while a check the person asked for is in flight', async () => {
+        await mountAndLoad()
+
+        const releasePoll = backend.hold('email_status')
+        await jest.advanceTimersByTimeAsync(10_000)
+        expect(logic.values.statusLoading).toBe(true)
+        expect(logic.values.rechecking).toBe(false)
+        releasePoll()
+        await jest.advanceTimersByTimeAsync(0)
+
+        const releaseRecheck = backend.hold('email_status')
+        logic.actions.recheck()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.rechecking).toBe(true)
+        releaseRecheck()
+        await jest.advanceTimersByTimeAsync(0)
+        expect(logic.values.rechecking).toBe(false)
     })
 
     it('rechecks right after verification restarts, and stays usable when the restart fails', async () => {

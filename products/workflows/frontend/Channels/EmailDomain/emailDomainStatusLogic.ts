@@ -40,6 +40,7 @@ export interface emailDomainStatusLogicValues {
     missingRecords: EmailDomainStatusRecordApi[]
     pollingStartedAt: number | null
     pollingStopped: boolean
+    rechecking: boolean
     records: EmailDomainStatusRecordApi[]
     restartResult: boolean | null
     restartResultLoading: boolean
@@ -178,8 +179,11 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
                         // nosemgrep: prefer-codegen-api-namespaced-integrations -- the generated integrationsEmailVerifyCreate returns void and demands a config body the endpoint ignores
                         await api.integrations.verifyEmail(values.integrationId)
                         return true
-                    } catch {
-                        lemonToast.error('Could not restart verification. Try again in a moment.')
+                    } catch (error) {
+                        lemonToast.error(
+                            (error instanceof ApiError && error.detail) ||
+                                'Could not restart verification. Try again in a moment.'
+                        )
                         return false
                     }
                 },
@@ -213,6 +217,14 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
             {
                 stopPolling: () => true,
                 recheck: () => false,
+            },
+        ],
+        rechecking: [
+            false,
+            {
+                recheck: () => true,
+                loadStatusSuccess: () => false,
+                loadStatusFailure: () => false,
             },
         ],
     }),
@@ -306,12 +318,11 @@ export const emailDomainStatusLogic = kea<emailDomainStatusLogicType>([
         checkAgain: () => {
             // pinned: analytics event name
             posthog.capture('email domain check again clicked', { domain: values.domain })
-            actions.recheck()
+            // A manual check may write: verify sets up what the provider is missing, which polling never does.
+            actions.restartVerification()
         },
-        restartVerificationSuccess: ({ restartResult }) => {
-            if (restartResult) {
-                actions.recheck()
-            }
+        restartVerificationSuccess: () => {
+            actions.recheck()
         },
     })),
     afterMount(({ actions, values }) => {
