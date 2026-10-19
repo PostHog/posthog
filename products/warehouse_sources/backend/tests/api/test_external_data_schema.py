@@ -801,6 +801,11 @@ class TestExternalDataSchema(APIBaseTest):
             sync_type=initial_sync_type,
             sync_type_config={
                 **({"primary_key_columns": persisted_keys} if persisted_keys else {}),
+                **(
+                    {"incremental_field": "created_at", "incremental_field_type": "datetime"}
+                    if initial_sync_type == "incremental"
+                    else {}
+                ),
                 "schema_metadata": {"columns": columns},
             },
         )
@@ -1012,19 +1017,22 @@ class TestExternalDataSchema(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("switch_to_incremental_without_field", "full_refresh", None, {"sync_type": "incremental"}, 400),
+            ("switch_to_incremental_without_field", "full_refresh", None, True, {"sync_type": "incremental"}, 400),
             (
                 "switch_to_append_with_null_field",
                 "full_refresh",
                 None,
+                True,
                 {"sync_type": "append", "incremental_field": None},
                 400,
             ),
-            ("clear_field_on_incremental", "incremental", "created", {"incremental_field": None}, 400),
+            ("clear_field_on_incremental", "incremental", "created", True, {"incremental_field": None}, 400),
+            ("enable_schema_without_field", "incremental", None, False, {"should_sync": True}, 400),
             (
                 "unrelated_edit_on_schema_without_field",
                 "incremental",
                 None,
+                True,
                 {"sync_type": "incremental", "incremental_field": None, "should_sync": False},
                 200,
             ),
@@ -1032,6 +1040,7 @@ class TestExternalDataSchema(APIBaseTest):
                 "switch_to_incremental_with_field",
                 "full_refresh",
                 None,
+                True,
                 {"sync_type": "incremental", "incremental_field": "created", "incremental_field_type": "integer"},
                 200,
             ),
@@ -1042,6 +1051,7 @@ class TestExternalDataSchema(APIBaseTest):
         _name: str,
         stored_sync_type: str,
         stored_field: str | None,
+        stored_should_sync: bool,
         request_data: dict[str, Any],
         expected_status: int,
     ):
@@ -1054,7 +1064,7 @@ class TestExternalDataSchema(APIBaseTest):
             name="BalanceTransaction",
             team=self.team,
             source=source,
-            should_sync=True,
+            should_sync=stored_should_sync,
             status=ExternalDataSchema.Status.COMPLETED,
             sync_type=stored_sync_type,
             sync_type_config={"incremental_field": stored_field, "incremental_field_type": "integer"}
@@ -1079,6 +1089,8 @@ class TestExternalDataSchema(APIBaseTest):
         assert response.status_code == expected_status, response.json()
         schema.refresh_from_db()
         if expected_status == 400:
+            assert "needs an incremental field" in response.json()["detail"]
+            assert schema.should_sync == stored_should_sync
             assert schema.sync_type == stored_sync_type
             assert schema.sync_type_config.get("incremental_field") == stored_field
 

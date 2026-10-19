@@ -1152,20 +1152,23 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
         # An incremental or append sync saves its progress as the latest value of the incremental
         # field. Without a field no run saves progress, so every run reads the full history again.
-        # Only the request that switches the sync type, or clears the field, is judged, so a table
-        # already in that state still takes unrelated edits, such as a disable.
+        # Only a request that switches the sync type, clears the field, or turns the sync on is judged,
+        # so a table already in that state still takes other edits, such as a disable. Turning the sync
+        # on is judged because source creation saves a disabled table without a field.
         if resulting_sync_type in (ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.APPEND):
             stored_incremental_field = (instance.sync_type_config or {}).get("incremental_field")
-            clears_incremental_field = (
-                "incremental_field" in data and not data.get("incremental_field") and bool(stored_incremental_field)
-            )
-            switches_sync_type = resulting_sync_type != instance.sync_type
             resulting_incremental_field = (
                 data.get("incremental_field") if "incremental_field" in data else stored_incremental_field
             )
-            if (switches_sync_type or clears_incremental_field) and not resulting_incremental_field:
+            switches_sync_type = resulting_sync_type != instance.sync_type
+            turns_sync_on = validated_data.get("should_sync") is True and not instance.should_sync
+            had_incremental_field = bool(stored_incremental_field)
+            if not resulting_incremental_field and (switches_sync_type or turns_sync_on or had_incremental_field):
+                replication = (
+                    "incremental" if resulting_sync_type == ExternalDataSchema.SyncType.INCREMENTAL else "append only"
+                )
                 raise ValidationError(
-                    f"'{instance.name}' needs an incremental field to sync with {resulting_sync_type}. "
+                    f"'{instance.name}' needs an incremental field for {replication} replication. "
                     "Choose the field that tracks when rows change, or switch it to full table replication."
                 )
 
