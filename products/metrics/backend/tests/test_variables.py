@@ -12,6 +12,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 
+from products.metrics.backend.variable_options import apply_regex, re2_pattern
 from products.metrics.backend.variables import (
     Variable,
     from_dashboard,
@@ -225,3 +226,33 @@ def test_all_needs_include_all(include_all: bool) -> None:
         current=MetricsDashboardVariableSelection(values=["a"], all=True),
     )
     assert from_dashboard([definition])["env"].is_all is include_all
+
+
+@parameterized.expand(
+    [
+        ("plain", "^api", "^api"),
+        ("slashes", "/api-(.*)/", "api-(.*)"),
+        ("flags_become_inline", "/API-(.*)/ig", "(?i)API-(.*)"),
+    ]
+)
+def test_re2_pattern(_name: str, regex: str, expected: str) -> None:
+    assert re2_pattern(regex) == expected
+
+
+@parameterized.expand(
+    [
+        ("filter", "^api", ["api-1", "web-1"], ["api-1"]),
+        ("numbered_group", "/api-(.*)/", ["api-1", "web-1"], ["1"]),
+        ("named_group", "api-(?<value>.*)", ["api-1"], ["1"]),
+        ("non_capturing_group", "api-(?:1|2)", ["api-1", "api-3"], ["api-1"]),
+        ("flags", "/API-(.*)/i", ["api-1"], ["1"]),
+        ("dot_matches_a_newline", "^api.*$", ["api\nworker"], ["api\nworker"]),
+        ("empty_option_without_a_group", ".*", ["", "api"], ["", "api"]),
+    ]
+)
+def test_apply_regex(_name: str, regex: str, options: list[str], expected: list[str]) -> None:
+    assert apply_regex(options, regex) == expected
+
+
+def test_apply_regex_reads_long_options_in_one_pass() -> None:
+    assert apply_regex(['up{instance="api", ' + "x" * 10_000_000 + "}"], 'instance="([^"]+)"') == ["api"]
