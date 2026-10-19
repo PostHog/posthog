@@ -43,13 +43,13 @@ function DomainChoices(props: EmailDomainWizardLogicProps): JSX.Element {
 
 function CreateSender(props: EmailDomainWizardLogicProps): JSX.Element {
     const logic = emailDomainWizardLogic(props)
-    const { existingSender, submitError, createdSenderLoading, bouncePrefix } = useValues(logic)
+    const { existingSender, submitError, createdSenderLoading, bouncePrefix, domainSender } = useValues(logic)
     const { clearDomain, createSender } = useActions(logic)
     const disabledReason = createdSenderLoading
         ? 'Creating the sender'
         : existingSender
           ? 'A sender with this address already exists'
-          : !bouncePrefix
+          : !bouncePrefix && !domainSender
             ? 'Type a bounce subdomain'
             : undefined
     return (

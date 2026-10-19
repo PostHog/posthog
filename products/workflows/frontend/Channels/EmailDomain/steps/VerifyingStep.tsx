@@ -41,6 +41,15 @@ function Heading(): JSX.Element {
             />
         )
     }
+    if (pollingStopped && allRecordsFound) {
+        return (
+            <StepHeading
+                Hoggie={HedgehogPanic}
+                title="The email provider can't confirm your records yet"
+                lead={`Every record is in place at ${host}, but the provider reported a temporary problem. Check again in a few minutes.`}
+            />
+        )
+    }
     if (pollingStopped) {
         const missing = missingRecords.length
         return (
