@@ -545,6 +545,14 @@ def test_a_listed_all_matches_only_the_listed_values() -> None:
             id="other_datasource",
         ),
         pytest.param({"name": "job", "type": "textbox", "query": "api-.*"}, id="text_box_regex"),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "/(?<text>[^:]+):(?<value>.+)/"},
+            id="named_value_capture",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "a" * 1025},
+            id="regex_over_the_api_limit",
+        ),
     ],
 )
 def test_variables_that_cannot_stay_live_keep_their_saved_values(item: dict[str, Any]) -> None:
@@ -571,6 +579,15 @@ def test_a_variable_whose_query_cannot_resolve_stays_static() -> None:
         ("pod", 'label_values(up{job="a"}, pod)')
     ]
     assert variables.template('up{job="$job"}') is None
+
+
+def test_a_long_chain_of_unresolvable_variables_stays_static() -> None:
+    chain = [
+        {"name": f"v{index}", "type": "query", "query": f'label_values(up{{x="$v{index + 1}"}}, y)'}
+        for index in range(2000)
+    ]
+
+    assert TemplateVariables.from_templating(chain).definitions() == []
 
 
 @pytest.mark.parametrize(
