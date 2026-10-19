@@ -174,8 +174,7 @@ pub async fn retire(
 }
 
 /// Request a migration; the coordinator starts it once the fleet is quiet.
-/// Writer lag is not gated: it only lengthens the restarts' replay, and the
-/// panel shows it to the operator who decides when to migrate.
+/// Writer lag does not block it; the panel shows the lag to the operator.
 pub async fn start_migration(
     config: &Config,
     client: &Client,

@@ -2702,10 +2702,7 @@ impl StashHandler for PendingCutoverHandler {
     }
 }
 
-/// A stash left open on a partition whose owner is gone (a migration
-/// dropped the dead holder's hold) must still be drained: the drain is what
-/// answers the parked requests once they outlive the stash wait, and a gone
-/// owner refuses whatever reaches it.
+/// A stash whose owner is gone still drains, so its parked requests get answered.
 #[tokio::test]
 async fn the_reconcile_pass_drains_a_gone_owners_stash() {
     let store = test_store("reconcile-gone-owner").await;
@@ -2754,9 +2751,7 @@ async fn the_reconcile_pass_drains_a_gone_owners_stash() {
     cancel.cancel();
 }
 
-/// A pending partition no handoff or assignment names (one a shrink
-/// dissolved, or one a router behind the count still hashes to) must still
-/// be drained, or its parked requests are never answered.
+/// A pending partition nothing names still drains, so its parked requests get answered.
 #[tokio::test]
 async fn the_reconcile_pass_drains_a_pending_partition_nothing_names() {
     let store = test_store("reconcile-unnamed-pending").await;

@@ -615,9 +615,7 @@ async fn the_flip_waits_for_every_partition_to_be_sealed() {
     cancel.cancel();
 }
 
-/// A plan lands only on the basis it was read on: not across a migration's
-/// start, not across a whole migration that flipped and ended, and still on
-/// a fresh read.
+/// A plan lands only on the basis it was read on, across a migration's start and a full migration.
 #[tokio::test]
 async fn a_plan_lands_only_on_the_basis_it_was_read_on() {
     let store = test_store("migration-plan-basis").await;

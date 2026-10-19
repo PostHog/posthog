@@ -939,12 +939,8 @@ impl RoutingTable {
                                 }
                             }
                             EventType::Delete => {
-                                // A deletion requires nothing from the router:
-                                // cleanup after Complete, or a migration
-                                // dropping a hold whose holder is gone or whose
-                                // partition a shrink dissolved. A stash still
-                                // open stays parked; the reconcile tick drains
-                                // it, to the assignment owner when there is one.
+                                // A deletion needs nothing from the router. A stash
+                                // still open stays parked; the reconcile tick drains it.
                                 let Some(kv) = event.kv() else { continue };
                                 let key = from_utf8(kv.key()).unwrap_or("");
                                 let Some(partition) = store::extract_partition_from_key(key) else {
@@ -1090,10 +1086,8 @@ impl RoutingTable {
                 );
             }
         }
-        // A pending partition nothing names (one a shrink dissolved, or one a router behind the
-        // count still hashes to) is drained with no owner: it forwards to the partition's route
-        // if one remains, answers what outlived the stash wait, and closes the freeze once
-        // nothing is left.
+        // A pending partition nothing names drains with no owner: it answers what outlived
+        // the stash wait and closes the freeze.
         for partition in handler.pending_partitions() {
             if !owned.contains(&partition) {
                 lanes.request(

@@ -143,13 +143,9 @@ impl PlanApplication {
     }
 }
 
-/// What the planner's placement rests on: the changelog config and the
-/// migration record, read at one revision. Every planner plan transaction
-/// requires both unchanged. The config compares on its mod revision, which a
-/// flip or retire moves; the migration on its create revision, which a new or
-/// archived saga moves and the driver's phase and blocking writes do not. A
-/// saga cancelled before its flip and archived leaves both as they were; a plan
-/// landing after it meets the world it was planned for.
+/// The changelog config and migration record a planner plan rests on; its transactions
+/// require both unchanged. The config compares by mod revision (a flip or retire moves it),
+/// the migration by create revision (a new or archived saga moves it).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlanBasis {
     pub config: Option<ChangelogConfig>,
@@ -837,9 +833,7 @@ impl PersonhogStore {
         .await
     }
 
-    /// A migration pass's plan, landing only while the saga record is still at
-    /// `migration_mod_revision`: any write to it moves it, including a cancel,
-    /// a phase change, a blocking-list write and the archive.
+    /// A migration pass's plan; it lands only while the saga record is unchanged.
     pub async fn apply_migration_plan(
         &self,
         migration_mod_revision: i64,

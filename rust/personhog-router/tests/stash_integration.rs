@@ -1229,9 +1229,7 @@ fn backend_routing_all(
     ))
 }
 
-/// A drain whose handoff arrived before the config watch delivered the flip
-/// reads the config first, so it takes the keys its target now owns instead of
-/// bouncing them and leaving the partition frozen.
+/// A drain that beats the config watch reads the config first and takes the right keys.
 #[tokio::test]
 async fn a_drain_adopts_the_config_from_etcd_first() {
     let person_id = moving_person();

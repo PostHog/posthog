@@ -124,10 +124,8 @@ impl RouterStashHandler {
         }
     }
 
-    /// Adopt the config as etcd holds it, so a drain whose handoff arrived before the
-    /// config watch delivered a flip takes the keys its target owns. Best effort: on a
-    /// failed or slow read, or a cancel, the drain runs under the adopted count, which
-    /// only costs bounces.
+    /// Read the config from etcd first, so a drain that beat the config watch takes the
+    /// right keys. Best effort: on failure it drains under the adopted count.
     async fn adopt_current_config(&self, cancel: &CancellationToken) {
         let read = tokio::select! {
             _ = cancel.cancelled() => return,

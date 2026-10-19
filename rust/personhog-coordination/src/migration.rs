@@ -550,10 +550,8 @@ async fn admission_refusal(
         .then_some("topic_already_retired"))
 }
 
-/// The start: the only way a saga begins. It waits, holding nothing, until
-/// the fleet is quiet (`fleet_quiet`), and starts in a transaction that proves
-/// no handoff record appeared since; the saga's record then moves the planner's basis, so no
-/// handoff can start after it either.
+/// The only way a saga starts: it waits, holding nothing, until the fleet is quiet,
+/// then starts in a transaction that proves no handoff appeared meanwhile.
 pub async fn consider_request(
     store: &PersonhogStore,
     members: &[Member],

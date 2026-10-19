@@ -36,9 +36,8 @@ fn client_config(base: &ClientConfig, group_id: &str) -> ClientConfig {
     cfg
 }
 
-/// Whether `group` has no committed record left on each partition: end-of-partition
-/// before any record, so transaction markers never count. A partition left unanswered
-/// at the timeout, or a topic missing from metadata, is an error. Blocking.
+/// Whether `group` has read each partition to its end; transaction markers never count.
+/// A timeout or a missing topic is an error. Blocking.
 pub fn partitions_drained(
     base: &ClientConfig,
     group: &str,

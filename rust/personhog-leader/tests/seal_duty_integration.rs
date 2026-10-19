@@ -228,9 +228,7 @@ async fn each_seal_is_acked_before_the_pass_ends() {
     pass.abort();
 }
 
-/// The fencing sweep discards parked connections nothing has consumed,
-/// including the ones the seal duty opened before Sealing. The next pass
-/// dials them again, so the seal does not start cold.
+/// A preconnect the fencing sweep discards is dialed again on the next pass.
 #[tokio::test]
 async fn a_swept_preconnect_is_dialed_again_on_the_next_pass() {
     let store = test_store("seal-duty-preconnect").await;

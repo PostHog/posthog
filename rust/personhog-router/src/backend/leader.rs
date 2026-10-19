@@ -435,10 +435,8 @@ impl LeaderBackend {
         loop {
             // Per attempt: a bounce may be the leader refusing a stale modulus.
             let partition = self.partition_for_person(key.0, key.1);
-            // A partition born in the flip has no owner until its fresh handoff
-            // lands; a write for it parks until that handoff's drain, never bounces.
-            // The stash opens under the table's read lock: a route inserted after
-            // the check is followed by a drain that finds the stash.
+            // A partition born in the flip parks its writes until its first handoff drains
+            // them. The table's read lock ensures a route added later meets the stash.
             if self
                 .config
                 .changelog

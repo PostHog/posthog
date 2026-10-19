@@ -350,10 +350,8 @@ pub fn plan_freeze(
     plan
 }
 
-/// The old-space partitions one leader seals: every one the assignment table
-/// does not give to a registered peer, and once the seal is overdue every one
-/// no ack reports sealed. Ownership is the table, not what the leader has
-/// loaded, so a holder restarted mid-Sealing still seals its own.
+/// The old-topic partitions one leader seals: those no registered peer owns in the
+/// assignment table, plus any no ack reports sealed once the seal is overdue.
 pub fn seal_targets(
     pod_name: &str,
     migration_id: &str,
@@ -394,9 +392,8 @@ pub fn planner_may_place(migration_phase: Option<MigrationPhase>, holds_remain: 
 /// Counted from the phase, not per owner, so a slow pass is resealed by peers; seals are idempotent.
 pub const SEAL_GRACE_MS: i64 = 2_000;
 
-/// Whether the seal is overdue: past the grace, a registered owner that has not
-/// sealed must not hold the fleet, so its peers seal its partitions too. Safe
-/// because every hold is drained before Sealing, so nothing produces to them.
+/// Past the grace, peers also seal an owner's unsealed partitions. Safe because
+/// every hold is drained before Sealing.
 pub fn seal_overdue(migration: &MigrationState, now_ms: i64) -> bool {
     migration.phase == MigrationPhase::Sealing
         && now_ms.saturating_sub(migration.phase_entered_at_ms) >= SEAL_GRACE_MS
