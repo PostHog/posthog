@@ -32302,6 +32302,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -33702,6 +33703,7 @@ export namespace Schemas {
       LoopReturns: 'LoopReturns',
       Mastodon: 'Mastodon',
       Meetup: 'Meetup',
+      Megaphone: 'Megaphone',
       Memberful: 'Memberful',
       MercadoPago: 'MercadoPago',
       Meteostat: 'Meteostat',
@@ -35116,6 +35118,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -37819,6 +37822,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -49940,6 +49944,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -51374,6 +51379,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -105735,6 +105741,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -107200,6 +107207,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
@@ -108632,6 +108640,7 @@ export namespace Schemas {
        * * `LoopReturns` - LoopReturns
        * * `Mastodon` - Mastodon
        * * `Meetup` - Meetup
+       * * `Megaphone` - Megaphone
        * * `Memberful` - Memberful
        * * `MercadoPago` - MercadoPago
        * * `Meteostat` - Meteostat
