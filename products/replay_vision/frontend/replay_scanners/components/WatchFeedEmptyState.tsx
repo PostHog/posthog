@@ -3,9 +3,6 @@ import { router } from 'kea-router'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { TeamMembershipLevel } from 'lib/constants'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { visionScannersListLogic } from '../../logics/visionScannersListLogic'
@@ -29,39 +26,6 @@ export function WatchFeedEmptyState({ reason }: { reason: WatchFeedEmptyReason }
     const { clearFeedFilters } = useActions(watchFeedLogic)
     const { scanners } = useValues(visionScannersListLogic)
     const { push } = useActions(router)
-    const { updateCurrentTeam } = useActions(teamLogic)
-    // Same gate as the settings toggle that writes this field (`ReplayGeneral`).
-    const replayRestrictedReason = useRestrictedArea({
-        scope: RestrictionScope.Project,
-        minimumAccessLevel: TeamMembershipLevel.Admin,
-    })
-
-    if (reason === 'replay-off') {
-        return (
-            <LemonBanner
-                type="warning"
-                action={
-                    replayRestrictedReason
-                        ? {
-                              children: 'Replay settings',
-                              to: urls.settings('environment-replay'),
-                              'data-attr': 'vision-watch-feed-replay-settings',
-                          }
-                        : {
-                              children: 'Turn on session replay',
-                              onClick: () => updateCurrentTeam({ session_recording_opt_in: true }),
-                              'data-attr': 'vision-watch-feed-enable-replay',
-                          }
-                }
-            >
-                <p className="font-semibold m-0">Session replay is off for this project</p>
-                <p className="m-0">
-                    Scanners watch recordings, so nothing new can reach this feed until recording is on.
-                    {replayRestrictedReason ? ' Ask a project admin to turn it on.' : ''}
-                </p>
-            </LemonBanner>
-        )
-    }
 
     if (reason === 'no-scanners') {
         return <WatchFeedIntro />
