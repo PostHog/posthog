@@ -2,11 +2,14 @@ import { useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -33,6 +36,7 @@ export function NotebooksScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { featureFlags } = useValues(featureFlagLogic)
     const reusableWidgetsEnabled = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const activeTab = reusableWidgetsEnabled && searchParams.tab === 'widgets' ? 'widgets' : 'notebooks'
 
     return (
@@ -54,15 +58,26 @@ export function NotebooksScene(): JSX.Element {
                             interaction="click"
                             scope={Scene.Notebooks}
                         >
-                            <LemonButton
-                                size="small"
-                                data-attr="new-notebook"
-                                to={urls.notebook('new')}
-                                type="primary"
-                                tooltip="New notebook"
-                            >
-                                New notebook
-                            </LemonButton>
+                            {todayRailNav ? (
+                                <Button
+                                    data-attr="new-notebook"
+                                    render={<LinkPrimitive to={urls.notebook('new')} />}
+                                    variant="primary"
+                                    tooltip="New notebook"
+                                >
+                                    New notebook
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    size="small"
+                                    data-attr="new-notebook"
+                                    to={urls.notebook('new')}
+                                    type="primary"
+                                    tooltip="New notebook"
+                                >
+                                    New notebook
+                                </LemonButton>
+                            )}
                         </Shortcut>
                     </AccessControlAction>
                 }
