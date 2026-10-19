@@ -10,7 +10,7 @@ from posthog.dataclasses import frozen
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
 from products.experiments.backend.models.experiment import Experiment
-from products.feature_flags.backend.facade.filters import pinned_variant, reachable_conditions
+from products.feature_flags.backend.facade.filters import condition_aggregation, pinned_variant, reachable_conditions
 
 
 @frozen
@@ -153,13 +153,22 @@ class FlagReleaseGroup:
 
 
 @frozen
+class VariantProperty:
+    """A property whose value names the variant. A person and a group, or two group types, can have a property with
+    the same key, and those are different properties."""
+
+    key: str
+    group_type_index: int | None
+
+
+@frozen
 class ReachableCondition:
     # Numbered from 1, as the page labels the release conditions ("Set 2").
     number: int
     pinned_variant: str | None
     # The person or group property that the condition matches on alone, when its one value is the pinned variant's
     # key. The variant then comes from whatever sets that property, usually the customer's own assignment.
-    variant_property: str | None
+    variant_property: VariantProperty | None
 
 
 @frozen
@@ -241,21 +250,26 @@ def parse_flag_state(
         release_groups=tuple(_release_group(group) for group in conditions),
         variants=flag_variants,
         reachable_conditions=tuple(
-            _reachable_condition(index + 1, conditions[index], variant_keys) for index in reachable
+            _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
+            for index in reachable
         ),
     )
 
 
-def _reachable_condition(number: int, condition: Mapping[str, Any], variant_keys: set[str]) -> ReachableCondition:
+def _reachable_condition(
+    number: int, condition: Mapping[str, Any], variant_keys: set[str], flag_aggregation: int | None
+) -> ReachableCondition:
     pinned = pinned_variant(condition, variant_keys)
     return ReachableCondition(
         number=number,
         pinned_variant=pinned,
-        variant_property=None if pinned is None else _variant_property(condition, pinned),
+        variant_property=None if pinned is None else _variant_property(condition, pinned, flag_aggregation),
     )
 
 
-def _variant_property(condition: Mapping[str, Any], pinned: str) -> str | None:
+def _variant_property(
+    condition: Mapping[str, Any], pinned: str, flag_aggregation: int | None
+) -> VariantProperty | None:
     properties = condition.get("properties")
     if not isinstance(properties, list) or len(properties) != 1 or not isinstance(properties[0], dict):
         return None
@@ -270,7 +284,18 @@ def _variant_property(condition: Mapping[str, Any], pinned: str) -> str | None:
     ):
         return None
     # The flag service compares `exact` values as lowercase strings.
-    return key if str(values[0]).lower() == pinned.lower() else None
+    if str(values[0]).lower() != pinned.lower():
+        return None
+    if properties[0].get("type") == "person":
+        return VariantProperty(key=key, group_type_index=None)
+    # A group filter without its own group type reads the group the condition aggregates on.
+    group_type_index = properties[0].get("group_type_index")
+    return VariantProperty(
+        key=key,
+        group_type_index=group_type_index
+        if isinstance(group_type_index, int)
+        else condition_aggregation(condition, flag_aggregation),
+    )
 
 
 def _release_group(group: object) -> FlagReleaseGroup:

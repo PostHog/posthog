@@ -20,7 +20,13 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped, shipped_variant_key
 from products.experiments.backend.health.condition_changes import conditions_net_effect
-from products.experiments.backend.health.context import ConditionsChange, FlagHistory, HealthContext, ReachableCondition
+from products.experiments.backend.health.context import (
+    ConditionsChange,
+    FlagHistory,
+    HealthContext,
+    ReachableCondition,
+    VariantProperty,
+)
 from products.experiments.backend.health.pinned_share import (
     PinnedConditions,
     PinnedShareGrade,
@@ -82,11 +88,11 @@ def forced_variant_release_condition(ctx: HealthContext) -> ExperimentHealthFind
             subcode=ASSIGNED_BY_PROPERTY,
             severity=ExperimentHealthFindingSeverity.INFO,
             title="Variants are assigned outside PostHog",
-            detail=_assigned_by_property_detail(variant_property, set_after_launch.sentence),
+            detail=_assigned_by_property_detail(variant_property.key, set_after_launch.sentence),
             pinned_numbers=pinned_numbers,
             pinned_keys=pinned_keys,
             diagnostic_ref="A7b",
-            grade_evidence={"variant_property": variant_property, **set_after_launch.evidence},
+            grade_evidence={"variant_property": variant_property.key, **set_after_launch.evidence},
         )
     return _finding(
         subcode=ALL_CONDITIONS_PINNED,
@@ -193,7 +199,7 @@ def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLa
     )
 
 
-def _shared_variant_property(conditions: Sequence[ReachableCondition]) -> str | None:
+def _shared_variant_property(conditions: Sequence[ReachableCondition]) -> VariantProperty | None:
     properties = {condition.variant_property for condition in conditions}
     return next(iter(properties)) if len(properties) == 1 else None
 

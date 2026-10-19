@@ -47,9 +47,10 @@ IOS: dict[str, Any] = {
 CHANGED_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
 
 
-def _property_is(key: str, value: str) -> dict[str, Any]:
+def _property_is(key: str, value: str, *, group_type_index: int | None = None) -> dict[str, Any]:
+    source = {"type": "person"} if group_type_index is None else {"type": "group", "group_type_index": group_type_index}
     return {
-        "properties": [{"key": key, "value": [value], "operator": "exact", "type": "person"}],
+        "properties": [{"key": key, "value": [value], "operator": "exact", **source}],
         "rollout_percentage": 100,
     }
 
@@ -139,6 +140,16 @@ class TestForcedVariantReleaseCondition(TestCase):
                     [
                         {**_property_is("plan", "free"), "variant": "control"},
                         {**_property_is("plan", "pro"), "variant": "test"},
+                    ]
+                ),
+                ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
+            ),
+            (
+                "variants_mapped_from_a_person_and_a_group_property_of_one_key",
+                _context(
+                    [
+                        {**_property_is("arm", "control"), "variant": "control"},
+                        {**_property_is("arm", "test", group_type_index=0), "variant": "test"},
                     ]
                 ),
                 ("all_conditions_pinned", ExperimentHealthFindingSeverity.WARNING, "1, 2", "control, test", None),
