@@ -53,6 +53,10 @@ All SQL lives in `core/jobs_db.py`; the polling/retry/recovery engine is `core/b
 - **Three sweeps**, not one:
   - **Recovery sweep** (every 30s, `get_stale_executing`): batches whose latest status is `executing`, older than the 300s grace window, with no live lease over their group.
     The sweep deletes the expired lease first so a resurrecting owner cannot renew it, then re-queues the batch as `waiting_retry` (with a compare-and-swap on the observed `state_changed_at`) or fails the run at max attempts.
+  - **Interruptions are not retries.** A consumer that gets SIGTERM marks each attempt it is still running with an `executing` status row that carries `{"shutdown": true}` (`mark_shutdown_interruptions`), before it drains.
+    The sweep re-queues a marked attempt with `{"interrupted": true}`, and that attempt does not count against `max_attempts`. `max_interruptions` (10) caps it separately.
+    An attempt without a marker lost its consumer without notice, most often to an OOM kill, so it still uses a retry.
+    The attempt number still goes up on each delivery, because the loader's redelivery checks read it.
   - **Reconcile sweep** (every 300s, `reconcile_failed_runs` + `get_failed_runs`): finds runs with a `failed` queue batch whose `ExternalDataJob` was left non-terminal and marks the job failed.
     It is single-flighted fleet-wide through a sentinel lease row (`try_acquire_reconcile_sweep_slot`, team_id 0 / `__reconcile-sweep__`, 240s slot TTL): the sweeps reconcile global state, so N pods running them concurrently is pure duplicated load, exactly when the queue DB can least afford it.
   - **Stranded-run sweep** (same cadence and connection, `get_stale_stranded_runs`): runs the loader abandoned, meaning non-terminal batches, no live lease, and no loader progress for 6 hours.

@@ -25,7 +25,12 @@ from products.warehouse_sources_queue.backend.core.batch_phase import (
     publish_phase_gauges,
     track_batch_phases,
 )
-from products.warehouse_sources_queue.backend.core.jobs_db import PendingBatch
+from products.warehouse_sources_queue.backend.core.jobs_db import (
+    INTERRUPTED_KEY,
+    ExecutingAttempt,
+    InterruptionHistory,
+    PendingBatch,
+)
 from products.warehouse_sources_queue.backend.core.metrics import DELTA_CONSUMER_METRICS, ConsumerMetrics
 
 logger = structlog.get_logger(__name__)
@@ -33,6 +38,10 @@ logger = structlog.get_logger(__name__)
 T = TypeVar("T")
 
 MAX_ATTEMPTS = 3
+# Recovered shutdowns a batch may take on top of its retries. A deploy or a node drain stops
+# every consumer pod in turn, so a slow batch can be cut off several times on a busy day.
+# The cap still ends a batch that makes its consumer stop every time it runs.
+MAX_INTERRUPTIONS = 10
 POLL_INTERVAL_SECONDS = 2.0
 RECOVERY_INTERVAL_SECONDS = 30.0
 RETRY_BACKOFF_BASE_SECONDS = 15
@@ -48,6 +57,7 @@ GAUGE_SLOT_WARMUP_SECONDS = RECONCILE_INTERVAL_SECONDS
 RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned by consumer outages
 
 SHUTDOWN_DRAIN_TIMEOUT_SECONDS = 30.0
+SHUTDOWN_MARK_TIMEOUT_SECONDS = 5.0
 GAUGE_SLOT_RELEASE_TIMEOUT_SECONDS = 3.0
 
 # Cap on the jitter window between failed polls — flat retries make the whole
@@ -277,6 +287,7 @@ class BatchConsumerConfig:
     database_url: str
     max_concurrency: int = 16
     max_attempts: int = MAX_ATTEMPTS
+    max_interruptions: int = MAX_INTERRUPTIONS
     poll_interval_seconds: float = POLL_INTERVAL_SECONDS
     poll_limit: int = 50
     health_port: int = 8080
@@ -432,6 +443,26 @@ class BatchConsumerAdapter(Protocol):
         keep_locks: bool = False,
     ) -> list[PendingBatch]: ...
 
+    async def mark_shutdown_interruptions(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        attempts: list[ExecutingAttempt],
+    ) -> int:
+        """Record that this consumer shut down while these attempts ran; returns the count marked.
+
+        Must mark only an attempt that is still executing. A sink that cannot record this returns 0,
+        and the recovery sweep then counts the attempt against the retry budget."""
+        ...
+
+    async def get_interruption_history(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        attempt: int,
+    ) -> InterruptionHistory: ...
+
     async def reconcile_failed_runs(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -520,6 +551,8 @@ class BatchConsumer:
         # batch_id -> monotonic start, for the stuck-batch watchdog.
         self._inflight_started: dict[str, float] = {}
         self._inflight_progress: dict[str, BatchPhaseProgress] = {}
+        # batch_id -> the attempt this consumer wrote as 'executing', for the shutdown marker.
+        self._executing: dict[str, ExecutingAttempt] = {}
         self._last_stuck_log_monotonic = 0.0
         # Consecutive failed polls, for the poll-failure liveness trip.
         self._consecutive_poll_failures = 0
@@ -1335,6 +1368,7 @@ class BatchConsumer:
                     attempt=attempts[batch.id],
                     batch_created_at=batch.created_at,
                 )
+                self._track_executing(batch, attempts[batch.id])
 
             heartbeat_task: asyncio.Task[None] | None = None
             start = time.monotonic()
@@ -1419,6 +1453,8 @@ class BatchConsumer:
                     return await self._process_singly(batches, lock_conn, spent_attempt=True)
             finally:
                 await self._stop_heartbeat(heartbeat_task)
+                for batch in batches:
+                    self._executing.pop(batch.id, None)
 
     async def _process_singly(
         self, batches: list[PendingBatch], lock_conn: psycopg.AsyncConnection[Any] | None, *, spent_attempt: bool
@@ -1449,18 +1485,21 @@ class BatchConsumer:
         attempt: int,
         lock_conn: psycopg.AsyncConnection[Any] | None = None,
     ) -> bool:
-        if attempt > self._config.max_attempts:
-            logger.error(
-                self._event("batch_max_retries_exceeded"),
-                batch_id=batch.id,
-                run_uuid=batch.run_uuid,
-                attempt=attempt,
-            )
-            await self._verify_ownership(lock_conn, batch)
-            await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})", conn=lock_conn)
-            return False
-
         status_conn = await self._get_status_conn(lock_conn)
+
+        if attempt > self._config.max_attempts:
+            retries_used = await self._retries_used(status_conn, batch, attempt)
+            if retries_used > self._config.max_attempts:
+                logger.error(
+                    self._event("batch_max_retries_exceeded"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    attempt=attempt,
+                    retries_used=retries_used,
+                )
+                await self._verify_ownership(lock_conn, batch)
+                await self._fail_run(batch, reason=f"max retries exceeded (attempt {attempt})", conn=lock_conn)
+                return False
 
         logger.info(
             self._event("batch_picked_up"),
@@ -1500,6 +1539,7 @@ class BatchConsumer:
                 attempt=attempt,
                 batch_created_at=batch.created_at,
             )
+            self._track_executing(batch, attempt)
 
             if should_process:
                 if lock_conn is not None:
@@ -1546,15 +1586,39 @@ class BatchConsumer:
             self._metrics.batches_processed_total.labels(status="error").inc()
             self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
+            # The failure path reads and writes on the group connection, which the heartbeat shares.
+            await self._stop_heartbeat(heartbeat_task)
+            heartbeat_task = None
             await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
+            self._executing.pop(batch.id, None)
             if heartbeat_task is not None:
                 heartbeat_task.cancel()
                 try:
                     await heartbeat_task
                 except asyncio.CancelledError:
                     pass
+
+    def _track_executing(self, batch: PendingBatch, attempt: int) -> None:
+        self._executing[batch.id] = ExecutingAttempt(
+            batch_id=batch.id, batch_created_at=batch.created_at, attempt=attempt
+        )
+
+    async def _interruption_history(
+        self, conn: psycopg.AsyncConnection[Any], batch: PendingBatch, attempt: int
+    ) -> InterruptionHistory:
+        return await self._adapter.get_interruption_history(conn, batch_id=batch.id, attempt=attempt)
+
+    async def _retries_used(self, conn: psycopg.AsyncConnection[Any], batch: PendingBatch, attempt: int) -> int:
+        """The attempt number minus the earlier deliveries that a consumer shutdown cut off."""
+        try:
+            history = await self._interruption_history(conn, batch, attempt)
+        except Exception as e:
+            # Fail toward the old budget: every delivery then counts as a retry.
+            logger.warning(self._event("interruption_history_read_failed"), batch_id=batch.id, error=str(e))
+            return attempt
+        return attempt - history.recovered
 
     async def _handle_batch_failure(
         self,
@@ -1601,7 +1665,10 @@ class BatchConsumer:
                 capture_exception(err)
             await self._verify_ownership(lock_conn, batch)
             await self._fail_run(batch, reason=reason, conn=lock_conn)
-        elif attempt >= self._config.max_attempts:
+        elif (
+            attempt >= self._config.max_attempts
+            and await self._retries_used(status_conn, batch, attempt) >= self._config.max_attempts
+        ):
             reason = f"max retries exceeded: {err}"
             if isinstance(err, NonReportableError):
                 # A sustained blip (e.g. TransientObjectStoreError) stays out of error tracking
@@ -1898,30 +1965,7 @@ class BatchConsumer:
                     # Claim the corpse first: once the expired lease is gone, a resurrecting
                     # owner's renew matches nothing, so it can't finish over the re-queue.
                     await self._adapter.delete_expired_lease(conn, team_id=batch.team_id, schema_id=batch.schema_id)
-                    if batch.latest_attempt >= self._config.max_attempts:
-                        logger.warning(
-                            self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt
-                        )
-                        # fail_run's bulk write re-reads each batch's latest status in-statement and
-                        # targets only non-terminal ones, so it can't flip a meanwhile-succeeded batch.
-                        await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
-                    else:
-                        try:
-                            await self._adapter.update_status(
-                                conn,
-                                batch_id=batch.id,
-                                job_state=self._adapter.waiting_retry_state,
-                                attempt=batch.latest_attempt,
-                                error_response={"error": "executing timed out - pod restart or OOM"},
-                                batch_created_at=batch.created_at,
-                                expected_state_changed_at=batch.state_changed_at,
-                            )
-                        except OwnershipLostError:
-                            # The state moved after the stale scan (owner finished, or the batch
-                            # went terminal): leave it, without aborting the rest of the sweep.
-                            logger.info(self._event("batch_recovery_skipped_state_moved"), batch_id=batch.id)
-                        else:
-                            logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
+                    await self._recover_stale_batch(conn, batch)
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
         finally:
@@ -1932,6 +1976,98 @@ class BatchConsumer:
                 await self._adapter.unlock(conn, batches=stale, owner_token=self._owner_token)
             except Exception:
                 logger.exception(self._event("recovery_sweep_unlock_failed"))
+
+    async def _recover_stale_batch(self, conn: psycopg.AsyncConnection[Any], batch: PendingBatch) -> None:
+        """Re-queue or fail one executing batch whose consumer stopped.
+
+        A consumer that shut down gracefully marked the attempt first. That attempt is an
+        interruption: it uses no retry, and only ``max_interruptions`` limits it. An unmarked
+        attempt lost its consumer without notice, which is most often an OOM kill caused by the
+        batch itself, so it uses a retry as a processing error does.
+        """
+        history = await self._interruption_history(conn, batch, batch.latest_attempt)
+        if history.shutdown_marked:
+            interruptions = history.recovered + 1
+            if interruptions > self._config.max_interruptions:
+                logger.warning(
+                    self._event("batch_recovered_max_interruptions_exceeded"),
+                    attempt=batch.latest_attempt,
+                    interruptions=interruptions,
+                )
+                self._metrics.batch_interruptions_total.labels(outcome="cap_exceeded").inc()
+                await self._fail_run(
+                    batch,
+                    reason=f"max interruptions exceeded (loading stopped {interruptions} times by a worker shutdown)",
+                    conn=conn,
+                )
+                return
+            error_response: dict[str, Any] = {
+                "error": "executing interrupted by worker shutdown",
+                INTERRUPTED_KEY: True,
+            }
+            recovered_event = "batch_recovered_after_interruption"
+        else:
+            retries_used = batch.latest_attempt - history.recovered
+            if retries_used >= self._config.max_attempts:
+                logger.warning(
+                    self._event("batch_recovered_max_retries_exceeded"),
+                    attempt=batch.latest_attempt,
+                    retries_used=retries_used,
+                )
+                # fail_run's bulk write re-reads each batch's latest status in-statement and
+                # targets only non-terminal ones, so it can't flip a meanwhile-succeeded batch.
+                await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                return
+            error_response = {"error": "executing timed out - pod restart or OOM"}
+            recovered_event = "batch_recovered_for_retry"
+        try:
+            await self._adapter.update_status(
+                conn,
+                batch_id=batch.id,
+                job_state=self._adapter.waiting_retry_state,
+                attempt=batch.latest_attempt,
+                error_response=error_response,
+                batch_created_at=batch.created_at,
+                expected_state_changed_at=batch.state_changed_at,
+            )
+        except OwnershipLostError:
+            # The state moved after the stale scan (owner finished, or the batch
+            # went terminal): leave it, without aborting the rest of the sweep.
+            logger.info(self._event("batch_recovery_skipped_state_moved"), batch_id=batch.id)
+            return
+        if history.shutdown_marked:
+            self._metrics.batch_interruptions_total.labels(outcome="recovered").inc()
+            logger.warning(
+                self._event(recovered_event), attempt=batch.latest_attempt, interruptions=history.recovered + 1
+            )
+        else:
+            logger.warning(self._event(recovered_event), attempt=batch.latest_attempt)
+
+    async def _mark_shutdown_interruptions(self) -> None:
+        """Mark the attempts still running at shutdown, so the recovery sweep spends no retry on them.
+
+        Best-effort on a fresh connection, because a group task may be using its own connection
+        or the poll connection at this moment. An attempt that is not marked uses a retry.
+        """
+        attempts = list(self._executing.values())
+        if not attempts:
+            return
+        try:
+            async with asyncio.timeout(SHUTDOWN_MARK_TIMEOUT_SECONDS):
+                conn = await self._connect()
+                try:
+                    marked = await self._adapter.mark_shutdown_interruptions(conn, attempts=attempts)
+                finally:
+                    await conn.close()
+        except Exception as e:
+            logger.warning(
+                self._event("shutdown_interruptions_mark_failed"),
+                count=len(attempts),
+                error=str(e) or type(e).__name__,
+            )
+            return
+        self._metrics.batch_interruptions_total.labels(outcome="marked_on_shutdown").inc(marked)
+        logger.info(self._event("shutdown_interruptions_marked"), count=marked, executing=len(attempts))
 
     async def _release_queue_gauges_slot(self) -> None:
         """Best-effort: a slow or failing queue DB must never delay or fail the shutdown."""
@@ -1959,6 +2095,10 @@ class BatchConsumer:
                     await task
                 except asyncio.CancelledError:
                     pass
+
+        # Before the drain: the marker has to land before the pod stops, and the drain can use
+        # up the termination grace period.
+        await self._mark_shutdown_interruptions()
 
         # Free the gauge slot before the drain: no pod samples while the old holder drains.
         await self._release_queue_gauges_slot()

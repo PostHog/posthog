@@ -75,7 +75,9 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     ClaimCursor,
+    ExecutingAttempt,
     FailedRunRef,
+    InterruptionHistory,
     PendingBatch,
     QueueDepth,
     _Unset,
@@ -483,6 +485,25 @@ class DeltaBatchConsumerAdapter:
                 sync_types=self._claim_sync_types,
                 exclude_sync_types=self._claim_exclude_sync_types,
             )
+
+    async def mark_shutdown_interruptions(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        attempts: list[ExecutingAttempt],
+    ) -> int:
+        with observe_queue_query("mark_shutdown_interruptions"):
+            return await BatchQueue.mark_shutdown_interruptions(conn, attempts=attempts)
+
+    async def get_interruption_history(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        attempt: int,
+    ) -> InterruptionHistory:
+        with observe_queue_query("get_interruption_history"):
+            return await BatchQueue.get_interruption_history(conn, batch_id=batch_id, attempt=attempt)
 
     async def reconcile_failed_runs(
         self,

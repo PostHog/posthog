@@ -28,6 +28,8 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from posthog.dataclasses import frozen
+
 BATCH_TABLE = "sourcebatch"
 STATUS_TABLE = "sourcebatchstatus"
 STATUS_VIEW = "v_latest_source_batch_status"
@@ -138,6 +140,13 @@ FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
 # concentration share covers. Small enough that a near-1 share means a handful
 # of tenants own the queue, large enough that one bursty tenant does not.
 DEPTH_TOP_GROUPS = 5
+
+# Keys in a status row's error_response that keep interruptions apart from processing errors.
+# A consumer that shuts down while a batch runs writes SHUTDOWN_MARKER_KEY on an 'executing'
+# row of that attempt. The recovery sweep writes INTERRUPTED_KEY on the 'waiting_retry' row
+# that re-queues the batch, and each such row is one interruption that uses no retry.
+SHUTDOWN_MARKER_KEY = "shutdown"
+INTERRUPTED_KEY = "interrupted"
 
 
 class _Unset:
@@ -954,6 +963,72 @@ def _stale_executing_sql(scope_sql: str = "") -> str:
             {scope_sql}
         ORDER BY b.created_at ASC, b.batch_index ASC
     """
+
+
+# FOR UPDATE OF b serializes the marker with the owner's own status writes, which lock the
+# same row. A batch that wrote 'succeeded' or 'waiting_retry' first fails the state check
+# when the lock is released, so the marker can never make a finished batch 'executing' again.
+# The marker keeps the batch's state and attempt, so the denormalized columns stay as they are.
+MARK_SHUTDOWN_INTERRUPTIONS_SQL = f"""
+    WITH marks AS (
+        SELECT *
+        FROM unnest(%(batch_ids)s::uuid[], %(batch_created_ats)s::timestamptz[], %(attempts)s::int[])
+            AS m(batch_id, batch_created_at, attempt)
+    ),
+    target AS (
+        SELECT b.id, m.attempt
+        FROM marks m
+        JOIN {BATCH_TABLE} b ON b.id = m.batch_id
+        WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+          AND (m.batch_created_at IS NULL OR b.created_at = m.batch_created_at)
+          AND b.latest_state = 'executing'
+          AND b.latest_attempt = m.attempt
+        ORDER BY b.id
+        FOR UPDATE OF b
+    ),
+    ins AS (
+        INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+        SELECT t.id, 'executing', t.attempt, now(), %(error_response)s, now()
+        FROM target t
+        RETURNING batch_id
+    )
+    SELECT count(*) FROM ins
+"""
+
+
+INTERRUPTION_HISTORY_SQL = f"""
+    SELECT
+        count(*) FILTER (
+            WHERE job_state = 'waiting_retry' AND error_response->>'{INTERRUPTED_KEY}' = 'true'
+        ) AS recovered,
+        COALESCE(bool_or(
+            job_state = 'executing'
+            AND attempt = %(attempt)s
+            AND error_response->>'{SHUTDOWN_MARKER_KEY}' = 'true'
+        ), false) AS shutdown_marked
+    FROM {STATUS_TABLE}
+    WHERE batch_id = %(batch_id)s
+      AND created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+"""
+
+
+@frozen
+class InterruptionHistory:
+    """What a batch's status log says about deliveries that a worker shutdown cut off."""
+
+    # Earlier deliveries that the recovery sweep re-queued as interruptions.
+    recovered: int = 0
+    # The consumer shut down gracefully while the asked-for attempt was running.
+    shutdown_marked: bool = False
+
+
+@frozen
+class ExecutingAttempt:
+    """A batch attempt that a consumer is running, as it was written to the status log."""
+
+    batch_id: str
+    batch_created_at: datetime | None
+    attempt: int
 
 
 @dataclass(frozen=False, slots=True)
@@ -1912,6 +1987,45 @@ class BatchQueue:
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]
+
+    @staticmethod
+    async def mark_shutdown_interruptions(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        attempts: list[ExecutingAttempt],
+    ) -> int:
+        """Record that the consumer shut down while these attempts ran. Returns the count marked.
+
+        An attempt is marked only while its batch is still 'executing' at that attempt, so a
+        batch that finished, or that another consumer took over, is left alone.
+        """
+        if not attempts:
+            return 0
+        cursor = await conn.execute(
+            MARK_SHUTDOWN_INTERRUPTIONS_SQL,
+            {
+                "batch_ids": [a.batch_id for a in attempts],
+                "batch_created_ats": [a.batch_created_at for a in attempts],
+                "attempts": [a.attempt for a in attempts],
+                "error_response": json.dumps({SHUTDOWN_MARKER_KEY: True}),
+            },
+        )
+        row = await cursor.fetchone()
+        return int(row[0]) if row else 0
+
+    @staticmethod
+    async def get_interruption_history(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        attempt: int,
+    ) -> InterruptionHistory:
+        """Count the batch's recovered interruptions, and whether a shutdown cut off ``attempt``."""
+        cursor = await conn.execute(INTERRUPTION_HISTORY_SQL, {"batch_id": batch_id, "attempt": attempt})
+        row = await cursor.fetchone()
+        if row is None:
+            return InterruptionHistory()
+        return InterruptionHistory(recovered=int(row[0]), shutdown_marked=bool(row[1]))
 
     @staticmethod
     async def fail_run(

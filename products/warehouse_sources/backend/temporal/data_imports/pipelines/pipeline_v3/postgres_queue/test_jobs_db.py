@@ -28,6 +28,8 @@ from products.warehouse_sources_queue.backend.core.jobs_db import (
     TAKEOVER_STALE_THRESHOLD_SECONDS,
     BatchQueue,
     ClaimCursor,
+    ExecutingAttempt,
+    InterruptionHistory,
     PendingBatch,
     QueueDepth,
     _claim_window_sql,
@@ -2749,6 +2751,118 @@ class TestRecoverySweepVsLiveOwner:
         cur = await conn.execute(f"SELECT latest_state FROM {BATCH_TABLE} WHERE id = %s", (bid,))
         row = await cur.fetchone()
         assert row is not None and row[0] == "succeeded", "the sweep must not re-queue a batch its owner finished"
+
+
+async def _backdate_batch_log(conn: psycopg.AsyncConnection[Any], *, batch_id: str, age_seconds: int) -> None:
+    await conn.execute(
+        f"UPDATE {STATUS_TABLE} SET created_at = created_at - make_interval(secs => %s) WHERE batch_id = %s",
+        [age_seconds, batch_id],
+    )
+    await conn.execute(
+        f"UPDATE {BATCH_TABLE} SET state_changed_at = state_changed_at - make_interval(secs => %s) WHERE id = %s",
+        [age_seconds, batch_id],
+    )
+
+
+async def _batch_created_at(conn: psycopg.AsyncConnection[Any], batch_id: str) -> Any:
+    cur = await conn.execute(f"SELECT created_at FROM {BATCH_TABLE} WHERE id = %s", (batch_id,))
+    row = await cur.fetchone()
+    assert row is not None
+    return row[0]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestShutdownInterruptions:
+    @pytest.mark.parametrize(
+        "writes,marked_attempt,with_created_at,expected_marked",
+        [
+            ([("executing", 1)], 1, True, 1),
+            ([("executing", 1)], 1, False, 1),
+            # The batch finished during the drain: the marker must not make it executing again.
+            ([("executing", 1), ("succeeded", 1)], 1, True, 0),
+            ([("executing", 1), ("waiting_retry", 1)], 1, True, 0),
+            # Another consumer took the batch over at a later attempt.
+            ([("executing", 1), ("waiting_retry", 1), ("executing", 2)], 1, True, 0),
+        ],
+        ids=["executing", "executing_without_created_at", "succeeded", "waiting_retry", "taken_over"],
+    )
+    @pytest.mark.asyncio
+    async def test_marks_only_an_attempt_that_is_still_executing(
+        self,
+        conn,
+        writes: list[tuple[str, int]],
+        marked_attempt: int,
+        with_created_at: bool,
+        expected_marked: int,
+    ):
+        bid = await _insert_batch(conn)
+        for job_state, attempt in writes:
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=job_state, attempt=attempt)
+        state_before = await _batch_state(conn, bid)
+        created_at = await _batch_created_at(conn, bid) if with_created_at else None
+
+        marked = await BatchQueue.mark_shutdown_interruptions(
+            conn, attempts=[ExecutingAttempt(batch_id=bid, batch_created_at=created_at, attempt=marked_attempt)]
+        )
+
+        assert marked == expected_marked
+        assert await _batch_state(conn, bid) == state_before
+        history = await BatchQueue.get_interruption_history(conn, batch_id=bid, attempt=marked_attempt)
+        assert history.shutdown_marked is (expected_marked == 1)
+
+    @pytest.mark.asyncio
+    async def test_history_counts_recovered_interruptions_of_one_batch_only(self, conn):
+        bid = await _insert_batch(conn)
+        other = await _insert_batch(conn, batch_index=1)
+        interrupted = {"error": "executing interrupted by worker shutdown", "interrupted": True}
+        for batch_id in (bid, other):
+            await BatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
+            await BatchQueue.mark_shutdown_interruptions(
+                conn, attempts=[ExecutingAttempt(batch_id=batch_id, batch_created_at=None, attempt=1)]
+            )
+            await BatchQueue.update_status(
+                conn, batch_id=batch_id, job_state="waiting_retry", attempt=1, error_response=interrupted
+            )
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=2)
+        await BatchQueue.update_status(
+            conn, batch_id=bid, job_state="waiting_retry", attempt=2, error_response={"error": "boom"}
+        )
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=3)
+
+        latest = await BatchQueue.get_interruption_history(conn, batch_id=bid, attempt=3)
+        first = await BatchQueue.get_interruption_history(conn, batch_id=bid, attempt=1)
+
+        assert latest == InterruptionHistory(recovered=1, shutdown_marked=False)
+        assert first == InterruptionHistory(recovered=1, shutdown_marked=True)
+
+    @pytest.mark.parametrize(
+        "shutdown_marked,expected_state",
+        [(True, "waiting_retry"), (False, "failed")],
+        ids=["shutdown_is_an_interruption", "unannounced_loss_uses_a_retry"],
+    )
+    @pytest.mark.asyncio
+    async def test_sweep_requeues_a_batch_at_max_attempts_only_after_a_shutdown(
+        self, conn, _db_url, shutdown_marked: bool, expected_state: str
+    ):
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=3)
+        if shutdown_marked:
+            await BatchQueue.mark_shutdown_interruptions(
+                conn, attempts=[ExecutingAttempt(batch_id=bid, batch_created_at=None, attempt=3)]
+            )
+        await _backdate_batch_log(conn, batch_id=bid, age_seconds=120)
+
+        consumer = BatchConsumer(
+            config=ConsumerConfig(database_url=_db_url, recovery_grace_seconds=60, max_attempts=3),
+            process_batch=AsyncMock(),
+        )
+        consumer._recovery_conn = conn
+        await consumer._recovery_sweep()
+
+        state = await _batch_state(conn, bid)
+        assert (state.state, state.attempt) == (expected_state, 3 if shutdown_marked else 0)
+        history = await BatchQueue.get_interruption_history(conn, batch_id=bid, attempt=4)
+        assert history.recovered == (1 if shutdown_marked else 0)
 
 
 @pytest.mark.django_db(transaction=True)

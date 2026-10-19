@@ -35,6 +35,15 @@ BATCH_RETRY_TOTAL = Counter(
     labelnames=["attempt", "error_type"],
 )
 
+# Batches a consumer shutdown cut off mid-run. "marked_on_shutdown" counts the attempts a
+# stopping consumer marked, "recovered" the sweep's re-queues that used no retry, and
+# "cap_exceeded" the runs failed because one batch was cut off too many times.
+BATCH_INTERRUPTIONS_TOTAL = Counter(
+    "warehouse_pg_consumer_batch_interruptions_total",
+    "Batch attempts cut off by a consumer shutdown, by outcome",
+    labelnames=["outcome"],
+)
+
 RUNS_FAILED_TOTAL = Counter(
     "warehouse_pg_consumer_runs_failed_total",
     "Total runs fully failed via fail_run()",
@@ -302,6 +311,7 @@ class ConsumerMetrics:
     batches_processed_total: Counter
     batch_processing_duration_seconds: Histogram
     batch_retry_total: Counter
+    batch_interruptions_total: Counter
     runs_failed_total: Counter
     poll_duration_seconds: Histogram
     poll_batches_fetched: Histogram
@@ -343,6 +353,7 @@ DELTA_CONSUMER_METRICS = ConsumerMetrics(
     batches_processed_total=BATCHES_PROCESSED_TOTAL,
     batch_processing_duration_seconds=BATCH_PROCESSING_DURATION_SECONDS,
     batch_retry_total=BATCH_RETRY_TOTAL,
+    batch_interruptions_total=BATCH_INTERRUPTIONS_TOTAL,
     runs_failed_total=RUNS_FAILED_TOTAL,
     poll_duration_seconds=POLL_DURATION_SECONDS,
     poll_batches_fetched=POLL_BATCHES_FETCHED,
@@ -380,6 +391,11 @@ def make_consumer_metrics(prefix: str) -> ConsumerMetrics:
             f"{p}_batch_retry_total",
             "Total batch retry attempts",
             labelnames=["attempt", "error_type"],
+        ),
+        batch_interruptions_total=Counter(
+            f"{p}_batch_interruptions_total",
+            "Batch attempts cut off by a consumer shutdown, by outcome",
+            labelnames=["outcome"],
         ),
         runs_failed_total=Counter(
             f"{p}_runs_failed_total",
