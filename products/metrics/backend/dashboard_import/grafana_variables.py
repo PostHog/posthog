@@ -12,12 +12,20 @@ from products.metrics.backend.variables import (
     Substitution,
     Variable,
     referenced_names,
+    regex_escape,
     substitute_promql,
 )
 
 _SKIPPED_TYPES = frozenset({"datasource", "adhoc", "groupby"})
 ALL_VALUE = "$__all"
 _PROMQL_VARIABLE_QUERY = re.compile(r"^\s*(label_values|label_names|metrics|query_result)\s*\(", re.IGNORECASE)
+# Macros such as $__rate_interval, which only resolve inside a panel.
+_RANGE_MACRO = re.compile(r"\$\{?__|\[\[__")
+# The limits of the variable options endpoint, so that each live variable can load its options.
+MAX_NAME_LENGTH = 128
+MAX_QUERY_LENGTH = 10_000
+MAX_VALUE_LENGTH = 1024
+MAX_VALUES = 1000
 
 
 def _strings(value: Any) -> tuple[str, ...]:
@@ -44,15 +52,26 @@ def _regex(item: dict[str, Any]) -> str | None:
     return regex.strip()
 
 
+def _within_limits(values: list[str]) -> bool:
+    return len(values) <= MAX_VALUES and all(len(value) <= MAX_VALUE_LENGTH for value in values)
+
+
 def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Variable) -> MetricsDashboardVariable | None:
     """The dashboard variable that keeps a Grafana variable live. None when it cannot stay live."""
     if not VARIABLE_NAME.match(name):
         return None
+    if len(name) > MAX_NAME_LENGTH:
+        return None
     custom_values: list[str] | None = None
     query: str | None = None
+    all_value = variable.all_value
+    include_all = bool(item.get("includeAll"))
     if kind == "query":
         query = _query_text(item)
-        if not _PROMQL_VARIABLE_QUERY.match(query):
+        if not _PROMQL_VARIABLE_QUERY.match(query) or _RANGE_MACRO.search(query) or len(query) > MAX_QUERY_LENGTH:
+            return None
+        # A live All without an allValue matches every value, so it must not drop a filter that limits the options.
+        if include_all and all_value is None and ("{" in query or _regex(item)):
             return None
         source = MetricsDashboardVariableSource.PROMQL
     elif kind == "custom":
@@ -61,10 +80,20 @@ def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Varia
             or [part.strip() for part in _query_text(item).split(",") if part.strip()]
             or list(variable.values)
         )
+        if not _within_limits(custom_values):
+            return None
+        if include_all and all_value is None:
+            # Grafana matches only the listed values. A value with regex syntax would need escapes for each context.
+            if not custom_values or any(regex_escape(value) != value for value in custom_values):
+                return None
+            all_value = f"({'|'.join(custom_values)})"
         source = MetricsDashboardVariableSource.CUSTOM
     elif kind in ("textbox", "constant"):
         source = MetricsDashboardVariableSource.TEXTBOX
     else:
+        return None
+    selected = list(variable.options if variable.is_all and not variable.values else variable.values)
+    if not _within_limits(selected) or (all_value is not None and len(all_value) > MAX_VALUE_LENGTH):
         return None
     label = item.get("label")
     return MetricsDashboardVariable(
@@ -75,10 +104,10 @@ def _live_definition(name: str, kind: Any, item: dict[str, Any], variable: Varia
         query=query,
         regex=_regex(item) if kind == "query" else None,
         multi=bool(item.get("multi")) or None,
-        includeAll=bool(item.get("includeAll")) or None,
-        allValue=variable.all_value,
+        includeAll=include_all or None,
+        allValue=all_value,
         current=MetricsDashboardVariableSelection(
-            values=list(variable.options if variable.is_all and not variable.values else variable.values),
+            values=selected,
             all=variable.is_all or None,
         ),
     )

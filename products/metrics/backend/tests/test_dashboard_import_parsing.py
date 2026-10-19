@@ -495,6 +495,45 @@ def test_imported_variable_regex_keeps_its_flags() -> None:
     assert [definition.regex for definition in variables.definitions()] == ["/api-(.*)/i"]
 
 
+def test_a_listed_all_matches_only_the_listed_values() -> None:
+    variables = TemplateVariables.from_templating(
+        [{"name": "env", "type": "custom", "query": "prod,dev", "includeAll": True, "current": {"value": "$__all"}}]
+    )
+
+    assert [definition.allValue for definition in variables.definitions()] == ["(prod|dev)"]
+
+
+@pytest.mark.parametrize(
+    "item",
+    [
+        pytest.param(
+            {"name": "env", "type": "custom", "query": "a.b,c", "includeAll": True, "current": {"value": "$__all"}},
+            id="listed_all_with_regex_syntax",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": 'label_values(up{env="prod"}, job)', "includeAll": True},
+            id="query_all_that_filters_its_options",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "label_values(job)", "regex": "api-.*", "includeAll": True},
+            id="query_all_with_a_regex",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "query_result(rate(up[$__rate_interval]))"},
+            id="range_macro",
+        ),
+        pytest.param(
+            {"name": "job", "type": "query", "query": "query_result(" + "x" * 10_000 + ")"},
+            id="query_over_the_api_limit",
+        ),
+        pytest.param({"name": "env", "type": "custom", "query": "a," + "b" * 1025}, id="value_over_the_api_limit"),
+        pytest.param({"name": "e" * 129, "type": "textbox", "query": "prod"}, id="name_over_the_api_limit"),
+    ],
+)
+def test_variables_that_cannot_stay_live_keep_their_saved_values(item: dict[str, Any]) -> None:
+    assert TemplateVariables.from_templating([item]).definitions() == []
+
+
 @pytest.mark.parametrize(
     "color, token",
     [
