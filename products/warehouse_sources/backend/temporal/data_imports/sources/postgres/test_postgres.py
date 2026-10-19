@@ -8822,6 +8822,50 @@ class TestGetTable:
         cursor.connection.rollback.assert_not_called()
 
     @pytest.mark.django_db
+    def test_failed_numeric_probe_clears_aborted_transaction(self):
+        # `with cursor.connection.transaction():` rolls back the BEGIN it opened when the probe
+        # query raises, but psycopg only logs and swallows a rollback that itself fails (e.g. the
+        # probe's client-side deadline canceled it mid-flight) instead of raising — silently
+        # leaving the session `InFailedSqlTransaction`. Without a defensive rollback here, every
+        # later statement on this connection (the read-replica check, primary key lookup, the
+        # actual read) fails as a downstream symptom of this best-effort probe.
+        logger = structlog.get_logger()
+        cursor = MagicMock()
+        probe_error = psycopg.errors.InFailedSqlTransaction(
+            "current transaction is aborted, commands ignored until end of transaction block"
+        )
+
+        def execute_side_effect(query: Any, *args: Any, **kwargs: Any) -> Any:
+            try:
+                text = query.as_string(None)
+            except Exception:
+                text = str(query)
+            if "MAX(scale(" in text:
+                raise probe_error
+            return cursor
+
+        def fetchone_side_effect() -> Any:
+            return (False,)  # is_mat_view / is_view checks: neither
+
+        cursor.execute.side_effect = execute_side_effect
+        cursor.fetchone.side_effect = fetchone_side_effect
+        cursor.fetchall.return_value = [("val", "numeric", True, None, None)]
+
+        table = _get_table(
+            cast(Any, cursor),
+            "public",
+            "test_get_table_probe_rollback",
+            logger,
+            probe_unconstrained_numeric_scale=True,
+        )
+
+        # The probe's failure is tolerated (falls back to the default scale)...
+        val_col = next(c for c in table.columns if c.name == "val")
+        assert val_col.numeric_scale == DEFAULT_NUMERIC_SCALE
+        # ...and the connection is defensively cleared so later statements aren't left poisoned.
+        cursor.connection.rollback.assert_called_once()
+
+    @pytest.mark.django_db
     def test_schemas_from_conn_runs_under_scoped_statement_timeout(self):
         """`_schemas_from_conn` (the discovery path `sync_new_schemas_activity` and credential
         validation use) raises statement_timeout before scanning the catalog, so a short
