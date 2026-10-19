@@ -51,6 +51,7 @@ export namespace Schemas {
         | "in"
         | "not_in"
         | "is_cleaned_path_exact"
+        | "is_cleaned_path_not_exact"
         | "flag_evaluates_to"
         | "semver_eq"
         | "semver_neq"
@@ -2219,6 +2220,7 @@ export namespace Schemas {
     export type ResultCustomizationByValue = Partial<{
         assignmentBy: string;
         color: DataColorToken | null;
+        customColor: string | null;
         hidden: boolean | null;
     }>;
     export type ResultCustomizationByPosition = Partial<{
@@ -4357,6 +4359,7 @@ export namespace Schemas {
     };
     export type HogQLQueryResponse = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -4523,7 +4526,6 @@ export namespace Schemas {
      * * `create_early_access_feature` - create_early_access_feature
      * * `update_feature_stage` - update_feature_stage
      * * `use_posthog_ai` - use_posthog_ai
-     * * `use_posthog_code` - use_posthog_code
      * * `use_posthog_mcp` - use_posthog_mcp
      * * `use_posthog_in_slack` - use_posthog_in_slack
      */
@@ -4591,7 +4593,6 @@ export namespace Schemas {
         | "create_early_access_feature"
         | "update_feature_stage"
         | "use_posthog_ai"
-        | "use_posthog_code"
         | "use_posthog_mcp"
         | "use_posthog_in_slack";
     export type BIAggregation =
@@ -4799,6 +4800,7 @@ export namespace Schemas {
         tableCalculation?: (BITableCalculation | null) | undefined;
     };
     export type BIConfig = {
+        catalogMetric?: (string | null) | undefined;
         chartType: ChartDisplayType;
         colorBy?: (string | null) | undefined;
         columns: Array<BIField>;
@@ -4814,6 +4816,7 @@ export namespace Schemas {
         memberAliases?: (Array<MemberAliase> | null) | undefined;
         missingDates?: (MissingDates | null) | undefined;
         panes?: (BIPaneSettings | null) | undefined;
+        querySnapshot?: (HogQLQuery | null) | undefined;
         resultFilterGroup?: (BIConditionGroup | null) | undefined;
         resultFilters?: (Array<BIResultFilter> | null) | undefined;
         rowFilterGroup?: (BIConditionGroup | null) | undefined;
@@ -4883,6 +4886,7 @@ export namespace Schemas {
         xScale: XScale | null;
         xStartAtZero: boolean | null;
     }>;
+    export type ValueLabelPosition = "end" | "center";
     export type Settings = Partial<{
         display: ChartSettingsDisplay | null;
         formatting: ChartSettingsFormatting | null;
@@ -4892,6 +4896,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;
         goalLines: Array<GoalLine> | null;
@@ -4914,8 +4919,14 @@ export namespace Schemas {
         showXAxisTicks: boolean | null;
         showYAxisBorder: boolean | null;
         stackBars100: boolean | null;
+        valueLabelBackground: boolean | null;
+        valueLabelFontSize: number | null;
+        valueLabelPosition: ValueLabelPosition | null;
+        valueLabelRotation: number | null;
         xAxis: ChartAxis | null;
+        xAxisDateFormat: string | null;
         xAxisLabel: string | null;
+        xAxisTickRotation: number | null;
         yAxis: Array<ChartAxis> | null;
         yAxisAtZero: boolean | null;
     }>;
@@ -6379,6 +6390,33 @@ export namespace Schemas {
         scope?: (MetricsAttributeScope | null) | undefined;
         value: string;
     };
+    export type MetricsDashboardVariableSelection = {
+        all?: (boolean | null) | undefined;
+        /**
+         * The selected values. Empty when `all` is true: All stands for every option of the variable.
+         */
+        values: Array<string>;
+    };
+    export type MetricsDashboardVariableSource =
+        | "custom"
+        | "promql"
+        | "sql"
+        | "textbox";
+    export type MetricsDashboardVariable = {
+        allValue?: (string | null) | undefined;
+        current?: (MetricsDashboardVariableSelection | null) | undefined;
+        customValues?: (Array<string> | null) | undefined;
+        includeAll?: (boolean | null) | undefined;
+        label?: (string | null) | undefined;
+        multi?: (boolean | null) | undefined;
+        /**
+         * Letters, digits and underscores. Tiles refer to it as `$name`.
+         */
+        name: string;
+        query?: (string | null) | undefined;
+        regex?: (string | null) | undefined;
+        source: MetricsDashboardVariableSource;
+    };
     export type DashboardFilter = Partial<{
         breakdown_filter: BreakdownFilter | null;
         compareFilter: CompareFilter | null;
@@ -6388,6 +6426,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         interval: IntervalType | null;
         metricFilters: Array<MetricsQueryFilter> | null;
+        metricVariables: Array<MetricsDashboardVariable> | null;
         properties: Array<
             | EventPropertyFilter
             | PersonPropertyFilter
@@ -6529,6 +6568,13 @@ export namespace Schemas {
         eventName: string | null;
         properties: Array<ActivityEventsPropertyFilter> | null;
     }>;
+    export type ErrorTrackingOrderBy =
+        | "last_seen"
+        | "first_seen"
+        | "occurrences"
+        | "users"
+        | "sessions"
+        | "severity";
     export type WidgetAssigneeFilter = {
         id: string | number;
         type: "user" | "role";
@@ -6538,12 +6584,7 @@ export namespace Schemas {
         filterTestAccounts: boolean | null;
         widgetFilters: Record<string, WidgetFilterEntry> | null;
         limit: number;
-        orderBy:
-            | "last_seen"
-            | "first_seen"
-            | "occurrences"
-            | "users"
-            | "sessions";
+        orderBy: ErrorTrackingOrderBy;
         orderDirection: "ASC" | "DESC";
         status:
             | "archived"
@@ -6849,6 +6890,7 @@ export namespace Schemas {
     };
     export type Response3 = {
         clickhouse?: (string | null) | undefined;
+        column_formats?: (Array<string | null> | null) | undefined;
         columns?: (Array<unknown> | null) | undefined;
         error?: (string | null) | undefined;
         explain?: (Array<string> | null) | undefined;
@@ -8456,13 +8498,6 @@ export namespace Schemas {
         version?: (number | null) | undefined;
         webQueryModifiers?: (WebAnalyticsQueryModifiers | null) | undefined;
     };
-    export type ErrorTrackingOrderBy =
-        | "last_seen"
-        | "first_seen"
-        | "occurrences"
-        | "users"
-        | "sessions"
-        | "severity";
     export type OrderDirection2 = "ASC" | "DESC";
     export type ErrorTrackingPendingFingerprintIssueStateUpdate = {
         assigned_role_id?: (string | null) | undefined;
@@ -9135,7 +9170,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
@@ -9148,7 +9182,6 @@ export namespace Schemas {
         | "azure_openai"
         | "together_ai"
         | "minimax"
-        | "zeabur"
         | "system_one"
         | "openai_compatible";
     /**
@@ -9931,6 +9964,8 @@ export namespace Schemas {
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
+     * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+     * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -9943,7 +9978,9 @@ export namespace Schemas {
         | "zero_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
-        | "split_changed_mid_run";
+        | "split_changed_mid_run"
+        | "bucketing_changed_mid_run"
+        | "release_conditions_changed_mid_run";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -9987,6 +10024,8 @@ export namespace Schemas {
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
+         * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+         * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10992,6 +11031,7 @@ export namespace Schemas {
      * * `Gong` - Gong
      * * `Calendly` - Calendly
      * * `Typeform` - Typeform
+     * * `UnityAds` - UnityAds
      * * `Iterable` - Iterable
      * * `ZohoCRM` - ZohoCRM
      * * `Close` - Close
@@ -11036,6 +11076,7 @@ export namespace Schemas {
      * * `Plaid` - Plaid
      * * `SurveyMonkey` - SurveyMonkey
      * * `Eventbrite` - Eventbrite
+     * * `Everflow` - Everflow
      * * `RingCentral` - RingCentral
      * * `Twilio` - Twilio
      * * `Freshsales` - Freshsales
@@ -11105,6 +11146,8 @@ export namespace Schemas {
      * * `CosmosDB` - CosmosDB
      * * `PlanetScaleMySQL` - PlanetScaleMySQL
      * * `PlanetScalePostgres` - PlanetScalePostgres
+     * * `Plane` - Plane
+     * * `Scarf` - Scarf
      * * `SapHana` - SapHana
      * * `Rippling` - Rippling
      * * `HiBob` - HiBob
@@ -11861,6 +11904,7 @@ export namespace Schemas {
      * * `BlackboardLearn` - BlackboardLearn
      * * `Bling` - Bling
      * * `Bloomerang` - Bloomerang
+     * * `Blueshift` - Blueshift
      * * `Bluesky` - Bluesky
      * * `BolRetailer` - BolRetailer
      * * `Boulevard` - Boulevard
@@ -12011,6 +12055,7 @@ export namespace Schemas {
      * * `LoopReturns` - LoopReturns
      * * `Mastodon` - Mastodon
      * * `Meetup` - Meetup
+     * * `Megaphone` - Megaphone
      * * `Memberful` - Memberful
      * * `MercadoPago` - MercadoPago
      * * `Meteostat` - Meteostat
@@ -12230,6 +12275,7 @@ export namespace Schemas {
      * * `SimonData` - SimonData
      * * `CommissionJunction` - CommissionJunction
      * * `Liveblocks` - Liveblocks
+     * * `Livestorm` - Livestorm
      * * `NationBuilder` - NationBuilder
      * * `Tana` - Tana
      * * `Zenchef` - Zenchef
@@ -12290,6 +12336,13 @@ export namespace Schemas {
      * * `Wise` - Wise
      * * `LaravelCloud` - LaravelCloud
      * * `Northbeam` - Northbeam
+     * * `NaverAds` - NaverAds
+     * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
+     * * `GoogleAdMob` - GoogleAdMob
      */
     export type ExternalDataSourceTypeEnum =
         | "Ashby"
@@ -12376,6 +12429,7 @@ export namespace Schemas {
         | "Gong"
         | "Calendly"
         | "Typeform"
+        | "UnityAds"
         | "Iterable"
         | "ZohoCRM"
         | "Close"
@@ -12420,6 +12474,7 @@ export namespace Schemas {
         | "Plaid"
         | "SurveyMonkey"
         | "Eventbrite"
+        | "Everflow"
         | "RingCentral"
         | "Twilio"
         | "Freshsales"
@@ -12489,6 +12544,8 @@ export namespace Schemas {
         | "CosmosDB"
         | "PlanetScaleMySQL"
         | "PlanetScalePostgres"
+        | "Plane"
+        | "Scarf"
         | "SapHana"
         | "Rippling"
         | "HiBob"
@@ -13245,6 +13302,7 @@ export namespace Schemas {
         | "BlackboardLearn"
         | "Bling"
         | "Bloomerang"
+        | "Blueshift"
         | "Bluesky"
         | "BolRetailer"
         | "Boulevard"
@@ -13395,6 +13453,7 @@ export namespace Schemas {
         | "LoopReturns"
         | "Mastodon"
         | "Meetup"
+        | "Megaphone"
         | "Memberful"
         | "MercadoPago"
         | "Meteostat"
@@ -13614,6 +13673,7 @@ export namespace Schemas {
         | "SimonData"
         | "CommissionJunction"
         | "Liveblocks"
+        | "Livestorm"
         | "NationBuilder"
         | "Tana"
         | "Zenchef"
@@ -13673,7 +13733,14 @@ export namespace Schemas {
         | "RainforestPay"
         | "Wise"
         | "LaravelCloud"
-        | "Northbeam";
+        | "Northbeam"
+        | "NaverAds"
+        | "ChannelIO"
+        | "Airship"
+        | "Creem"
+        | "Leantime"
+        | "Testomatio"
+        | "GoogleAdMob";
     /**
      * * `web` - web
      * * `api` - api
@@ -13768,6 +13835,7 @@ export namespace Schemas {
          * * `Gong` - Gong
          * * `Calendly` - Calendly
          * * `Typeform` - Typeform
+         * * `UnityAds` - UnityAds
          * * `Iterable` - Iterable
          * * `ZohoCRM` - ZohoCRM
          * * `Close` - Close
@@ -13812,6 +13880,7 @@ export namespace Schemas {
          * * `Plaid` - Plaid
          * * `SurveyMonkey` - SurveyMonkey
          * * `Eventbrite` - Eventbrite
+         * * `Everflow` - Everflow
          * * `RingCentral` - RingCentral
          * * `Twilio` - Twilio
          * * `Freshsales` - Freshsales
@@ -13881,6 +13950,8 @@ export namespace Schemas {
          * * `CosmosDB` - CosmosDB
          * * `PlanetScaleMySQL` - PlanetScaleMySQL
          * * `PlanetScalePostgres` - PlanetScalePostgres
+         * * `Plane` - Plane
+         * * `Scarf` - Scarf
          * * `SapHana` - SapHana
          * * `Rippling` - Rippling
          * * `HiBob` - HiBob
@@ -14637,6 +14708,7 @@ export namespace Schemas {
          * * `BlackboardLearn` - BlackboardLearn
          * * `Bling` - Bling
          * * `Bloomerang` - Bloomerang
+         * * `Blueshift` - Blueshift
          * * `Bluesky` - Bluesky
          * * `BolRetailer` - BolRetailer
          * * `Boulevard` - Boulevard
@@ -14787,6 +14859,7 @@ export namespace Schemas {
          * * `LoopReturns` - LoopReturns
          * * `Mastodon` - Mastodon
          * * `Meetup` - Meetup
+         * * `Megaphone` - Megaphone
          * * `Memberful` - Memberful
          * * `MercadoPago` - MercadoPago
          * * `Meteostat` - Meteostat
@@ -15006,6 +15079,7 @@ export namespace Schemas {
          * * `SimonData` - SimonData
          * * `CommissionJunction` - CommissionJunction
          * * `Liveblocks` - Liveblocks
+         * * `Livestorm` - Livestorm
          * * `NationBuilder` - NationBuilder
          * * `Tana` - Tana
          * * `Zenchef` - Zenchef
@@ -15066,6 +15140,13 @@ export namespace Schemas {
          * * `Wise` - Wise
          * * `LaravelCloud` - LaravelCloud
          * * `Northbeam` - Northbeam
+         * * `NaverAds` - NaverAds
+         * * `ChannelIO` - ChannelIO
+         * * `Airship` - Airship
+         * * `Creem` - Creem
+         * * `Leantime` - Leantime
+         * * `Testomatio` - Testomatio
+         * * `GoogleAdMob` - GoogleAdMob
          */
         source_type: ExternalDataSourceTypeEnum;
         /**
@@ -15413,8 +15494,12 @@ export namespace Schemas {
     /**
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
+     * * `transactional_emails` - Transactional emails
      */
-    export type HogFlowOriginProductEnum = "loops" | "broadcasts";
+    export type HogFlowOriginProductEnum =
+        | "loops"
+        | "broadcasts"
+        | "transactional_emails";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -15837,6 +15922,7 @@ export namespace Schemas {
          *
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
+         * * `transactional_emails` - Transactional emails
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
@@ -22315,7 +22401,7 @@ export namespace Endpoints {
                 limit: number;
                 offset: number;
                 optimization_enabled: boolean;
-                origin_product: "broadcasts" | "loops";
+                origin_product: "broadcasts" | "loops" | "transactional_emails";
                 search: string;
                 status: "active" | "archived" | "draft";
                 trigger: string;

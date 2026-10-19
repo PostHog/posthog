@@ -7,6 +7,8 @@ export enum PosthogJwtAudience {
     WORKFLOWS_CANCEL_INVOCATIONS = 'posthog:workflows:cancel_invocations',
     WORKFLOWS_CANCEL_BATCH = 'posthog:workflows:cancel_batch',
     WORKFLOWS_STEP_RESUME = 'posthog:workflows:step_resume',
+    WORKFLOWS_SEND_TRANSACTIONAL_EMAIL = 'posthog:workflows:send_transactional_email',
+    WORKFLOWS_RESUME_BATCH = 'posthog:workflows:resume_batch',
     CUSTOMER_TASKS_CREATE = 'posthog:customer-tasks:create',
     TASKS_CREATE = 'posthog:tasks:create',
     WORKFLOW_SCOUT_RUN = 'posthog:workflows:scout_run',

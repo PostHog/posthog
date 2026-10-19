@@ -1,6 +1,7 @@
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
 import structlog
@@ -32,7 +33,6 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.clickhouse.query_tagging import clear_tag, get_query_tag_value
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
-from posthog.models.filters.mixins.utils import cached_property
 
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
     FIRST_PAGEVIEW_BREAKDOWNS,
@@ -44,6 +44,7 @@ from products.web_analytics.backend.hogql_queries.first_pageview_attribution imp
 from products.web_analytics.backend.hogql_queries.stats_table_pre_aggregated import StatsTablePreAggregatedQueryBuilder
 from products.web_analytics.backend.hogql_queries.stats_table_strategies import (
     ChannelTypeStrategy,
+    ChannelTypeTwoPhaseStrategy,
     FirstPageviewAttributionStrategy,
     FrustrationMetricsStrategy,
     NoJoinFirstPageviewAttributionStrategy,
@@ -81,6 +82,11 @@ logger = structlog.get_logger(__name__)
 
 BREAKDOWN_NULL_DISPLAY = "(none)"
 BREAKDOWN_REFERRER_PREFIX = "referrer:"
+
+# The two-phase channel query joins at session grain on the coordinating node, so that
+# node's memory grows with the sessions in the scanned span (current plus compare
+# period). Above this span the per-shard join spreads the memory better.
+CHANNEL_TYPE_TWO_PHASE_MAX_SPAN_DAYS = 62
 
 
 def _none_if_nan(value):
@@ -193,7 +199,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return "stats_table_path_bounce_and_avg_time"
         if isinstance(strategy, PathBounceStrategy):
             return "stats_table_path_bounce"
-        # ChannelTypeStrategy must be checked before SimpleBreakdownStrategy since it's a subclass.
+        # ChannelTypeTwoPhaseStrategy subclasses ChannelTypeStrategy, which subclasses SimpleBreakdownStrategy.
+        if isinstance(strategy, ChannelTypeTwoPhaseStrategy):
+            return "stats_table_channel_type_two_phase"
         if isinstance(strategy, ChannelTypeStrategy):
             return "stats_table_channel_type"
         if isinstance(strategy, NoJoinFirstPageviewAttributionStrategy):
@@ -255,6 +263,8 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             return SimpleBreakdownStrategy(self, breakdown_override=self._bounce_entry_pathname_breakdown())
 
         if breakdown == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
+            if self._can_use_channel_type_two_phase():
+                return ChannelTypeTwoPhaseStrategy(self)
             return ChannelTypeStrategy(self)
 
         # Breakdowns whose displayed columns are all event-derived don't need
@@ -400,12 +410,25 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
         )
 
-    def _uses_session_fields(self) -> bool:
-        """True when the breakdown value or any filter reads a `session.*`
-        field. Those queries need the events↔sessions join — Initial* entry
-        breakdowns for the value itself, session-property filters for the
-        predicate. Routing them to the no-join strategy would make HogQL
-        silently re-add the lazy join, mislabeling the query tag."""
+    def _can_use_channel_type_two_phase(self) -> bool:
+        # The two-phase shape carries only visitors and views, and it filters the events
+        # scan alone, so a filter or goal that reads a session field needs the join back.
+        if not self._team_in_no_join_rollout():
+            return False
+        if self.query.includeBounceRate or self.query.includeTrafficMetrics or self.query.conversionGoal:
+            return False
+        if self._scanned_span_days() > CHANNEL_TYPE_TWO_PHASE_MAX_SPAN_DAYS:
+            return False
+        return not self._expr_reads_session_fields(self.all_properties())
+
+    def _scanned_span_days(self) -> int:
+        date_from = self.query_date_range.date_from()
+        compare = self.query_compare_to_date_range
+        if compare is not None:
+            date_from = min(date_from, compare.date_from())
+        return (self.query_date_range.date_to() - date_from).days
+
+    def _expr_reads_session_fields(self, expr: ast.Expr) -> bool:
         found = False
 
         class Visitor(TraversingVisitor):
@@ -414,12 +437,19 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
                 if node.chain and node.chain[0] == "session":
                     found = True
 
-        visitor = Visitor()
-        visitor.visit(self._counts_breakdown_value())
-        visitor.visit(self.all_properties())
-        if self.conversion_goal_expr is not None:
-            visitor.visit(self.conversion_goal_expr)
+        Visitor().visit(expr)
         return found
+
+    def _uses_session_fields(self) -> bool:
+        """True when the breakdown value or any filter reads a `session.*`
+        field. Those queries need the events↔sessions join — Initial* entry
+        breakdowns for the value itself, session-property filters for the
+        predicate. Routing them to the no-join strategy would make HogQL
+        silently re-add the lazy join, mislabeling the query tag."""
+        exprs = [self._counts_breakdown_value(), self.all_properties()]
+        if self.conversion_goal_expr is not None:
+            exprs.append(self.conversion_goal_expr)
+        return any(self._expr_reads_session_fields(expr) for expr in exprs)
 
     def _period_comparison_tuple(self, column, alias, function_name):
         return ast.Alias(

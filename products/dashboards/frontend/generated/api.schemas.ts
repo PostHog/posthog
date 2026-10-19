@@ -822,6 +822,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -885,18 +886,15 @@ export interface ActivityEventsListWidgetConfigApi {
     properties?: ActivityEventsPropertyFilterApi[] | null
 }
 
-/**
- * Issue ranking column.
- */
-export type ErrorTrackingListWidgetConfigApiOrderBy =
-    (typeof ErrorTrackingListWidgetConfigApiOrderBy)[keyof typeof ErrorTrackingListWidgetConfigApiOrderBy]
+export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
 
-export const ErrorTrackingListWidgetConfigApiOrderBy = {
+export const ErrorTrackingOrderByApi = {
     LastSeen: 'last_seen',
     FirstSeen: 'first_seen',
     Occurrences: 'occurrences',
     Users: 'users',
     Sessions: 'sessions',
+    Severity: 'severity',
 } as const
 
 /**
@@ -950,7 +948,7 @@ export interface ErrorTrackingListWidgetConfigApi {
      */
     limit?: number
     /** Issue ranking column. */
-    orderBy?: ErrorTrackingListWidgetConfigApiOrderBy
+    orderBy?: ErrorTrackingOrderByApi
     /** Sort direction for orderBy. */
     orderDirection?: ErrorTrackingListWidgetConfigApiOrderDirection
     /** Issue status filter. */
@@ -3084,6 +3082,7 @@ export const DataColorTokenApi = {
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
+    customColor?: string | null
     hidden?: boolean | null
 }
 
@@ -5116,6 +5115,8 @@ export interface HogQLMetadataResponseApi {
 export interface Response3Api {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -7015,6 +7016,8 @@ export interface HogQLFiltersApi {
 export interface HogQLQueryResponseApi {
     /** Executed ClickHouse query */
     clickhouse?: string | null
+    /** Display formats for directly selected virtual properties, aligned with columns. */
+    column_formats?: (string | null)[] | null
     /** Returned columns */
     columns?: unknown[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
@@ -8211,17 +8214,6 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
-export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
-
-export const ErrorTrackingOrderByApi = {
-    LastSeen: 'last_seen',
-    FirstSeen: 'first_seen',
-    Occurrences: 'occurrences',
-    Users: 'users',
-    Sessions: 'sessions',
-    Severity: 'severity',
-} as const
-
 export type OrderDirection2Api = (typeof OrderDirection2Api)[keyof typeof OrderDirection2Api]
 
 export const OrderDirection2Api = {
@@ -9232,6 +9224,13 @@ export interface ScatterChartSettingsApi {
     xStartAtZero?: boolean | null
 }
 
+export type ValueLabelPositionApi = (typeof ValueLabelPositionApi)[keyof typeof ValueLabelPositionApi]
+
+export const ValueLabelPositionApi = {
+    End: 'end',
+    Center: 'center',
+} as const
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -9288,6 +9287,7 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
@@ -9314,8 +9314,14 @@ export interface ChartSettingsApi {
     showYAxisBorder?: boolean | null
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
+    valueLabelBackground?: boolean | null
+    valueLabelFontSize?: number | null
+    valueLabelPosition?: ValueLabelPositionApi | null
+    valueLabelRotation?: number | null
     xAxis?: ChartAxisApi | null
+    xAxisDateFormat?: string | null
     xAxisLabel?: string | null
+    xAxisTickRotation?: number | null
     yAxis?: ChartAxisApi[] | null
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean | null
@@ -9656,6 +9662,8 @@ export interface BIValueApi {
 }
 
 export interface BIConfigApi {
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string | null
     chartType: ChartDisplayTypeApi
     colorBy?: string | null
     columns: BIFieldApi[]
@@ -9677,6 +9685,8 @@ export interface BIConfigApi {
     missingDates?: MissingDatesApi | null
     /** Split the returned groups into charts using these ordered dimension IDs. */
     panes?: BIPaneSettingsApi | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQueryApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null
@@ -9781,6 +9791,41 @@ export interface MetricsQueryFilterApi {
     value: string
 }
 
+export interface MetricsDashboardVariableSelectionApi {
+    all?: boolean | null
+    /** The selected values. Empty when `all` is true: All stands for every option of the variable. */
+    values: string[]
+}
+
+export type MetricsDashboardVariableSourceApi =
+    (typeof MetricsDashboardVariableSourceApi)[keyof typeof MetricsDashboardVariableSourceApi]
+
+export const MetricsDashboardVariableSourceApi = {
+    Custom: 'custom',
+    Promql: 'promql',
+    Sql: 'sql',
+    Textbox: 'textbox',
+} as const
+
+export interface MetricsDashboardVariableApi {
+    /** The text that All puts in a PromQL query. `.*` when it is empty. */
+    allValue?: string | null
+    current?: MetricsDashboardVariableSelectionApi | null
+    /** The options when `source` is `custom`. */
+    customValues?: string[] | null
+    includeAll?: boolean | null
+    /** Shown in the dashboard filter bar. The name is shown when it is empty. */
+    label?: string | null
+    multi?: boolean | null
+    /** Letters, digits and underscores. Tiles refer to it as `$name`. */
+    name: string
+    /** The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column. */
+    query?: string | null
+    /** RE2 pattern that options must match. When it has a capture group, the option is the first group. */
+    regex?: string | null
+    source: MetricsDashboardVariableSourceApi
+}
+
 export interface DashboardFilterApi {
     breakdown_filter?: BreakdownFilterApi | null
     /** Period comparison forced onto every insight that supports one. Absent/null = inherit. */
@@ -9794,6 +9839,8 @@ export interface DashboardFilterApi {
     interval?: IntervalTypeApi | null
     /** Metric label matchers ANDed into every metrics tile. Other tiles ignore them. */
     metricFilters?: MetricsQueryFilterApi[] | null
+    /** Variables that metrics tiles refer to as `$name`. Other tiles ignore them. */
+    metricVariables?: MetricsDashboardVariableApi[] | null
     properties?:
         | (
               | EventPropertyFilterApi

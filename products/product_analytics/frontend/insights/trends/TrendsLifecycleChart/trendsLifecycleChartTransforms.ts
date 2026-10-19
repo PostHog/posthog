@@ -23,7 +23,6 @@ export interface TrendsLifecycleResultLike {
     data: number[]
     status?: string
     days?: string[]
-    action?: { order?: number } | null
 }
 
 function lifecycleStatusOrder(status: string | undefined): number {

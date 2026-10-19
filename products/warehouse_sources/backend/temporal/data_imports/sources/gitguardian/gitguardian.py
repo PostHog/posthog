@@ -340,9 +340,9 @@ def gitguardian_source(
             incremental_field=incremental_field,
         ),
         primary_keys=endpoint_config.primary_keys,
-        # Incremental endpoints request `ordering=date` explicitly, so rows arrive oldest-first
+        # Most incremental endpoints request `ordering=date` explicitly, so rows arrive oldest-first
         # and the incremental watermark can checkpoint per batch.
-        sort_mode="asc",
+        sort_mode=endpoint_config.sort_mode,
         partition_count=1,
         partition_size=1,
         partition_mode="datetime" if endpoint_config.partition_key else None,

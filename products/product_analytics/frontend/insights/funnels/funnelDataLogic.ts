@@ -310,6 +310,7 @@ export interface funnelDataLogicValues {
         dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
     ) => [DataColorTheme | null, DataColorToken | null]
     hasFunnelResults: boolean
+    hasPartialBreakdownSelection: boolean
     hiddenLegendBreakdowns: string[] | undefined
     histogramGraphData: HistogramGraphDatum[] | null
     histogramGraphDataPrevious: HistogramGraphDatum[] | null
@@ -496,12 +497,20 @@ export interface funnelDataLogicMeta {
         resultCustomizations: (
             funnelsFilter: FunnelsFilter | null | undefined
         ) => Record<string, ResultCustomizationByValue> | undefined
+        hasPartialBreakdownSelection: (
+            flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
+            hiddenLegendBreakdowns: string[] | undefined,
+            isComparedFunnel: boolean
+        ) => boolean
         visibleStepsWithConversionMetrics: (
             stepsWithConversionMetrics: FunnelStepWithConversionMetrics[],
             flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
             hiddenLegendBreakdowns: string[] | undefined,
             isComparedFunnel: boolean,
-            isBreakdownCompareFunnel: boolean
+            isBreakdownCompareFunnel: boolean,
+            hasPartialBreakdownSelection: boolean,
+            funnelsFilter: FunnelsFilter | null | undefined,
+            isStepOptional: (step: number) => boolean
         ) => FunnelStepWithConversionMetrics[]
         timeConversionResults: (
             results: FunnelResultType,
@@ -528,6 +537,7 @@ export interface funnelDataLogicMeta {
         ) => number
         conversionMetrics: (
             steps: FunnelStepWithNestedBreakdown[],
+            visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[],
             funnelsFilter: FunnelsFilter | null | undefined,
             timeConversionResults: FunnelsTimeConversionBins | null,
             insightData: Record<string, any>
@@ -1012,6 +1022,30 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             (s) => [s.funnelsFilter],
             (funnelsFilter: FunnelsFilter | null | undefined) => funnelsFilter?.resultCustomizations,
         ],
+        // True when the table hides some breakdown values and also hides the baseline (the total).
+        // Step totals then follow the selected values instead of the whole funnel.
+        hasPartialBreakdownSelection: [
+            (s) => [s.flattenedBreakdowns, s.hiddenLegendBreakdowns, s.isComparedFunnel],
+            (
+                flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
+                hiddenLegendBreakdowns: string[] | undefined,
+                isComparedFunnel: boolean
+            ): boolean => {
+                if (isComparedFunnel || !hiddenLegendBreakdowns?.length) {
+                    return false
+                }
+                const isVisible = (b: FlattenedFunnelStepByBreakdown): boolean =>
+                    !hiddenLegendBreakdowns.includes(getVisibilityKey(b.breakdown_value))
+                const baseline = flattenedBreakdowns.find((b) => b.isBaseline)
+                const values = flattenedBreakdowns.filter((b) => !b.isBaseline)
+                return (
+                    values.length > 1 &&
+                    !(baseline && isVisible(baseline)) &&
+                    values.some(isVisible) &&
+                    !values.every(isVisible)
+                )
+            },
+        ],
         visibleStepsWithConversionMetrics: [
             (s) => [
                 s.stepsWithConversionMetrics,
@@ -1019,13 +1053,19 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 s.hiddenLegendBreakdowns,
                 s.isComparedFunnel,
                 s.isBreakdownCompareFunnel,
+                s.hasPartialBreakdownSelection,
+                s.funnelsFilter,
+                s.isStepOptional,
             ],
             (
                 steps: FunnelStepWithConversionMetrics[],
                 flattenedBreakdowns: FlattenedFunnelStepByBreakdown[],
                 hiddenLegendBreakdowns: string[] | undefined,
                 isComparedFunnel: boolean,
-                isBreakdownCompareFunnel: boolean
+                isBreakdownCompareFunnel: boolean,
+                hasPartialBreakdownSelection: boolean,
+                funnelsFilter: FunnelsFilter | null | undefined,
+                isStepOptional: (step: number) => boolean
             ): FunnelStepWithConversionMetrics[] => {
                 // Pure compare already shaped nested_breakdown into [current, previous]; skip the
                 // breakdown baseline-prepend / hidden-legend reordering, which assumes real breakdowns.
@@ -1086,7 +1126,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 const breakdownOrder = new Map<string, number>()
                 flattenedBreakdowns.forEach((b, i) => breakdownOrder.set(getVisibilityKey(b.breakdown_value), i))
 
-                return steps.map((step, stepIndex) => {
+                const visibleSteps = steps.map((step, stepIndex) => {
                     const nested = (
                         baseLineSteps?.steps
                             ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
@@ -1110,6 +1150,22 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                         nested_breakdown: nested,
                     }
                 })
+                if (!hasPartialBreakdownSelection) {
+                    return visibleSteps
+                }
+                const selectedTotals = stepsWithConversionMetrics(
+                    visibleSteps.map((step) => ({
+                        ...step,
+                        count: sum((step.nested_breakdown ?? []).map((b) => b.count)),
+                        nested_breakdown: undefined,
+                    })),
+                    funnelsFilter?.funnelStepReference || FunnelStepReference.total,
+                    steps.map((_, i) => i + 1).filter(isStepOptional)
+                )
+                return selectedTotals.map((step, i) => ({
+                    ...step,
+                    nested_breakdown: visibleSteps[i].nested_breakdown,
+                }))
             },
         ],
 
@@ -1202,9 +1258,16 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         conversionMetrics: [
-            (s) => [s.steps, s.funnelsFilter, s.timeConversionResults, s.insightData],
+            (s) => [
+                s.steps,
+                s.visibleStepsWithConversionMetrics,
+                s.funnelsFilter,
+                s.timeConversionResults,
+                s.insightData,
+            ],
             (
                 steps: FunnelStepWithNestedBreakdown[],
+                visibleSteps: FunnelStepWithConversionMetrics[],
                 funnelsFilter: FunnelsFilter | null | undefined,
                 timeConversionResults: FunnelsTimeConversionBins | null,
                 insightData: Record<string, any>
@@ -1237,15 +1300,18 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     }
                 }
 
-                const toStep = getLastFilledStep(steps)
-                const fromStep = getReferenceStep(steps, FunnelStepReference.total)
+                const toStep = getLastFilledStep(visibleSteps)
+                const fromStep = getReferenceStep(visibleSteps, FunnelStepReference.total)
 
                 return {
                     // The median of the total funnel time isn't the sum of per-step medians, so it's
                     // computed breakdown-agnostically on the backend and carried as a top-level field.
                     medianTime: (insightData as Partial<FunnelsQueryResponse>).total_median_conversion_time ?? null,
                     stepRate: fromStep.count === 0 ? 0 : toStep.count / fromStep.count,
-                    totalRate: steps[0].count === 0 ? 0 : steps[steps.length - 1].count / steps[0].count,
+                    totalRate:
+                        visibleSteps[0].count === 0
+                            ? 0
+                            : visibleSteps[visibleSteps.length - 1].count / visibleSteps[0].count,
                 }
             },
         ],
