@@ -6,9 +6,9 @@ Uses ``pydantic.dataclasses.dataclass`` so a malformed gateway answer fails at c
 
 from pydantic.dataclasses import dataclass
 
-from .enums import DecisionQuestionType
+from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
 
-DEFAULT_DECISION_MODEL = "posthog/hogference/jevk5-fp8-0.2"
+from .enums import DecisionQuestionType
 
 type JsonValue = str | int | float | bool | None | list[JsonValue] | dict[str, JsonValue]
 

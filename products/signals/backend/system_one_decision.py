@@ -44,10 +44,14 @@ logger = structlog.get_logger(__name__)
 # Keep deployed flag and telemetry identifiers stable while call sites use System One terminology.
 MODEL_MODE_FLAG = "signals-typesafe-mode"
 ModelMode = Literal["traditional-only", "system-one-shadow", "traditional-shadow", "system-one-only"]
+# The AI gateway bills every hogference decision model at this input rate, with no output charge.
+# Keyed by canonical id and by the name the server echoes.
 JEV_INPUT_USD_PER_MILLION = 0.042
 SYSTEM_ONE_INPUT_PRICES = {
-    "posthog/hogference/jevk5-fp8-0.2": JEV_INPUT_USD_PER_MILLION,
+    JEVK_MODEL: JEV_INPUT_USD_PER_MILLION,
     "jevk5-fp8-0.2": JEV_INPUT_USD_PER_MILLION,
+    JEEVES_MODEL: JEV_INPUT_USD_PER_MILLION,
+    "jeeves-0.1": JEV_INPUT_USD_PER_MILLION,
 }
 JEV_TIMEOUT_SECONDS = 3.0
 JEV_ADMISSION_TIMEOUT_SECONDS = 10.0
