@@ -141,8 +141,9 @@ export function GeneralSection(): JSX.Element {
                         className="my-8"
                         description={
                             <>
-                                For logged-in users, sign their distinct_id on your backend with the secret API key so
-                                tickets persist across browsers and devices without email recovery.{' '}
+                                For logged-in users, sign their distinct_id on your backend with the identity
+                                verification secret so tickets persist across browsers and devices without email
+                                recovery.{' '}
                                 <Link
                                     to="https://posthog.com/docs/support/javascript-api#user-identification"
                                     target="_blank"
@@ -155,8 +156,9 @@ export function GeneralSection(): JSX.Element {
                     >
                         <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                             <p className="mb-2">
-                                Compute an HMAC-SHA256 of the user's <code>distinct_id</code> using the secret API key
-                                below (server-side) and pass both values to <code>posthog.init()</code>:
+                                Compute an HMAC-SHA256 of the user's <code>distinct_id</code> using the identity
+                                verification secret below (server-side) and pass both values to{' '}
+                                <code>posthog.init()</code>:
                             </p>
                             <pre className="bg-surface-secondary rounded p-3 text-xs overflow-x-auto mb-2">
                                 {`posthog.init('<ph_project_api_key>', {
