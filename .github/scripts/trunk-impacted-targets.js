@@ -419,7 +419,6 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
     ['.github/scripts/ci_flake_overseer.py', REPO_AUTOMATION],
     ['.github/scripts/test_ci_flake_overseer.py', REPO_AUTOMATION],
-    ['.github/scripts/compare-ci-runners.py', REPO_AUTOMATION],
     ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/scripts/test_report_workflow_run_traces.py', REPO_AUTOMATION],
     ['.github/auto-assign-labels.json', REPO_AUTOMATION],

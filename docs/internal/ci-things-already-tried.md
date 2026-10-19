@@ -416,7 +416,7 @@ The trial did not do a direct exchange. It ran a Blacksmith shadow of most compu
 
 The team kept Depot. [#57991](https://github.com/PostHog/posthog/pull/57991) removed the shadow workflow and the matrix branches.
 The measurements are not in the PRs, so this entry cannot show them.
-It kept `.github/scripts/compare-ci-runners.py` and marked the file as legacy. That script produced the numbers of the trial.
+The trial's comparison script, `.github/scripts/compare-ci-runners.py`, is retained in Git history.
 
 If you propose this again, equalize the caches of the two providers first. A runner that keeps a warm cache between jobs measures the cache, not the compute.
 Run the trial for several days. A short window cannot separate the jobs whose times are close.
