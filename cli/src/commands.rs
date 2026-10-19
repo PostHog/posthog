@@ -42,6 +42,11 @@ pub struct Cli {
     #[arg(long, env = "POSTHOG_CLIENT_RATE_LIMIT")]
     rate_limit: Option<usize>,
 
+    /// Seconds one upload request to object storage may take before it is retried.
+    /// Raise it when a large symbol set, such as a universal dSYM, times out on a slow uplink.
+    #[arg(long, value_name = "SECONDS", env = "POSTHOG_CLI_UPLOAD_TIMEOUT")]
+    upload_timeout: Option<u64>,
+
     /// Load PostHog credentials from this dotenv-style file when not present in the process
     /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
     /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
@@ -413,6 +418,7 @@ impl Cli {
                 self.host.clone(),
                 self.skip_ssl_verification,
                 self.rate_limit,
+                self.upload_timeout,
                 self.env_file.clone(),
             )?;
         }
@@ -511,6 +517,7 @@ impl Cli {
                         self.host.clone(),
                         self.skip_ssl_verification,
                         self.rate_limit,
+                        self.upload_timeout,
                         self.env_file.clone(),
                     ) {
                         Ok(_) => Some(context()),

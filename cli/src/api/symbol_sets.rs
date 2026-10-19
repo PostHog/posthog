@@ -1257,6 +1257,7 @@ mod tests {
                 env_id: "1".to_string(),
                 skip_ssl: false,
                 rate_limit: 1000,
+                upload_timeout: std::time::Duration::from_secs(30),
             };
             let client = crate::api::client::PHClient::from_config(config.clone()).unwrap();
             crate::invocation_context::InvocationContext::new(config, client)

@@ -328,7 +328,7 @@ fn complete_login(
     use_cases: &[&str],
 ) -> Result<(), Error> {
     // Login is the only command that doesn't have a context coming in - because it modifies the context
-    init_context(None, false, None, None)?;
+    init_context(None, false, None, None, None)?;
     context().capture_command_invoked(command_name);
     let next_command = recommended_next_command(scopes, use_cases);
 

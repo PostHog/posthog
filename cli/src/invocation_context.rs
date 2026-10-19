@@ -219,10 +219,15 @@ pub fn init_posthog_telemetry() {
     }
 }
 
+/// The total time one upload request may take when `--upload-timeout` is not given:
+/// reqwest's blocking default, which the upload client used to inherit.
+pub const DEFAULT_UPLOAD_TIMEOUT_SECS: u64 = 30;
+
 pub fn init_context(
     host: Option<String>,
     skip_ssl: bool,
     rate_limit: Option<usize>,
+    upload_timeout_secs: Option<u64>,
     env_file: Option<PathBuf>,
 ) -> Result<()> {
     let token = get_token(env_file)?;
@@ -232,6 +237,9 @@ pub fn init_context(
         env_id: token.env_id.clone(),
         skip_ssl,
         rate_limit: rate_limit.unwrap_or(480),
+        upload_timeout: Duration::from_secs(
+            upload_timeout_secs.unwrap_or(DEFAULT_UPLOAD_TIMEOUT_SECS),
+        ),
     };
 
     config.validate()?;
@@ -251,6 +259,8 @@ pub struct InvocationConfig {
     pub env_id: String,
     pub skip_ssl: bool,
     pub rate_limit: usize, // max number of requests per minute
+    /// Total time one upload request may take, connect included.
+    pub upload_timeout: Duration,
 }
 
 impl InvocationConfig {
@@ -298,6 +308,7 @@ impl InvocationContext {
         let client = Client::builder()
             .danger_accept_invalid_certs(self.config.skip_ssl)
             .connect_timeout(Duration::from_secs(5))
+            .timeout(self.config.upload_timeout)
             .build()?;
         Ok(client)
     }
