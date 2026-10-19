@@ -8,13 +8,14 @@ mod common;
 use std::collections::HashSet;
 use std::num::{NonZeroU32, NonZeroUsize};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
 use futures::StreamExt;
 use lifecycle::{ComponentOptions, Manager};
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
 use rdkafka::config::ClientConfig;
@@ -2617,7 +2618,8 @@ async fn group_granularity_commits_the_ledger_frontier() {
 }
 
 #[tokio::test]
-async fn group_granularity_commits_the_pending_frontier_on_stop() {
+async fn group_granularity_keeps_a_held_frontier_uncommitted_until_the_stop_commits_it() {
+    let metrics = metrics();
     let topic = format!("e2e-group-stop-commit-{}", Uuid::new_v4());
     let harness = Harness::start_group_granularity_committing_every(
         common::PRODUCTION_PACK_TARGETS,
@@ -2651,6 +2653,11 @@ async fn group_granularity_commits_the_pending_frontier_on_stop() {
         Some(1),
         "the interval holds the later frontier"
     );
+    assert_eq!(
+        uncommitted_offsets(metrics, &topic, 0),
+        Some(9.0),
+        "the held frontier is still uncommitted"
+    );
 
     let group_id = harness.group_id.clone();
     harness.stop().await;
@@ -2659,6 +2666,43 @@ async fn group_granularity_commits_the_pending_frontier_on_stop() {
         broker_committed_offset(&group_id, &topic, 0) == Some(10)
     })
     .await;
+    assert_eq!(uncommitted_offsets(metrics, &topic, 0), Some(0.0));
+}
+
+// One recorder per test binary; each test reads only its own topic's series.
+fn metrics() -> &'static Snapshotter {
+    static SNAPSHOTTER: OnceLock<Snapshotter> = OnceLock::new();
+    SNAPSHOTTER.get_or_init(|| {
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        metrics::set_global_recorder(recorder).expect("no other recorder in the e2e binary");
+        snapshotter
+    })
+}
+
+fn uncommitted_offsets(metrics: &Snapshotter, topic: &str, partition: i32) -> Option<f64> {
+    let partition = partition.to_string();
+    metrics
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .find_map(|(key, _, _, value)| {
+            let key = key.key();
+            let labeled = |name: &str, expected: &str| {
+                key.labels()
+                    .any(|label| label.key() == name && label.value() == expected)
+            };
+            if key.name() != "kafka_consumer_ledger_uncommitted_offsets"
+                || !labeled("topic", topic)
+                || !labeled("partition", &partition)
+            {
+                return None;
+            }
+            match value {
+                DebugValue::Gauge(value) => Some(value.into_inner()),
+                _ => None,
+            }
+        })
 }
 
 const STALL_KEYS: [(i32, &str); 2] = [(0, "user-a"), (1, "user-b")];
