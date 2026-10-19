@@ -10,6 +10,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS
 
 from ..facade.contracts import (
+    AcceptOptions,
     CertifyPayload,
     DeprecatePayload,
     MaterializeSuggestionPayload,
@@ -234,38 +235,42 @@ class DismissWarehouseSuggestionSerializer(serializers.Serializer):
     )
 
 
-class AcceptWarehouseSuggestionSerializer(serializers.Serializer):
-    refresh_interval_seconds = serializers.IntegerField(
-        required=False,
-        min_value=1,
-        max_value=MAX_REFRESH_INTERVAL_SECONDS,
-        help_text="Materialize only: refresh interval to use instead of the proposed one, in seconds. Omit to "
-        "keep the proposed interval.",
-    )
-    refresh_mode = serializers.ChoiceField(
-        choices=WarehouseSuggestionRefreshMode.choices,
-        required=False,
-        help_text="Materialize only: incremental or full, instead of the proposed refresh_mode. Omit to keep the "
-        "proposed one. Switching to incremental needs incremental_key and unique_key when the payload has none.",
-    )
-    incremental_key = serializers.CharField(
-        required=False,
-        help_text="Materialize only, incremental refresh only: an output column whose value only grows as rows "
-        "arrive, such as a date, a datetime or an increasing number, instead of the proposed one. "
-        "view-check-incremental lists the columns that qualify. Omit to keep the proposed key.",
-    )
-    unique_key = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        allow_empty=False,
-        help_text="Materialize only, incremental refresh only: output columns that identify a row, instead of the "
-        "proposed ones. Must include every GROUP BY column. Omit to keep the proposed key.",
-    )
-    lookback_seconds = serializers.IntegerField(
-        required=False,
-        min_value=0,
-        max_value=MAX_LOOKBACK_SECONDS,
-        help_text="Materialize only, incremental refresh only: how far before the last refresh's highest "
-        "incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to keep the "
-        "proposed lookback.",
-    )
+@extend_schema_serializer(component_name="AcceptWarehouseSuggestion")
+class AcceptWarehouseSuggestionSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = AcceptOptions
+        extra_kwargs = {
+            "refresh_interval_seconds": {
+                "allow_null": False,
+                "min_value": 1,
+                "max_value": MAX_REFRESH_INTERVAL_SECONDS,
+                "help_text": "Materialize only: refresh interval to use instead of the proposed one, in seconds. "
+                "Omit to keep the proposed interval.",
+            },
+            "refresh_mode": {
+                "allow_null": False,
+                "help_text": "Materialize only: incremental or full, instead of the proposed refresh_mode. Omit to "
+                "keep the proposed one. Switching to incremental needs incremental_key and unique_key when the "
+                "payload has none.",
+            },
+            "incremental_key": {
+                "allow_null": False,
+                "help_text": "Materialize only, incremental refresh only: an output column whose value only grows as "
+                "rows arrive, such as a date, a datetime or an increasing number, instead of the proposed one. "
+                "view-check-incremental lists the columns that qualify. Omit to keep the proposed key.",
+            },
+            "unique_key": {
+                "allow_null": False,
+                "allow_empty": False,
+                "help_text": "Materialize only, incremental refresh only: output columns that identify a row, "
+                "instead of the proposed ones. Must include every GROUP BY column. Omit to keep the proposed key.",
+            },
+            "lookback_seconds": {
+                "allow_null": False,
+                "min_value": 0,
+                "max_value": MAX_LOOKBACK_SECONDS,
+                "help_text": "Materialize only, incremental refresh only: how far before the last refresh's highest "
+                "incremental_key value each refresh reads again, in seconds, so late rows are picked up. Omit to "
+                "keep the proposed lookback.",
+            },
+        }

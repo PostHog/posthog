@@ -1,6 +1,6 @@
 """DRF views for warehouse_suggestions."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from functools import cached_property
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -14,7 +14,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.exceptions import Conflict
@@ -41,12 +41,7 @@ from ..facade.contracts import (
     SuggestionPage,
     SuggestionSubjectGoneError,
 )
-from ..facade.enums import (
-    WarehouseSuggestionKind,
-    WarehouseSuggestionRefreshMode,
-    WarehouseSuggestionStatus,
-    WarehouseSuggestionSubjectKind,
-)
+from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
@@ -200,14 +195,14 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
-    def accept(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+    def accept(self, request: TypedRequest[AcceptOptions], pk: str, **kwargs: Any) -> Response:
         return self._respond(
             lambda: api.accept_suggestion(
                 self.team,
                 self.user_access_control,
                 UUID(pk),
                 user=cast(User, request.user),
-                options=_accept_options(request.validated_data),
+                options=request.validated_data,
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
             )
@@ -247,15 +242,3 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             raise Conflict(str(error))
         except AcceptFailedError as error:
             raise APIException(str(error))
-
-
-def _accept_options(validated_data: Mapping[str, Any]) -> AcceptOptions:
-    refresh_mode = validated_data.get("refresh_mode")
-    unique_key = validated_data.get("unique_key")
-    return AcceptOptions(
-        refresh_interval_seconds=validated_data.get("refresh_interval_seconds"),
-        refresh_mode=WarehouseSuggestionRefreshMode(refresh_mode) if refresh_mode else None,
-        incremental_key=validated_data.get("incremental_key"),
-        unique_key=tuple(unique_key) if unique_key else None,
-        lookback_seconds=validated_data.get("lookback_seconds"),
-    )

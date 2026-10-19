@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, fields
 from datetime import timedelta
 from typing import TYPE_CHECKING, ClassVar
@@ -110,7 +110,10 @@ VIEW_CHANGED_SINCE_SUGGESTED = (
     "This view changed after the suggestion was made, so it can no longer refresh incrementally on the suggested keys."
 )
 OPTION_NOT_APPLICABLE = "This option does not apply to a {kind} suggestion."
-KEYS_NEED_INCREMENTAL = "Keys only apply to an incremental refresh. Set refresh_mode to incremental, or leave this out."
+KEYS_NEED_INCREMENTAL = (
+    "incremental_key, unique_key and lookback_seconds only apply to an incremental refresh. "
+    "Set refresh_mode to incremental to use them."
+)
 INCREMENTAL_UNAVAILABLE = "Incremental refresh is not available for this project. Use a full refresh."
 KEYS_REQUIRED = (
     "An incremental refresh needs an incremental_key and a unique_key. Choose them with view-check-incremental."
@@ -119,12 +122,10 @@ REFRESH_INTERVAL_FIELD = "refresh_interval_seconds"
 REFRESH_MODE_FIELD = "refresh_mode"
 INCREMENTAL_KEY_FIELD = "incremental_key"
 UNIQUE_KEY_FIELD = "unique_key"
-CHOSEN_KEY_FIELDS = (INCREMENTAL_KEY_FIELD, UNIQUE_KEY_FIELD)
-KEY_FIELDS = (*CHOSEN_KEY_FIELDS, "lookback_seconds")
 
 
 class MaterializeAcceptor(Acceptor):
-    option_fields = frozenset({REFRESH_INTERVAL_FIELD, REFRESH_MODE_FIELD, *KEY_FIELDS})
+    option_fields = frozenset(field.name for field in fields(AcceptOptions))
 
     def accept(
         self, suggestion: WarehouseSuggestion, payload: SuggestionPayload, request: AcceptRequest
@@ -154,28 +155,20 @@ class MaterializeAcceptor(Acceptor):
             raise AcceptOptionRefusedError(REFRESH_INTERVAL_FIELD, str(error))
         except MaterializationFailedError as error:
             raise AcceptFailedError(str(error))
-        return MaterializationAsset(
-            saved_query_id=str(suggestion.subject_id),
-            refresh_interval_seconds=int(interval.total_seconds()),
-            refresh_mode=WarehouseSuggestionRefreshMode.INCREMENTAL
-            if incremental_config
-            else WarehouseSuggestionRefreshMode.FULL,
-            incremental_key=incremental_config.incremental_key if incremental_config else None,
-            unique_key=incremental_config.unique_key if incremental_config else (),
-            lookback_seconds=incremental_config.lookback_seconds if incremental_config else 0,
-        )
+        return _materialization_asset(suggestion, interval, incremental_config)
 
 
 def _incremental_config(payload: MaterializePayload, options: AcceptOptions, team_id: int) -> IncrementalConfig | None:
     if (options.refresh_mode or payload.refresh_mode) == WarehouseSuggestionRefreshMode.FULL:
-        _refuse_keys_without_incremental(options)
+        if _chose_keys(options) or options.lookback_seconds is not None:
+            raise AcceptOptionRefusedError(REFRESH_MODE_FIELD, KEYS_NEED_INCREMENTAL)
         return None
     if not incremental_enabled(team_id):
         raise AcceptOptionRefusedError(REFRESH_MODE_FIELD, INCREMENTAL_UNAVAILABLE)
     incremental_key = options.incremental_key or payload.incremental_key
-    unique_key = options.unique_key or payload.unique_key
     if incremental_key is None:
         raise AcceptOptionRefusedError(INCREMENTAL_KEY_FIELD, KEYS_REQUIRED)
+    unique_key = options.unique_key or payload.unique_key
     if not unique_key:
         raise AcceptOptionRefusedError(UNIQUE_KEY_FIELD, KEYS_REQUIRED)
     return IncrementalConfig(
@@ -186,22 +179,33 @@ def _incremental_config(payload: MaterializePayload, options: AcceptOptions, tea
 
 
 def _incremental_refusal(error: IncrementalConfigRefusedError, options: AcceptOptions) -> Exception:
-    chosen_keys = chosen_fields(options, CHOSEN_KEY_FIELDS)
-    if not chosen_keys:
+    if not _chose_keys(options):
         return SuggestionOutdatedError(f"{VIEW_CHANGED_SINCE_SUGGESTED} {error}")
-    refused = next((key for key in error.refused_keys if key in chosen_keys), chosen_keys[0])
-    return AcceptOptionRefusedError(refused, str(error))
+    refused_key = error.refused_keys[0] if error.refused_keys else INCREMENTAL_KEY_FIELD
+    return AcceptOptionRefusedError(refused_key, str(error))
 
 
-def _refuse_keys_without_incremental(options: AcceptOptions) -> None:
-    chosen = chosen_fields(options, KEY_FIELDS)
-    if chosen:
-        raise AcceptOptionRefusedError(chosen[0], KEYS_NEED_INCREMENTAL)
+def _chose_keys(options: AcceptOptions) -> bool:
+    return options.incremental_key is not None or options.unique_key is not None
 
 
-def chosen_fields(options: AcceptOptions, names: Iterable[str] | None = None) -> tuple[str, ...]:
-    candidates = names if names is not None else (field.name for field in fields(options))
-    return tuple(name for name in candidates if getattr(options, name) is not None)
+def _materialization_asset(
+    suggestion: WarehouseSuggestion, interval: timedelta, incremental_config: IncrementalConfig | None
+) -> MaterializationAsset:
+    return MaterializationAsset(
+        saved_query_id=str(suggestion.subject_id),
+        refresh_interval_seconds=int(interval.total_seconds()),
+        refresh_mode=WarehouseSuggestionRefreshMode.INCREMENTAL
+        if incremental_config
+        else WarehouseSuggestionRefreshMode.FULL,
+        incremental_key=incremental_config.incremental_key if incremental_config else None,
+        unique_key=incremental_config.unique_key if incremental_config else (),
+        lookback_seconds=incremental_config.lookback_seconds if incremental_config else 0,
+    )
+
+
+def chosen_fields(options: AcceptOptions) -> tuple[str, ...]:
+    return tuple(field.name for field in fields(options) if getattr(options, field.name) is not None)
 
 
 def changed_fields(options: AcceptOptions, payload: SuggestionPayload) -> tuple[str, ...]:
