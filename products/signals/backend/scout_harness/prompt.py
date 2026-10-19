@@ -458,6 +458,19 @@ _REPORT_RETRY_RULE_BOTH = (
 
 _REPORT_RETRY_RULE_EMIT_ONLY = _EMIT_RETRY_SAFE
 
+# A note or evidence append posts to Slack as its own message under only the report title, so a
+# reader there sees the appended text with none of the scout's run context.
+_STANDALONE_UPDATE_RULE = (
+    "**Write each note and evidence item for a reader who knows nothing but the report title.** An edit "
+    "that adds to a report posts to Slack as a separate update that shows only the report title and the "
+    "text you appended, and the person who reads it has not seen your runs, your scratchpad, or your skill. "
+    "Say what changed and why it matters in plain words, with the dates and numbers it rests on. Never lean "
+    'on shorthand that only you know: a nickname for a query or check ("the watchdog query"), a skill or prompt '
+    'version ("skill v3"), a scratchpad key, a run count, or "as noted before". If a term needs that '
+    'context, replace it with what it means, for example "the daily signup-count check" instead of '
+    '"the watchdog query".'
+)
+
 # The two additive channels on an edit, stated once and shared by both edit-capable personas.
 # An emit-only prompt names neither, because the scout has no edit scope.
 _EDIT_EVIDENCE_VS_NOTE = (
@@ -470,7 +483,8 @@ _EDIT_EVIDENCE_VS_NOTE = (
     "it. Two cases carry numbers and still take the note channel. A recovery is one: signal count and "
     "weight only grow, and both feed the inbox ranking, so evidence that an issue is over would rank "
     "the report as stronger. A report already at its evidence cap is the other: the append is refused "
-    "there, and the note is what still lands."
+    "there, and the note is what still lands. "
+    f"{_STANDALONE_UPDATE_RULE}"
 )
 
 _EDIT_REPOSITORY_BULLET = "- **Fix a misrouted report.** If a report points at the wrong codebase, set `repository` to the right `owner/repo` instead of authoring a duplicate that carries the correct one. It replaces the report's target and re-runs autostart, so a report that had no repository to open a PR against can now open a draft PR. Pass `NO_REPO` when nothing under version control could change, and omit the field entirely when the target is already right. The response carries `repository`, the target the report holds afterwards — read it back to confirm the correction landed."
@@ -809,7 +823,9 @@ SELF_IMPROVEMENT_REPORT_TITLE_PREFIX = "Scout self-improvement:"
 # prefix the telemetry classifies on (and the NO_REPO / requires_human_input posture) is defined once.
 _SELF_IMPROVEMENT_REPORT_FIELDS = (
     f"title `{SELF_IMPROVEMENT_REPORT_TITLE_PREFIX} <your-skill-name> – <topic>`, the suggested skill change "
-    "plus the evidence in the summary, `actionability` = `requires_human_input` (applying it is a skill edit "
+    "plus the evidence in the summary (written for a teammate who has never read your skill or your scratchpad: "
+    "say what the scout checks, what went wrong on which dates, and what the change would do, in plain words, "
+    "with no skill versions, scratchpad keys, or internal nicknames), `actionability` = `requires_human_input` (applying it is a skill edit "
     "by your team), `repository` = the `NO_REPO` sentinel (a custom scout's skill body is a row in "
     "your team's skills store, not a file in a repository, so a repository could not apply the fix), and "
     "`suggested_reviewers` = the skill authors named in *Your run identity* at the end of this prompt, creator first (route to the "
