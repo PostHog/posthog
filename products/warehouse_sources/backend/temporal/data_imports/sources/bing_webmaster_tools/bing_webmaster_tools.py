@@ -288,7 +288,10 @@ def _page_query_stats_batches(
             # GetPageStats and GetPageQueryStats can disagree about which of a site's pages are
             # valid: Bing rejects some pages GetPageStats itself just listed. Skip that one page
             # rather than losing every other page's stats to a page Bing won't serve.
-            if "InvalidUrl" not in str(exc):
+            # `_request_payload` appends the fault message verbatim (observed as the API's own
+            # "ERROR!!! InvalidUrl" wording), so anchor on the suffix rather than a bare substring
+            # match that could also catch an unrelated fault mentioning a URL.
+            if not str(exc).endswith("InvalidUrl"):
                 raise
             logger.warning("Bing Webmaster Tools rejected a page as invalid", site_url=site_url, page=page)
             continue
