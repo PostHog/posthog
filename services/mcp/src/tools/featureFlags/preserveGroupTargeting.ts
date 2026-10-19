@@ -289,6 +289,7 @@ type MergeConditionOptions = {
     payloadChangesFlagAggregation: boolean
     /** This set never gains group aggregation. See isPinnedToPerson. */
     pinnedToPerson: boolean
+    /** Stored properties that a typed group property can repeat without naming a group type. */
     personSetPropsByKey: Map<string, FlagProperty[]> | undefined
 }
 
@@ -338,8 +339,8 @@ function resolveSetAggregation(
     // the flag level into every set that sends no index of its own. A group property that the
     // agent typed with an index names the group type of its own set. A retarget that the agent
     // sends only on the property therefore survives. A set whose typed group properties all
-    // repeat ones a stored person-aggregated set holds names no group type, because that set
-    // filters on them without aggregating on their group type.
+    // repeat ones in personSetPropsByKey names no group type, because the stored
+    // person-aggregated set filters on them without aggregating on their group type.
     if (!pinnedToPerson && !payloadChangesFlagAggregation && !hasKey(out, 'aggregation_group_type_index')) {
         const restored =
             explicitGroupPropertyIndex(incoming, personSetPropsByKey) ?? sourceSet?.group.aggregation_group_type_index

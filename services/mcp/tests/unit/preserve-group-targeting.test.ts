@@ -1258,6 +1258,45 @@ describe('preserveGroupTargetingFilters', () => {
             expected: [[2, 'group', 2]],
         },
         {
+            name: 'a set appended to a mixed flag repeats the group property of its person set',
+            existing: {
+                aggregation_group_type_index: null,
+                groups: [
+                    {
+                        aggregation_group_type_index: 0,
+                        properties: [
+                            { key: 'plan', type: 'group', group_type_index: 0, operator: 'exact', value: 'enterprise' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                    {
+                        aggregation_group_type_index: null,
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'us' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            incoming: {
+                groups: [
+                    { properties: [{ key: 'plan', operator: 'exact', value: 'pro' }], rollout_percentage: 100 },
+                    { properties: [{ key: 'region', operator: 'exact', value: 'eu' }], rollout_percentage: 100 },
+                    {
+                        properties: [
+                            { key: 'region', type: 'group', group_type_index: 1, operator: 'exact', value: 'ca' },
+                        ],
+                        rollout_percentage: 100,
+                    },
+                ],
+            },
+            expected: [
+                [0, 'group', 0],
+                [undefined, 'group', 1],
+                [1, 'group', 1],
+            ],
+        },
+        {
             name: 'a stored set that inherits a group flag level moves to persons',
             existing: {
                 aggregation_group_type_index: 0,
