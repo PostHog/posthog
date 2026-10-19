@@ -26,7 +26,11 @@ from posthog.temporal.exports.retry_policy import EXPORT_RETRY_POLICY
 from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAssetResult
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded, ExportCancelled
+from products.exports.backend.tasks.failure_handler import (
+    ExcelColumnLimitExceeded,
+    ExportCancelled,
+    InvalidExportContext,
+)
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
@@ -156,6 +160,8 @@ async def test_export_asset_activity_timeout_errors_are_retryable(
     [
         (QueryError("Unknown table"), False),
         (ExcelColumnLimitExceeded(), False),
+        (InvalidExportContext("Invalid query: unknown table"), False),
+        (InvalidExportContext("Export is missing a render target", reportable=True), True),
         (ValueError("render failed"), True),
     ],
 )

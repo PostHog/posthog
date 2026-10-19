@@ -38,10 +38,10 @@ from products.exports.backend.facade.api import export_limit_context
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token, save_content
 from products.exports.backend.tasks.exporter_utils import log_error_if_site_url_not_reachable
 from products.exports.backend.tasks.failure_handler import (
-    FAILURE_TYPE_USER,
     BrowserlessUnavailable,
     InvalidExportContext,
     classify_failure_type,
+    is_reportable_export_failure,
 )
 from products.exports.backend.url_security import is_heatmap_url_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
@@ -307,7 +307,8 @@ def _export_to_png(
             page_load_timeout = 100
         else:
             raise InvalidExportContext(
-                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context"
+                "Export is missing required dashboard, insight ID, session_recording_id, or query source in export_context",
+                reportable=True,
             )
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
@@ -709,6 +710,6 @@ def export_image(
                     },
                 )
             # A broken saved query is the user's to fix, and the asset already records it.
-            elif classify_failure_type(e) != FAILURE_TYPE_USER:
+            elif is_reportable_export_failure(e):
                 capture_exception(e, additional_properties={"task": "image_export", "team_id": team_id})
             raise

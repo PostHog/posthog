@@ -18,12 +18,11 @@ from posthog.temporal.exports.types import ExportAssetActivityInputs, ExportAsse
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
-    FAILURE_TYPE_USER,
     SYSTEM_ERROR_NAMES,
     TIMEOUT_ERROR_NAMES,
     ExportCancelled,
-    classify_failure_type,
     export_slo_failure_details,
+    is_reportable_export_failure,
 )
 
 logger = structlog.get_logger(__name__)
@@ -83,9 +82,7 @@ async def export_asset_activity(inputs: ExportAssetActivityInputs) -> ExportAsse
             # posthog.temporal.exports.types.extract_error_details. Strings are truncated so
             # an upstream exception can't blow out the 2 MiB payload envelope.
             # A user query error is not a defect, so it stays out of error tracking.
-            error_class = (
-                NonReportableApplicationError if classify_failure_type(e) == FAILURE_TYPE_USER else ApplicationError
-            )
+            error_class = ApplicationError if is_reportable_export_failure(e) else NonReportableApplicationError
             raise error_class(
                 truncate_for_temporal_payload(str(e), MAX_ERROR_MESSAGE_CHARS),
                 truncate_for_temporal_payload(error_trace, MAX_ERROR_TRACE_CHARS),

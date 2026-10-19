@@ -48,7 +48,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset, save_content_from_file
 
-from .failure_handler import FAILURE_TYPE_USER, ExcelColumnLimitExceeded, classify_failure_type
+from .failure_handler import ExcelColumnLimitExceeded, is_reportable_export_failure
 
 logger = structlog.get_logger(__name__)
 
@@ -794,6 +794,6 @@ def export_tabular(
                 },
             )
         # A broken saved query is the user's to fix, and the asset already records it.
-        elif classify_failure_type(e) != FAILURE_TYPE_USER:
+        elif is_reportable_export_failure(e):
             capture_exception(e, additional_properties={"task": "csv_export", "team_id": team_id})
         raise
