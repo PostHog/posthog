@@ -43,7 +43,8 @@ export function MetricVariableSelect({
     )
 
     return (
-        <div data-attr="dashboard-metric-variable">
+        // Values come from queries over customer data, so copying one captures no text.
+        <div className="ph-no-capture" data-attr="dashboard-metric-variable">
             <LemonField.Pure label={label} className="gap-0">
                 {variable.source === 'textbox' ? (
                     <MetricVariableTextInput variable={variable} onChange={onChange} />
