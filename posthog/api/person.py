@@ -1715,6 +1715,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return response.Response(data=[])
 
         person = self.get_object()
+        tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
         if request.method == "GET":
             filter = PropertiesTimelineFilter(request=request, team=self.team)
             return response.Response(data=PropertiesTimeline().run_for_filter(filter, self.team, person))
