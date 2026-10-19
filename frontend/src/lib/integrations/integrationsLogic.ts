@@ -73,7 +73,13 @@ function decodeOpaqueOAuthState(state: string | undefined): string | undefined {
     if (!state || !/^(?:[0-9a-f]{2})+$/i.test(state)) {
         return state
     }
-    return decodeURIComponent(state.replace(/../g, '%$&'))
+    try {
+        return decodeURIComponent(state.replace(/../g, '%$&'))
+    } catch {
+        // A crafted hex state that is not valid UTF-8 carries no token, so the callback rejects it
+        // as an expired state instead of throwing before it can redirect.
+        return state
+    }
 }
 
 // Search param the OAuth callback appends with the id of the integration it just created, so the
