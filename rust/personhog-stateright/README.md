@@ -108,12 +108,12 @@ checker verifies, automatically:
 | `protocol::freeze_quorum_met` / `drain_satisfied` / `warm_satisfied` | the phase-advancement rules (identity quorum, id-correlated acks, vacuous drain) — `Action::AdvancePhase` calls them |
 | `protocol::plan_partial_rebalance` | the rebalance decision (placement via `StickyBalancedStrategy` + the move/fresh diff, old_owner from the current assignment, in-flight partitions pinned) — `Action::Rebalance` calls it, as does the coordinator |
 | `types::HandoffPhase` | used directly as the model's phase enum, so adding a phase breaks the model's exhaustive matches at compile time |
-| `protocol::plan_freeze` | which held self-handoffs the freeze creates, and what cancels it (a stray ordinary handoff, a holder or owner that is gone) — `Action::MigrateDrive` at Freezing calls it |
-| `protocol::fleet_quiet` | when a requested saga may start: no handoff record, and every old partition assigned to a registered, Ready pod — `Action::MigrateStart` is enabled through it, as the coordinator's start step is |
-| `protocol::plan_resume` | what Resuming does with the holds: dissolve the shrunk ones, abandon a dead holder's, restart the rest over the new changelog, and place the partitions a grow created — `Action::MigrateDrive` at Resuming calls it |
-| `protocol::migration_unsealed` / `migration_unsettled` | the Sealing and Resuming gates (every old partition sealed; no held handoff left) — `Action::MigrateDrive` calls them |
-| `protocol::seal_targets` | which old partitions a pod seals: every one assigned to it, every one owned by no registered peer, and once the seal is overdue every one no ack reports sealed — `Action::SealTick` calls it |
-| `protocol::planner_may_place` | when the ordinary planner may place during a saga — `Action::Rebalance` and `RebalanceChunked` are enabled through it, as the coordinator's pass is |
+| `protocol::migration::plan_freeze` | which held self-handoffs the freeze creates, and what cancels it (a stray ordinary handoff, a holder or owner that is gone) — `Action::MigrateDrive` at Freezing calls it |
+| `protocol::migration::fleet_quiet` | when a requested saga may start: no handoff record, and every old partition assigned to a registered, Ready pod — `Action::MigrateStart` is enabled through it, as the coordinator's start step is |
+| `protocol::migration::plan_resume` | what Resuming does with the holds: dissolve the shrunk ones, abandon a dead holder's, restart the rest over the new changelog, and place the partitions a grow created — `Action::MigrateDrive` at Resuming calls it |
+| `protocol::migration::migration_unsealed` / `migration_unsettled` | the Sealing and Resuming gates (every old partition sealed; no held handoff left) — `Action::MigrateDrive` calls them |
+| `protocol::migration::seal_targets` | which old partitions a pod seals: every one assigned to it, every one owned by no registered peer, and once the seal is overdue every one no ack reports sealed — `Action::SealTick` calls it |
+| `protocol::migration::planner_may_place` | when the ordinary planner may place during a saga — `Action::Rebalance` and `RebalanceChunked` are enabled through it, as the coordinator's pass is |
 | `changelog::warm_sources` | the partitions a warm replays: the congruent old partitions (mod gcd, key-filtered) then the live one — a pod's warm effect reads it |
 | `types::MigrationPhase::may_transition_to` | the saga's legal phase moves, so a new phase or a new edge fails the model's matches at compile time |
 

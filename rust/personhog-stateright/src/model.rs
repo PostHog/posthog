@@ -9,10 +9,12 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use personhog_coordination::changelog::warm_sources;
 use personhog_coordination::pod::{desired_state, DesiredState};
+use personhog_coordination::protocol::migration::{
+    fleet_quiet, migration_unsealed, migration_unsettled, plan_freeze, plan_resume,
+    planner_may_place, seal_targets,
+};
 use personhog_coordination::protocol::{
-    drain_satisfied, fleet_quiet, freeze_quorum_met, migration_unsealed, migration_unsettled,
-    plan_freeze, plan_partial_rebalance, plan_resume, planner_may_place, seal_targets,
-    warm_satisfied, PlannedHandoff,
+    drain_satisfied, freeze_quorum_met, plan_partial_rebalance, warm_satisfied, PlannedHandoff,
 };
 use personhog_coordination::strategy::{AssignmentStrategy, Member, StickyBalancedStrategy};
 use personhog_coordination::types::{
