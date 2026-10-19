@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
-from products.slack_app.backend.services.slack_welcome_messages import github_connect_url
+from products.slack_app.backend.services.slack_messages import personal_integrations_url
 from products.tasks.backend.temporal.process_task.activities.post_slack_update import (
     SLACK_DENIAL_STOP_MESSAGE,
     SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT,
@@ -56,6 +56,11 @@ from products.tasks.backend.temporal.process_task.activities.post_slack_update i
             SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB,
             "Connect your GitHub in PostHog settings",
         ),
+        (
+            "Linear integration requires reauthorization",
+            SLACK_RECOVERY_STRATEGY_RETRY,
+            "retry",
+        ),
     ],
 )
 def test_classify_failure_recovery(error: str, expected_strategy: str, expected_prompt_fragment: str) -> None:
@@ -67,7 +72,7 @@ def test_classify_failure_recovery(error: str, expected_strategy: str, expected_
 def test_reconnect_github_prompt_links_the_settings_flow() -> None:
     prompt = _failure_recovery_prompt("GitHub user integration for this run requires reauthorization", 42)
 
-    assert f"<{github_connect_url(42)}|Connect your GitHub in PostHog settings>" in prompt
+    assert f"<{personal_integrations_url(42)}|Connect your GitHub in PostHog settings>" in prompt
 
 
 @patch("products.tasks.backend.models.TaskRun.update_state_atomic")

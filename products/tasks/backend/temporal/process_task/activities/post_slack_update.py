@@ -30,7 +30,10 @@ SLACK_SPEND_LIMIT_ERROR_FRAGMENT = "this agent run reached its spend limit"
 
 # Checked before the connect-then-replan markers, because a rejected personal credential needs
 # the person to authorize again rather than a re-plan against the connections already there.
-_RECONNECT_GITHUB_MARKERS = ("requires reauthorization",)
+_RECONNECT_GITHUB_MARKERS = (
+    "github user integration for this run requires reauthorization",
+    "github user integration requires reauthorization",
+)
 
 _RECONNECT_GITHUB_CONNECT_LABEL = "Connect your GitHub in PostHog settings"
 _RECONNECT_GITHUB_PROMPT = (
@@ -282,11 +285,11 @@ def _failure_recovery_prompt(error: str, team_id: int | None = None) -> str:
 
 def _recovery_prompt(strategy: str, team_id: int | None) -> str:
     if strategy == SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB and team_id is not None:
-        # One settings flow both reauthorizes an existing install and creates a first one, so a
-        # single link serves a person whose credentials expired and a person who never connected.
-        from products.slack_app.backend.services.slack_welcome_messages import github_connect_url
+        # The settings page offers Reconnect for a flagged connection and Connect when there is none,
+        # so a single link serves a person whose credentials expired and a person who never connected.
+        from products.slack_app.backend.services.slack_messages import personal_integrations_url
 
-        link = f"<{github_connect_url(team_id)}|{_RECONNECT_GITHUB_CONNECT_LABEL}>"
+        link = f"<{personal_integrations_url(team_id)}|{_RECONNECT_GITHUB_CONNECT_LABEL}>"
         return _RECONNECT_GITHUB_PROMPT.format(connect=link)
     return _RECOVERY_PROMPTS[strategy]
 
