@@ -2026,9 +2026,6 @@ class SignalReportViewSet(
     def _can_view_inbox_ranking(self) -> bool:
         return can_view_inbox_ranking(cast(User, self.request.user), self.team)
 
-    def _get_can_view_inbox_ranking(self) -> bool:
-        return self._can_view_inbox_ranking
-
     def _prefetch_signal_report_ranking_score(self, queryset):
         # Only requests that may see the score pay for the lookup.
         if not self._can_view_inbox_ranking:
@@ -2170,7 +2167,7 @@ class SignalReportViewSet(
             **super().get_serializer_context(),
             "team": self.team,
             # Called only when a report renders its `ranking` field, so other requests skip the flag check.
-            "can_view_inbox_ranking": self._get_can_view_inbox_ranking,
+            "can_view_inbox_ranking": lambda: self._can_view_inbox_ranking,
             "report_monitoring_enabled_by_team": {self.team_id: self._report_monitoring_enabled},
             # For the serializer's refund_ineligibility_reason field — computed once per request,
             # not per report (the bounds are org-level).
