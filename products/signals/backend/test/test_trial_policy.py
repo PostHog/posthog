@@ -5,11 +5,12 @@ from unittest.mock import patch
 
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import Team
+from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalScoutConfig
 from products.signals.backend.trial.funding import TrialFunding
@@ -38,6 +39,40 @@ class TestTrialPolicy(BaseTest):
         assert TrialPolicy(child).claim(user_id=self.user.pk).id == grant.id
         assert self.policy.claim(user_id=self.user.pk).id == grant.id
         assert self.policy.organization_grants_claimed() == 1
+
+    @parameterized.expand([("",), ("cost_limit",), ("report_limit",)])
+    def test_project_transfer_preserves_lifetime_grant_and_limits(self, exhaustion_reason: str) -> None:
+        grant = self.claim()
+        report_id = uuid4()
+        funding = self.admit(report_id=report_id)
+        child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
+        if exhaustion_reason:
+            grant.exhausted_at = timezone.now()
+            grant.exhaustion_reason = exhaustion_reason
+            grant.save(update_fields=["exhausted_at", "exhaustion_reason"])
+        destination = Organization.objects.create(name="Destination")
+        for team in [self.team, child]:
+            team.organization = destination
+            team.save(update_fields=["organization"])
+
+        for team in [self.team, child]:
+            policy = TrialPolicy(team)
+            assert policy.claim(user_id=self.user.pk).id == grant.id
+            if exhaustion_reason:
+                with self.assertRaisesMessage(TrialRefused, exhaustion_reason):
+                    policy.admit(paid_authorized=False)
+            else:
+                assert policy.admit(parent=funding, report_id=report_id, paid_authorized=False) == funding
+                policy.check_funding(funding)
+            assert policy.organization_grants_claimed() == 0
+
+        with TrialPolicy(self.team).publish_report(report_id, delivered=True):
+            pass
+        slot = SignalTrialReportReservation.objects.for_team(self.team.pk).get(report_id=report_id)
+        assert slot.status == SignalTrialReportReservation.Status.CONSUMED
+        assert self.policy.organization_grants_claimed() == 1
+        grant.refresh_from_db()
+        assert grant.organization_id == self.organization.id
 
     def test_deleting_project_does_not_return_organization_slot(self) -> None:
         projects = [Team.objects.create(organization=self.organization, name=f"Project {index}") for index in range(3)]

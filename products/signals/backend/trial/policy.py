@@ -77,11 +77,7 @@ class TrialPolicy:
         return SignalTrialGrant.objects.unscoped().filter(organization_id=self.organization_id).count()
 
     def grant(self) -> SignalTrialGrant | None:
-        return (
-            SignalTrialGrant.objects.for_team(self.team_id, canonical=True)
-            .filter(organization_id=self.organization_id)
-            .first()
-        )
+        return SignalTrialGrant.objects.for_team(self.team_id, canonical=True).first()
 
     def claim(self, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS) -> SignalTrialGrant:
         from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
@@ -138,11 +134,7 @@ class TrialPolicy:
     @contextmanager
     def locked_grant(self, grant_id: UUID) -> Iterator[SignalTrialGrant]:
         with transaction.atomic():
-            grant = (
-                SignalTrialGrant.objects.for_team(self.team_id, canonical=True)
-                .select_for_update()
-                .get(id=grant_id, organization_id=self.organization_id)
-            )
+            grant = SignalTrialGrant.objects.for_team(self.team_id, canonical=True).select_for_update().get(id=grant_id)
             yield grant
 
     def _report_slots(self, grant: SignalTrialGrant) -> int:
