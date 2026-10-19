@@ -507,7 +507,6 @@ export function EditSubscription({
                                             data-attr="subscribed-emails"
                                             options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
-                                            caseInsensitiveOptionMatching
                                             onFocus={() => {
                                                 if (!members) {
                                                     ensureAllMembersLoaded()

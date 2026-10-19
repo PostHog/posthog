@@ -395,7 +395,6 @@ function SubscriptionDeliveryStep({
                                 allowCustomValues
                                 options={usersLemonSelectOptions(meFirstMembers.map((member) => member.user))}
                                 loading={membersLoading}
-                                caseInsensitiveOptionMatching
                                 onFocus={() => {
                                     if (!members) {
                                         ensureAllMembersLoaded()
