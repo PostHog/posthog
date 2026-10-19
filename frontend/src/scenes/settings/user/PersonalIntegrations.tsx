@@ -140,8 +140,7 @@ function GitHubInstallationRow({ integration }: { integration: PersonalGitHubInt
                                 <TZLabel time={integration.needs_reauthorization_at} className="align-baseline" />
                             </>
                         ) : null}
-                        . Reconnect to let PostHog read your repos and open pull requests as you again. The installation
-                        stays on GitHub, so you keep the same repository access.
+                        . Reconnect to let PostHog read your repos and open pull requests as you again.
                     </LemonBanner>
                 ) : null}
             </div>
