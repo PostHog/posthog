@@ -1,5 +1,5 @@
 use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicPartition};
@@ -53,7 +53,7 @@ impl FakeAccounting {
         self.takes.push(handed_out);
     }
 
-    pub(super) fn settled(&self) -> Vec<Settled> {
+    pub(super) fn settles_seen(&self) -> Vec<Settled> {
         self.settled.lock().unwrap().clone()
     }
 
@@ -120,11 +120,11 @@ impl FakeAdmission {
         self.resumes.push(resume);
     }
 
-    pub(super) fn charged(&self) -> Vec<(TopicPartition, Charge)> {
+    pub(super) fn charges_seen(&self) -> Vec<(TopicPartition, Charge)> {
         self.charged.lock().unwrap().clone()
     }
 
-    pub(super) fn handed_out(&self) -> Vec<HashMap<TopicPartition, HandedOut>> {
+    pub(super) fn hand_outs_seen(&self) -> Vec<HashMap<TopicPartition, HandedOut>> {
         self.handed_out.lock().unwrap().clone()
     }
 
@@ -152,5 +152,51 @@ impl Admission for FakeAdmission {
             .lock()
             .unwrap()
             .extend_from_slice(topic_partitions);
+    }
+}
+
+impl<A: Accounting> Accounting for Arc<A> {
+    fn charge(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        charges: &[(Offset, Charge)],
+    ) -> Result<Held, Rejection> {
+        (**self).charge(topic_partition, generation, charges)
+    }
+
+    fn settled(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        offsets: impl IntoIterator<Item = Offset>,
+    ) -> Result<Option<Offset>, Rejection> {
+        (**self).settled(topic_partition, generation, offsets)
+    }
+
+    fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, HandedOut>> {
+        (**self).take_due(now)
+    }
+
+    fn take_all(&self) -> Option<HashMap<TopicPartition, HandedOut>> {
+        (**self).take_all()
+    }
+
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+        (**self).forget_partitions(topic_partitions)
+    }
+}
+
+impl<D: Admission> Admission for Arc<D> {
+    fn charged(&self, topic_partition: &TopicPartition, uncommitted: Charge) -> Option<Pause> {
+        (**self).charged(topic_partition, uncommitted)
+    }
+
+    fn handed_out(&self, handed_out: &HashMap<TopicPartition, HandedOut>) -> Vec<TopicPartition> {
+        (**self).handed_out(handed_out)
+    }
+
+    fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
+        (**self).forget_partitions(topic_partitions)
     }
 }

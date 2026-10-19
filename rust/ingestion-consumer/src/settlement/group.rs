@@ -124,44 +124,47 @@ mod tests {
         }
     }
 
-    fn settlement() -> GroupSettlement<FakeAccounting, FakeAdmission> {
-        GroupSettlement {
-            accounting: FakeAccounting::default(),
-            admission: FakeAdmission::default(),
-        }
+    type FakeSettlement = GroupSettlement<Arc<FakeAccounting>, Arc<FakeAdmission>>;
+
+    fn settlement() -> (FakeSettlement, Arc<FakeAccounting>, Arc<FakeAdmission>) {
+        let accounting = Arc::new(FakeAccounting::default());
+        let admission = Arc::new(FakeAdmission::default());
+        let settlement = GroupSettlement {
+            accounting: Arc::clone(&accounting),
+            admission: Arc::clone(&admission),
+        };
+        (settlement, accounting, admission)
     }
 
     #[test]
     fn a_charge_asks_the_admission_with_the_uncommitted_charge() {
-        let settlement = settlement();
-        settlement
-            .accounting
-            .charge_returns(Ok(uncommitted_events(10)));
-        settlement.admission.charged_returns(Some(Pause));
+        let (settlement, accounting, admission) = settlement();
+        accounting.charge_returns(Ok(uncommitted_events(10)));
+        admission.charged_returns(Some(Pause));
 
         assert_eq!(settlement.charge(&p(0), 0, &[]), Ok(Some(Pause)));
-        assert_eq!(settlement.admission.charged(), vec![(p(0), events(10))]);
+        assert_eq!(admission.charges_seen(), vec![(p(0), events(10))]);
     }
 
     #[test]
     fn a_rejected_charge_asks_the_admission_nothing() {
-        let settlement = settlement();
+        let (settlement, accounting, admission) = settlement();
         let stale = Rejection::Stale {
             stamp: 0,
             generation: 1,
         };
-        settlement.accounting.charge_returns(Err(stale));
+        accounting.charge_returns(Err(stale));
 
         assert_eq!(settlement.charge(&p(0), 0, &[]), Err(stale));
-        assert!(settlement.admission.charged().is_empty());
+        assert!(admission.charges_seen().is_empty());
     }
 
     #[test]
     fn a_hand_out_commits_its_offsets_and_resumes_what_the_admission_decides() {
-        let settlement = settlement();
+        let (settlement, accounting, admission) = settlement();
         let hand_out = HashMap::from([(p(0), handed_out(11, 3)), (p(1), handed_out(21, 0))]);
-        settlement.accounting.take_hands_out(hand_out.clone());
-        settlement.admission.handed_out_returns(vec![p(0)]);
+        accounting.take_hands_out(hand_out.clone());
+        admission.handed_out_returns(vec![p(0)]);
 
         let commit = settlement.take_due(Instant::now()).expect("handed out");
 
@@ -170,16 +173,14 @@ mod tests {
             HashMap::from([(p(0), Offset(11)), (p(1), Offset(21))])
         );
         assert_eq!(commit.resume, vec![p(0)]);
-        assert_eq!(settlement.admission.handed_out(), vec![hand_out]);
+        assert_eq!(admission.hand_outs_seen(), vec![hand_out]);
     }
 
     #[test]
     fn take_all_asks_the_admission_like_take_due() {
-        let settlement = settlement();
-        settlement
-            .accounting
-            .take_hands_out(HashMap::from([(p(0), handed_out(11, 0))]));
-        settlement.admission.handed_out_returns(vec![p(0)]);
+        let (settlement, accounting, admission) = settlement();
+        accounting.take_hands_out(HashMap::from([(p(0), handed_out(11, 0))]));
+        admission.handed_out_returns(vec![p(0)]);
 
         assert_eq!(
             settlement.take_all().expect("handed out").resume,
@@ -189,14 +190,14 @@ mod tests {
 
     #[test]
     fn a_run_reaches_the_accounting_under_its_generation() {
-        let settlement = settlement();
+        let (settlement, accounting, _) = settlement();
 
         settlement
             .settle_run(&p(0), 3, &[Offset(10), Offset(11)])
             .unwrap();
 
         assert_eq!(
-            settlement.accounting.settled(),
+            accounting.settles_seen(),
             vec![Settled {
                 topic_partition: p(0),
                 generation: 3,
@@ -225,8 +226,8 @@ mod tests {
         expected_error: true,
     })]
     fn only_a_violating_run_fails(#[case] run: RejectedRun) {
-        let settlement = settlement();
-        settlement.accounting.settle_returns(Err(run.rejection));
+        let (settlement, accounting, _) = settlement();
+        accounting.settle_returns(Err(run.rejection));
 
         assert_eq!(
             settlement.settle_run(&p(0), 0, &[Offset(10)]).is_err(),
@@ -236,7 +237,7 @@ mod tests {
 
     #[test]
     fn a_retired_poll_settles_nothing() {
-        let settlement = settlement();
+        let (settlement, accounting, _) = settlement();
         let charges = [(Offset(10), Charge::ZERO)];
 
         settlement
@@ -251,17 +252,17 @@ mod tests {
             }])
             .unwrap();
 
-        assert!(settlement.accounting.settled().is_empty());
+        assert!(accounting.settles_seen().is_empty());
     }
 
     #[test]
     fn a_revoke_reaches_both_the_accounting_and_the_admission() {
-        let settlement = settlement();
+        let (settlement, accounting, admission) = settlement();
 
         settlement.forget_partitions(&[p(0)]);
 
-        assert_eq!(settlement.accounting.forgotten(), vec![p(0)]);
-        assert_eq!(settlement.admission.forgotten(), vec![p(0)]);
+        assert_eq!(accounting.forgotten(), vec![p(0)]);
+        assert_eq!(admission.forgotten(), vec![p(0)]);
     }
 }
 

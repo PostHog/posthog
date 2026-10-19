@@ -143,10 +143,12 @@ mod tests {
         TopicPartition::new("events", partition)
     }
 
-    fn settlement() -> PollSettlement<FakeAccounting> {
-        PollSettlement {
-            uncommitted: FakeAccounting::default(),
-        }
+    fn settlement() -> (PollSettlement<Arc<FakeAccounting>>, Arc<FakeAccounting>) {
+        let accounting = Arc::new(FakeAccounting::default());
+        let settlement = PollSettlement {
+            uncommitted: Arc::clone(&accounting),
+        };
+        (settlement, accounting)
     }
 
     struct Slice {
@@ -186,7 +188,7 @@ mod tests {
     }
 
     fn settle_poll_counting_skips(
-        settlement: &PollSettlement<FakeAccounting>,
+        settlement: &PollSettlement<Arc<FakeAccounting>>,
         slices: &[Slice],
     ) -> (anyhow::Result<()>, Vec<String>) {
         let recorder = DebuggingRecorder::new();
@@ -213,14 +215,14 @@ mod tests {
 
     #[test]
     fn a_retired_poll_settles_each_slice_under_its_generation() {
-        let settlement = settlement();
+        let (settlement, accounting) = settlement();
 
         settle_poll_counting_skips(&settlement, &[Slice::of(0, &[10, 11]), Slice::of(1, &[20])])
             .0
             .unwrap();
 
         assert_eq!(
-            settlement.uncommitted.settled(),
+            accounting.settles_seen(),
             vec![
                 Settled {
                     topic_partition: p(0),
@@ -248,12 +250,12 @@ mod tests {
     #[case::one_stale_one_frontier(RetiredPoll { settles: vec![Err(stale()), Ok(Some(Offset(21)))], expected_skip: None })]
     #[case::one_stale_one_behind(RetiredPoll { settles: vec![Err(stale()), Ok(None)], expected_skip: Some("no_frontier") })]
     fn a_retired_poll_that_hands_over_no_frontier_counts_why(#[case] poll: RetiredPoll) {
-        let settlement = settlement();
+        let (settlement, accounting) = settlement();
         let slices: Vec<Slice> = (0..poll.settles.len() as i32)
             .map(|partition| Slice::of(partition, &[10]))
             .collect();
         for result in poll.settles {
-            settlement.uncommitted.settle_returns(result);
+            accounting.settle_returns(result);
         }
 
         let (result, skipped) = settle_poll_counting_skips(&settlement, &slices);
@@ -270,36 +272,34 @@ mod tests {
 
     #[test]
     fn a_violating_slice_fails_the_poll_and_stops_settling() {
-        let settlement = settlement();
-        settlement
-            .uncommitted
-            .settle_returns(Err(Rejection::Violation {
-                error: LedgerError::CompletedTwice { offset: Offset(10) },
-                stamp: 2,
-                generation: 2,
-                held: Held::default(),
-            }));
+        let (settlement, accounting) = settlement();
+        accounting.settle_returns(Err(Rejection::Violation {
+            error: LedgerError::CompletedTwice { offset: Offset(10) },
+            stamp: 2,
+            generation: 2,
+            held: Held::default(),
+        }));
 
         let (result, _) =
             settle_poll_counting_skips(&settlement, &[Slice::of(0, &[10]), Slice::of(1, &[20])]);
 
         assert!(result.is_err());
-        assert_eq!(settlement.uncommitted.settled().len(), 1);
+        assert_eq!(accounting.settles_seen().len(), 1);
     }
 
     #[test]
     fn a_run_settles_nothing_before_its_poll_retires() {
-        let settlement = settlement();
+        let (settlement, accounting) = settlement();
 
         settlement.settle_run(&p(0), 2, &[Offset(10)]).unwrap();
 
-        assert!(settlement.uncommitted.settled().is_empty());
+        assert!(accounting.settles_seen().is_empty());
     }
 
     #[test]
     fn a_charge_never_pauses() {
-        let settlement = settlement();
-        settlement.uncommitted.charge_returns(Ok(Held {
+        let (settlement, accounting) = settlement();
+        accounting.charge_returns(Ok(Held {
             offsets: usize::MAX,
             charge: Charge {
                 events: u64::MAX,
@@ -312,8 +312,8 @@ mod tests {
 
     #[test]
     fn a_hand_out_commits_without_resuming() {
-        let settlement = settlement();
-        settlement.uncommitted.take_hands_out(HashMap::from([(
+        let (settlement, accounting) = settlement();
+        accounting.take_hands_out(HashMap::from([(
             p(0),
             HandedOut {
                 offset: Offset(12),
