@@ -944,7 +944,6 @@ class TestRunScheduled:
         compact_small_files: bool = False,
         compact: AsyncMock | None = None,
         vacuum: AsyncMock | None = None,
-        run_compaction: bool = True,
     ) -> tuple[AsyncMock, AsyncMock, MagicMock, MagicMock]:
         compact = compact or AsyncMock(return_value=False)
         vacuum = vacuum or AsyncMock(return_value=0)
@@ -960,32 +959,27 @@ class TestRunScheduled:
                 schema,
                 is_cdc_companion=is_cdc_companion,
                 compact_small_files=compact_small_files,
-                compact=run_compaction,
             )
         return compact, vacuum, update_config, capture
 
     @parameterized.expand(
         [
-            ("main", False, "last_vacuum_version", True),
+            ("main", False, "last_vacuum_version"),
             # The snapshot and _cdc companion are different delta tables with unrelated versions, so
             # the companion must use its own keys. Sharing a key corrupts both cadences.
-            ("companion_own_key", True, "last_vacuum_version_cdc", True),
-            # A pass that leaves compaction to a later pass keeps the vacuum cadence.
-            ("main_without_compaction", False, "last_vacuum_version", False),
+            ("companion_own_key", True, "last_vacuum_version_cdc"),
         ]
     )
     @pytest.mark.asyncio
-    async def test_watermark_key_selection(
-        self, _name: str, is_cdc_companion: bool, expected_key: str, run_compaction: bool
-    ):
+    async def test_watermark_key_selection(self, _name: str, is_cdc_companion: bool, expected_key: str):
         schema = self._schema()
         # 150 - 41 and 150 - 7 are both past the 100-commit cadence.
         table = MagicMock(version=MagicMock(side_effect=[150, 152]))
         compact, vacuum, update_config, _ = await self._run(
-            _make_maintenance(table), schema, is_cdc_companion=is_cdc_companion, run_compaction=run_compaction
+            _make_maintenance(table), schema, is_cdc_companion=is_cdc_companion
         )
 
-        assert compact.await_count == int(run_compaction)
+        compact.assert_awaited_once()
         vacuum.assert_awaited_once()
         suffix = "_cdc" if is_cdc_companion else ""
         expected_updates = {expected_key: 152, f"last_vacuum_at{suffix}": _NOW.isoformat()}

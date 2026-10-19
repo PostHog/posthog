@@ -789,7 +789,6 @@ class DeltaMaintenance:
         *,
         is_cdc_companion: bool = False,
         compact_small_files: bool = False,
-        compact: bool = True,
     ) -> None:
         """Best-effort threshold maintenance owning the vacuum-watermark lifecycle for `schema`.
 
@@ -836,8 +835,6 @@ class DeltaMaintenance:
         except Exception as e:
             await self._log_maintenance_failure(e, step="vacuum")
 
-        if not compact:
-            return
         try:
             # A vacuum that raised leaves no decision, so only an earlier vacuum in this sync enables the
             # table-wide trigger. Enabling it on each failed attempt would run it on every pass while
