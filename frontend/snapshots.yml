@@ -8258,10 +8258,14 @@ snapshots:
         hash: v1.k794b7964.0df0c80ba3b1e4f56a9ca297d55adb4b6cd5c58aa7968e638c55b01e25eda308.jBDSsX-jXLcOHSDudHiI18nzeBKTH_XUJ4UxHnmx7qw
     products-workflows-send-calendar--nothing-scheduled--light:
         hash: v1.k794b7964.f962c9fb4ae9bd548a4f110e3230649791194c60409c13575dbdd33d9f11324f.dalGC0qyruSRv__DR2AYm8X1wGM_YCGpMPpYxmkhBhQ
+    products-workflows-send-calendar--send-day-picker-crowded--dark:
+        hash: v1.k794b7964.7c5cd6152ce884e204cfb1550ed96023edc09a8aa54d26bdd0182701f5f4d6bf.uH8YLjLwNQFNI98fNc7Tat9s4unEDMu04Z3cwpcM0do
+    products-workflows-send-calendar--send-day-picker-crowded--light:
+        hash: v1.k794b7964.7514379d0334e3a9a137d70cb76d60bcdc274238d414c1780196dabe9a80ca69.fhfYlxxUSSbPHgNugpncNnE6dH58GN5k9khYpg2Flug
     products-workflows-send-calendar--send-details--dark:
-        hash: v1.k794b7964.4e302efcdf3bbe84471a1db8de00985e0137bdf4e412e1a9bd11767b902bab45.9SLKWqpXIRSSN_LgMQrrlfxdesKpYm6vdX2DpwP2nmQ
+        hash: v1.k794b7964.28e7325599a166ebdde2cc8eab6dabb0d7ba3b5e5df913d1b76fb2224a229c87.nRQXprg32aKQzMAzy-J8DfQk1LQRLCm3X84TteNCQqE
     products-workflows-send-calendar--send-details--light:
-        hash: v1.k794b7964.a4ebf0a739215b12953d9c17ec9b0cfa7f09251da07043ebc9117a8ac61cbeb4.SWCmephcDTdKIK5x2P0Li8lIQ1p8rYU4kqdEiQI0T_k
+        hash: v1.k794b7964.1a0cb5668e8c2fe73218b2118faf1c85638177e2d39cc4f2977773113c69d707.6hib0IE0LtK1kv-uHDyU10IVnyAa1PZqkwVNyrH_SDY
     products-workflows-steps-customer-task-reference-input--account--dark:
         hash: v1.k794b7964.884dda5b1415d9a041c053804964a19d7a9adb2b28edc1797a9cbed8f5dc6782.YXjfbjz9Kxh9TbLWc8Dai7nySVQz9UByZVxWqopauE8
     products-workflows-steps-customer-task-reference-input--account--light:
@@ -10583,9 +10587,9 @@ snapshots:
     scenes-app-experiments--experiment-frequentist-two-variants--light:
         hash: v1.k794b7964.4ddea1c7537af9d50c57b4b9a76d4bcba39f743a23b4715683c0ce59d4c24f57.0ueR8XMLqRby_u6I0EyNIiUwXkbjmWMH3vBdoFNYmII
     scenes-app-experiments--experiment-health-debug-tab--dark:
-        hash: v1.k794b7964.d5684a998e1dc7b37b7fe5db45432053b75fae05ca0538c87e0de6ce3c9dc8ca.2Qe4patz9tyjmFAEZsVCkjjqcrNyTbOAZ3aXHr2mg7g
+        hash: v1.k794b7964.89ba753555a9fc78822e75cf52e6783de7ea60c3046eed95150180b32ade9d41.P2cGRvwPp8IuU2bohVDvyURVapAxcTMO7RUmRE0WhjY
     scenes-app-experiments--experiment-health-debug-tab--light:
-        hash: v1.k794b7964.3f5dc6355429b4f0fb060a12d6cdbcee422a7a5d31b95fe77450bebe223b5bf8.F_WmHTt3NUbhkJF8UDfZZ_uET6EuHmF6mYZtGXMHBV4
+        hash: v1.k794b7964.879c2f4f4ad7a1d61402af628b5a578f0e88761c284a1e5bf7f7ef64aa438219.ehJIFQobltKAPwR0e0UXYsAY5pt95g_t-6kui8yerfM
     scenes-app-experiments--experiment-recordings-dropped-metric--dark:
         hash: v1.k794b7964.e0e7181f2c9e61a8324eff9aa7a9230fef25b3cf37e0b24ef875780186ed25dc.9VEvZ4iVieVJwmDol0gwtAsr3wgZYW5gj2KXAGZJfiw
     scenes-app-experiments--experiment-recordings-dropped-metric--light:
