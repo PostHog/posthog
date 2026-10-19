@@ -669,6 +669,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.22
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -676,7 +677,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -2648,6 +2650,7 @@
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.53
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -2655,7 +2658,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -3535,6 +3539,7 @@
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.21
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -3542,7 +3547,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -5585,6 +5591,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.128
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -5592,7 +5599,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -6721,6 +6729,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.157
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -6728,7 +6737,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -8624,6 +8634,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.188
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -8631,7 +8642,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -11603,6 +11615,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.70
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -11610,7 +11623,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -12814,6 +12828,7 @@
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.99
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -12821,7 +12836,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21

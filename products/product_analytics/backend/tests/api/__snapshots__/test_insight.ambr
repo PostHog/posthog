@@ -472,6 +472,7 @@
 # name: TestInsight.test_listing_insights_does_not_nplus1.19
   '''
   SELECT "posthog_teammarketinganalyticsconfig"."team_id",
+         "posthog_teammarketinganalyticsconfig"."initial_conversion_goal_ids",
          "posthog_teammarketinganalyticsconfig"."attribution_window_days",
          "posthog_teammarketinganalyticsconfig"."attribution_mode",
          "posthog_teammarketinganalyticsconfig"."filter_test_accounts",
@@ -479,7 +480,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."overview_metrics"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
