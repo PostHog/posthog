@@ -7,8 +7,7 @@ name: PR housekeeping
 
 on:
     pull_request:
-        # `stacked` fires when a PR joins a stack without a push. Only the
-        # stack-depth job runs on it.
+        # `stacked` fires when a PR joins a stack without a push.
         types: [opened, synchronize, reopened, edited, ready_for_review, review_requested, converted_to_draft, stacked]
 
 # Keyed by event action so a new push (synchronize) cancels the previous
@@ -131,8 +130,7 @@ jobs:
             GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
 
     stack-depth:
-        # No action filter, because a skipped check run satisfies a required context:
-        # any event that skipped this job would turn a failing result green.
+        # Runs on every action: a skipped run would turn a failing required check green.
         uses: ./.github/workflows/pr-stack-depth.yml
         permissions:
             contents: read

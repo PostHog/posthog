@@ -11,8 +11,7 @@ import {
 
 const SECTION_ID = 'stack-depth'
 
-// `stack.position` on the pull request counts merged layers, so count the open
-// layers in the stacks API list instead, which runs from bottom to top.
+// `stack.position` counts merged layers, so count the open ones from the bottom.
 export function openDepth(stack, prNumber) {
     const index = stack.pull_requests.findIndex((pr) => pr.number === prNumber)
     return stack.pull_requests.slice(0, index + 1).filter((pr) => pr.state === 'open').length
@@ -30,8 +29,7 @@ async function main() {
     try {
         stack = await gh(token, `/repos/${repo}/stacks/${process.env.STACK_NUMBER}`)
     } catch (err) {
-        // Fails open so that a GitHub API outage cannot block every pull request. A failing
-        // section from an earlier push is marked stale, because it no longer describes the head.
+        // Fail open, so an API outage can't block every pull request.
         console.log(`::warning title=Stack depth not checked::${err.message}`)
         await updateSectionIfPresent({
             id: SECTION_ID,
@@ -58,14 +56,9 @@ async function main() {
         status: 'fail',
         summary: `layer ${depth} of its stack, the limit is ${maxOpenDepth}`,
         body: [
-            `This pull request is layer ${depth} of its stack, counting open pull requests from the [bottom of the stack](https://github.com/${repo}/pull/${bottom.number}). CI allows ${maxOpenDepth} open layers.`,
+            `This pull request is layer ${depth} of its stack, counting open pull requests from the [bottom](https://github.com/${repo}/pull/${bottom.number}). The limit is ${maxOpenDepth}, because every layer reruns CI on each push and restack.`,
             '',
-            'Each layer starts its own CI runs on every push and restack, so every extra layer adds CI cost.',
-            '',
-            'To fix it, do one of these:',
-            '',
-            '- Merge the lower layers. Merged layers do not count. The check runs again on the next push.',
-            '- Move this layer and the ones above it into a new stack based on the top branch of the lower layers, with `gh stack init --base <branch>`. Each stack then restacks on its own. The new stack rebases onto `master` after the lower one merges.',
+            'To fix it, merge the lower layers, or move this layer and the ones above it into a new stack on top with `gh stack init --base <branch>`. The new stack rebases onto `master` once the lower one merges.',
         ].join('\n'),
     })
     console.log(
