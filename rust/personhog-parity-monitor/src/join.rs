@@ -981,5 +981,25 @@ mod tests {
         let report = join.observe(merge(Side::Personhog, expected + 1, 1_000, 7, 9), t0);
         assert_eq!(report.placement, Some((Side::Personhog, false)));
         assert_eq!(report.merge_conflict, Some(Side::Personhog));
+
+        let old = (10..).find(|n| {
+            let key = format!("{TEAM}:{}", uuid(*n));
+            partition_for_key(key.as_bytes(), 64) != partition_for_key(key.as_bytes(), 128)
+        });
+        let old = old.expect("some key lands differently on 64 and 128 partitions");
+        let key = format!("{TEAM}:{}", uuid(old));
+        let expected = partition_for_key(key.as_bytes(), 128) as i32;
+        join.observe(
+            Event::Assigned {
+                topic: topic(Side::Personhog, Kind::MergeEvents),
+                partitions: 128,
+            },
+            t0,
+        );
+        assert_eq!(
+            join.observe(merge(Side::Personhog, expected, 1_000, old, 11), t0)
+                .placement,
+            Some((Side::Personhog, true))
+        );
     }
 }

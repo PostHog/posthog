@@ -47,6 +47,10 @@ pub struct Config {
     pub parity_sample_ring_size: usize,
     #[envconfig(default = "1000")]
     pub parity_sweep_interval_ms: u64,
+    /// Half the default grace, so the partitions a repartition adds are
+    /// read before their counterparts on the other feed settle one-sided.
+    #[envconfig(default = "30")]
+    pub parity_metadata_poll_seconds: u64,
 
     /// Unset leaves `/debug/mismatches` off; its samples carry distinct ids.
     pub debug_api_secret: Option<String>,
@@ -121,6 +125,10 @@ impl Config {
 
     pub fn sweep_interval(&self) -> Duration {
         Duration::from_millis(self.parity_sweep_interval_ms.max(100))
+    }
+
+    pub fn metadata_poll(&self) -> Duration {
+        Duration::from_secs(self.parity_metadata_poll_seconds.max(1))
     }
 
     pub fn bind(&self) -> String {

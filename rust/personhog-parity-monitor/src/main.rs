@@ -95,7 +95,7 @@ async fn main() -> Result<()> {
                     LIVENESS_DEADLINE,
                 )
                 .await;
-            tokio::spawn(reader.run(events.clone(), handle));
+            tokio::spawn(reader.run(events.clone(), handle, config.metadata_poll()));
         }
     }
     drop(events);
