@@ -157,6 +157,11 @@ class ConversationInboundEvent(TeamScopedRootMixin, UUIDModel):
                     payload__isnull=False,
                 ),
             ),
+            models.Index(
+                fields=["team", "ticket_id"],
+                name="conv_inbound_ticket_idx",
+                condition=models.Q(ticket_id__isnull=False),
+            ),
         ]
 
     def save(self, *args: Any, **kwargs: Any) -> None:
