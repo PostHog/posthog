@@ -442,6 +442,8 @@ jobs:
                         - 'products/subscriptions/backend/facade/temporal.py'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
+                        - 'products/today/backend/**'
+                        - 'products/product_analytics/backend/insight_series.py'
                         - 'posthog/llm/**'
                         - 'posthog/temporal/dlq_replay/**'
                         - 'posthog/temporal/session_recordings/**'
