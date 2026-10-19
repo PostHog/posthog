@@ -96,6 +96,8 @@ PROJECT_ROUTE_CLASSIFIER_MODEL = "gpt-6-luna"
 PROJECT_ROUTE_MAX_COMPLETION_TOKENS = 2048
 PROJECT_ROUTE_TIMEOUT_SECONDS = 10.0
 PROJECT_ROUTE_MAX_RETRIES = 1
+# With reasoning on, the model argues itself out of a project the message plainly names.
+PROJECT_ROUTE_REASONING_EFFORT = "none"
 
 AGENT_DIRECTED_CLASSIFIER_MODEL = "gpt-6-luna"
 AGENT_DIRECTED_MAX_COMPLETION_TOKENS = 2048
@@ -703,6 +705,7 @@ def classify_slack_app_project_route(
             model=PROJECT_ROUTE_CLASSIFIER_MODEL,
             messages=[{"role": "user", "content": prompt}],
             max_completion_tokens=PROJECT_ROUTE_MAX_COMPLETION_TOKENS,
+            reasoning_effort=PROJECT_ROUTE_REASONING_EFFORT,
             response_format=_project_route_response_format(projects),
         )
         # Tolerant parse on top of the schema, matching the model-override classifier:
