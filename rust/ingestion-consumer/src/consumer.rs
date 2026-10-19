@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -231,40 +232,63 @@ struct RevokedPartition {
 }
 
 #[derive(Default)]
-struct FetchingPartitions {
+struct Partitions {
     fetching: HashSet<TopicPartition>,
     paused: HashSet<TopicPartition>,
 }
 
+#[derive(Default)]
+struct FetchingPartitions {
+    partitions: Mutex<Partitions>,
+    all_paused: AtomicBool,
+}
+
 impl FetchingPartitions {
-    fn assigned(&mut self, topic_partitions: &[TopicPartition]) {
-        for topic_partition in topic_partitions {
-            self.paused.remove(topic_partition);
-            self.fetching.insert(topic_partition.clone());
-        }
+    fn assigned(&self, topic_partitions: &[TopicPartition]) {
+        self.update(|partitions| {
+            for topic_partition in topic_partitions {
+                partitions.paused.remove(topic_partition);
+                partitions.fetching.insert(topic_partition.clone());
+            }
+        });
     }
 
-    fn revoked(&mut self, topic_partitions: &[TopicPartition]) {
-        for topic_partition in topic_partitions {
-            self.paused.remove(topic_partition);
-            self.fetching.remove(topic_partition);
-        }
+    fn revoked(&self, topic_partitions: &[TopicPartition]) {
+        self.update(|partitions| {
+            for topic_partition in topic_partitions {
+                partitions.paused.remove(topic_partition);
+                partitions.fetching.remove(topic_partition);
+            }
+        });
     }
 
-    fn paused(&mut self, topic_partition: &TopicPartition) {
-        if self.fetching.remove(topic_partition) {
-            self.paused.insert(topic_partition.clone());
-        }
+    fn paused(&self, topic_partition: &TopicPartition) {
+        self.update(|partitions| {
+            if partitions.fetching.remove(topic_partition) {
+                partitions.paused.insert(topic_partition.clone());
+            }
+        });
     }
 
-    fn resumed(&mut self, topic_partition: &TopicPartition) {
-        if self.paused.remove(topic_partition) {
-            self.fetching.insert(topic_partition.clone());
-        }
+    fn resumed(&self, topic_partition: &TopicPartition) {
+        self.update(|partitions| {
+            if partitions.paused.remove(topic_partition) {
+                partitions.fetching.insert(topic_partition.clone());
+            }
+        });
     }
 
     fn all_paused(&self) -> bool {
-        !self.paused.is_empty() && self.fetching.is_empty()
+        self.all_paused.load(Ordering::Relaxed)
+    }
+
+    fn update(&self, change: impl FnOnce(&mut Partitions)) {
+        let mut partitions = self.partitions.lock().unwrap();
+        change(&mut partitions);
+        self.all_paused.store(
+            !partitions.paused.is_empty() && partitions.fetching.is_empty(),
+            Ordering::Relaxed,
+        );
     }
 }
 
@@ -275,11 +299,11 @@ fn revoke_hook(
     ledger: Arc<TopicOffsetLedger>,
     settlement: Arc<dyn Settlement>,
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
-    fetching: Arc<Mutex<FetchingPartitions>>,
+    fetching: Arc<FetchingPartitions>,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         settlement.forget_partitions(partitions);
-        fetching.lock().unwrap().revoked(partitions);
+        fetching.revoked(partitions);
         let pairs: Vec<(String, i32)> = partitions
             .iter()
             .map(|tp| (tp.topic.clone(), tp.partition))
@@ -297,13 +321,13 @@ fn revoke_hook(
 
 fn assign_hook(
     settlement: Arc<dyn Settlement>,
-    fetching: Arc<Mutex<FetchingPartitions>>,
+    fetching: Arc<FetchingPartitions>,
     assignment_epoch: AssignmentEpoch,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
         settlement.forget_partitions(partitions);
-        fetching.lock().unwrap().assigned(partitions);
+        fetching.assigned(partitions);
         assignment_epoch.bump();
     })
 }
@@ -314,12 +338,9 @@ fn wire_rebalance_hooks(
     ledger: &Arc<TopicOffsetLedger>,
     settlement: &Arc<dyn Settlement>,
     assignment_epoch: AssignmentEpoch,
-) -> (
-    Arc<Mutex<Vec<RevokedPartition>>>,
-    Arc<Mutex<FetchingPartitions>>,
-) {
+) -> (Arc<Mutex<Vec<RevokedPartition>>>, Arc<FetchingPartitions>) {
     let revoked_partitions = Arc::new(Mutex::new(Vec::new()));
-    let fetching = Arc::new(Mutex::new(FetchingPartitions::default()));
+    let fetching = Arc::new(FetchingPartitions::default());
     context.set_on_revoke(revoke_hook(
         revoker,
         Arc::clone(ledger),
@@ -504,7 +525,7 @@ pub struct IngestionConsumer {
     /// Partitions revoked since the loop last looked, fed by the rebalance
     /// callback.
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
-    fetching: Arc<Mutex<FetchingPartitions>>,
+    fetching: Arc<FetchingPartitions>,
     settlement: Arc<dyn Settlement>,
 }
 
@@ -918,12 +939,12 @@ impl IngestionConsumer {
     /// Paused partitions fill no poll, so a collection would wait out the batch
     /// timeout before the completions whose commits resume them.
     fn every_partition_paused(&self) -> bool {
-        self.fetching.lock().unwrap().all_paused()
+        self.fetching.all_paused()
     }
 
     fn pause_partition(&self, topic_partition: &TopicPartition) {
         match self.consumer.pause(&partition_list(topic_partition)) {
-            Ok(()) => self.fetching.lock().unwrap().paused(topic_partition),
+            Ok(()) => self.fetching.paused(topic_partition),
             Err(err) => error!(
                 topic = %topic_partition.topic,
                 partition = topic_partition.partition,
@@ -935,7 +956,7 @@ impl IngestionConsumer {
 
     fn resume_partition(&self, topic_partition: &TopicPartition) {
         match self.consumer.resume(&partition_list(topic_partition)) {
-            Ok(()) => self.fetching.lock().unwrap().resumed(topic_partition),
+            Ok(()) => self.fetching.resumed(topic_partition),
             Err(err) => error!(
                 topic = %topic_partition.topic,
                 partition = topic_partition.partition,
@@ -1363,7 +1384,7 @@ mod tests {
 
     #[test]
     fn every_partition_is_paused_only_while_none_is_fetching() {
-        let mut fetching = FetchingPartitions::default();
+        let fetching = FetchingPartitions::default();
         assert!(!fetching.all_paused(), "nothing is assigned");
 
         fetching.assigned(&partitions(&[0, 1]));
@@ -1379,7 +1400,7 @@ mod tests {
 
     #[test]
     fn a_rebalance_changes_which_partitions_must_be_paused() {
-        let mut fetching = FetchingPartitions::default();
+        let fetching = FetchingPartitions::default();
         fetching.assigned(&partitions(&[0, 1]));
         fetching.paused(&TopicPartition::new("events", 0));
 
@@ -1395,7 +1416,7 @@ mod tests {
 
     #[test]
     fn a_partition_that_is_not_assigned_neither_pauses_nor_resumes() {
-        let mut fetching = FetchingPartitions::default();
+        let fetching = FetchingPartitions::default();
 
         fetching.paused(&TopicPartition::new("events", 0));
         assert!(!fetching.all_paused());
@@ -1415,7 +1436,7 @@ mod tests {
         let epoch = AssignmentEpoch::new();
         let on_assign = assign_hook(
             Arc::clone(&settlement),
-            Arc::new(Mutex::new(FetchingPartitions::default())),
+            Arc::new(FetchingPartitions::default()),
             epoch.clone(),
         );
         let p0 = TopicPartition::new("events", 0);
