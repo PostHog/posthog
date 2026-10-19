@@ -35,7 +35,7 @@ Building a draft (`_plan_and_build` in `service.py`):
 
 ## Premade ideas
 
-`python manage.py prepare_workflow_ideas --org-ids <id>` runs the card run and a build for each card now, then stores each built card as a `WorkflowIdea` row with its workflow in `definition`.
+`python manage.py prepare_workflow_ideas --team-ids <id> ...` runs the card run and a build for each card now, then stores each built card as a `WorkflowIdea` row with its workflow in `definition`.
 While a project has such ideas waiting, `current` and `generate` return only those cards, read from Postgres, and no run starts.
 A build with `save_draft` saves the stored workflow as a draft and marks the idea accepted in one transaction.
 Once every idea is used, the project gets the generated cards again.

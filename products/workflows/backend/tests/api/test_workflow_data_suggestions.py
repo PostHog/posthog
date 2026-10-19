@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.db import OperationalError
 from django.utils import timezone
 
@@ -831,29 +832,45 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/workflow_data_suggestions/current/")
         assert response.status_code == 403
 
+    @parameterized.expand(
+        [
+            ("one_project", ""),
+            ("with_an_unknown_project", "team 999999: skipped, no such project\n"),
+        ]
+    )
     @patch(f"{SERVICE}.ph_scoped_capture")
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_premade_ideas_replace_the_generated_cards_until_one_click_saves_them(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, scoped_capture: MagicMock, flag: MagicMock
+        self,
+        _name: str,
+        missing: str,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+        scoped_capture: MagicMock,
+        flag: MagicMock,
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
+        args = ["--team-ids", str(self.team.id), *(["999999"] if missing else [])]
+
         def prepare() -> str:
             out = StringIO()
-            call_command("prepare_workflow_ideas", "--org-ids", str(self.organization.id), stdout=out)
+            call_command("prepare_workflow_ideas", *args, stdout=out)
             return out.getvalue()
 
+        with self.assertRaises(CommandError):
+            call_command("prepare_workflow_ideas")
         flag.return_value = False
-        assert prepare() == (
+        assert prepare() == missing + (
             f"team {self.team.id}: skipped, workflows-data-suggestions is off for organization {self.organization.id}\n"
         )
         flag.return_value = True
-        assert prepare() == f"team {self.team.id}: stored Follow up on trial_started, 0 failed to build\n"
-        assert prepare() == f"team {self.team.id}: skipped, 1 ideas already waiting\n"
+        assert prepare() == missing + f"team {self.team.id}: stored Follow up on trial_started, 0 failed to build\n"
+        assert prepare() == missing + f"team {self.team.id}: skipped, 1 ideas already waiting\n"
         suggest_ideas.reset_mock()
         plan_steps.reset_mock()
         sender = Integration.objects.create(

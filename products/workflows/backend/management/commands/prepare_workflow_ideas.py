@@ -1,4 +1,4 @@
-from django.core.management.base import BaseCommand, CommandError
+from django.core.management.base import BaseCommand
 
 from posthog.event_usage import EventSource
 from posthog.models import Team
@@ -16,19 +16,22 @@ from products.workflows.backend.presentation.views.data_suggestion_drafts import
 
 class Command(BaseCommand):
     help = (
-        "Generate workflow ideas for every project in the given organizations and build each one now, so a click "
-        f"creates the draft at once. Organizations without {FEATURE_FLAG_KEY} are skipped. This runs the models."
+        "Generate workflow ideas for the given projects and build each one now, so a click creates the draft at once. "
+        f"Projects whose organization does not have {FEATURE_FLAG_KEY} are skipped. This runs the models."
     )
 
     def add_arguments(self, parser):
-        parser.add_argument("--org-ids", nargs="+", required=True, help="Organization IDs.")
+        parser.add_argument("--team-ids", type=int, nargs="+", required=True, help="Project IDs.")
 
     def handle(self, *args, **options):
-        teams = Team.objects.select_related("organization").filter(
-            organization_id__in=options["org_ids"], parent_team_id__isnull=True
+        team_ids: list[int] = options["team_ids"]
+        teams = list(
+            Team.objects.select_related("organization")
+            .filter(id__in=team_ids, parent_team_id__isnull=True)
+            .order_by("id")
         )
-        if not teams:
-            raise CommandError("No projects found for the IDs given.")
+        for missing in sorted(set(team_ids) - {team.id for team in teams}):
+            self.stdout.write(f"team {missing}: skipped, no such project")
         for team in teams:
             self.stdout.write(f"team {team.id}: {self._prepare(team)}")
 
