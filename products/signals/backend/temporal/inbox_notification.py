@@ -22,6 +22,8 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
@@ -121,7 +123,7 @@ def _release_inbox_notification_claim(team_id: int, report_id: str) -> None:
     reraise=True,
 )
 def _fetch_signals_for_notification(team: Team, report_id: str) -> list[dict]:
-    return fetch_signals_for_report_sync(team, report_id)
+    return fetch_signals_for_report_sync(team, report_id, ch_user=ClickHouseUser.SIGNALS, workload=Workload.OFFLINE)
 
 
 def _send_report_inbox_notifications(team_id: int, report_id: str) -> int:

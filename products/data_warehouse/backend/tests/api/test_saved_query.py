@@ -22,7 +22,6 @@ from posthog.models import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.facade.api import UnsatisfiableFrequencyError, mark_node_suspended, suspension_state
-from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (
     DAG,
     DataModelingJob,
@@ -1480,58 +1479,6 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(saved_view_2_response.status_code, 201, saved_view_2_response.content)
 
-    def test_create_with_saved_query(self):
-        response = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events",
-                },
-            },
-        )
-
-        self.assertEqual(response.status_code, 201, response.content)
-        saved_query_id = response.json()["id"]
-        paths = list(DataWarehouseModelPath.objects.filter(saved_query_id=saved_query_id).all())
-        self.assertEqual(len(paths), 1)
-        self.assertEqual(["events", uuid.UUID(saved_query_id).hex], paths[0].path)
-
-    def test_create_with_nested_saved_query(self):
-        response_1 = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from events",
-                },
-            },
-        )
-        self.assertEqual(response_1.status_code, 201, response_1.content)
-
-        response_2 = self.client.post(
-            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
-            {
-                "name": "event_view_2",
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": "select event as event from event_view",
-                },
-            },
-        )
-        self.assertEqual(response_2.status_code, 201, response_1.content)
-
-        saved_query_id_hex_1 = uuid.UUID(response_1.json()["id"]).hex
-        saved_query_id_hex_2 = uuid.UUID(response_2.json()["id"]).hex
-
-        paths = [model_path.path for model_path in DataWarehouseModelPath.objects.all()]
-        self.assertEqual(len(paths), 3)
-        self.assertIn(["events"], paths)
-        self.assertIn(["events", saved_query_id_hex_1], paths)
-        self.assertIn(["events", saved_query_id_hex_1, saved_query_id_hex_2], paths)
-
     def test_ancestors(self):
         query = """\
           select
@@ -2166,8 +2113,6 @@ class TestSavedQuery(APIBaseTest):
         db_saved_query.table = mock_table
         db_saved_query.save()
 
-        DataWarehouseModelPath.objects.create(team=self.team, path=[mock_table.id.hex, db_saved_query.id.hex])
-
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
         )
@@ -2185,13 +2130,6 @@ class TestSavedQuery(APIBaseTest):
         # Check the table has been deleted
         mock_table.refresh_from_db()
         self.assertTrue(mock_table.deleted)
-
-        self.assertEqual(
-            DataWarehouseModelPath.objects.filter(
-                team=self.team, path__lquery=f"*{{1,}}.{db_saved_query.id.hex}"
-            ).count(),
-            0,
-        )
 
     def test_create_with_existing_name(self):
         DataWarehouseTable.objects.create(
