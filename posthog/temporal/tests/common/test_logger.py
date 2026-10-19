@@ -279,6 +279,20 @@ async def test_logger_renders_tracebacks(log_capture):
         assert exception["exc_value"] == "Oh no!"
 
 
+async def test_logger_keeps_the_exception_when_the_message_is_none(log_capture):
+    logger = structlog.get_logger("test_logger_keeps_the_exception_when_the_message_is_none")
+
+    try:
+        raise ValueError("Oh no!")
+    except Exception:
+        logger.exception(None)
+
+    assert len(log_capture.write_entries) == 1
+    entry_dict = json.loads(log_capture.write_entries[0])
+    assert entry_dict["msg"] == ""
+    assert entry_dict["exception"][0]["exc_value"] == "Oh no!"
+
+
 async def test_logger_formats_positional_args(log_capture):
     """Test whether positional arguments are formatted in the message."""
     logger = structlog.get_logger("test_logger_formats_positional_args")
