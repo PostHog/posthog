@@ -140,7 +140,9 @@ const styles = StyleSheet.create({
         marginTop: SETTINGS_TITLE_GAP,
     },
     titleHidden: {
-        color: 'transparent',
+        // Android treats transparent black as an unset text color, so keep nonzero RGB with zero alpha.
+        // https://github.com/facebook/react-native/issues/53343
+        color: '#FFFFFF00',
     },
     ribbon: {
         alignSelf: 'flex-start',
