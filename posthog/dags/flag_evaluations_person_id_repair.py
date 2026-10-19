@@ -8,7 +8,7 @@ squash's dictionary-and-mutation lifecycle.
 """
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any
@@ -43,6 +43,8 @@ from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 
 _TEAM_FILTER = " AND team_id IN %(team_ids)s"
+
+_CLEANUP = "Drop this run's table and dictionary with cleanup_orphaned_flag_evaluations_person_id_repair."
 
 
 class FlagEvaluationsPersonIdRepairConfig(dagster.Config):
@@ -85,14 +87,6 @@ class RepairPlan:
     days: tuple[date, ...]
     config: FlagEvaluationsPersonIdRepairConfig
     blocking_run_check: BlockingRunCheck
-
-    @property
-    def window(self) -> dict[str, str]:
-        """The mutation's bounds, which cover the same days the build validated."""
-        return {
-            "window_start": f"{self.days[-1]:%Y-%m-%d} 00:00:00",
-            "window_end": f"{self.days[0] + timedelta(days=1):%Y-%m-%d} 00:00:00",
-        }
 
 
 @frozen
@@ -146,36 +140,52 @@ class PersonIdRepairTable:
     def sync(self, client: Client) -> None:
         client.execute(f"SYSTEM SYNC REPLICA {self.qualified_name} STRICT")
 
-    def populate_query(self, *, filter_team_ids: bool) -> str:
+    def stale_keys_query(self, *, filter_team_ids: bool) -> str:
         team_filter = _TEAM_FILTER if filter_team_ids else ""
         # sharded_events and sharded_flag_evaluations share a shard key. A row's events copy is
-        # therefore on its shard. Once any call of a key disagrees with its events copy, the key
-        # keeps every person_id its events copies hold, its own included. A key whose calls point
-        # at two person_ids then fails the check.
+        # therefore on its shard.
         return f"""
 INSERT INTO {self.qualified_name} (team_id, distinct_id, stale_person_id, person_id, shard_num, day, calls)
-SELECT repair_team_id, repair_distinct_id, repair_stale_person_id, target, %(shard_num)s, toDate(%(day_start)s), calls
+SELECT f.team_id, f.distinct_id, f.person_id, e.person_id, %(shard_num)s, toDate(%(day_start)s), count()
 FROM (
-    SELECT
-        f.team_id AS repair_team_id,
-        f.distinct_id AS repair_distinct_id,
-        f.person_id AS repair_stale_person_id,
-        groupUniqArray(e.person_id) AS targets,
-        uniqExactIf(f.uuid, f.person_id != e.person_id) AS calls
-    FROM (
-        SELECT team_id, uuid, distinct_id, person_id
-        FROM {FLAG_EVALUATIONS_DATA_TABLE}
-        WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s AND {COPIED_ROW_FILTER}{team_filter}
-    ) AS f
-    INNER JOIN (
-        SELECT team_id, uuid, distinct_id, person_id
-        FROM {EVENTS_DATA_TABLE()}
-        WHERE event = %(event)s AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
-    ) AS e ON f.team_id = e.team_id AND f.uuid = e.uuid AND f.distinct_id = e.distinct_id
-    GROUP BY f.team_id, f.distinct_id, f.person_id
-    HAVING calls > 0
-)
-ARRAY JOIN targets AS target
+    SELECT team_id, uuid, distinct_id, person_id
+    FROM {FLAG_EVALUATIONS_DATA_TABLE}
+    WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s AND {COPIED_ROW_FILTER}{team_filter}
+) AS f
+INNER JOIN (
+    SELECT team_id, uuid, distinct_id, person_id
+    FROM {EVENTS_DATA_TABLE()}
+    WHERE event = %(event)s AND timestamp >= %(day_start)s AND timestamp < %(day_end)s{team_filter}
+) AS e ON f.team_id = e.team_id AND f.uuid = e.uuid AND f.distinct_id = e.distinct_id
+WHERE f.person_id != e.person_id
+GROUP BY f.team_id, f.distinct_id, f.person_id, e.person_id
+"""
+
+    def agreeing_calls_query(self) -> str:
+        # A stale key's calls on any day may still agree with their events copies. This records
+        # each such key with its own id as a second target, so the check fails it instead of the
+        # mutation rewriting the agreeing calls. Both sides read only the shard's stale keys.
+        stale_keys = (
+            f"SELECT team_id, distinct_id, stale_person_id FROM {self.qualified_name} "
+            "WHERE shard_num = %(shard_num)s AND person_id != stale_person_id"
+        )
+        return f"""
+INSERT INTO {self.qualified_name} (team_id, distinct_id, stale_person_id, person_id, shard_num, day, calls)
+SELECT f.team_id, f.distinct_id, f.person_id, f.person_id, %(shard_num)s, toDate(%(day_start)s), count()
+FROM (
+    SELECT team_id, uuid, distinct_id, person_id
+    FROM {FLAG_EVALUATIONS_DATA_TABLE}
+    WHERE timestamp >= %(day_start)s AND timestamp < %(day_end)s AND {COPIED_ROW_FILTER}
+        AND (team_id, distinct_id, person_id) IN ({stale_keys})
+) AS f
+INNER JOIN (
+    SELECT team_id, uuid, distinct_id, person_id
+    FROM {EVENTS_DATA_TABLE()}
+    WHERE event = %(event)s AND timestamp >= %(day_start)s AND timestamp < %(day_end)s
+        AND (team_id, distinct_id) IN (SELECT team_id, distinct_id FROM ({stale_keys}))
+) AS e ON f.team_id = e.team_id AND f.uuid = e.uuid AND f.distinct_id = e.distinct_id
+WHERE f.person_id = e.person_id
+GROUP BY f.team_id, f.distinct_id, f.person_id
 """
 
 
@@ -274,41 +284,58 @@ def build_repair_shard(
     plan: RepairPlan,
     table: PersonIdRepairTable,
 ) -> int:
-    """Insert this shard's stale keys, one day per query. A rerun inserts the same rows, which the table collapses."""
+    """Insert this shard's stale keys one day per query, then the keys whose calls also agree with events.
+
+    A rerun inserts the same rows, which the table collapses.
+    """
     config = plan.config
     workload, node_role = shard_workload()
-    query = table.populate_query(filter_team_ids=bool(config.team_ids))
+    stale_keys_query = table.stale_keys_query(filter_team_ids=bool(config.team_ids))
+    agreeing_calls_query = table.agreeing_calls_query()
     query_settings = {
         "max_execution_time": config.build_max_execution_time_seconds,
         "max_memory_usage": config.build_max_memory_usage_bytes,
     }
 
-    def insert(args: dict[str, Any], client: Client) -> int:
-        return inserted_rows(sync_execute(query, args, settings=query_settings, workload=workload, sync_client=client))
-
-    total_keys = 0
-    for day in plan.days:
-        args = {
+    def day_args(day: date) -> dict[str, Any]:
+        return {
             "shard_num": shard_num,
             "event": FLAG_EVALUATIONS_SOURCE_EVENT,
             "day_start": f"{day:%Y-%m-%d} 00:00:00",
             "day_end": f"{day + timedelta(days=1):%Y-%m-%d} 00:00:00",
             "team_ids": tuple(config.team_ids or ()),
         }
-        keys = on_shard_host(
-            cluster,
-            shard_num,
-            partial(insert, args),
-            query_tags=dagster_tags(context),
-            workload=workload,
-            node_role=node_role,
+
+    def insert(query: str, day: date, client: Client) -> int:
+        return inserted_rows(
+            sync_execute(query, day_args(day), settings=query_settings, workload=workload, sync_client=client)
         )
-        total_keys += keys
+
+    def insert_agreeing_calls(client: Client) -> int:
+        # The stale keys came from inserts on any replica. The sync makes this host read all of them.
+        table.sync(client)
+        return sum(insert(agreeing_calls_query, day, client) for day in plan.days)
+
+    def on_this_shard(fn: Callable[[Client], int]) -> int:
+        return on_shard_host(
+            cluster, shard_num, fn, query_tags=dagster_tags(context), workload=workload, node_role=node_role
+        )
+
+    stale_keys = 0
+    for day in plan.days:
+        keys = on_this_shard(partial(insert, stale_keys_query, day))
+        stale_keys += keys
         context.log.info(f"Shard {shard_num}, {day}: {keys} stale key(s)")
+    agreeing_keys = on_this_shard(insert_agreeing_calls)
+    context.log.info(f"Shard {shard_num}: {agreeing_keys} stale key-day(s) with calls that agree with events")
     context.add_output_metadata(
-        {"shard": dagster.MetadataValue.int(shard_num), "keys": dagster.MetadataValue.int(total_keys)}
+        {
+            "shard": dagster.MetadataValue.int(shard_num),
+            "keys": dagster.MetadataValue.int(stale_keys),
+            "agreeing": dagster.MetadataValue.int(agreeing_keys),
+        }
     )
-    return total_keys
+    return stale_keys
 
 
 @dagster.op(tags=OWNER_TAG)
@@ -335,7 +362,7 @@ def check_repair_table(
             """
         )
         # A target that is also a stale key would move a row once per run instead of once in total.
-        # A key that maps to its own id already counts as a conflict above.
+        # A key that maps to its own id comes from the agreeing-calls pass and already counts as a conflict.
         [[chains]] = client.execute(
             f"""
             SELECT count() FROM (
@@ -376,8 +403,7 @@ def check_repair_table(
     if conflicts or chains:
         raise dagster.Failure(
             description=f"{table.qualified_name} has {conflicts} key(s) that map to more than one person_id and "
-            f"{chains} target(s) that are also stale keys. Inspect the table, then drop it with "
-            "cleanup_orphaned_flag_evaluations_person_id_repair."
+            f"{chains} target(s) that are also stale keys. Inspect the table. {_CLEANUP}"
         )
     return table
 
@@ -448,26 +474,32 @@ def run_repair_mutation(
             )
         )
 
-    cleanup = "Drop this run's table and dictionary with cleanup_orphaned_flag_evaluations_person_id_repair."
     if started := blocking_runs_started():
+        cluster.map_all_hosts(dictionary.drop).result()
+        cluster.map_all_hosts(dictionary.source.drop).result()
         raise dagster.Failure(
             description=f"{started} started after the repair read person_id from events. "
-            f"{FLAG_EVALUATIONS_DATA_TABLE} is unchanged. {cleanup} Then run the repair again after that run finishes."
+            f"{FLAG_EVALUATIONS_DATA_TABLE} is unchanged, and this run dropped its table and dictionary. "
+            "Run the repair again after that run finishes."
         )
 
     team_ids = plan.config.team_ids
     AlterTableMutationRunner(
         table=FLAG_EVALUATIONS_DATA_TABLE,
         commands={dictionary.update_command(filter_team_ids=bool(team_ids))},
-        parameters={"name": dictionary.qualified_name, "team_ids": tuple(team_ids or ()), **plan.window},
+        parameters={
+            "name": dictionary.qualified_name,
+            "team_ids": tuple(team_ids or ()),
+            "window_start": f"{min(plan.days):%Y-%m-%d} 00:00:00",
+            "window_end": f"{max(plan.days) + timedelta(days=1):%Y-%m-%d} 00:00:00",
+        },
     ).run_on_shards(cluster)
 
     if started := blocking_runs_started():
         raise dagster.Failure(
             description=f"{started} started during the repair mutation. A deletion that reached "
             f"{FLAG_EVALUATIONS_DATA_TABLE} before the mutation did not match rows that still held a stale "
-            "person_id, and the mutation then gave them the deleted person's id. Check what that run deleted. "
-            f"{cleanup}"
+            f"person_id, and the mutation then gave them the deleted person's id. Check what that run deleted. {_CLEANUP}"
         )
     return dictionary
 

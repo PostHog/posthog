@@ -37,6 +37,9 @@ class FlagCall:
     def uuid(self) -> UUID:
         return uuid5(NAMESPACE_URL, self.label)
 
+    def timestamp(self, now: datetime) -> datetime:
+        return now - self.age
+
 
 STALE = FlagCall(label="stale", stored_person_id=PERSON_A, events_person_id=PERSON_B)
 KAFKA_PATH = FlagCall(label="kafka_path", stored_person_id=PERSON_A, events_person_id=PERSON_B, imported=False)
@@ -46,7 +49,10 @@ CALLS = (STALE, KAFKA_PATH, MOVED_BY_LATER_SQUASH)
 # A second events copy of STALE's call would share its sort key. A merge would then collapse the two copies.
 # A separate call gives the key (TEAM_ID, DISTINCT_ID, PERSON_A) a second events person_id without that risk.
 CONFLICTING_CALL = FlagCall(label="conflicting_call", stored_person_id=PERSON_A, events_person_id=PERSON_D)
-AGREEING_CALL = FlagCall(label="agreeing_call", stored_person_id=PERSON_A, events_person_id=PERSON_A)
+# A day other than STALE's, because the build validates each day on its own.
+AGREEING_CALL = FlagCall(
+    label="agreeing_call", stored_person_id=PERSON_A, events_person_id=PERSON_A, age=timedelta(days=4)
+)
 OUTSIDE_WINDOW = FlagCall(
     label="outside_window", stored_person_id=PERSON_A, events_person_id=PERSON_C, age=timedelta(days=7)
 )
@@ -54,27 +60,29 @@ OUTSIDE_WINDOW = FlagCall(
 
 def seed(cluster: ClickhouseCluster, now: datetime, calls: Sequence[FlagCall]) -> None:
     imported_rows = [
-        (TEAM_ID, DISTINCT_ID, call.stored_person_id, call.uuid, now - call.age) for call in calls if call.imported
+        (TEAM_ID, DISTINCT_ID, call.stored_person_id, call.uuid, call.timestamp(now)) for call in calls if call.imported
     ]
     cluster.any_host(partial(insert_flag_evaluations, imported_rows)).result()
 
     # A row from Kafka arrives after its event, so its inserted_at is later than its timestamp.
     # Its offset is 1 because the imported-row filter treats offset 0 in partition 0 as an import.
-    kafka_rows = [
-        (
-            TEAM_ID,
-            DISTINCT_ID,
-            call.stored_person_id,
-            call.uuid,
-            now - call.age,
-            now - call.age + timedelta(seconds=1),
-            now - call.age + timedelta(seconds=1),
-            0,
-            1,
-        )
-        for call in calls
-        if not call.imported
-    ]
+    kafka_rows = []
+    for call in calls:
+        if not call.imported:
+            kafka_time = call.timestamp(now) + timedelta(seconds=1)
+            kafka_rows.append(
+                (
+                    TEAM_ID,
+                    DISTINCT_ID,
+                    call.stored_person_id,
+                    call.uuid,
+                    call.timestamp(now),
+                    kafka_time,
+                    kafka_time,
+                    0,
+                    1,
+                )
+            )
     cluster.any_host(
         Query(
             """INSERT INTO writable_flag_evaluations
@@ -89,17 +97,17 @@ def seed(cluster: ClickhouseCluster, now: datetime, calls: Sequence[FlagCall]) -
             call.uuid,
             FLAG_EVALUATIONS_SOURCE_EVENT,
             "{}",
-            timestamp,
+            call.timestamp(now),
             TEAM_ID,
             DISTINCT_ID,
-            timestamp,
+            call.timestamp(now),
             call.events_person_id,
             "{}",
-            timestamp,
+            call.timestamp(now),
             "full",
-            timestamp,
+            call.timestamp(now),
         )
-        for call, timestamp in ((call, now - call.age) for call in calls)
+        for call in calls
     ]
     cluster.any_host_by_role(
         Query(
