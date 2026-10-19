@@ -36,7 +36,8 @@ export function ExperimentFeedbackTab({ experiment }: { experiment: Experiment }
 
     return (
         <>
-            {!experiment.start_date && (
+            {/* A reset experiment is a draft whose flag stays active, so its surveys keep showing */}
+            {!experiment.start_date && !experiment.feature_flag?.active && (
                 <LemonBanner type="info" className="mb-6" data-attr="experiment-feedback-draft-note">
                     This experiment hasn't launched yet. Surveys linked to it start showing to users once it launches.
                 </LemonBanner>
