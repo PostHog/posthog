@@ -14,7 +14,6 @@ from posthog.models.integration import Integration
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.facade.models import Insight
 from products.slack_app.backend.facade.testing import REQUIRED_SLACK_SCOPES
 from products.subscriptions.backend.logic import SLACK_USER_CONFIG_ERRORS
@@ -29,6 +28,7 @@ from products.subscriptions.backend.logic.slack_subscriptions import (
     send_slack_subscription_report,
 )
 from products.subscriptions.backend.logic.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE
+from products.subscriptions.backend.models.subscription import Subscription
 from products.subscriptions.backend.tests.subscriptions_test_factory import create_subscription
 
 

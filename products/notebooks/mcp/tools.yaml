@@ -363,7 +363,6 @@ tools:
             the contract, add a pure Hog expression in `hog` that receives `rows`, `columns`, and `frame` and returns a
             list of objects with the contract's columns. Omit version_id or pass null to follow the latest shared
             version; pass a version UUID to pin this placement.
-        feature_flag: notebook-generated-widgets
         response:
             exclude:
                 - artifact_url
@@ -394,7 +393,6 @@ tools:
                     - notebookId
                     - shortId
                     - notebook_short_id
-        feature_flag: notebook-generated-widgets
     notebooks-widget-generate:
         operation: notebooks_widget_generate
         enabled: true
@@ -429,7 +427,6 @@ tools:
                     - shortId
                     - notebook_short_id
         requires_ai_consent: true
-        feature_flag: notebook-generated-widgets
         response:
             exclude:
                 - artifact_url
@@ -461,7 +458,6 @@ tools:
                     - notebookId
                     - shortId
                     - notebook_short_id
-        feature_flag: notebook-generated-widgets
         response:
             exclude:
                 - artifact_url
@@ -486,7 +482,6 @@ tools:
             generating a new visualization. Results include stable widget IDs, current version IDs, tags, and usage
             counts. This is a curated API shape rather than a general database table so it is available in both MCP
             modes.
-        feature_flag: notebook-generated-widgets
         response:
             informational_wrapper:
                 tag: reusable-widget-catalog
@@ -509,7 +504,6 @@ tools:
             lists logical slots and required output columns. Use notebooks-widget-attach to bind those slots to local
             notebook dataframes. Different dataframe names need only a source binding, not Hog. Add a Hog mapping only
             when column names, column types, order, or shape differ. Ask the user when units or meaning are ambiguous.
-        feature_flag: notebook-generated-widgets
         response:
             informational_wrapper:
                 tag: reusable-widget-contract
