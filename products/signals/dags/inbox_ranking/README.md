@@ -18,6 +18,7 @@ inbox_ranking/
 │   └── promotion.py  # the candidate grading rule
 ├── multihead/        # the multi-head network, its ONNX export, and the offline prototype
 ├── nn/               # the `nn` family: examples → candidate → champion assets, on the `signals_ml` location
+├── activity_summary/ # per-person activity summary inputs and their cost projection (no LLM call)
 └── tests/
 ```
 
@@ -372,6 +373,22 @@ To run it locally, install the group (`uv sync --group inbox-ranking`), sync the
 dagster job launch -w .dagster_home/workspace.yaml --location posthog.dags.locations.signals_ml \
     -j inbox_ranking_nn_training_job --tags '{"dagster/partition": "2026-08-25"}'
 ```
+
+## The activity summary dag
+
+`activity_summary/` prepares per-person activity summaries for inbox ranking, without calling an LLM.
+`activity_summary_job` runs two assets on the shared daily partition, over the 28 days of dogfood-project events that end with D.
+Its weekly schedule ships stopped, so run the job by hand.
+
+- `activity_summary_inputs/v1/dt=D/` holds one row per (project, member) for active members of the dogfood organization with an `@posthog.com` email, in that organization's own projects only.
+  `rendered_input` is their MCP intent chains (`intent --> intent`) and new PostHog AI prompts, filtered, capped and sampled by `render.py`.
+  The sampling seed comes from (partition, team, user), so a re-run writes the same object.
+- `activity_summary_cost_projection/v1/dt=D/` covers every (project, distinct id) pair in the events and holds counts only, never free text.
+  It has one row per `MIN_UNITS` and `MIN_DAYS` option, with eligible pairs, input token percentiles and monthly volume.
+  Its SQL approximates the render filters, and the ratio of real to estimated length over the cohort pairs calibrates the token estimate.
+  Set `input_price_per_million_tokens` and `output_price_per_million_tokens` in the run config to fill `projected_monthly_cost_usd`.
+
+MCP calls count when `source` is `mcp` with the `user` preset or none, or `slack`, whose calls carry only the `sandbox` preset (`MCP_SOURCE_SCOPE_PRESETS` in `queries.py`).
 
 ## Configuration
 
