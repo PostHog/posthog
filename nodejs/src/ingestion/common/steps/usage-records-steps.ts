@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
+import { HISTORICAL_MIGRATION_MIN_AGE_MS } from '~/ingestion/common/steps/event-preprocessing/validate-historical-migration'
 import { resolvePersonMode } from '~/ingestion/common/steps/event-processing/create-event'
 import { IngestedEventInfo } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import {
@@ -109,9 +110,10 @@ export interface EventUsageRecordContext {
  * Capture time assigns usage to the period that receives it. The record ID retains the source
  * date for event identity and comparison with legacy reports.
  *
- * Historical analytics migrations are free. The preprocessing step validates their header
- * against the event age. Separate usage keys retain these counts without adding them to the
- * billable analytics or person-processing meters. Ordinary late events remain billable.
+ * Historical analytics migrations are free once the event is at least 48 hours old at capture.
+ * Preprocessing can retain the migration flag when its timestamp header is missing, so billing
+ * checks the normalized event timestamp too. Separate usage keys retain free import counts.
+ * Ordinary late events remain billable.
  */
 export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
     resolveUsageKey: UsageKeyResolver
@@ -131,7 +133,11 @@ export function createRecordEventUsageStep<T extends RecordEventUsageInput>(
                 : analyticsRecordId(input.preparedEvent)
         const captureTimestampMs = input.headers.now?.getTime()
         const timestampMs = Number.isFinite(captureTimestampMs) ? captureTimestampMs : undefined
-        const isHistoricalAnalytics = usageKey === EVENTS_USAGE_KEY && input.headers.historical_migration === true
+        const isHistoricalAnalytics =
+            usageKey === EVENTS_USAGE_KEY &&
+            input.headers.historical_migration === true &&
+            timestampMs !== undefined &&
+            timestampMs - Date.parse(input.preparedEvent.timestamp) >= HISTORICAL_MIGRATION_MIN_AGE_MS
         const eventUsageRecords: EventUsageRecord[] = [
             {
                 teamId,

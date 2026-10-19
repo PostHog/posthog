@@ -207,12 +207,28 @@ describe('usage-records-steps', () => {
             [Promise.resolve({ topic: 'events', partition: 0 })],
             { event },
             { processPerson: true },
-            { historical_migration: true }
+            { historical_migration: true, now: new Date('2026-06-17T23:55:00.000Z') }
         )
 
         await eventUsageBatch.flush()
 
         expect(ingestedUsage).toEqual([expect.objectContaining({ usageKey, quantity: 1 })])
+    })
+
+    it.each([
+        ['less than 48 hours old', new Date('2026-06-17T23:54:59.999Z')],
+        ['without capture time', undefined],
+    ])('keeps tagged migrations %s billable', async (_description, now) => {
+        await queueEventUsage(
+            [Promise.resolve({ topic: 'events', partition: 0 })],
+            {},
+            { processPerson: true },
+            { historical_migration: true, now }
+        )
+
+        await eventUsageBatch.flush()
+
+        expect(ingestedUsage.map((record) => record.usageKey)).toEqual(['events', 'enhanced_person_events'])
     })
 
     // The meters have to match `person_mode` in the nightly report's two billable-event queries,
@@ -246,6 +262,7 @@ describe('usage-records-steps', () => {
         async (_mode, personProcessing, historical, expectedUsageKeys) => {
             await queueEventUsage([Promise.resolve({ topic: 'events', partition: 0 })], {}, personProcessing, {
                 historical_migration: historical,
+                now: new Date('2026-06-17T23:55:00.000Z'),
             })
 
             await eventUsageBatch.flush()
