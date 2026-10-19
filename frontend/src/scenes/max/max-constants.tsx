@@ -821,7 +821,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
     },
     get_replay_vision_scan_results: {
         name: 'Read scan results',
-        description: "Read each recording's outcome for a Replay Vision scan, failures included",
+        description: 'Read scan results for each recording in a Replay Vision scan, failures included',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
