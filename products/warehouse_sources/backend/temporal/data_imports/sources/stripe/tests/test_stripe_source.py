@@ -46,6 +46,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     BILLING_METER_RESOURCE_NAME,
     CHARGE_RESOURCE_NAME,
     CHECKOUT_SESSION_RESOURCE_NAME,
+    CREDIT_NOTE_RESOURCE_NAME,
     CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_RESOURCE_NAME,
@@ -61,6 +62,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
     HISTORY_PREVIOUS_ATTRIBUTES_COLUMN,
     HISTORY_SNAPSHOT_EVENT_TYPE,
     INVOICE_PAYMENT_RESOURCE_NAME,
+    INVOICE_RESOURCE_NAME,
     PAYMENT_INTENT_RESOURCE_NAME,
     PAYMENT_LINK_RESOURCE_NAME,
     PAYMENT_METHOD_HISTORY_MAPPING_KEY,
@@ -969,6 +971,40 @@ class TestInvoiceListWithAllLines:
                     params={}, logger=MagicMock(), client_factory=lambda _throttled: client
                 ).auto_paging_iter()
             )
+
+
+def test_credit_note_rows_carry_lines_past_the_embedded_page():
+    embedded = [{"id": f"cnli_{i}", "object": "credit_note_line_item"} for i in range(10)]
+    all_lines = [*embedded, {"id": "cnli_10", "object": "credit_note_line_item"}]
+
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        if request.path == "/v1/credit_notes/cn_1/lines":
+            return ScriptedResponse(json={"object": "list", "data": all_lines, "has_more": False, "url": request.path})
+        lines = {"object": "list", "data": embedded, "has_more": True, "url": "/v1/credit_notes/cn_1/lines"}
+        credit_note = {"id": "cn_1", "object": "credit_note", "created": 1700000000, "lines": lines}
+        return ScriptedResponse(json={"object": "list", "data": [credit_note], "has_more": False, "url": request.path})
+
+    config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"))
+    result = SourceDriver(StripeSource(), config).run(CREDIT_NOTE_RESOURCE_NAME, script)
+
+    assert result.raised is None
+    rows = [row for table in result.rows for row in table.to_pylist()]
+    lines_column = orjson.loads(rows[0]["lines"])
+    assert [line["id"] for line in lines_column["data"]] == [line["id"] for line in all_lines]
+    assert lines_column["has_more"] is False
+
+
+@parameterized.expand([(INVOICE_RESOURCE_NAME,), (CREDIT_NOTE_RESOURCE_NAME,)])
+def test_first_page_error_of_a_line_expanding_listing_is_cleaned(endpoint):
+    redacted = "rk_live_" + "*" * 80 + "abcd"
+    message = f"The provided key '{redacted}' does not have the required permissions for this endpoint"
+    forbidden = ScriptedResponse(status=403, json={"error": {"type": "invalid_request_error", "message": message}})
+
+    config = StripeSourceConfig(auth_method=StripeAuthMethodConfig(selection="api_key", stripe_secret_key="sk_test"))
+    result = SourceDriver(StripeSource(), config).run(endpoint, [forbidden])
+
+    assert isinstance(result.raised, stripe_lib.PermissionError)
+    assert "rk_live_***abcd" in str(result.raised)
 
 
 @parameterized.expand([("switch_off", False, ["cus_credit"]), ("switch_on", True, ["cus_credit", "cus_zero"])])
