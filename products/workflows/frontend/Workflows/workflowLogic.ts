@@ -35,7 +35,7 @@ import type { EmailDraftRequestApi } from 'products/workflows/frontend/generated
 import type { ResourceEditedEvent, UserBasicType, UserType } from '../../../../frontend/src/types'
 import {
     confirmCreateAsBroadcast,
-    loadBroadcastConversionCandidateIds,
+    loadBroadcastConversionCandidates,
     moveWorkflowsToBroadcasts,
     movedToBroadcastsMessage,
 } from '../Broadcasts/broadcastLifecycle'
@@ -3560,17 +3560,18 @@ export const workflowLogic = kea<workflowLogicType>([
                     isBroadcastShaped(workflow.actions) &&
                     canEditInWizard(workflow.actions, workflow.edges)
                 ) {
-                    const otherIds = await loadBroadcastConversionCandidateIds(String(values.currentProjectId))
-                    const choice = await confirmCreateAsBroadcast(otherIds.length)
+                    const others = await loadBroadcastConversionCandidates(String(values.currentProjectId))
+                    const choice = await confirmCreateAsBroadcast(others)
                     posthog.capture('workflow broadcast suggestion answered', {
                         choice: choice ?? 'dismissed',
-                        other_workflows: otherIds.length,
+                        other_workflows: others.length,
                     })
                     if (!choice) {
                         return
                     }
                     cache.nextSaveCreatesBroadcast = choice !== 'workflow'
-                    cache.nextSaveMovesWorkflowIds = choice === 'broadcast_and_move' ? otherIds : []
+                    cache.nextSaveMovesWorkflowIds =
+                        choice === 'broadcast_and_move' ? others.map((other) => other.id) : []
                 }
 
                 actions.saveWorkflow(workflow)

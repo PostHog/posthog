@@ -144,7 +144,9 @@ describe('workflowLogic broadcast suggestion on create', () => {
                 .toDispatchActions(['saveWorkflowSuccess'])
                 .toFinishAllListeners()
 
-            expect(jest.mocked(confirmCreateAsBroadcast).mock.calls).toEqual(asked ? [[others.length]] : [])
+            expect(
+                jest.mocked(confirmCreateAsBroadcast).mock.calls.map(([offered]) => offered?.map((o) => o.id))
+            ).toEqual(asked ? [others] : [])
             expect(convertedIds.sort()).toEqual(moved)
             expect(createdBodies).toHaveLength(1)
             expect(createdBodies[0].origin_product).toBe(originProduct)

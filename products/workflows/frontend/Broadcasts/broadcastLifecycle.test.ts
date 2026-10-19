@@ -24,16 +24,24 @@ describe('broadcastLifecycle', () => {
         const escape = (): boolean =>
             fireEvent.keyDown(screen.getByText(TITLE).closest('.ReactModal__Content')!, { key: 'Escape', keyCode: 27 })
 
+        const others = [
+            { id: 'wf-a', name: 'September newsletter', status: 'draft' as const },
+            { id: 'wf-b', name: '', status: 'active' as const },
+        ]
+
         it.each([
-            { otherCount: 0, button: 'Create broadcast', choice: 'broadcast' },
-            { otherCount: 0, button: 'Keep as workflow', choice: 'workflow' },
-            { otherCount: 0, button: null, choice: null },
-            { otherCount: 2, button: 'Create and move 2 more', choice: 'broadcast_and_move' },
-            { otherCount: 2, button: 'Create broadcast', choice: 'broadcast' },
-            { otherCount: 2, button: 'Keep as workflow', choice: 'workflow' },
-        ])('with $otherCount other workflows, $button resolves to $choice', async ({ otherCount, button, choice }) => {
-            const result = confirmCreateAsBroadcast(otherCount)
+            { offered: [], button: 'Create broadcast', choice: 'broadcast' },
+            { offered: [], button: 'Keep as workflow', choice: 'workflow' },
+            { offered: [], button: null, choice: null },
+            { offered: others, button: 'Create and move 2 more', choice: 'broadcast_and_move' },
+            { offered: others, button: 'Create broadcast', choice: 'broadcast' },
+            { offered: others, button: 'Keep as workflow', choice: 'workflow' },
+        ])('with $offered.length other workflows, $button resolves to $choice', async ({ offered, button, choice }) => {
+            const result = confirmCreateAsBroadcast(offered)
             await screen.findByText(TITLE)
+            for (const name of offered.length ? ['September newsletter', 'Untitled workflow'] : []) {
+                expect(screen.getByText(name)).toBeInTheDocument()
+            }
 
             if (button) {
                 fireEvent.click(screen.getByText(button))
