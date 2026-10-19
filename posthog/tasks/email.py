@@ -112,7 +112,7 @@ def get_members_to_notify(team: Team, notification_setting: NotificationSettingT
     memberships_to_email = []
     memberships = list(
         OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-            organization_id=team.organization_id
+            organization_id=team.organization_id, user__is_active=True
         )
     )
     # Resolved once, or this is a query per member on every fan-out.

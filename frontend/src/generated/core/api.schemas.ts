@@ -7,6 +7,28 @@
  * PostHog API - core
  * OpenAPI spec version: 1.0.0
  */
+export interface ConnectedAppApi {
+    /** The OAuth application ID */
+    id: string
+    /** The application name */
+    name: string
+    /**
+     * URL to the application's logo
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Scopes granted to this application */
+    scopes: string[]
+    /** When the user first authorized this application */
+    authorized_at: string
+    /** Whether this application has been verified by PostHog */
+    is_verified: boolean
+    /** Whether this is a first-party PostHog application */
+    is_first_party: boolean
+    /** Whether the user must choose to keep or disconnect this application, because it set up one of the user's organizations and PostHog has not verified it */
+    requires_access_confirmation: boolean
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -1344,6 +1366,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -6246,6 +6269,13 @@ export interface UserGitHubIntegrationItemApi {
      * * `connected` - connected
      * * `unavailable` - unavailable */
     installation_status: InstallationStatusEnumApi
+    /** True when GitHub rejected the stored credentials and PostHog dropped them. The installation is still on GitHub, but PostHog cannot act as the user until they authorize it again. */
+    needs_reauthorization: boolean
+    /**
+     * When the stored credentials stopped working, or null while they still work.
+     * @nullable
+     */
+    needs_reauthorization_at: string | null
     /** When this integration row was created. */
     created_at: string
 }
@@ -6881,6 +6911,10 @@ export type FileSystemListParams = {
      * Include meta.content_type for notebooks and insights on this page, without their contents.
      */
     include_content_type?: boolean
+    /**
+     * Include meta.tags, the tag names, for dashboards and insights on this page.
+     */
+    include_tags?: boolean
     /**
      * Number of results to return per page.
      */

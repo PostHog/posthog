@@ -2204,6 +2204,25 @@
             "enum": ["exact", "is_not"],
             "type": "string"
         },
+        "AssistantBIVisualizationNode": {
+            "additionalProperties": {},
+            "properties": {
+                "config": {
+                    "additionalProperties": {},
+                    "description": "Complete worksheet configuration, including shelves and filters. Validated by the insight API.",
+                    "type": "object"
+                },
+                "kind": {
+                    "const": "BIVisualizationNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/AssistantBareHogQLQuery"
+                }
+            },
+            "required": ["kind", "source", "config"],
+            "type": "object"
+        },
         "AssistantBareHogQLQuery": {
             "additionalProperties": {},
             "properties": {
@@ -2408,7 +2427,7 @@
                     "type": "string"
                 },
                 "label": {
-                    "description": "Custom label for this series, shown in the legend and tooltips instead of the column name.",
+                    "description": "Series label in legends and tooltips; replaces the column name.",
                     "type": "string"
                 },
                 "trendLine": {
@@ -2435,12 +2454,12 @@
                     "type": "string"
                 },
                 "style": {
-                    "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — multiply the value by 100 and append a `%` sign, so pass a 0-1 ratio (`a / b`, not `100.0 * a / b`). Never pair it with a `%` suffix, which renders `47.3%%`.",
+                    "description": "`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.",
                     "enum": ["none", "number", "short", "percent"],
                     "type": "string"
                 },
                 "suffix": {
-                    "description": "Text appended to each value (e.g. ` ms`). Leave unset when `style` is `percent`, which already appends the `%` sign.",
+                    "description": "Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.",
                     "type": "string"
                 }
             },
@@ -5193,6 +5212,7 @@
                 "draft_replay_vision_scanner_prompt",
                 "search_replay_vision_observations",
                 "scan_replay_vision_sessions",
+                "get_replay_vision_scan_results",
                 "retry_replay_vision_observation",
                 "get_replay_vision_quota",
                 "create_replay_vision_scanner",
@@ -6195,6 +6215,10 @@
         "BIConfig": {
             "additionalProperties": false,
             "properties": {
+                "catalogMetric": {
+                    "description": "Catalog provenance only: the snapshot does not track subsequent definition edits.",
+                    "type": "string"
+                },
                 "chartType": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },
@@ -6314,6 +6338,10 @@
                 "panes": {
                     "$ref": "#/definitions/BIPaneSettings",
                     "description": "Split the returned groups into charts using these ordered dimension IDs."
+                },
+                "querySnapshot": {
+                    "$ref": "#/definitions/HogQLQuery",
+                    "description": "Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves."
                 },
                 "resultFilterGroup": {
                     "$ref": "#/definitions/BIConditionGroup"
@@ -17552,6 +17580,9 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "barGap": {
+                    "type": "number"
+                },
                 "boxPlot": {
                     "$ref": "#/definitions/BoxPlotSettings"
                 },
@@ -17629,11 +17660,30 @@
                     "description": "Whether we fill the bars to 100% in stacked mode",
                     "type": "boolean"
                 },
+                "valueLabelBackground": {
+                    "type": "boolean"
+                },
+                "valueLabelFontSize": {
+                    "type": "number"
+                },
+                "valueLabelPosition": {
+                    "enum": ["end", "center"],
+                    "type": "string"
+                },
+                "valueLabelRotation": {
+                    "type": "number"
+                },
                 "xAxis": {
                     "$ref": "#/definitions/ChartAxis"
                 },
+                "xAxisDateFormat": {
+                    "type": "string"
+                },
                 "xAxisLabel": {
                     "type": "string"
+                },
+                "xAxisTickRotation": {
+                    "type": "number"
                 },
                 "yAxis": {
                     "items": {
@@ -18696,6 +18746,20 @@
                         }
                     ],
                     "description": "Metric label matchers ANDed into every metrics tile. Other tiles ignore them."
+                },
+                "metricVariables": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/MetricsDashboardVariable"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Variables that metrics tiles refer to as `$name`. Other tiles ignore them."
                 },
                 "properties": {
                     "anyOf": [
@@ -27347,6 +27411,7 @@
             "enum": [
                 "default_icon_type",
                 "dashboard",
+                "canvas",
                 "llm_analytics",
                 "product_analytics",
                 "revenue_analytics",
@@ -30331,6 +30396,9 @@
             "anyOf": [
                 {
                     "$ref": "#/definitions/AssistantDataTableNode"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBIVisualizationNode"
                 },
                 {
                     "$ref": "#/definitions/AssistantInsightVizNode"
@@ -38895,6 +38963,89 @@
             "enum": ["linear", "log"],
             "type": "string"
         },
+        "MetricsDashboardVariable": {
+            "additionalProperties": false,
+            "description": "A Grafana-style dashboard variable. Metrics tiles refer to it as `$name`, `${name}` or `${name:format}`.",
+            "properties": {
+                "allValue": {
+                    "description": "The text that All puts in a PromQL query. `.*` when it is empty.",
+                    "type": ["string", "null"]
+                },
+                "current": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MetricsDashboardVariableSelection"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "customValues": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The options when `source` is `custom`."
+                },
+                "includeAll": {
+                    "type": ["boolean", "null"]
+                },
+                "label": {
+                    "description": "Shown in the dashboard filter bar. The name is shown when it is empty.",
+                    "type": ["string", "null"]
+                },
+                "multi": {
+                    "type": ["boolean", "null"]
+                },
+                "name": {
+                    "description": "Letters, digits and underscores. Tiles refer to it as `$name`.",
+                    "type": "string"
+                },
+                "query": {
+                    "description": "The options query when `source` is `promql` or `sql`. It can refer to other variables. PromQL supports `label_values(label)`, `label_values(selector, label)`, `label_names()`, `metrics(regex)` and `query_result(expr)`. SQL returns the options in its first column.",
+                    "type": ["string", "null"]
+                },
+                "regex": {
+                    "description": "RE2 pattern that options must match. When it has a capture group, the option is the first group.",
+                    "type": ["string", "null"]
+                },
+                "source": {
+                    "$ref": "#/definitions/MetricsDashboardVariableSource"
+                }
+            },
+            "required": ["name", "source"],
+            "type": "object"
+        },
+        "MetricsDashboardVariableSelection": {
+            "additionalProperties": false,
+            "properties": {
+                "all": {
+                    "type": "boolean"
+                },
+                "values": {
+                    "description": "The selected values. Empty when `all` is true: All stands for every option of the variable.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["values"],
+            "type": "object"
+        },
+        "MetricsDashboardVariableSource": {
+            "description": "Where a metrics dashboard variable gets its options.",
+            "enum": ["custom", "promql", "sql", "textbox"],
+            "type": "string"
+        },
         "MetricsDisplaySettings": {
             "additionalProperties": false,
             "description": "Presentation only. The query engine never reads this, and it's stripped from the result cache key, so changing any of it re-renders without re-running the query.",
@@ -39000,6 +39151,13 @@
                 "unit": {
                     "description": "UCUM unit for the y-axis bounds, e.g. \"s\", \"ms\". Presentation only.",
                     "type": "string"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/MetricsVariableValue"
+                    },
+                    "description": "Values of the dashboard variables that the filters refer to as `$name`.",
+                    "type": "object"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -39154,6 +39312,13 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/MetricsVariableValue"
+                    },
+                    "description": "Values of the dashboard variables that the PromQL, SQL or filters refer to as `$name`.",
+                    "type": "object"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -39383,6 +39548,38 @@
                 }
             },
             "required": ["value", "color"],
+            "type": "object"
+        },
+        "MetricsVariableValue": {
+            "additionalProperties": false,
+            "description": "The value of one variable in a metrics query, set from the dashboard that shows the query.",
+            "properties": {
+                "all": {
+                    "description": "True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets every option of the variable.",
+                    "type": "boolean"
+                },
+                "allValue": {
+                    "type": ["string", "null"]
+                },
+                "definition": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MetricsDashboardVariable"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The definition of a variable set to All, so that a SQL query can load its options."
+                },
+                "values": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["values"],
             "type": "object"
         },
         "MetricsYAxisSettings": {
@@ -41514,6 +41711,7 @@
                 "in",
                 "not_in",
                 "is_cleaned_path_exact",
+                "is_cleaned_path_not_exact",
                 "flag_evaluates_to",
                 "semver_eq",
                 "semver_neq",
@@ -51102,6 +51300,9 @@
                 },
                 "color": {
                     "$ref": "#/definitions/DataColorToken"
+                },
+                "customColor": {
+                    "type": "string"
                 },
                 "hidden": {
                     "type": "boolean"
