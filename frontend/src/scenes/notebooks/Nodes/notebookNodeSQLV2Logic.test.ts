@@ -4,9 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -245,22 +243,17 @@ describe('notebookNodeSQLV2Logic', () => {
     // backend decides it at dispatch. A client that guesses from a kernel poll either bills a
     // user twice for one sandbox or starts a paid one in silence.
     test.each([
-        ['names the rate when the run starts a paid sandbox', true, 0.25, false, ['compute sandbox at $0.25 / h']],
         [
-            'strikes the rate through to $0.00 when the free compute flag is on',
+            'strikes the rate through to $0.00 when the run starts a sandbox',
             true,
             0.25,
-            true,
             ['compute sandbox at $0.25 / h $0.00 / h while it runs'],
         ],
         // The unpriced branch is the only one that ends the sentence here, so matching it also
         // proves no rate was quoted.
-        ['announces without a rate when the run reports no price', true, null, false, ['compute sandbox. The cell']],
-        ['stays quiet when the run reuses a running sandbox', false, null, false, []],
-    ])('%s', async (_name, startsSandbox, price, freeCompute, expected) => {
-        featureFlagLogic.actions.setFeatureFlags(freeCompute ? [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE] : [], {
-            [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE]: freeCompute,
-        })
+        ['announces without a rate when the run reports no price', true, null, ['compute sandbox. The cell']],
+        ['stays quiet when the run reuses a running sandbox', false, null, []],
+    ])('%s', async (_name, startsSandbox, price, expected) => {
         runSpy.mockResolvedValue({ run_id: 'r1', starts_sandbox: startsSandbox, sandbox_hourly_price: price })
         const toastSpy = jest.spyOn(lemonToast, 'info')
         mount()

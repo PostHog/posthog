@@ -1,8 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { mswDecorator } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
 
@@ -103,11 +101,6 @@ export default meta
 type Story = StoryObj<typeof NotebookKernelInfo>
 
 export const RunningOnAPreset: Story = {
-    decorators: [mswDecorator({ get: apiMocks() })],
-}
-
-export const FreeCompute: Story = {
-    parameters: { featureFlags: [FEATURE_FLAGS.NOTEBOOK_SANDBOX_FREE_COMPUTE] },
     decorators: [mswDecorator({ get: apiMocks() })],
 }
 

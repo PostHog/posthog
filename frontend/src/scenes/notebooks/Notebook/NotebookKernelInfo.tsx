@@ -27,9 +27,7 @@ const formatMemory = (value: number): string => {
     return `${value} GB`
 }
 
-const PRICE_TOOLTIP =
-    'Billed for as long as the sandbox runs, whether or not a cell is running. Stop it to stop the charge.'
-const FREE_PRICE_TOOLTIP = 'Your organization is not charged for this sandbox. The usual rate is shown crossed out.'
+const PRICE_TOOLTIP = 'Your organization is not charged for this sandbox. The usual rate is shown crossed out.'
 
 export const NotebookKernelInfo = (): JSX.Element => {
     const { shortId, isShared } = useValues(notebookLogic)
@@ -58,7 +56,6 @@ export const NotebookKernelInfo = (): JSX.Element => {
         computePresets,
         selectedPresetKey,
         selectedHourlyPrice,
-        isSandboxComputeFree,
         computeBlockedReason,
         computeOptionsFailed,
     } = useValues(logic)
@@ -177,9 +174,9 @@ export const NotebookKernelInfo = (): JSX.Element => {
                     {isModalKernel && selectedHourlyPrice != null ? (
                         <div className="flex items-center justify-between text-xs">
                             <span className="font-semibold text-muted">Sandbox price</span>
-                            <Tooltip title={isSandboxComputeFree ? FREE_PRICE_TOOLTIP : PRICE_TOOLTIP}>
+                            <Tooltip title={PRICE_TOOLTIP}>
                                 <span className="font-semibold">
-                                    <SandboxHourlyPrice value={selectedHourlyPrice} isFree={isSandboxComputeFree} />
+                                    <SandboxHourlyPrice value={selectedHourlyPrice} />
                                 </span>
                             </Tooltip>
                         </div>
@@ -221,10 +218,7 @@ export const NotebookKernelInfo = (): JSX.Element => {
                                                         </span>
                                                     </span>
                                                     <span className="font-semibold whitespace-nowrap">
-                                                        <SandboxHourlyPrice
-                                                            value={preset.hourly_price}
-                                                            isFree={isSandboxComputeFree}
-                                                        />
+                                                        <SandboxHourlyPrice value={preset.hourly_price} />
                                                     </span>
                                                 </div>
                                             </LemonButton>
