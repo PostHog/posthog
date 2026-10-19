@@ -340,19 +340,21 @@ def test_build_examples_drops_state_rows_read_long_after_their_snapshot():
     "head_name,frame,expected_cohort,expected_label",
     [
         # action: cohort is everyone, so a never-impressed report an agent claimed is a positive.
-        # A server-side action and a UI action are the same label.
+        # A server-side action, a UI action and a thumbs up are the same label. A thumbs down is not.
         (
             "action",
             pd.DataFrame(
                 {
-                    "impression_unit_count": [0, 1, 1, 1],
-                    "claim_count": [1, 0, 0, 0],
-                    "reasoned_resolution_count": [0, 1, 0, 0],
-                    "view_diff_count": [0, 0, 2, 0],
+                    "impression_unit_count": [0, 1, 1, 1, 1, 1],
+                    "claim_count": [1, 0, 0, 0, 0, 0],
+                    "reasoned_resolution_count": [0, 1, 0, 0, 0, 0],
+                    "view_diff_count": [0, 0, 2, 0, 0, 0],
+                    "feedback_positive_count": [0, 0, 0, 1, 0, 0],
+                    "feedback_negative_count": [0, 0, 0, 0, 1, 0],
                 }
             ),
-            [True, True, True, True],
-            [True, True, True, False],
+            [True] * 6,
+            [True, True, True, True, False, False],
         ),
         # fixed: cohort is everyone, label is a fix read from the status stream.
         (
@@ -1791,7 +1793,7 @@ def test_model_key_layout_is_stable():
     )
     assert (
         model_object_key("inbox_ranking", EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
-        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-19/open.ubj"
+        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings_v2/dt=2026-08-19/open.ubj"
     )
     assert snapshot_dates("2026-08-19", 2) == [
         datetime.date(2026, 8, 17),
@@ -1959,7 +1961,7 @@ def test_examples_key_layout_is_per_feature_set():
     # And one models prefix per family, so one family's booster never lands on another's.
     assert (
         model_object_key("inbox_ranking", EMBEDDINGS_MODEL_NAME, "2026-08-19", "open.ubj")
-        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings/dt=2026-08-19/open.ubj"
+        == "inbox_ranking/inbox_ranking_models/v1/report_embeddings_v2/dt=2026-08-19/open.ubj"
     )
 
 
@@ -2829,7 +2831,7 @@ def test_the_serving_prefix_layout_is_stable():
     assert serving_manifest_key("inbox_ranking") == "inbox_ranking/serving/manifest.json"
     assert (
         serving_model_prefix("inbox_ranking", model_key(EMBEDDINGS_MODEL_NAME, "2026-08-19"))
-        == "inbox_ranking/serving/models/report_embeddings@2026-08-19"
+        == "inbox_ranking/serving/models/report_embeddings_v2@2026-08-19"
     )
 
 

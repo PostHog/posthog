@@ -453,6 +453,14 @@ _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE = (
     "schedule."
 )
 
+_SPURIOUS_CANCEL_EXHAUSTED_MESSAGE = (
+    "Your database canceled one of PostHog's statements, and the sync kept hitting the same "
+    "cancellation on every retry. This can happen when a connection pooler recycles connections "
+    "mid-query, or someone or something on your database canceled it. Check your database and "
+    "pooler logs around the time of the failure. This sync is still enabled and will run again on "
+    "its next schedule."
+)
+
 
 @SourceRegistry.register
 class PostgresSource(
@@ -1561,8 +1569,19 @@ class PostgresSource(
         # `CLIENT_DEADLINE_ERROR` is the client-side statement deadline. It acts only when the
         # server's own statement timeout did not, so it reports a pooler or a server that stopped
         # answering, not a query that is too slow for its index.
+        #
+        # "canceling statement due to user request" (psycopg's `QueryCanceled`) reaching here is
+        # *not* our own client-side deadline — that path always converts an expired deadline's
+        # cancel into `ClientDeadlineExceededError` first (see `client_side_deadline`). This is the
+        # raw message, so either our own watchdog's cancel request landed on a later statement on
+        # the same connection after its own statement already finished (the race
+        # `_StatementWatchdog.finish` documents), or something external — a pooler recycling the
+        # connection mid-query, or an admin cancel — canceled it. Neither says anything about this
+        # query or schema, and a retry runs on a fresh connection, so it's self-recovering like the
+        # other entries here rather than a verdict to stop retrying.
         return {
             CLIENT_DEADLINE_ERROR,
+            "canceling statement due to user request",
             *_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS,
             *_SERVER_STARTING_UP_ERROR_SUBSTRINGS,
@@ -1589,6 +1608,7 @@ class PostgresSource(
             **dict.fromkeys(_CONNECTION_LIMIT_ERROR_SUBSTRINGS, _CONNECTION_LIMIT_EXHAUSTED_MESSAGE),
             "conflict with recovery": _RECOVERY_CONFLICT_EXHAUSTED_MESSAGE,
             CLIENT_DEADLINE_ERROR: _CLIENT_DEADLINE_EXHAUSTED_MESSAGE,
+            "canceling statement due to user request": _SPURIOUS_CANCEL_EXHAUSTED_MESSAGE,
             HOST_RESOLUTION_TIMEOUT_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
             TEMPORARY_HOST_RESOLUTION_ERROR: HOST_RESOLUTION_EXHAUSTED_MESSAGE,
         }

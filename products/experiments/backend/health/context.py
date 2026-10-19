@@ -6,6 +6,7 @@ from posthog.schema import MultipleVariantHandling
 
 from posthog.dataclasses import frozen
 
+from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind
 from products.experiments.backend.metric_resolution import saved_metric_link_role, saved_metric_links
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.facade.filters import pinned_variant, reachable_conditions
@@ -45,6 +46,16 @@ class BucketingChange:
     after: str | int | bool | None
 
 
+# A change of the flag after launch that can move exposed people. A new kind needs its class here, an
+# `ExperimentHealthFlagChangeKind`, its read and its set-back question in `exposure_gate.py`, its row in
+# `inputs_payload.py`, and its check.
+FlagChange = SplitChange | BucketingChange
+
+
+def changes_of_kind[C: FlagChange](changes: tuple[FlagChange, ...], kind: type[C]) -> tuple[C, ...]:
+    return tuple(change for change in changes if isinstance(change, kind))
+
+
 @frozen
 class FlagHistory:
     """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
@@ -52,29 +63,23 @@ class FlagHistory:
 
     launched_at: datetime
     team_timezone: str
-    split_changes: tuple[SplitChange, ...]
-    bucketing_changes: tuple[BucketingChange, ...]
+    # Every change of every kind, in time order.
+    changes: tuple[FlagChange, ...]
     # The time of the first change, of any kind, with an exposure before it or an unknown answer. Every change
     # from then on counts. None when nobody was exposed before any change.
     counted_since: datetime | None
     # None when unknown: the exposure query failed, or the request ran out of queries or time.
     exposed_before_first: bool | None
-    # Asked per kind only when its last counted change sets back what its first changed. None when not asked,
-    # or unknown.
-    split_exposed_between: bool | None
-    bucketing_exposed_between: bool | None
+    # Whether anyone was exposed between the first and the last counted change of a kind. Asked only when the last
+    # sets back what the first changed, so a kind that was not asked is absent. None when unknown.
+    exposed_between: Mapping[ExperimentHealthFlagChangeKind, bool | None]
 
-    @property
-    def counted_split_changes(self) -> tuple[SplitChange, ...]:
-        return _counted(self.split_changes, self.counted_since)
+    def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
+        return changes_of_kind(self.changes, kind)
 
-    @property
-    def counted_bucketing_changes(self) -> tuple[BucketingChange, ...]:
-        return _counted(self.bucketing_changes, self.counted_since)
-
-
-def _counted[C: (SplitChange, BucketingChange)](changes: tuple[C, ...], since: datetime | None) -> tuple[C, ...]:
-    return () if since is None else tuple(change for change in changes if change.changed_at >= since)
+    def counted[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
+        since = self.counted_since
+        return () if since is None else tuple(change for change in self.of_kind(kind) if change.changed_at >= since)
 
 
 class FlagHistoryNotCheckedReason(StrEnum):
@@ -93,9 +98,11 @@ class FlagHistoryNotChecked:
     reason: FlagHistoryNotCheckedReason
     launched_at: datetime
     team_timezone: str
-    # Every change since launch. Empty for NO_HISTORY_ACCESS, which does not read them.
-    split_changes: tuple[SplitChange, ...]
-    bucketing_changes: tuple[BucketingChange, ...]
+    # Every change since launch, in time order. Empty for NO_HISTORY_ACCESS, which does not read them.
+    changes: tuple[FlagChange, ...]
+
+    def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
+        return changes_of_kind(self.changes, kind)
 
 
 @frozen
