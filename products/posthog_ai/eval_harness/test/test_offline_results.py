@@ -39,10 +39,10 @@ SUITE = OfflineEvalSuite(
 STARTED_AT = datetime(2026, 1, 1, tzinfo=UTC)
 
 
-def _publisher(*, link_traces: bool = False) -> OfflineEvalPublisher:
+def _publisher(*, link_traces: bool = False, suite: OfflineEvalSuite = SUITE) -> OfflineEvalPublisher:
     return OfflineEvalPublisher(
         OfflineEvalSettings(project_id=123, api_key=SecretStr("test-only-token"), scorer_versions=SCORER_VERSIONS),
-        SUITE,
+        suite,
         application_trace_ids_enabled=link_traces,
     )
 
@@ -366,6 +366,56 @@ def test_publish_retries_identical_batches_and_completes_after_all_acknowledgmen
     assert len(server.items) == 501
     assert len(server.results) == 1002
     assert url.endswith(f"/ai-evals/evaluations/offline/experiments/{EXPERIMENT_ID}")
+
+
+@parameterized.expand(
+    [
+        ("success", None),
+        ("forbidden", 403),
+        ("server_error", 503),
+        ("lost_response", "lost_response"),
+        ("interrupted", "interrupted"),
+    ]
+)
+def test_publish_tags_completed_results_without_repeating_mutable_updates(
+    _name: str, tag_error: int | str | None
+) -> None:
+    publisher = _publisher(suite=replace(SUITE, tags=("team:example", "component:example")))
+    upload = _prepare(publisher, [_case()])
+    server = OfflineServer()
+    tag_requests: list[httpx.Request] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.method == "PATCH":
+            tag_requests.append(request)
+            assert server.status == "completed"
+            if isinstance(tag_error, int):
+                return httpx.Response(tag_error)
+            response = server.respond(request)
+            if tag_error == "lost_response":
+                raise httpx.ReadError("Lost tag acknowledgment", request=request)
+            if tag_error == "interrupted":
+                raise asyncio.CancelledError
+            return response
+        return server.respond(request)
+
+    with patch("httpx.AsyncClient", new=partial(httpx.AsyncClient, transport=httpx.MockTransport(respond))):
+        if tag_error == "interrupted":
+            with pytest.raises(asyncio.CancelledError):
+                asyncio.run(publisher.publish(upload))
+        else:
+            assert asyncio.run(publisher.publish(upload)).endswith(EXPERIMENT_ID)
+        assert server.status == "completed"
+        assert len(server.results) == 2
+        assert "tags" not in server.experiment
+        assert server.tags == ([] if isinstance(tag_error, int) else list(upload.tags))
+
+        server.tags = ["edited-after-upload"]
+        asyncio.run(publisher.publish(upload))
+
+    assert len(tag_requests) == 1
+    assert json.loads(tag_requests[0].content) == {"tags": list(upload.tags)}
+    assert server.tags == ["edited-after-upload"]
 
 
 @parameterized.expand(

@@ -1,7 +1,7 @@
 # Offline evaluation result reporting
 
 The evaluation harness in `products/posthog_ai/eval_harness/` reports public-suite scorer results to Braintrust.
-The SQL suite also publishes those results to PostHog's offline experiment API when configured.
+Public suites under `products/posthog_ai/evals/` and `products/slack_app/evals/` also publish those results to PostHog's offline experiment API when configured.
 The Signals pytest suites reuse the same publisher for their completed results.
 Agent and judge trace capture remains available.
 Reporting does not run the agent or scorers again.
@@ -9,9 +9,11 @@ Use `hogli evals` to run PostHog AI 2.0 suites. See the [eval harness guide](../
 
 ## Capture settings
 
-Evaluation result uploads to Braintrust and PostHog share the `no_send_logs` setting.
+`no_send_logs` controls Braintrust uploads and, by default, PostHog result uploads.
 `SandboxedPublicEval` sets `no_send_logs=False` and uploads to Braintrust, plus PostHog when the suite has offline publishing configured.
-`SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service; local logs are still written.
+`SandboxedPrivateEval` sets `no_send_logs=True` and uploads to neither service by default; local logs are still written.
+Set `send_to_posthog=True` alongside `offline_suite` to publish results to PostHog while keeping Braintrust uploads disabled.
+Set `send_to_posthog=False` to disable PostHog result uploads independently. The same options apply to one-shot suites.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
 The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
@@ -33,14 +35,16 @@ The scoring phase includes time waiting for the experiment results, rather than 
 A failed final metadata upload produces a warning and keeps the completed results available locally.
 A scorer failure marks the case as an error. Statistics still include scores from other successful scorers.
 
-## SQL offline experiment pilot
+## Configured offline experiment suites
 
-The `sql/eval_sql::eval_sql` suite (`sandboxed-sql-cli`) opts into the offline experiment publisher.
-Other public suites continue reporting scores to Braintrust until they opt into offline publishing.
+All public PostHog AI and Slack app suites opt into the offline experiment publisher, including both sandboxed and one-shot suites.
+The 11 experiment-skill suites retain `no_send_logs=True` and explicitly set `send_to_posthog=True`, publishing results only to PostHog.
 After scoring, the harness prepares the completed results in memory and queues delivery through the Python SDK's `AsyncOfflineEvaluations` client. It does not execute another agent run or judge call.
-`no_send_logs=True` suppresses this upload too.
+Without an explicit `send_to_posthog` override, `no_send_logs=True` suppresses this upload too.
 
-The [SQL suite definition](../../products/posthog_ai/evals/sql/eval_sql.py) pins destination project `2` and the seven immutable scorer version UUIDs.
+The [PostHog AI catalog](../../products/posthog_ai/evals/offline_config.py) and [Slack app catalog](../../products/slack_app/evals/offline_config.py) pin destination project `2`, scorer kinds, immutable version UUIDs, and component tags.
+Suites select their own metrics from the catalog; the configuration includes the harness-provided `exit_code_zero` metric.
+The SQL suite retains its seven existing scorer versions.
 Provide the API key through the environment before running the suite:
 
 | Variable                       | Purpose                                                                                                                           |
@@ -51,7 +55,7 @@ Provide the API key through the environment before running the suite:
 The publisher normalizes the cloud ingestion hosts (`us.i.posthog.com`, `eu.i.posthog.com`) and the legacy `app.posthog.com` host to their app origins.
 Uploads, result links, and trace-destination checks use that same origin.
 
-The suite uses these existing scorers:
+The SQL suite uses these existing scorers:
 
 | Metric name                          | Scorer kind                      |
 | ------------------------------------ | -------------------------------- |
@@ -72,15 +76,32 @@ export POSTHOG_OFFLINE_EVAL_API_KEY='your-secret-key'
 hogli evals sql/eval_sql::eval_sql
 ```
 
-Without an API key, the SQL run reports that offline uploads are disabled.
+Without an API key, each enrolled suite reports that offline uploads are disabled.
 Keys containing whitespace are rejected before evaluation starts; remove any spaces, tabs, or pasted trailing newlines.
 Invalid configuration produces a warning and skips this destination; Braintrust and local reporting continue.
 An upload failure also warns without changing the evaluation's score gate.
 The final summary shows a PostHog results link only after a successful offline upload; otherwise it shows the upload status.
 
+### Scorer and experiment tags
+
+Score definitions and experiment runs use the same team and component tags:
+
+| Suites               | Tags                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------- |
+| PostHog AI           | `team:surfaces`, `component:posthog-ai/<domain>` (for example `sql` or `product-analytics`) |
+| Slack app            | `team:surfaces`, `component:slack-app/<area>` (for example `followup-classifier`)           |
+| Signals grouping     | `team:self-driving`, `component:signals/grouping`                                           |
+| Signals scout safety | `team:self-driving`, `component:signals/scout-safety`                                       |
+
+`OfflineEvalSuite.tags` supplies the experiment tags. The publisher calls the Python SDK's `experiment.set_tags(...)` after results have uploaded and the experiment has completed. Tags are mutable metadata, separate from the immutable creation declaration and scorer versions.
+
+To upload **and tag** experiments, `POSTHOG_OFFLINE_EVAL_API_KEY` must be a personal API key with both `offline_evaluation_ingestion:write` and `evaluation:write`. An ingestion-only personal or project secret key can still upload results, but the tag update will warn. Tagging failures do not fail completed result uploads or the evaluation score gate.
+
+Each prepared experiment's tag update is attempted once per publisher, including when delivery pauses and resumes. A failed or interrupted replacement is not repeated automatically, because it may already have succeeded or someone may have edited the tags afterward. Inspect the experiment's tags before manually retrying a replacement.
+
 ### CI configuration
 
-CI jobs running this suite need `POSTHOG_OFFLINE_EVAL_API_KEY` and `BRAINTRUST_API_KEY` in the environment.
+CI jobs running enrolled suites need `POSTHOG_OFFLINE_EVAL_API_KEY` and `BRAINTRUST_API_KEY` in the environment.
 Map the dedicated `ANTHROPIC_OFFLINE_EVALS_API_KEY` and `OPENAI_OFFLINE_EVALS_API_KEY` Actions secrets to `LLM_GATEWAY_ANTHROPIC_API_KEY` and `OPENAI_API_KEY` for the harness and judges.
 Publishing failures remain warnings, so check the final harness upload status even when a CI job is green.
 The harness sets the SDK's `run_source` to `ci` when `CI` is set, including manual Actions runs, and to `local` otherwise.
@@ -185,7 +206,7 @@ Runs appear in the offline experiments UI.
 ## Postgres experiment ingestion
 
 The project API accepts offline experiment results behind the `ai-observability-offline-evaluations` feature flag.
-The configured SQL pilot calls this API to publish completed scorer results.
+The configured public suites call this API to publish completed scorer results.
 
 Experiments and their items, results, and payloads belong to the exact project/environment in the request path.
 Scorers and hosted datasets must belong to that same environment.

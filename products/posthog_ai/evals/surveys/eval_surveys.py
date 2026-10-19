@@ -10,6 +10,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.eval_harness.seeders.survey import seed_survey_feature_flags
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.product_analytics.scorers import INSIGHT_WRITE_TOOLS
 from products.posthog_ai.evals.surveys.scorers import (
     SURVEY_FORBIDDEN_WRITE_TOOLS,
@@ -270,6 +271,16 @@ async def eval_surveys(ctx: EvalContext) -> None:
 
     await SandboxedPublicEval(
         experiment_name="sandboxed-surveys-cli",
+        offline_suite=offline_suite(
+            "surveys/eval_surveys::eval_surveys",
+            metrics=[
+                "no_forbidden_survey_side_effects",
+                "survey_create_outcome",
+                "survey_create_returned_id",
+                "survey_create_alignment",
+                "survey_id_in_final_message",
+            ],
+        ),
         cases=cases,
         scorers=[
             NoToolCall(

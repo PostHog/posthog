@@ -52,6 +52,7 @@ from products.posthog_ai.evals.experiments.seeders import (
     seed_inactive_flag_experiment,
     seed_running_experiment,
 )
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 async def eval_empty_experiment(ctx: EvalContext) -> None:
@@ -139,6 +140,11 @@ async def eval_empty_experiment(ctx: EvalContext) -> None:
 
     await SandboxedPrivateEval(
         experiment_name="sandboxed-experiments-diagnose-empty-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_empty_experiment::eval_empty_experiment",
+            metrics=["diagnosis_group"],
+        ),
         cases=cases,
         scorers=[
             CitesDiagnosticGroup(),

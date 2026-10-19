@@ -25,6 +25,7 @@ from products.posthog_ai.evals.experiments.scorers import (
     validate_retention_metric,
 )
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
+from products.posthog_ai.evals.offline_config import offline_suite
 
 
 async def eval_metric_schema_discovery(ctx: EvalContext) -> None:
@@ -53,6 +54,11 @@ async def eval_metric_schema_discovery(ctx: EvalContext) -> None:
 
     await SandboxedPrivateEval(
         experiment_name="sandboxed-experiments-metric-schema-discovery-cli",
+        send_to_posthog=True,
+        offline_suite=offline_suite(
+            "experiments/eval_metric_schema_discovery::eval_metric_schema_discovery",
+            metrics=["called_experiment_update", "first_update_metric_shape"],
+        ),
         cases=cases,
         scorers=[
             RequiredToolCall(required={"experiment-update"}, name="called_experiment_update"),

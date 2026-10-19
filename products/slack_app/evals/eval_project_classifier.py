@@ -47,6 +47,7 @@ from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
 from products.slack_app.backend.temporal.activities import classifiers
+from products.slack_app.evals.offline_config import offline_suite
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT
@@ -531,6 +532,10 @@ async def eval_project_classifier(ctx: EvalContext) -> None:
 
     await OneShotPublicEval(
         experiment_name="slack-app-project-classifier",
+        offline_suite=offline_suite(
+            "slack_app/eval_project_classifier::eval_project_classifier",
+            metrics=["project_route_match", "no_unasked_project_switch"],
+        ),
         cases=[
             *ROUTING_CASES,
             *CROWDED_ROUTING_CASES,

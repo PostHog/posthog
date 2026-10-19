@@ -4,6 +4,7 @@ import os
 import re
 import json
 import asyncio
+import logging
 from collections import Counter
 from collections.abc import Mapping
 from contextlib import suppress
@@ -14,6 +15,7 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid5
 
 from posthoganalytics.ai.evaluations import (
+    AsyncExperiment,
     AsyncOfflineEvaluations,
     BulkUploadError,
     EvaluationAPIError,
@@ -30,6 +32,14 @@ from posthog.dataclasses import frozen
 
 from .engines.types import CaseResult, ExperimentResult, ScorerResult
 
+logger = logging.getLogger(__name__)
+
+
+@frozen
+class OfflineScorer:
+    kind: ScorerKind
+    version: UUID
+
 
 @frozen
 class OfflineEvalSuite:
@@ -37,7 +47,20 @@ class OfflineEvalSuite:
     project_id: int
     scorer_kinds: Mapping[str, ScorerKind]
     scorer_versions: Mapping[str, UUID]
+    tags: tuple[str, ...] = ()
     experiment_options: ExperimentOptions = field(default_factory=lambda: ExperimentOptions())
+
+    @classmethod
+    def from_scorers(
+        cls, *, key: str, project_id: int, scorers: Mapping[str, OfflineScorer], tags: tuple[str, ...]
+    ) -> OfflineEvalSuite:
+        return cls(
+            key=key,
+            project_id=project_id,
+            scorer_kinds={metric: scorer.kind for metric, scorer in scorers.items()},
+            scorer_versions={metric: scorer.version for metric, scorer in scorers.items()},
+            tags=tags,
+        )
 
 
 class OfflineUploadError(Exception):
@@ -163,6 +186,7 @@ class OfflineEvalUpload:
     experiment_name: str
     experiment: ExperimentOptions
     results: tuple[EvaluationResult, ...]
+    tags: tuple[str, ...] = ()
 
 
 class OfflineEvalPublisher:
@@ -176,6 +200,7 @@ class OfflineEvalPublisher:
         self.settings = settings
         self.suite = suite
         self.application_trace_ids_enabled = application_trace_ids_enabled
+        self._attempted_tag_updates: set[str] = set()
 
     def _item_payload(
         self,
@@ -377,7 +402,29 @@ class OfflineEvalPublisher:
             experiment_name=experiment_name,
             experiment=experiment,
             results=tuple(scores),
+            tags=self.suite.tags,
         )
+
+    async def _tag_experiment(self, experiment: AsyncExperiment, tags: tuple[str, ...]) -> None:
+        if not tags or experiment.id in self._attempted_tag_updates:
+            return
+        self._attempted_tag_updates.add(experiment.id)
+        try:
+            await experiment.set_tags(tags)
+        except EvaluationAPIError as error:
+            logger.warning(
+                "PostHog offline results uploaded, but tagging failed for experiment %s (status=%s, code=%s). "
+                "Tagging requires a personal key with evaluation:write. Tag updates are not retried.",
+                experiment.id,
+                error.status,
+                OfflineUploadError._safe_token(error.code, path=False),
+            )
+        except asyncio.CancelledError:
+            logger.warning(
+                "PostHog offline tag update interrupted for experiment %s; inspect its tags before retrying.",
+                experiment.id,
+            )
+            raise
 
     async def publish(self, upload: OfflineEvalUpload) -> str:
         if upload.host != self.settings.host or upload.project_id != self.settings.project_id:
@@ -398,6 +445,7 @@ class OfflineEvalPublisher:
                     with suppress(Exception):
                         await asyncio.wait_for(experiment.fail(), timeout=5)
                     raise
+                await self._tag_experiment(experiment, upload.tags)
         except EvaluationAPIError as error:
             raise OfflineUploadError(str(error), api_error=error) from None
         return (

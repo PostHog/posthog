@@ -387,16 +387,18 @@ The summary includes the trial ID, the agent trace ID when available, phase dura
 Case names and `--eval` filters stay the same.
 
 `SandboxedPublicEval` sets `no_send_logs=False` and reports results to Braintrust, plus PostHog when the suite has offline publishing configured.
-`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service; local logs are still written.
-PostHog result uploads follow `no_send_logs` independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
+`SandboxedPrivateEval` sets `no_send_logs=True` and uploads results to neither service by default; local logs are still written.
+Both sandboxed and one-shot suites can set `send_to_posthog=True` with `offline_suite` to publish only to PostHog while Braintrust uploads remain disabled, or `send_to_posthog=False` to disable PostHog uploads independently.
+The 11 experiment-skill suites use this PostHog-only mode.
+PostHog result uploads default to following `no_send_logs`, independently of `OPT_OUT_CAPTURE`, which still applies to ordinary SDK and trace clients.
 See [evaluation result reporting](../../../docs/internal/ai-offline-evaluation-reporting.md) for capture settings and scope.
 
 ### SQL offline experiment pilot
 
 The `sql/eval_sql::eval_sql` suite can also send its seven scorer results to PostHog's offline experiment API.
 It publishes the same completed case results through the Python SDK and keeps sending to Braintrust.
-Other public suites report scores to Braintrust until they opt into offline publishing.
-Agent and judge trace capture remains available, and `no_send_logs=True` suppresses offline result uploads.
+PostHog AI and Slack app public suites also opt into offline publishing with their own tagged scorer versions.
+Agent and judge trace capture remains available. `no_send_logs=True` suppresses offline result uploads unless `send_to_posthog=True` is explicitly set.
 
 Set `POSTHOG_OFFLINE_EVAL_API_KEY` to a personal or project secret key with `offline_evaluation_ingestion:write` and access to project `2`.
 The [SQL suite definition](../evals/sql/eval_sql.py) pins that project ID and all seven immutable scorer version UUIDs in code.
