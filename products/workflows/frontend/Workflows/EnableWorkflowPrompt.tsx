@@ -19,12 +19,17 @@ export function EnableWorkflowPrompt({
     return (
         <LemonModal
             isOpen={!!domains}
-            onClose={onCancel}
+            onClose={loading ? undefined : onCancel}
             title="Enable this workflow?"
             width={480}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={onCancel} data-attr="workflow-enable-prompt-cancel">
+                    <LemonButton
+                        type="secondary"
+                        onClick={onCancel}
+                        disabledReason={loading ? 'Enabling the workflow' : undefined}
+                        data-attr="workflow-enable-prompt-cancel"
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton

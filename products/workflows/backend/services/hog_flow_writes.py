@@ -213,6 +213,7 @@ def enable(*, team_id: int, hog_flow_id: UUID, user_id: int, validated_data: Map
 def enable_waiting(*, team_id: int, sender_ids: frozenset[int]) -> tuple[StatusChange, ...]:
     """Take live each waiting workflow that sends from ``sender_ids`` and has no unverified sender left."""
     changes = []
+    went_live: list[tuple[HogFlow, HogFlow]] = []
     for hog_flow_id in waiting_flows_using(team_id=team_id, sender_ids=sender_ids):
         with transaction.atomic():
             locked = (
@@ -227,8 +228,11 @@ def enable_waiting(*, team_id: int, sender_ids: frozenset[int]) -> tuple[StatusC
             if change is None:
                 continue
             locked.save()
-        _reschedule_timing_edits(team_id, before, locked)
         changes.append(change)
+        went_live.append((before, locked))
+    # After the loop, so a failed enqueue cannot stop the other workflows going live.
+    for before, after in went_live:
+        _reschedule_timing_edits(team_id, before, after)
     return tuple(changes)
 
 

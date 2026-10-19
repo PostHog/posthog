@@ -154,7 +154,10 @@ class EmailIntegration:
 
     def _mark_matching_senders_verified(self) -> list[int]:
         with transaction.atomic():
-            verified_ids = list(self._matching_senders().select_for_update().values_list("id", flat=True))
+            # Ordered by id, like the enable path locks senders, so the two never deadlock.
+            verified_ids = list(
+                self._matching_senders().order_by("id").select_for_update().values_list("id", flat=True)
+            )
             model.Integration.objects.filter(id__in=verified_ids).update(config=_with_config_key("verified", True))
             from products.workflows.backend.facade.api import (  # noqa: PLC0415 — keeps the workflows facade off the model import path
                 enable_waiting_workflows,

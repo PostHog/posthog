@@ -5287,8 +5287,8 @@ class HogFlowViewSet(
             new_actions = _apply_action_email_edit(base_actions, action_id, email_patch, rendered)
             return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
 
-        # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
-        # reschedule: an email edit can't delete steps or change timing config.
+        # Same staleness and draft contract as /graph, but no action-redirect refresh: an email edit
+        # can't delete steps. Timing reschedules only when the edit takes a waiting workflow live.
         try:
             result = edit_workflow_content(
                 team_id=self.team_id,

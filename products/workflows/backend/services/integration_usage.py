@@ -85,7 +85,7 @@ def _as_sender_id(value: object) -> int | None:
         return None
 
 
-def _dict_at(node: object, *keys: str) -> dict:
+def _dict_at(node: object, *keys: str) -> dict[str, object]:
     for key in keys:
         node = node.get(key) if isinstance(node, dict) else None
     return node if isinstance(node, dict) else {}
@@ -125,7 +125,9 @@ def lock_unverified_senders(*, team_id: int, sender_ids: frozenset[int]) -> froz
     if not sender_ids:
         return frozenset()
     return frozenset(
-        sender.id for sender in _email_integrations(team_id, sender_ids).select_for_update() if _is_unverified(sender)
+        sender.id
+        for sender in _email_integrations(team_id, sender_ids).order_by("id").select_for_update()
+        if _is_unverified(sender)
     )
 
 

@@ -49,12 +49,12 @@ export function WorkflowStatusBar({
         : isActive
           ? 'Changes you make save as a draft.'
           : isWaitingForDomain
-            ? 'Edits save now. The workflow starts sending once its email domain is verified.'
+            ? 'Edits save now. Sending starts once every email domain is verified.'
             : null
     const autoSaveExplanation = isActive
         ? 'Auto-save stores your changes as a draft. Nothing goes live until you publish.'
         : isWaitingForDomain
-          ? 'Auto-save stores your edits now. The workflow starts sending once its email domain is verified.'
+          ? 'Auto-save stores your edits now. Sending starts once every email domain is verified.'
           : 'Draft workflows auto-save as you edit.'
 
     return (
