@@ -29,7 +29,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
     DestinationConnectionCheckError,
     check_postgres_destination,
 )
-from products.warehouse_sources.backend.presentation.destination_connection_test import (
+from products.warehouse_sources.backend.presentation.destination_connection_testing import (
     ConnectionTestRun,
     DestinationConnectionTestStepStatus,
     run_connection_test,

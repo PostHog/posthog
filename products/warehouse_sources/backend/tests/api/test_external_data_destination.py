@@ -37,7 +37,7 @@ from products.warehouse_sources.backend.presentation.destination_connection_chec
     CheckFailure,
     DestinationConnectionCheckError,
 )
-from products.warehouse_sources.backend.presentation.destination_connection_test import (
+from products.warehouse_sources.backend.presentation.destination_connection_testing import (
     CONNECTION_TEST_TABLE_PREFIX,
     new_connection_test_table,
 )
@@ -77,7 +77,7 @@ class DestinationAPITestBase(APIBaseTest):
         )
         self.check_connection = check_patcher.start()
         self.addCleanup(check_patcher.stop)
-        facade = "products.warehouse_sources.backend.presentation.destination_connection_test.batch_exports_api"
+        facade = "products.warehouse_sources.backend.presentation.destination_connection_testing.batch_exports_api"
         describe_patcher = patch(f"{facade}.describe_destination_test", return_value=_destination_test(1))
         self.describe_test = describe_patcher.start()
         self.addCleanup(describe_patcher.stop)
@@ -85,7 +85,7 @@ class DestinationAPITestBase(APIBaseTest):
         self.run_test_step = run_patcher.start()
         self.addCleanup(run_patcher.stop)
         table_patcher = patch(
-            "products.warehouse_sources.backend.presentation.destination_connection_test.new_connection_test_table",
+            "products.warehouse_sources.backend.presentation.destination_connection_testing.new_connection_test_table",
             return_value=f"{CONNECTION_TEST_TABLE_PREFIX}_abc123",
         )
         table_patcher.start()
@@ -422,7 +422,7 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         destination = self._create_destination(config={"database": "analytics"})
 
         with patch(
-            "products.warehouse_sources.backend.presentation.destination_connection_test.check_postgres_destination",
+            "products.warehouse_sources.backend.presentation.destination_connection_testing.check_postgres_destination",
             side_effect=error,
         ) as check:
             response = self.client.post(f"{self.base}/{destination.id}/test_connection")
