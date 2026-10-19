@@ -36,7 +36,7 @@ function Arrow({ second = false }: { second?: boolean }): JSX.Element {
         <div
             className={`InboxWelcome__arrow ${
                 second ? 'InboxWelcome__arrow--second ' : ''
-            }hidden pt-5 text-center text-2xl text-border-secondary @3xl/loop:block`}
+            }hidden pt-5 text-center text-2xl text-border-secondary @2xl/loop:block`}
             aria-hidden="true"
         >
             &#8594;
@@ -52,7 +52,7 @@ export function LoopDiagram(): JSX.Element {
     return (
         // text-left so the mock UI stays left-aligned even inside a text-center hero (the intro modal)
         <div className="@container/loop w-full">
-            <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 text-left @3xl/loop:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
+            <div className="pointer-events-none select-none grid grid-cols-1 items-center gap-x-1.5 gap-y-4 text-left @2xl/loop:grid-cols-[1fr_34px_1fr_34px_1.2fr]">
                 <div className="flex flex-col gap-2">
                     <StageLabel>Signal sources</StageLabel>
                     <StageCard stage="signals" className="flex items-center gap-2 px-3 py-2.5">
