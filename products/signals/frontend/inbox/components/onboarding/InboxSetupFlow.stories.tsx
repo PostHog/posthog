@@ -500,6 +500,9 @@ export const QuickActivated: Story = {
     decorators: [
         mswDecorator({
             get: {
+                '/api/projects/:id/signals/scout/suggestions/': mockScoutSuggestionSet({
+                    generated_at: '2026-10-14T00:00:00Z',
+                }),
                 '/api/projects/:id/signals/onboarding/': {
                     draft,
                     completed_at: '2026-10-14T00:00:00Z',
