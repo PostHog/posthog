@@ -1,83 +1,37 @@
-import json
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.crunchbase import (
     PAGE_SIZE,
     CrunchbaseResumeConfig,
     _flatten_entity,
     _format_updated_at,
-    crunchbase_source,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import CRUNCHBASE_ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the crunchbase module.
-CRUNCHBASE_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.crunchbase.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.settings import (
+    CRUNCHBASE_ENDPOINTS,
+    CrunchbaseEndpointConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.crunchbase.source import CrunchbaseSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.crunchbase import (
+    CrunchbaseSourceConfig,
 )
 
 
-def _response(entities: list[dict[str, Any]] | None, *, drop_entities: bool = False) -> Response:
-    body: dict[str, Any] = {"count": len(entities or [])}
-    if not drop_entities:
-        body["entities"] = entities or []
-    resp = Response()
-    resp.status_code = 200
-    resp._content = json.dumps(body).encode()
-    return resp
+def _page(entities: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"count": len(entities), "entities": entities})
 
 
-def _make_manager(resume_state: CrunchbaseResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's JSON body AT SEND TIME.
-
-    ``request.json`` is a single dict mutated in place across pages (the paginator injects
-    ``after_id`` into it), so inspecting it after the run shows only the final state — snapshot
-    a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    body_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        body_snapshots.append(dict(request.json or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return body_snapshots
-
-
-def _pages(source_response) -> list[list[dict[str, Any]]]:
-    return list(source_response.items())
-
-
-def _rows(source_response) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str = "organizations", manager: mock.MagicMock | None = None, **kwargs: Any):
-    return crunchbase_source(
-        "key",
-        endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager if manager is not None else _make_manager(),
-        **kwargs,
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(CrunchbaseSource(), CrunchbaseSourceConfig(api_key="key"))
 
 
 class TestFormatUpdatedAt:
@@ -90,16 +44,16 @@ class TestFormatUpdatedAt:
             ("2024-01-02T03:04:05Z", "2024-01-02T03:04:05Z"),
         ],
     )
-    def test_format_values(self, value, expected):
+    def test_format_values(self, value: Any, expected: str) -> None:
         assert _format_updated_at(value) == expected
 
 
 class TestFlattenEntity:
-    def test_hoists_properties_and_uuid(self):
+    def test_hoists_properties_and_uuid(self) -> None:
         entity = {"uuid": "u1", "properties": {"name": "Acme", "updated_at": "2024-01-02T00:00:00Z"}}
         assert _flatten_entity(entity) == {"name": "Acme", "updated_at": "2024-01-02T00:00:00Z", "uuid": "u1"}
 
-    def test_handles_missing_properties(self):
+    def test_handles_missing_properties(self) -> None:
         assert _flatten_entity({"uuid": "u1"}) == {"uuid": "u1"}
 
 
@@ -114,88 +68,75 @@ class TestValidateCredentials:
             (401, False),
         ],
     )
-    @mock.patch(CRUNCHBASE_SESSION_PATCH)
-    def test_validate_credentials_status_mapping(self, mock_session, status_code, expected):
-        response = mock.MagicMock()
-        response.status_code = status_code
-        mock_session.return_value.post.return_value = response
+    def test_validate_credentials_status_mapping(self, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("key") is expected
 
-        assert validate_credentials("key") is expected
+        assert len(network.requests_log) == 1
+        request = network.requests_log[0]
+        assert request.path == "/v4/data/searches/organizations"
+        assert request.method == "POST"
+        assert request.headers["x-cb-user-key"] == "key"
+        assert request.json() == {"field_ids": ["identifier"], "limit": 1}
 
-    @mock.patch(CRUNCHBASE_SESSION_PATCH)
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.post.side_effect = Exception("boom")
-        assert validate_credentials("key") is False
+    def test_validate_credentials_swallows_exceptions(self) -> None:
+        with scripted_network(always(ConnectionResetError("boom"))):
+            assert validate_credentials("key") is False
 
 
 class TestPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_paginates_via_after_id_keyset(self, MockSession):
-        session = MockSession.return_value
+    def test_paginates_via_after_id_keyset(self) -> None:
         full_page = [{"uuid": f"u{i}", "properties": {"updated_at": "2024-01-01T00:00:00Z"}} for i in range(PAGE_SIZE)]
-        bodies = _wire(session, [_response(full_page), _response([{"uuid": "last", "properties": {}}])])
+        result = _driver().run("organizations", [_page(full_page), _page([{"uuid": "last", "properties": {}}])])
 
-        manager = _make_manager()
-        pages = _pages(_source(manager=manager))
-
-        assert len(pages) == 2
+        assert result.raised is None
+        assert len(result.items) == 2
         # A short second page ends pagination without an extra empty request.
-        assert session.send.call_count == 2
+        assert len(result.requests) == 2
         # Checkpoint saved once after the first full page, pointing at the keyset cursor.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == CrunchbaseResumeConfig(after_id=f"u{PAGE_SIZE - 1}")
+        assert result.saved_states == [CrunchbaseResumeConfig(after_id=f"u{PAGE_SIZE - 1}")]
         # First page carries no cursor; the second requests entities after the last full-page uuid.
-        assert "after_id" not in bodies[0]
-        assert bodies[1]["after_id"] == f"u{PAGE_SIZE - 1}"
+        assert "after_id" not in result.requests[0].json()
+        assert result.requests[1].json()["after_id"] == f"u{PAGE_SIZE - 1}"
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rows_are_flattened(self, MockSession):
-        session = MockSession.return_value
-        _wire(session, [_response([{"uuid": "u1", "properties": {"name": "Acme"}}])])
+    def test_rows_are_flattened(self) -> None:
+        result = _driver().run("organizations", [_page([{"uuid": "u1", "properties": {"name": "Acme"}}])])
 
-        rows = _rows(_source())
-        assert rows == [{"name": "Acme", "uuid": "u1"}]
+        assert result.raised is None
+        assert result.rows == [{"name": "Acme", "uuid": "u1"}]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_after_id(self, MockSession):
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([])])
-
-        manager = _make_manager(CrunchbaseResumeConfig(after_id="uuid-resume"))
-        _rows(_source(manager=manager))
-
-        assert bodies[0]["after_id"] == "uuid-resume"
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_incremental_body_built_from_watermark(self, MockSession):
-        session = MockSession.return_value
-        bodies = _wire(session, [_response([])])
-
-        _rows(
-            _source(
-                should_use_incremental_field=True,
-                db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
-            )
+    def test_resumes_from_saved_after_id(self) -> None:
+        result = _driver().run(
+            "organizations", [_page([])], resume_state=CrunchbaseResumeConfig(after_id="uuid-resume")
         )
 
-        query = bodies[0]["query"]
+        assert result.raised is None
+        assert result.requests[0].json()["after_id"] == "uuid-resume"
+
+    def test_incremental_body_built_from_watermark(self) -> None:
+        result = _driver().run(
+            "organizations",
+            [_page([])],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2024, 1, 2, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        query = result.requests[0].json()["query"]
         assert query[0]["operator_id"] == "gte"
         assert query[0]["values"] == ["2024-01-02T00:00:00Z"]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_entity_without_uuid_raises(self, MockSession):
+    def test_entity_without_uuid_raises(self) -> None:
         # uuid is the primary key; a missing one must surface immediately rather
         # than producing a null-keyed row that corrupts downstream merge/dedup.
-        session = MockSession.return_value
-        _wire(session, [_response([{"properties": {}}])])
+        result = _driver().run("organizations", [_page([{"properties": {}}])])
 
-        with pytest.raises(KeyError):
-            _rows(_source())
+        assert isinstance(result.raised, KeyError)
 
 
 class TestCrunchbaseSourceResponse:
     @pytest.mark.parametrize("config", list(CRUNCHBASE_ENDPOINTS.values()))
-    def test_field_ids_always_include_watermark_fields(self, config):
+    def test_field_ids_always_include_watermark_fields(self, config: CrunchbaseEndpointConfig) -> None:
         # updated_at must be requested or the incremental watermark can't track.
         assert "updated_at" in config.field_ids
         assert "created_at" in config.field_ids

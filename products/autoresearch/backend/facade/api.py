@@ -13,6 +13,7 @@ import json
 import base64
 import asyncio
 import hashlib
+from collections.abc import Iterable
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -21,6 +22,8 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, F, Prefetch, Q
 from django.utils import timezone as django_timezone
+
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -45,11 +48,14 @@ from ..evaluation.segment_thresholds import (
     BASE_RATE_DATES,
     FIXED_LIKELY_THRESHOLD,
     LIKELY_LIFT,
+    BaseRateSource,
     champion_score_calibration,
     segment_thresholds,
+    training_base_rate,
 )
 from ..inference.failures import INFERENCE_WORKFLOW_TIMEOUT
 from ..models import (
+    RESEARCH_INTERVAL_DAYS_CHOICES as _RESEARCH_INTERVAL_DAYS_CHOICES,
     AutoresearchIteration,
     AutoresearchModel,
     AutoresearchPipeline,
@@ -65,6 +71,7 @@ from ..training.explanation import (
     normalize_model_explanation,
 )
 from ..training.recipe_validation import RecipeValidationError, feature_sql_hints, validate_feature_sql, validate_recipe
+from ..training.schedule import ScheduleRun, research_schedule, schedule_runs_for
 from ..training.shadow_set import shadow_set_ids
 from .contracts import (
     ArtifactContent,
@@ -105,6 +112,8 @@ from .contracts import (
     TrainingTrendPoint,
     ValidationWarning,
 )
+
+logger = structlog.get_logger(__name__)
 
 AUTORESEARCH_FLAG = "autoresearch"
 
@@ -178,18 +187,32 @@ class _PipelineActivity:
     training_run_count: int
     experiment_count: int
     live_training_run: LiveTrainingRun | None
+    schedule_runs: list[ScheduleRun]
+
+
+def _best_so_far_trend(scores: Iterable[tuple[int, float | None]]) -> list[TrainingTrendPoint]:
+    """Best holdout score up to each iteration, oldest first. Iterations before the first score are left out."""
+    trend: list[TrainingTrendPoint] = []
+    best: float | None = None
+    for iteration_number, holdout_score in scores:
+        if holdout_score is not None and (best is None or holdout_score > best):
+            best = holdout_score
+        if best is not None:
+            trend.append(TrainingTrendPoint(iteration_number=iteration_number, best_holdout_score=best))
+    return trend
 
 
 def _live_training_run(run: AutoresearchTrainingRun, iterations: list[AutoresearchIteration]) -> LiveTrainingRun:
     # The run's own counters land only at completion, so progress comes from the live iteration rows.
-    scores = [i.holdout_score for i in iterations if i.holdout_score is not None]
+    trend = _best_so_far_trend((i.iteration_number, i.holdout_score) for i in iterations)
     return LiveTrainingRun(
         id=run.id,
         iteration_budget=run.iteration_budget,
         experiment_count=len(iterations),
-        best_holdout_score=max(scores) if scores else None,
+        best_holdout_score=trend[-1].best_holdout_score if trend else None,
         latest_agent_description=iterations[-1].agent_description if iterations else "",
         latest_summary=iterations[-1].summary if iterations else None,
+        trend=trend,
     )
 
 
@@ -214,21 +237,16 @@ def _champion_training_trends(
 ) -> dict[UUID, list[TrainingTrendPoint]]:
     """Best-so-far holdout score per iteration of the run that trained each champion, oldest first."""
     pipeline_by_run = {c.source_training_run_id: p for p, c in champions.items() if c.source_training_run_id}
-    trends: dict[UUID, list[TrainingTrendPoint]] = {}
-    best: dict[UUID, float] = {}
+    scores: dict[UUID, list[tuple[int, float | None]]] = {}
     for training_run_id, iteration_number, holdout_score in (
         AutoresearchIteration.objects.for_team(team_id)
         .filter(training_run_id__in=list(pipeline_by_run))
         .order_by("training_run_id", "iteration_number")
         .values_list("training_run_id", "iteration_number", "holdout_score")
     ):
-        if holdout_score is not None and holdout_score > best.get(training_run_id, -1.0):
-            best[training_run_id] = holdout_score
-        if training_run_id in best:
-            trends.setdefault(pipeline_by_run[training_run_id], []).append(
-                TrainingTrendPoint(iteration_number=iteration_number, best_holdout_score=best[training_run_id])
-            )
-    return trends
+        scores.setdefault(training_run_id, []).append((iteration_number, holdout_score))
+    trends = {pipeline_by_run[run_id]: _best_so_far_trend(run_scores) for run_id, run_scores in scores.items()}
+    return {pipeline_id: trend for pipeline_id, trend in trends.items() if trend}
 
 
 def _champion_likely_counts(team_id: int, champions: dict[UUID, AutoresearchModel]) -> dict[UUID, tuple[int, float]]:
@@ -313,7 +331,7 @@ def _pipeline_activity(
     for iteration in (
         AutoresearchIteration.objects.for_team(team_id)
         .filter(training_run_id__in=[run.id for run in live_runs.values()])
-        .only("training_run_id", "holdout_score", "agent_description", "summary")
+        .only("training_run_id", "iteration_number", "holdout_score", "agent_description", "summary")
         .order_by("training_run_id", "iteration_number")
     ):
         live_iterations.setdefault(iteration.training_run_id, []).append(iteration)
@@ -325,6 +343,7 @@ def _pipeline_activity(
     training_trends = _champion_training_trends(team_id, champions)
     likely_counts = _champion_likely_counts(team_id, champions)
     first_checks = _first_checks_expected(team_id, champions)
+    schedule_runs = schedule_runs_for(pipeline_ids, team_id)
     return {
         pipeline_id: _PipelineActivity(
             champion_realized_auc_trend=[
@@ -343,6 +362,7 @@ def _pipeline_activity(
                 if pipeline_id in live_runs
                 else None
             ),
+            schedule_runs=schedule_runs.get(pipeline_id, []),
         )
         for pipeline_id in pipeline_ids
     }
@@ -354,6 +374,11 @@ def _pipeline_to_contract(
     champion: AutoresearchModel | None = None,
     activity: _PipelineActivity,
 ) -> Pipeline:
+    schedule = research_schedule(
+        research_interval_days=row.research_interval_days,
+        pipeline_created_at=row.created_at,
+        runs=activity.schedule_runs,
+    )
     return Pipeline(
         id=row.id,
         name=row.name,
@@ -371,9 +396,14 @@ def _pipeline_to_contract(
         # The column is nullable (an admin can clear it); read that as no budget left
         # rather than widening the contract type.
         iteration_budget_remaining=row.iteration_budget_remaining or 0,
+        iterations_per_run=row.iterations_per_run,
+        research_interval_days=row.research_interval_days,
+        training_phase=schedule.phase,
+        next_research_at=schedule.next_research_at,
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
+        write_person_property=row.write_person_property,
         status=row.status,
         created_by=row.created_by,
         created_at=row.created_at,
@@ -435,6 +465,7 @@ def _iteration_trail_entry(row: AutoresearchIteration) -> IterationTrailEntry:
         train_score=row.train_score,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         model_spec=row.model_spec or {},
         recipe_snapshot=row.recipe_snapshot or {},
     )
@@ -448,11 +479,13 @@ def _training_run_to_contract(row: AutoresearchTrainingRun) -> TrainingRun:
         task_run_id=row.task_run_id,
         task_url=f"/tasks/{row.task_id}" if row.task_id else None,
         status=row.status,
+        kickoff_reason=row.kickoff_reason,
         iteration_budget=row.iteration_budget,
         iteration_count=row.iteration_count,
         best_holdout_score=row.best_holdout_score,
         summary=row.summary or None,
         reader_summary=row.reader_summary,
+        headline=row.headline,
         next_steps=row.next_steps,
         iterations=[_iteration_trail_entry(i) for i in row.iterations.all()],
         error=row.error,
@@ -476,6 +509,7 @@ def _iteration_to_contract(row: AutoresearchIteration) -> Iteration:
         status=row.status,
         agent_description=row.agent_description,
         summary=row.summary,
+        headline=row.headline,
         agent_confidence=row.agent_confidence,
         parent_suggestion=row.parent_suggestion_id,
         created_at=row.created_at,
@@ -601,6 +635,19 @@ def get_pipeline(team_id: int, pipeline_id: str | UUID) -> Pipeline:
     return _pipeline_with_champion(_pipeline_row(team_id, pipeline_id, live_only=True))
 
 
+def pipeline_writes_person_property(team_id: int, pipeline_id: str | UUID) -> bool:
+    """Whether a live pipeline writes its output property, so archiving or deleting it starts a cleanup."""
+    pipeline_uuid = _as_uuid(pipeline_id)
+    if pipeline_uuid is None:
+        return False
+    return (
+        AutoresearchPipeline.objects.for_team(team_id)
+        .exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+        .filter(pk=pipeline_uuid, write_person_property=True)
+        .exists()
+    )
+
+
 def create_pipeline(team_id: int, *, fields: dict[str, Any], created_by: Any) -> Pipeline:
     row = AutoresearchPipeline.objects.create(
         team_id=team_id,
@@ -636,11 +683,15 @@ def _changes_model_definition(row: AutoresearchPipeline, fields: dict[str, Any])
     return False
 
 
-def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any]) -> Pipeline:
+def update_pipeline(
+    team_id: int, pipeline_id: str | UUID, *, fields: dict[str, Any], user_id: int | None = None
+) -> Pipeline:
     """Update a pipeline. Refuses a change to what it predicts while a run is live or once a model exists.
 
     The row lock serializes this with ``start_training``, so a run cannot start between the
     live-run check and the write, and a concurrent delete waits instead of racing the save.
+
+    Turning ``write_person_property`` off starts a cleanup that removes the output property from persons.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -666,18 +717,32 @@ def update_pipeline(team_id: int, pipeline_id: str | UUID, *, fields: dict[str, 
                     "What the pipeline predicts cannot change after a model has been trained. "
                     "Create a new pipeline to predict a different target."
                 )
+        renames_property = (
+            fields.get("output_person_property", row.output_person_property) != row.output_person_property
+        )
+        # A rename while writing would leave the old property on persons with no cleanup to remove it.
+        if row.write_person_property and fields.get("write_person_property", True) and renames_property:
+            raise AutoresearchConflict(
+                "Turn off writing scores to person profiles before you rename the person property. "
+                "Turning it off removes the old property from the people this model scored."
+            )
+        stops_writing = row.write_person_property and fields.get("write_person_property") is False
+        cleanup_property = row.output_person_property
         for key, value in fields.items():
             setattr(row, key, value)
         # Only the request's fields, so the write never touches a column the request did not set.
         row.save(update_fields=[*fields, "updated_at"])
+        if stops_writing:
+            _queue_property_cleanup(row, output_property=cleanup_property, user_id=user_id)
     return _pipeline_with_champion(row)
 
 
-def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
+def delete_pipeline(team_id: int, pipeline_id: str | UUID, *, user_id: int | None = None) -> None:
     """Delete a pipeline and its rows. Refused while a training run is live.
 
     The TaskRun is linked only by id, so a cascade would leave its paid sandbox running with
-    nothing to report to.
+    nothing to report to. A pipeline that wrote its output property starts a cleanup, which
+    records no run because the runs go with the pipeline.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -694,6 +759,8 @@ def delete_pipeline(team_id: int, pipeline_id: str | UUID) -> None:
             raise PipelineNotFound("Pipeline not found.")
         if _has_live_training_run(team_id, row):
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before deleting.")
+        if row.write_person_property:
+            _queue_property_cleanup(row, output_property=row.output_person_property, user_id=user_id, record_run=False)
         row.delete()
 
 
@@ -705,11 +772,12 @@ _STATUS_TRANSITION_SOURCES: dict[str, frozenset[str]] = {
 }
 
 
-def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -> Pipeline:
+def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str, user_id: int | None = None) -> Pipeline:
     """Archive, pause, or resume a pipeline.
 
     The row lock serializes this with a concurrent lifecycle change and with ``start_training``,
     so a stale read cannot revive an archived pipeline, and archival cannot race a new run.
+    Archiving a pipeline that writes its output property starts a cleanup.
     """
     pipeline_uuid = _as_uuid(pipeline_id)
     if pipeline_uuid is None:
@@ -732,7 +800,87 @@ def set_pipeline_status(team_id: int, pipeline_id: str | UUID, *, status: str) -
             raise AutoresearchConflict("A training run is in progress. Wait for it to finish before archiving.")
         row.status = status
         row.save(update_fields=["status", "updated_at"])
+        if status == AutoresearchPipeline.Status.ARCHIVED and row.write_person_property:
+            _queue_property_cleanup(row, output_property=row.output_person_property, user_id=user_id)
     return _pipeline_with_champion(row)
+
+
+def _queue_property_cleanup(
+    row: AutoresearchPipeline, *, output_property: str, user_id: int | None, record_run: bool = True
+) -> None:
+    """Start the cleanup workflow once the caller's transaction commits, so it reads the committed setting."""
+    if not output_property:
+        return
+    run = (
+        AutoresearchRun.objects.create(
+            pipeline=row,
+            run_type=AutoresearchRun.RunType.PROPERTY_CLEANUP,
+            status=AutoresearchRun.Status.PENDING,
+            started_at=django_timezone.now(),
+            metrics={"output_person_property": output_property},
+        )
+        if record_run
+        else None
+    )
+    # Read the ids now: a deleted row has no pk by the time the commit callback runs.
+    team_id, pipeline_id, written_since = row.team_id, str(row.pk), row.created_at.isoformat()
+    transaction.on_commit(
+        lambda: _start_property_cleanup(
+            team_id=team_id,
+            pipeline_id=pipeline_id,
+            output_property=output_property,
+            written_since=written_since,
+            run=run,
+            user_id=user_id,
+        )
+    )
+
+
+def _start_property_cleanup(
+    *,
+    team_id: int,
+    pipeline_id: str,
+    output_property: str,
+    written_since: str,
+    run: AutoresearchRun | None,
+    user_id: int | None,
+) -> None:
+    # The Temporal client and the workflow module load only when a cleanup starts.
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415
+
+    from ..temporal.workflows import (  # noqa: PLC0415
+        PROPERTY_CLEANUP_WORKFLOW_TIMEOUT,
+        AutoresearchPropertyCleanupWorkflow,
+        PropertyCleanupWorkflowInput,
+        property_cleanup_workflow_id,
+    )
+
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                AutoresearchPropertyCleanupWorkflow.run,
+                PropertyCleanupWorkflowInput(
+                    pipeline_id=pipeline_id,
+                    team_id=team_id,
+                    output_property=output_property,
+                    written_since=written_since,
+                    run_id=str(run.pk) if run else None,
+                    user_id=user_id,
+                ),
+                id=property_cleanup_workflow_id(pipeline_id, str(run.pk) if run else str(uuid4())),
+                task_queue=settings.AUTORESEARCH_TASK_QUEUE,
+                execution_timeout=PROPERTY_CLEANUP_WORKFLOW_TIMEOUT,
+            )
+        )
+    except Exception as exc:
+        logger.exception("autoresearch_property_cleanup_start_failed", pipeline_id=pipeline_id)
+        if run is not None:
+            AutoresearchRun.objects.for_team(team_id).filter(pk=run.pk).update(
+                status=AutoresearchRun.Status.FAILED,
+                error=f"Could not start the property cleanup: {exc}"[:2000],
+                completed_at=django_timezone.now(),
+            )
 
 
 def _has_live_training_run(team_id: int, pipeline: AutoresearchPipeline) -> bool:
@@ -769,9 +917,12 @@ def get_pipeline_definition(team_id: int, pipeline_id: str | UUID) -> PipelineWr
         inference_population=row.inference_population or {},
         cadence_days=row.cadence_days,
         iteration_budget=row.iteration_budget,
+        iterations_per_run=row.iterations_per_run,
+        research_interval_days=row.research_interval_days,
         success_auc=row.success_auc,
         plateau_iterations=row.plateau_iterations,
         output_person_property=row.output_person_property,
+        write_person_property=row.write_person_property,
     )
 
 
@@ -1187,20 +1338,21 @@ def online_performance(
 def _segment_thresholds(team_id: int, pipeline: AutoresearchPipeline) -> PredictionSegmentThresholds:
     """The current cut points, from a fixed window of checked dates so the request's ``limit`` cannot move them."""
     runs = latest_validation_runs(team_id, pipeline, limit=BASE_RATE_DATES)
-    thresholds = segment_thresholds(runs)
-    champion_id = (
+    champion = (
         AutoresearchModel.objects.for_team(team_id)
         .filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
-        .values_list("id", flat=True)
+        .values("id", "metrics")
         .first()
     )
-    calibration = champion_score_calibration(runs, str(champion_id)) if champion_id is not None else None
+    thresholds = segment_thresholds(runs, training_rate=training_base_rate(champion["metrics"]) if champion else None)
+    calibration = champion_score_calibration(runs, str(champion["id"])) if champion is not None else None
     return PredictionSegmentThresholds(
         likely_threshold=thresholds.likely,
         possible_threshold=thresholds.possible,
         likely_lift=LIKELY_LIFT,
         base_rate=thresholds.base_rate,
         base_rate_dates=thresholds.dates,
+        base_rate_source=thresholds.source,
         champion_mean_p_y=calibration.mean_p_y if calibration else None,
         champion_base_rate=calibration.base_rate if calibration else None,
         scores_miscalibrated=calibration.miscalibrated if calibration else False,
@@ -1282,9 +1434,14 @@ def start_training(
         pipeline = _claim_pipeline_for_training(team_id, pipeline_id)
         if not allow_action_target and pipeline.target_definition.get("type") == "action":
             raise InvalidTarget("An action target needs the action:read scope.")
-        budget = iteration_budget or pipeline.iteration_budget
+        budget = iteration_budget or pipeline.iterations_per_run
         try:
-            training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=user_id)
+            training_run = run_training(
+                pipeline=pipeline,
+                iteration_budget=budget,
+                user_id=user_id,
+                kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
+            )
         except Action.DoesNotExist:
             raise AutoresearchConflict("The pipeline's target action no longer exists.")
         except (ValueError, SandboxInferenceError) as exc:
@@ -1311,7 +1468,8 @@ def open_training_run(
         row = AutoresearchTrainingRun.objects.create(
             pipeline=pipeline,
             status=AutoresearchTrainingRun.Status.RUNNING,
-            iteration_budget=iteration_budget or pipeline.iteration_budget,
+            kickoff_reason=AutoresearchTrainingRun.KickoffReason.MANUAL,
+            iteration_budget=iteration_budget or pipeline.iterations_per_run,
             started_at=django_timezone.now(),
         )
     return _training_run_to_contract(row)
@@ -1356,6 +1514,7 @@ def record_iteration(
             "status": fields["status"],
             "agent_description": fields.get("agent_description", ""),
             "summary": fields.get("summary") or None,
+            "headline": fields.get("headline") or None,
             "agent_confidence": fields.get("agent_confidence"),
         }
         # A re-send that omits parent_suggestion keeps the attribution it recorded the first
@@ -1416,6 +1575,7 @@ def complete_run(
     distillation: str = "",
     report_notebook_short_id: str = "",
     reader_summary: str | None = None,
+    headline: str | None = None,
     next_steps: list[str] | None = None,
 ) -> TrainingRun:
     """Finalize a run. Promotion is server-side, so an agent cannot set the champion."""
@@ -1438,6 +1598,7 @@ def complete_run(
             distillation=distillation or "",
             report_notebook_short_id=report_notebook_short_id or "",
             reader_summary=reader_summary or None,
+            headline=headline or None,
             next_steps=next_steps or None,
         )
     except PromotionError as exc:
@@ -1913,11 +2074,15 @@ TEMPLATE_KEY_CHOICES = _TemplateKey.choices
 VALIDATION_WARNING_CODES = [code.value for code in _ValidationWarningCode]
 MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
 TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
+KICKOFF_REASON_CHOICES = AutoresearchTrainingRun.KickoffReason.choices
+RESEARCH_INTERVAL_DAYS_CHOICES = list(_RESEARCH_INTERVAL_DAYS_CHOICES)
+TRAINING_PHASE_CHOICES = [("explore", "Explore"), ("maintain", "Maintain")]
 ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices
 SUGGESTION_PRIORITY_CHOICES = AutoresearchSuggestion.Priority.choices
 SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
 SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
 RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
+BASE_RATE_SOURCE_CHOICES = BaseRateSource.choices
 RUN_STATUS_CHOICES = AutoresearchRun.Status.choices
 FEATURE_DIRECTION_CHOICES = _FeatureDirection.choices
 MAX_TOP_FEATURES = _MAX_TOP_FEATURES

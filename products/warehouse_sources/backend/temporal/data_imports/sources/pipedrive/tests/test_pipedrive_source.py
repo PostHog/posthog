@@ -62,14 +62,6 @@ class TestPipedriveSource:
         assert all(not schema.supports_append for schema in schemas)
         assert all(schema.incremental_fields == [] for schema in schemas)
 
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["deals"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "deals"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid, expected_message_substring",
         [

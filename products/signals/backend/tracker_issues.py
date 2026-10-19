@@ -19,6 +19,7 @@ import structlog
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.dataclasses import frozen
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import (
     SUPPORTED_EXTERNAL_ISSUE_PROVIDERS,
     GitHubIntegration,
@@ -118,7 +119,7 @@ def _create_provider_issue(target: TrackerIssueTarget, *, title: str, body: str,
         }
         if label:
             config["labels"] = [label]
-        github = GitHubIntegration(target.integration)
+        github = GitHubIntegration(target.integration, source="signals_tracker_issues", priority=Priority.CRITICAL)
         context = dict(github.create_issue(config))
         repository = str(context["repository"])
         context["repository"] = repository if "/" in repository else f"{github.organization()}/{repository}"
@@ -360,7 +361,9 @@ def _comment_before_close(tracker: SignalReportTrackerIssue, *, report_link: str
         return
     context = tracker.external_context or {}
     try:
-        GitHubIntegration(tracker.integration).comment_on_issue(
+        GitHubIntegration(
+            tracker.integration, source="signals_tracker_issues", priority=Priority.BATCH
+        ).comment_on_issue(
             context["repository"],
             int(context["number"]),
             _close_notice(report_link=report_link, actor_mention=actor_mention),
@@ -376,7 +379,9 @@ def _close_provider_issue(tracker: SignalReportTrackerIssue, *, completed: bool)
     context = tracker.external_context or {}
 
     if tracker.provider == Integration.IntegrationKind.GITHUB:
-        GitHubIntegration(integration).close_issue(context["repository"], int(context["number"]), completed=completed)
+        GitHubIntegration(integration, source="signals_tracker_issues", priority=Priority.CRITICAL).close_issue(
+            context["repository"], int(context["number"]), completed=completed
+        )
     elif tracker.provider == Integration.IntegrationKind.GITLAB:
         GitLabIntegration(integration).close_issue(int(context["issue_id"]))
     elif tracker.provider == Integration.IntegrationKind.LINEAR:

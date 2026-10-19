@@ -1,5 +1,6 @@
 from typing import Optional, cast
 
+from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
     DataWarehouseSourceCategory,
     ReleaseStatus,
@@ -30,6 +31,10 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 @SourceRegistry.register
 class DripSource(ResumableSource[DripSourceConfig, DripResumeConfig]):
+    codebase_detection = detect(
+        env=("^DRIP_",), script_hosts=("tag.getdrip.com",), npm=("drip-nodejs",), rubygems=("drip-ruby",)
+    )
+
     supported_versions = ("v2",)
     default_version = "v2"
     api_docs_url = "https://developer.drip.com"

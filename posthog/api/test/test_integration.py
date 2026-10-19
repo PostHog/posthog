@@ -47,6 +47,7 @@ from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState
 from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.constants import AvailableFeature
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
+from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
@@ -628,12 +629,21 @@ class TestEmailIntegration:
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
 
+    @patch("posthog.models.integration.email.reload_integrations_on_workers")
+    @patch("products.workflows.backend.facade.api.update_ses_mail_from_subdomain")
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_integration_from_domain(self, mock_create_email_domain, mock_verify_email_domain):
+    def test_integration_from_domain(
+        self, mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
+    ):
 
         integration = EmailIntegration.create_native_integration(
-            {**self.valid_config, "mail_from_subdomain": "youmustnothavelikedmyemail", "provider": "ses"},
+            {
+                **self.valid_config,
+                "mail_from_subdomain": "youmustnothavelikedmyemail",
+                "provider": "ses",
+                "reply_to": "support@posthog.com",
+            },
             team_id=self.team.id,
             organization_id=self.organization.id,
             created_by=self.user,
@@ -646,6 +656,7 @@ class TestEmailIntegration:
             "name": self.valid_config["name"],
             "domain": "posthog.com",
             "mail_from_subdomain": "youmustnothavelikedmyemail",
+            "reply_to": "support@posthog.com",
             "verified": False,
             "provider": "ses",
         }
@@ -658,6 +669,13 @@ class TestEmailIntegration:
             team_id=self.team.id,
             org_team_ids=[self.team.id],
         )
+
+        EmailIntegration(integration).update_native_integration({"name": "Renamed"}, self.team.id)
+        assert integration.config["reply_to"] == "support@posthog.com"
+
+        EmailIntegration(integration).update_native_integration({"reply_to": ""}, self.team.id)
+        assert integration.config["reply_to"] == ""
+        mock_reload.assert_called_with(self.team.id, [integration.id])
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
@@ -713,6 +731,7 @@ class TestEmailIntegration:
             "name": self.valid_config["name"],
             "domain": "posthog.com",
             "mail_from_subdomain": "feedback",
+            "reply_to": "",
             "verified": False,
             "provider": "ses",
         }
@@ -749,6 +768,7 @@ class TestEmailIntegration:
             "name": self.valid_config["name"],
             "domain": "posthog.com",
             "mail_from_subdomain": "feedback",
+            "reply_to": "",
             "verified": True,
             "provider": "ses",
         }
@@ -6225,7 +6245,7 @@ class TestGitHubBranches:
             config={"installation_id": "12345", "refreshed_at": 0, "expires_in": 999999},
             sensitive_config={"access_token": "test-token"},
         )
-        self.github = GitHubIntegration(self.integration)
+        self.github = GitHubIntegration(self.integration, source="test", priority=Priority.CRITICAL)
 
     @patch("posthog.egress.transport.transport.requests.request")
     def test_list_branches_returns_first_page(self, mock_request):
@@ -7920,7 +7940,7 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
         assert refreshed.json()["installations"] == []
 
     @patch("products.cdp.backend.internal_events.produce_internal_event")
-    def test_invalid_credential_discard_is_private_and_retained(self, produce: MagicMock) -> None:
+    def test_invalid_credential_is_flagged_with_a_private_audit_record(self, produce: MagicMock) -> None:
         integration = UserIntegration.objects.create(
             user=self.user,
             kind="github",
@@ -7929,21 +7949,41 @@ class TestGitHubDiscoveryAudit(APIBaseTest):
                 "originating_organization_id": str(self.organization.id),
                 "github_user": {"id": 101, "login": "synthetic-reader"},
                 "user_refresh_token_expires_at": 1,
+                "user_token_refreshed_at": int(time.time()) - 7200,
             },
             sensitive_config={"user_access_token": "synthetic-private-secret"},
         )
         integration_id = str(integration.pk)
         with self.captureOnCommitCallbacks(execute=True):
             with self.assertRaises(ReauthorizationRequired):
-                UserGitHubIntegration(integration).get_usable_user_access_token()
+                UserGitHubIntegration(
+                    integration, source="test", priority=Priority.CRITICAL
+                ).get_usable_user_access_token()
         log = ActivityLog.objects.get(item_id=integration_id, activity="github_diagnostic")
         assert log.team_id is None
         assert log.organization_id == self.organization.id
         assert log.detail is not None
-        assert log.detail["trigger"]["payload"]["event"] == "credential_deleted"
-        assert not UserIntegration.objects.filter(pk=integration_id).exists()
+        assert log.detail["trigger"]["payload"]["event"] == "credential_reauthorization_required"
+        assert 7200 <= log.detail["trigger"]["payload"]["token_age_seconds"] < 7500
+        assert UserIntegration.objects.filter(pk=integration_id).exists()
         assert "synthetic-private-secret" not in json.dumps(log.detail)
         produce.assert_not_called()
+
+    def test_flagging_a_credential_deleted_by_a_disconnect_records_nothing(self) -> None:
+        integration = UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="9008",
+            config={"originating_organization_id": str(self.organization.id)},
+            sensitive_config={"user_access_token": "synthetic-private-secret"},
+        )
+        stale = UserGitHubIntegration(integration, source="test", priority=Priority.CRITICAL)
+        UserIntegration.objects.filter(pk=integration.pk).delete()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            stale._mark_needs_reauthorization("refresh rejected by GitHub: bad_refresh_token")
+
+        assert not ActivityLog.objects.filter(item_id=str(integration.pk), activity="github_diagnostic").exists()
 
     def test_github_audit_filters_unknown_fields_from_discovery_logs(self) -> None:
         candidate = {"installation_id": "9007", "account_name": "synthetic-owner", "token": "synthetic-secret"}

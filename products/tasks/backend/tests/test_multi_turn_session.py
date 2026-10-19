@@ -1,6 +1,8 @@
 import json
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
@@ -180,22 +182,120 @@ class TestPollForTurnStaleSalvage:
     turn still emitting near the deadline isn't cut off. Tests patch the budget and floor small."""
 
     @pytest.mark.asyncio
-    async def test_salvages_last_message_when_end_turn_never_arrives(self):
+    @pytest.mark.parametrize("deadline", [None, 30.0])
+    async def test_salvages_last_message_when_end_turn_never_arrives(self, deadline: float | None) -> None:
         # Final message + null-cost usage_update, no end_turn — the prod failure shape.
         log = "\n".join([_agent_message_line("close-out summary"), _usage_update_line(165000)])
         fake = FakeTaskRun()
+        now = [0.0]
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
         with (
             patch("posthog.storage.object_storage.read", return_value=log),
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 30),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            turn = await poll_for_turn(fake, skip_lines=0)
+            turn = await poll_for_turn(fake, skip_lines=0, poll_deadline=deadline)
 
         assert turn.last_message == "close-out summary"
         assert turn.total_lines == 2
+
+    @pytest.mark.asyncio
+    async def test_reads_completed_turn_on_the_final_poll_interval(self) -> None:
+        now = [0.0]
+        fake = FakeTaskRun()
+        partial = _agent_message_line("working")
+        complete = "\n".join([partial, _agent_message_line("done"), _end_turn_line()])
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
+        def read(*args: object, **kwargs: object) -> str:
+            return complete if now[0] >= 25 else partial
+
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=read),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            turn = await poll_for_turn(fake, poll_deadline=25.0)
+        assert turn.last_message == "done"
+        assert turn.total_lines == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("slow_io", ["storage", "heartbeat"])
+    async def test_recovers_after_io_exhausts_the_deadline(self, slow_io: str) -> None:
+        now = [0.0]
+        fake = FakeTaskRun()
+        log = "\n".join([_agent_message_line("done"), _usage_update_line(165000)])
+        reads = 0
+        heartbeats = 0
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
+        def read(*args: object, **kwargs: object) -> str:
+            nonlocal reads
+            reads += 1
+            if slow_io == "storage" and reads == 2:
+                now[0] += 60
+            return log
+
+        async def heartbeat(*args: object) -> None:
+            nonlocal heartbeats
+            heartbeats += 1
+            if slow_io == "heartbeat" and heartbeats == 2:
+                now[0] += 60
+
+        handle = MagicMock(signal=AsyncMock(side_effect=heartbeat))
+        with (
+            patch("posthog.storage.object_storage.read", side_effect=read),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.STALE_TURN_SALVAGE_SECONDS", 15),
+            patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
+        ):
+            turn = await poll_for_turn(fake, poll_deadline=30.0, workflow_handle=handle)
+        assert turn.last_message == "done"
+        assert turn.total_lines == 2
+
+    @pytest.mark.asyncio
+    async def test_final_poll_read_has_a_timeout(self) -> None:
+        async def blocked_read(*args: object) -> None:
+            await asyncio.Event().wait()
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.sync_to_async", return_value=blocked_read
+            ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals._refresh_task_run",
+                new=AsyncMock(return_value=FakeTaskRun()),
+            ),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time",
+                SimpleNamespace(monotonic=lambda: 0.0),
+            ),
+            patch("products.tasks.backend.logic.services.custom_prompt_internals.FINAL_POLL_READ_SECONDS", 0.01),
+        ):
+            with pytest.raises(TurnPollTimeout):
+                await asyncio.wait_for(poll_for_turn(FakeTaskRun(), poll_deadline=0.0), timeout=1)
 
     @pytest.mark.asyncio
     async def test_salvages_dropped_finalization_after_active_work(self):
@@ -307,20 +407,33 @@ class TestPollForTurnStaleSalvage:
                 await poll_for_turn(fake, skip_lines=0)
 
     @pytest.mark.asyncio
-    async def test_max_poll_seconds_overrides_module_budget(self):
-        # A caller-supplied max_poll_seconds bounds the loop instead of the module MAX_POLL_SECONDS:
-        # the module value is left larger, so the elapsed in the timeout error proves the override won.
-        log = _agent_message_line("intermediate")  # no fingerprint — always times out
+    @pytest.mark.parametrize("deadline", [None, 25.0, 0.0])
+    async def test_max_poll_seconds_overrides_module_budget(self, deadline: float | None) -> None:
+        log = _agent_message_line("intermediate")
         fake = FakeTaskRun()
+        now = [0.0]
+
+        async def sleep(delay: float) -> None:
+            now[0] += delay
+
+        def read(*args: object, **kwargs: object) -> str:
+            now[0] += 7
+            return log
+
         with (
-            patch("posthog.storage.object_storage.read", return_value=log),
-            patch("asyncio.sleep", new=AsyncMock()),
+            patch("posthog.storage.object_storage.read", side_effect=read),
+            patch("asyncio.sleep", side_effect=sleep),
+            patch(
+                "products.tasks.backend.logic.services.custom_prompt_internals.time.monotonic",
+                side_effect=lambda: now[0],
+            ),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.POLL_INTERVAL_SECONDS", 10),
             patch("products.tasks.backend.logic.services.custom_prompt_internals.MAX_POLL_SECONDS", 100),
             patch("products.tasks.backend.models.TaskRun.objects.get", return_value=fake),
         ):
-            with pytest.raises(RuntimeError, match="after 30s"):
-                await poll_for_turn(fake, skip_lines=0, max_poll_seconds=30)
+            with pytest.raises(TurnPollTimeout) as error:
+                await poll_for_turn(fake, skip_lines=0, max_poll_seconds=30, poll_deadline=deadline)
+        assert error.value.elapsed == (30 if deadline is None else int(now[0]))
 
     @pytest.mark.asyncio
     async def test_salvage_reassembles_chunked_message(self):
@@ -1183,8 +1296,10 @@ class TestMultiTurnSessionRetry:
         return session
 
     @pytest.mark.asyncio
-    async def test_happy_path_no_retry(self):
+    @pytest.mark.parametrize("deadline,turns", [(None, 1), (float("inf"), 2), (0.0, 1)])
+    async def test_happy_path_no_retry(self, deadline: float | None, turns: int) -> None:
         session = self._make_session()
+        session.poll_deadline = deadline
         agent_response = json.dumps({"value": "ok"})
 
         with patch(
@@ -1192,12 +1307,19 @@ class TestMultiTurnSessionRetry:
             new=AsyncMock(
                 return_value=TurnPollResult(last_message=agent_response, full_log=None, total_lines=10, printed_lines=5)
             ),
-        ):
-            result = await session.send_followup("hello", _Resp, label="unit")
+        ) as poll:
+            if deadline == 0.0:
+                with pytest.raises(TimeoutError):
+                    await session.send_followup("hello", _Resp, label="unit")
+                cast(AsyncMock, session._workflow_handle).signal.assert_not_awaited()
+                poll.assert_not_awaited()
+                return
+            for _ in range(turns):
+                result = await session.send_followup("hello", _Resp, label="unit")
+                assert result == _Resp(value="ok")
 
-        assert result == _Resp(value="ok")
-        # Signal sent exactly once on happy path
-        assert session._workflow_handle.signal.await_count == 1  # type: ignore[union-attr]
+        assert all(call.kwargs["poll_deadline"] == deadline for call in poll.await_args_list)
+        assert session._workflow_handle.signal.await_count == turns  # type: ignore[union-attr]
 
     @pytest.mark.asyncio
     async def test_retries_once_on_empty_end_turn(self):
@@ -1674,16 +1796,20 @@ class TestCreateTaskAndTriggerForwardsContext:
         assert [written[entry["storage_path"]] for entry in manifest.values()] == [b"Review the PR.", "Ü".encode()]
 
     @pytest.mark.asyncio
-    async def test_codex_thread_limit_reaches_the_state_the_agent_server_reads(self) -> None:
-        # The agent server sees only allowlisted state keys, so a dropped key silently keeps the default limit.
+    async def test_codex_options_reach_the_state_the_agent_server_reads(self) -> None:
+        # The agent server sees only allowlisted state keys, so a dropped key silently keeps the Codex default.
         team, user = await sync_to_async(self._setup_team_and_user)()
-        context = CustomPromptSandboxContext(team_id=team.id, user_id=user.id, codex_max_subagents=9)
+        context = CustomPromptSandboxContext(
+            team_id=team.id, user_id=user.id, codex_max_subagents=9, codex_shared_prompt_cache=True
+        )
 
         with patch("products.tasks.backend.temporal.client.execute_task_processing_workflow"):
             task_run = await agents_facade.create_task_and_trigger("prompt", context)
 
         persisted = await sync_to_async(TaskRun.objects.get)(id=task_run.run_id)
-        assert _public_task_run_state(persisted.state)["codex_max_subagents"] == 9
+        public_state = _public_task_run_state(persisted.state)
+        assert public_state["codex_max_subagents"] == 9
+        assert public_state["codex_shared_prompt_cache"] is True
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(("output_schema", "expected_flag"), [({"type": "object"}, True), (None, None)])

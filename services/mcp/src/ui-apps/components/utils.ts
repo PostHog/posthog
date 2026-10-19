@@ -139,6 +139,13 @@ export function normalizeFunnelSteps(results: FunnelResult): Array<{ name: strin
 // Web stats columns that drive the web analytics UI only, not data.
 const HIDDEN_WEB_STATS_COLUMNS = new Set(['ui_fill_fraction', 'cross_sell'])
 
+// Worst band first, so the pages that need work lead the table.
+const WEB_VITALS_BANDS = [
+    ['poor', 'Poor'],
+    ['needs_improvements', 'Needs improvement'],
+    ['good', 'Good'],
+] as const
+
 function humanizeKey(key: string): string {
     const text = key.replace(/_/g, ' ')
     return text.charAt(0).toUpperCase() + text.slice(1)
@@ -192,6 +199,21 @@ export function toTableResult(query: unknown, results: unknown, columns: string[
             ),
             results: (results as unknown[][]).map((row) =>
                 kept.map((index) => webStatsCell(names[index]!, row[index]))
+            ),
+        }
+    }
+    if (node.kind === 'WebVitalsPathBreakdownQuery' && Array.isArray(results)) {
+        const { metric, percentile } = node as { metric?: string; percentile?: string }
+        // The response always holds one breakdown object, keyed by band.
+        const bands = (results[0] ?? {}) as Partial<Record<string, Array<{ path: string; value: number }>>>
+        return {
+            columns: ['Path', `${metric ?? 'Value'} (${percentile ?? 'p75'})`, 'Rating'],
+            results: WEB_VITALS_BANDS.flatMap(([band, label]) =>
+                (bands[band] ?? []).map(({ path, value }) => [
+                    path,
+                    metric === 'CLS' ? value.toFixed(2) : `${Math.round(value)} ms`,
+                    label,
+                ])
             ),
         }
     }

@@ -1,82 +1,35 @@
 import json
 import dataclasses
-from collections.abc import Iterable
-from typing import Any, cast
+from typing import Any
 
 import pytest
-from unittest import mock
 
-from requests import Response
-
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.lever import LeverSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever import (
     LEVER_ENDPOINTS,
     LeverResumeConfig,
     _build_initial_params,
-    lever_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.lever.settings import ENDPOINTS
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the lever module.
-LEVER_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.lever.lever.make_tracked_session"
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.lever.source import LeverSource
 
 
-def _make_response(body: Any, status_code: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    resp.headers["Content-Type"] = "application/json"
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(LeverSource(), LeverSourceConfig(api_key="test_key"))
 
 
-def _page(items: list[dict[str, Any]], has_next: bool, next_offset: str | None = None) -> Response:
+def _page(items: list[dict[str, Any]], has_next: bool, next_offset: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"data": items, "hasNext": has_next}
     if next_offset is not None:
         body["next"] = next_offset
-    return _make_response(body)
-
-
-def _make_manager(resume_state: LeverResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> tuple[list[dict[str, Any]], list[str]]:
-    """Wire a mock session, returning each request's params and URL captured AT SEND TIME.
-
-    ``request.params`` is a single dict mutated in place across pages, so inspecting it after the
-    run shows only the final state — snapshot a copy when each request is prepared instead.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-    urls: list[str] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        urls.append(request.url)
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots, urls
-
-
-def _drive(endpoint: str, manager: mock.MagicMock, responses: list[Response], **kwargs: Any):
-    """Run ``lever_source`` against a mocked session and return (param snapshots, yielded batches, URLs)."""
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-        session = MockSession.return_value
-        params, urls = _wire(session, responses)
-        source_response = lever_source(
-            "key", endpoint, team_id=1, job_id="j", resumable_source_manager=manager, **kwargs
-        )
-        yielded = list(cast("Iterable[Any]", source_response.items()))
-    return params, yielded, urls
+    return ScriptedResponse(json=body)
 
 
 class TestBuildInitialParams:
@@ -95,28 +48,25 @@ class TestValidateCredentials:
             (500, False),
         ],
     )
-    @mock.patch(LEVER_SESSION_PATCH)
-    def test_status_code_mapping(self, mock_session_factory, status_code: int, expected_valid: bool) -> None:
-        mock_session = mock_session_factory.return_value
-        mock_session.get.return_value = _make_response({}, status_code=status_code)
-
-        is_valid, error = validate_credentials("test_key")
+    def test_status_code_mapping(self, status_code: int, expected_valid: bool) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, json={}))) as network:
+            is_valid, error = validate_credentials("test_key")
 
         assert is_valid is expected_valid
+        assert network.requests_log[0].path == "/v1/postings"
+        assert network.requests_log[0].param("limit") == "1"
         if expected_valid:
             assert error is None
         else:
             assert error is not None
 
-    @mock.patch(LEVER_SESSION_PATCH)
-    def test_network_error_is_not_valid(self, mock_session_factory) -> None:
-        mock_session = mock_session_factory.return_value
-        mock_session.get.side_effect = Exception("boom")
-
-        is_valid, error = validate_credentials("test_key")
+    def test_network_error_is_not_valid(self) -> None:
+        with scripted_network(always(ConnectionError("boom"))) as network:
+            is_valid, error = validate_credentials("test_key")
 
         assert is_valid is False
         assert error is not None
+        assert {request.path for request in network.requests_log} == {"/v1/postings"}
 
 
 class TestLeverSourceResponse:
@@ -126,49 +76,42 @@ class TestLeverSourceResponse:
 
 
 class TestLeverPaginationAndResume:
-    """Drive ``lever_source`` with a mocked HTTP session at the rest_client boundary."""
-
     def test_fresh_run_paginates_and_normalizes(self) -> None:
-        manager = _make_manager()
-
         responses = [
             _page([{"id": "o1", "createdAt": 1700000000000}], True, "offset_2"),
             _page([{"id": "o2", "createdAt": 1700000005000}], False),
         ]
 
-        sent_params, yielded, _ = _drive("opportunities", manager, responses)
+        result = _driver().run("opportunities", responses)
 
         # First request has no offset; second request uses the saved offset token.
-        assert sent_params[0].get("offset") is None
-        assert sent_params[1].get("offset") == "offset_2"
+        assert result.params("offset") == [None, "offset_2"]
         # `limit` rides in the query params on every request.
-        assert sent_params[0]["limit"] == 100
+        assert result.params("limit") == ["100", "100"]
 
         # Timestamps were converted ms -> seconds in the yielded rows.
-        flat = [row for batch in yielded for row in batch]
-        assert flat == [
+        assert result.rows == [
             {"id": "o1", "createdAt": 1700000000},
             {"id": "o2", "createdAt": 1700000005},
         ]
+        assert result.raised is None
 
     def test_resume_seeds_first_request_with_saved_offset(self) -> None:
-        manager = _make_manager(LeverResumeConfig(offset="saved_offset"))
+        result = _driver().run(
+            "opportunities", [_page([{"id": "o5"}], False)], resume_state=LeverResumeConfig(offset="saved_offset")
+        )
 
-        responses = [_page([{"id": "o5"}], False)]
-        sent_params, _, _ = _drive("opportunities", manager, responses)
-
-        assert sent_params[0].get("offset") == "saved_offset"
+        assert result.params("offset") == ["saved_offset"]
+        assert result.raised is None
 
     def test_hasnext_without_next_token_raises(self) -> None:
-        manager = _make_manager()
-
         # hasNext is True but no `next` token -> fail loudly rather than silently
         # truncating the sync with partial data.
-        responses = [_page([{"id": "o1"}], True)]
-        with pytest.raises(Exception, match="hasNext was true but no next offset token"):
-            _drive("opportunities", manager, responses)
+        result = _driver().run("opportunities", [_page([{"id": "o1"}], True)])
 
-        manager.save_state.assert_not_called()
+        assert isinstance(result.raised, Exception)
+        assert "hasNext was true but no next offset token" in str(result.raised)
+        assert result.saved_states == []
 
 
 class TestLeverOpportunityChildren:
@@ -180,27 +123,28 @@ class TestLeverOpportunityChildren:
             _page([{"id": "c2", "createdAt": 1700000005000}], False),
             _page([{"id": "opp2"}, {"id": "opp_deleted"}], False),
             _page([{"id": "c1", "createdAt": 1700000010000}], False),
-            _make_response({"code": "NotFound"}, status_code=404),
+            ScriptedResponse(status=404, json={"code": "NotFound"}),
         ]
 
-        sent_params, yielded, urls = _drive(endpoint, _make_manager(), responses)
+        result = _driver().run(endpoint, responses)
 
-        assert [url.removeprefix("https://api.lever.co/v1") for url in urls] == [
-            "/opportunities",
-            f"/opportunities/opp1/{endpoint}",
-            f"/opportunities/opp1/{endpoint}",
-            "/opportunities",
-            f"/opportunities/opp2/{endpoint}",
-            f"/opportunities/opp_deleted/{endpoint}",
+        assert result.paths == [
+            "/v1/opportunities",
+            f"/v1/opportunities/opp1/{endpoint}",
+            f"/v1/opportunities/opp1/{endpoint}",
+            "/v1/opportunities",
+            f"/v1/opportunities/opp2/{endpoint}",
+            f"/v1/opportunities/opp_deleted/{endpoint}",
         ]
-        assert sent_params[0] == {"limit": 100, "include": "id"}
-        assert sent_params[2].get("offset") == "child_2"
-        assert sent_params[3].get("offset") == "parent_2"
-        assert [row for batch in yielded for row in batch] == [
+        assert result.queries[0] == {"limit": ("100",), "include": ("id",)}
+        assert result.requests[2].param("offset") == "child_2"
+        assert result.requests[3].param("offset") == "parent_2"
+        assert result.rows == [
             {"id": "c1", "createdAt": 1700000000, "opportunity_id": "opp1"},
             {"id": "c2", "createdAt": 1700000005, "opportunity_id": "opp1"},
             {"id": "c1", "createdAt": 1700000010, "opportunity_id": "opp2"},
         ]
+        assert result.raised is None
 
 
 class TestLeverApplications:
@@ -217,20 +161,25 @@ class TestLeverApplications:
             _page([{"applications": [{"id": "a2", "opportunityId": "o2", "createdAt": 1700000005000}]}], False),
         ]
 
-        sent_params, yielded, urls = _drive("applications", _make_manager(), responses)
+        result = _driver().run("applications", responses)
 
-        assert urls[0] == "https://api.lever.co/v1/opportunities"
-        assert sent_params[0] == {"limit": 100, "expand": "applications", "include": "applications"}
-        assert [row for batch in yielded for row in batch] == [
+        assert result.requests[0].url.startswith("https://api.lever.co/v1/opportunities?")
+        assert result.queries[0] == {
+            "limit": ("100",),
+            "expand": ("applications",),
+            "include": ("applications",),
+        }
+        assert result.rows == [
             {"id": "a1", "opportunityId": "o1", "createdAt": 1700000000},
             {"id": "a2", "opportunityId": "o2", "createdAt": 1700000005},
         ]
+        assert result.raised is None
 
     def test_unexpanded_application_ids_fail_loudly(self) -> None:
-        responses = [_page([{"applications": ["a1"]}], False)]
+        result = _driver().run("applications", [_page([{"applications": ["a1"]}], False)])
 
-        with pytest.raises(ValueError, match="expected expanded applications objects"):
-            _drive("applications", _make_manager(), responses)
+        assert isinstance(result.raised, ValueError)
+        assert "expected expanded applications objects" in str(result.raised)
 
 
 class TestResumeConfigSerialization:

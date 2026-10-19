@@ -171,19 +171,20 @@ class TestAirwallexTransport:
 
     @parameterized.expand(
         [
-            ("FinancialTransactions", "from_created_at"),
-            ("Settlements", "from_settled_at"),
-            ("Beneficiaries", "from_date"),
-            ("Invoices", "from_created_at"),
+            ("FinancialTransactions", "created_at", "from_created_at"),
+            ("Settlements", "settled_at", "from_settled_at"),
+            ("Beneficiaries", "created_at", "from_date"),
+            ("Invoices", "created_at", "from_created_at"),
+            ("PaymentDisputes", "updated_at", "from_updated_at"),
         ]
     )
-    def test_incremental_uses_the_endpoints_own_filter_name(self, endpoint: str, param: str) -> None:
+    def test_incremental_uses_the_endpoints_own_filter_name(self, endpoint: str, field: str, param: str) -> None:
         # Airwallex names this filter differently per endpoint, and sends 200 while ignoring a name
         # it does not know, so a wrong name silently full-scans every run.
         result = _driver().run(
             endpoint,
             [_login_response(), _page([{"id": "1"}], has_more=False)],
-            incremental_field="settled_at" if endpoint == "Settlements" else "created_at",
+            incremental_field=field,
             db_incremental_field_last_value=datetime(2021, 1, 1, tzinfo=UTC),
         )
 
@@ -214,6 +215,64 @@ class TestAirwallexTransport:
         assert result.raised is None
         assert [row["id"] for row in result.rows] == ["1", "2"]
         assert result.params("page") == [None, None, "cur1"]
+
+    @parameterized.expand([("PaymentDisputes", "size", "page_size"), ("CreditNotes", "page_size", "size")])
+    def test_page_size_rides_the_endpoints_own_param(self, endpoint: str, param: str, unused: str) -> None:
+        # An unknown size param is ignored, so disputes would fall back to 10 rows per page.
+        result = _driver().run(endpoint, [_login_response(), _page([{"id": "1"}])])
+
+        assert result.raised is None
+        assert result.requests[1].param(param) == "500"
+        assert result.requests[1].param(unused) is None
+
+    def test_subscription_items_fan_out_over_every_subscription(self) -> None:
+        result = _driver().run(
+            "SubscriptionItems",
+            [
+                _login_response(),
+                _page([{"id": "sub_1"}, {"id": "sub_2"}]),
+                _page([{"id": "si_1", "subscription_id": "sub_1"}], page_after="cur1"),
+                _page([{"id": "si_2", "subscription_id": "sub_1"}]),
+                _page([{"id": "si_1", "subscription_id": "sub_2"}]),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == [
+            "/api/v1/billing/subscriptions",
+            "/api/v1/billing/subscriptions/sub_1/items",
+            "/api/v1/billing/subscriptions/sub_1/items",
+            "/api/v1/billing/subscriptions/sub_2/items",
+        ]
+        assert result.params("page")[2:] == [None, "cur1", None]
+        assert [(row["subscription_id"], row["id"]) for row in result.rows] == [
+            ("sub_1", "si_1"),
+            ("sub_1", "si_2"),
+            ("sub_2", "si_1"),
+        ]
+        assert result.response is not None
+        # Item ids are only documented as unique within a subscription.
+        assert result.response.primary_keys == ["subscription_id", "id"]
+
+    def test_subscription_items_resume_skips_finished_subscriptions(self) -> None:
+        result = _driver().run(
+            "SubscriptionItems",
+            [
+                _login_response(),
+                _page([{"id": "sub_1"}, {"id": "sub_2"}]),
+                _page([{"id": "si_1", "subscription_id": "sub_2"}]),
+            ],
+            resume_state=AirwallexResumeConfig(
+                fanout_state={
+                    "completed": ["/api/v1/billing/subscriptions/sub_1/items"],
+                    "current": None,
+                    "child_state": None,
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert result.paths[1:] == ["/api/v1/billing/subscriptions", "/api/v1/billing/subscriptions/sub_2/items"]
 
     def test_page_number_paginator_stops_at_the_api_cap(self) -> None:
         # page_num is capped at 2000; walking past it would request pages the API rejects.

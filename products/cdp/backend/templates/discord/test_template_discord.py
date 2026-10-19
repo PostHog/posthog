@@ -2,9 +2,8 @@ import pytest
 
 from parameterized import parameterized
 
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-
 from products.cdp.backend.templates.discord.template_discord import template as template_discord
+from products.cdp.backend.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateDiscord(BaseHogFunctionTemplateTest):

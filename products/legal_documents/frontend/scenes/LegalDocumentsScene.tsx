@@ -9,15 +9,17 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { settingsSectionSceneScope } from 'scenes/settings/settingsSectionScenes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ContactBillingSupportLink } from '../components/ContactBillingSupportLink'
 import { getLegalDocumentsDownloadRetrieveUrl } from '../generated/api'
-import { LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
+import { BAA_BLOCK_REASON_MESSAGES, LegalDocument, LegalDocumentType, legalDocumentsLogic } from './legalDocumentsLogic'
 
-function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItems {
+function buildNewMenuItems(existingTypes: Set<LegalDocumentType>, baaBlockedReason?: string): LemonMenuItems {
     const alreadyExistsReason = (type: LegalDocumentType): string | undefined =>
         existingTypes.has(type)
             ? `Your organization already has a ${type}. Contact support if you need a new one.`
@@ -44,12 +46,12 @@ function buildNewMenuItems(existingTypes: Set<LegalDocumentType>): LemonMenuItem
                         <div className="flex flex-col text-sm py-1">
                             <strong>Business Associate Agreement (BAA)</strong>
                             <span className="text-xs font-normal text-muted">
-                                HIPAA BAA — requires a Boost, Scale, or Enterprise add-on.
+                                HIPAA BAA. Requires a Boost, Scale, or Enterprise add-on.
                             </span>
                         </div>
                     ),
                     to: urls.legalDocumentNew('BAA'),
-                    disabledReason: alreadyExistsReason('BAA'),
+                    disabledReason: alreadyExistsReason('BAA') ?? baaBlockedReason,
                     'data-attr': 'new-legal-document-menu-baa',
                 },
                 {
@@ -75,7 +77,8 @@ export const scene: SceneExport = {
 }
 
 export function LegalDocumentsScene(): JSX.Element {
-    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes, deletingId } = useValues(legalDocumentsLogic)
+    const { legalDocuments, legalDocumentsLoading, existingDocumentTypes, deletingId, baaBlockReason } =
+        useValues(legalDocumentsLogic)
     const { deleteLegalDocument } = useActions(legalDocumentsLogic)
     const { isAdminOrOwner, currentOrganizationId } = useValues(organizationLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
@@ -86,6 +89,7 @@ export function LegalDocumentsScene(): JSX.Element {
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.LegalDocuments].name}
                     resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                    scope={settingsSectionSceneScope('organization-legal-documents')}
                 />
                 <LemonBanner type="info">
                     <p className="mb-0">Legal documents are only available on PostHog Cloud.</p>
@@ -101,6 +105,7 @@ export function LegalDocumentsScene(): JSX.Element {
                     name={sceneConfigurations[Scene.LegalDocuments].name}
                     description={sceneConfigurations[Scene.LegalDocuments].description}
                     resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                    scope={settingsSectionSceneScope('organization-legal-documents')}
                 />
                 <LemonBanner type="warning">
                     <h2 className="mb-2">Admin access required</h2>
@@ -113,14 +118,22 @@ export function LegalDocumentsScene(): JSX.Element {
         )
     }
 
+    const startupProgramBlocked = baaBlockReason === 'startup_program'
+    const baaBlockedReason = startupProgramBlocked ? BAA_BLOCK_REASON_MESSAGES.startup_program : undefined
+    const showStartupProgramNote = startupProgramBlocked && !legalDocumentsLoading && !existingDocumentTypes.has('BAA')
+
     return (
         <SceneContent>
             <SceneTitleSection
                 name={sceneConfigurations[Scene.LegalDocuments].name}
                 description={sceneConfigurations[Scene.LegalDocuments].description}
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconBalance /> }}
+                scope={settingsSectionSceneScope('organization-legal-documents')}
                 actions={
-                    <LemonMenu items={buildNewMenuItems(existingDocumentTypes)} placement="bottom-end">
+                    <LemonMenu
+                        items={buildNewMenuItems(existingDocumentTypes, baaBlockedReason)}
+                        placement="bottom-end"
+                    >
                         <LemonButton
                             type="primary"
                             icon={<IconPlusSmall />}
@@ -133,6 +146,18 @@ export function LegalDocumentsScene(): JSX.Element {
                     </LemonMenu>
                 }
             />
+
+            {showStartupProgramNote && (
+                <div data-attr="legal-documents-startup-program-note">
+                    <LemonBanner type="info">
+                        BAAs aren't covered by startup program credits. If you need a HIPAA BAA,{' '}
+                        <ContactBillingSupportLink data-attr="legal-documents-startup-note-contact-support">
+                            contact us
+                        </ContactBillingSupportLink>{' '}
+                        to discuss options.
+                    </LemonBanner>
+                </div>
+            )}
 
             <LemonTable
                 dataSource={legalDocuments}

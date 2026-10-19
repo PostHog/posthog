@@ -91,6 +91,8 @@ export const manifest: ProductManifest = {
         // `/data-warehouse/new` is a natural URL for "add a source" but was never a real route.
         // Redirect it to the new-source wizard rather than 404ing.
         '/data-warehouse/new': () => urls.dataWarehouseSourceNew(),
+        // Listed before `/data-management/sources/:id`, which would otherwise read `new` as a source id.
+        '/data-management/sources/new': () => urls.dataWarehouseSourceNew(),
         '/data-warehouse/sources': () => urls.sources(),
         '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
@@ -126,7 +128,8 @@ export const manifest: ProductManifest = {
             kind?: string,
             returnUrl?: string,
             returnLabel?: string,
-            accessMethod?: 'warehouse' | 'direct'
+            accessMethod?: 'warehouse' | 'direct',
+            entryPoint?: string
         ): string => {
             const params = new URLSearchParams()
             if (kind) {
@@ -141,10 +144,15 @@ export const manifest: ProductManifest = {
             if (accessMethod) {
                 params.set('access_method', accessMethod)
             }
+            if (entryPoint) {
+                params.set('entry_point', entryPoint)
+            }
             const queryString = params.toString()
             return `/data-warehouse/new-source${queryString ? `?${queryString}` : ''}`
         },
         warehouseDestinations: (): string => '/data-management/warehouse-destinations',
+        warehouseDestination: (id: string): string =>
+            `/data-management/warehouse-destinations?destination=${encodeURIComponent(id)}`,
         dataWarehouseSourceConnect: (kind?: string): string =>
             `/data-warehouse/connect${kind ? `?kind=${encodeURIComponent(kind)}` : ''}`,
     },
@@ -170,6 +178,7 @@ export const manifest: ProductManifest = {
             searchKeywords: ['managed warehouse', 'data lake', 'lakehouse'],
             searchTabs: [{ name: 'Monitoring', href: urls.dataOps('monitoring') }],
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
+            alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
             sceneKey: 'DataOps',

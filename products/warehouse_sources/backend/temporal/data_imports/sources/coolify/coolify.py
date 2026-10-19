@@ -14,7 +14,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    make_parent_key_name,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_chained_resource,
     build_dependent_resource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.jsonpath_utils import (
@@ -23,16 +27,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     OffsetPaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     ClientConfig,
+    Endpoint,
     EndpointResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.coolify.settings import (
     COOLIFY_ENDPOINTS,
+    COOLIFY_FANOUT_PARENTS,
     DEPLOYMENTS_PAGE_SIZE,
+    MAX_AUDIT_EVENTS_PAGES,
     MAX_DEPLOYMENTS_OFFSET,
     CoolifyEndpointConfig,
 )
@@ -44,6 +52,10 @@ API_PATH = "/api/v1"
 REQUEST_TIMEOUT_SECONDS = 30
 
 HOST_NOT_ALLOWED_ERROR = "This Coolify instance URL is not allowed"
+
+AUDIT_EVENTS_FORBIDDEN_ERROR = (
+    "Only team admins and owners can read audit events. Use an API token created by a team admin or owner."
+)
 
 
 class CoolifyHostNotAllowedError(Exception):
@@ -158,6 +170,55 @@ def _deployments_paginator() -> BasePaginator:
     )
 
 
+class AuditEventsPaginationTruncatedError(Exception):
+    """Raised when Coolify reports more audit event pages than MAX_AUDIT_EVENTS_PAGES permits walking.
+
+    Same reasoning as DeploymentsPaginationTruncatedError: the table replaces on every sync, so a
+    silent stop at the cap would swap a complete table for an incomplete one.
+    """
+
+
+class _AuditEventsPaginator(PageNumberPaginator):
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        # Every page reports the total, so fail on the first one rather than walk to the cap.
+        try:
+            values = find_values("last_page", response.json())
+        except Exception:
+            values = []
+        last_page = values[0] if values else None
+        if self.maximum_page is not None and isinstance(last_page, int) and last_page > self.maximum_page:
+            raise AuditEventsPaginationTruncatedError(
+                f"Coolify reports {last_page} pages of audit events, past the {self.maximum_page}-page "
+                "safety cap. Refusing to replace the table with a truncated sync."
+            )
+        super().update_state(response, data)
+
+
+def _paginator(endpoint_config: CoolifyEndpointConfig) -> BasePaginator:
+    if endpoint_config.pagination == "skip_take":
+        return _deployments_paginator()
+    if endpoint_config.pagination == "page":
+        # A Laravel length-aware paginator: 1-based `page`, total page count under `last_page`.
+        return _AuditEventsPaginator(
+            base_page=1, page_param="page", total_path="last_page", maximum_page=MAX_AUDIT_EVENTS_PAGES
+        )
+    return SinglePagePaginator()
+
+
+def _endpoint(endpoint_config: CoolifyEndpointConfig, params: Optional[dict[str, Any]] = None) -> Endpoint:
+    endpoint: Endpoint = {
+        "path": endpoint_config.path,
+        "data_selector": endpoint_config.data_selector,
+        "paginator": _paginator(endpoint_config),
+    }
+    page_params = {"per_page": endpoint_config.page_size} if endpoint_config.pagination == "page" else {}
+    if params or page_params:
+        endpoint["params"] = {**page_params, **(params or {})}
+    if endpoint_config.fanout is not None:
+        endpoint["response_actions"] = endpoint_config.fanout.child_response_actions
+    return endpoint
+
+
 def _client_config(base_url: str, api_token: str, endpoint_config: CoolifyEndpointConfig) -> ClientConfig:
     client_config: ClientConfig = {
         "base_url": api_base_url(base_url),
@@ -188,13 +249,25 @@ def _get_resource(endpoint_config: CoolifyEndpointConfig) -> EndpointResource:
         # No server-side timestamp filter exists on any Coolify list endpoint, so we always
         # replace the whole table rather than merge on an incremental cursor.
         "write_disposition": "replace",
-        "endpoint": {
-            "data_selector": endpoint_config.data_selector,
-            "path": endpoint_config.path,
-            "paginator": SinglePagePaginator(),
-        },
+        "endpoint": _endpoint(endpoint_config),
         "table_format": "delta",
     }
+
+
+def _skip_rows_shifted_across_pages() -> Callable[[dict[str, Any]], bool]:
+    # Audit events page newest first by (created_at, id), so an event recorded mid-sync pushes
+    # every row down one slot and the last row of a page comes back at the top of the next one.
+    # The table replaces on every sync, so keep only rows strictly older than the last kept row.
+    last_kept: list[tuple[str, int]] = []
+
+    def _keep(record: dict[str, Any]) -> bool:
+        key = (str(record.get("created_at") or ""), int(record.get("id") or 0))
+        if last_kept and key >= last_kept[0]:
+            return False
+        last_kept[:] = [key]
+        return True
+
+    return _keep
 
 
 def _strip_sensitive_fields(sensitive_fields: frozenset[str]) -> Callable[[dict[str, Any]], dict[str, Any]]:
@@ -240,11 +313,84 @@ def _fanout_resource(
             # newest page of an application's deployments.
             child_endpoint_extra={
                 "data_selector": endpoint_config.data_selector,
-                "paginator": _deployments_paginator(),
+                "paginator": _paginator(endpoint_config),
             },
             # Both paginators own their page params (the parent listing takes none at all), so
             # the builder must not add a `limit` of its own.
             page_size_param=None,
+        ),
+    )
+
+
+def _chained_resource(
+    endpoint_config: CoolifyEndpointConfig, client_config: ClientConfig, team_id: int, job_id: str
+) -> Resource:
+    """Build a root -> middle -> child chain, e.g. applications -> scheduled tasks -> executions."""
+    fanout = endpoint_config.fanout
+    assert fanout is not None
+    middle_config = COOLIFY_FANOUT_PARENTS[fanout.parent_name]
+    root_fanout = middle_config.fanout
+    assert root_fanout is not None
+    root_config = COOLIFY_ENDPOINTS[root_fanout.parent_name]
+
+    root_resource: EndpointResource = {
+        "name": root_config.name,
+        "table_name": root_config.name,
+        "write_disposition": "replace",
+        "endpoint": _endpoint(root_config),
+        "table_format": "delta",
+    }
+    middle_resource: EndpointResource = {
+        "name": middle_config.name,
+        "table_name": middle_config.name,
+        "write_disposition": "replace",
+        # Carries the root id onto each middle row so the child path can bind it.
+        "include_from_parent": root_fanout.include_from_parent,
+        "endpoint": _endpoint(
+            middle_config,
+            {
+                root_fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": root_config.name,
+                    "field": root_fanout.resolve_field,
+                }
+            },
+        ),
+        "table_format": "delta",
+    }
+    child_resource: EndpointResource = {
+        "name": endpoint_config.name,
+        "table_name": endpoint_config.name,
+        "write_disposition": "replace",
+        "include_from_parent": fanout.include_from_parent,
+        "endpoint": _endpoint(
+            endpoint_config,
+            {
+                root_fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": middle_config.name,
+                    "field": make_parent_key_name(root_config.name, root_fanout.resolve_field),
+                },
+                fanout.resolve_param: {
+                    "type": "resolve",
+                    "resource": middle_config.name,
+                    "field": fanout.resolve_field,
+                },
+            },
+        ),
+        "table_format": "delta",
+    }
+
+    return cast(
+        Resource,
+        build_chained_resource(
+            resources=[root_resource, middle_resource, child_resource],
+            child_name=endpoint_config.name,
+            parent_name=middle_config.name,
+            parent_field_renames=fanout.parent_field_renames,
+            client_config=client_config,
+            team_id=team_id,
+            job_id=job_id,
         ),
     )
 
@@ -257,7 +403,9 @@ def coolify_source(base_url: str, api_token: str, endpoint: str, team_id: int, j
     endpoint_config = COOLIFY_ENDPOINTS[endpoint]
     client_config = _client_config(base_url, api_token, endpoint_config)
 
-    if endpoint_config.fanout is not None:
+    if endpoint_config.fanout is not None and endpoint_config.fanout.parent_name in COOLIFY_FANOUT_PARENTS:
+        resource = _chained_resource(endpoint_config, client_config, team_id, job_id)
+    elif endpoint_config.fanout is not None:
         resource = _fanout_resource(endpoint_config, client_config, endpoint, team_id, job_id)
     else:
         config: RESTAPIConfig = {
@@ -270,6 +418,8 @@ def coolify_source(base_url: str, api_token: str, endpoint: str, team_id: int, j
         # No incremental support, so `db_incremental_field_last_value` is always None.
         resource = rest_api_resource(config, team_id, job_id, None)
 
+    if endpoint_config.pagination == "page":
+        resource.add_filter(_skip_rows_shifted_across_pages())
     if endpoint_config.sensitive_fields:
         resource.add_map(_strip_sensitive_fields(endpoint_config.sensitive_fields))
     return resource
@@ -332,3 +482,32 @@ def validate_credentials(
         )
 
     return False, f"Coolify returned HTTP {response.status_code}. Wait a moment and try again."
+
+
+def audit_events_permission(base_url: str, api_token: str, team_id: int) -> Optional[str]:
+    """Why the token can't read `/audit-events`, or None when it can (or the probe can't tell).
+
+    Coolify lets only team admins and owners read audit events, so a token that passes
+    `validate_credentials` can still get 403 here. Only that answer is a denial; a bad host or a
+    failed probe is left to `validate_credentials` and the sync's own error handling.
+    """
+    normalized_base_url = normalize_base_url(base_url)
+    hostname = _validated_hostname(normalized_base_url)
+    if not hostname or not _is_host_safe(hostname, team_id)[0]:
+        return None
+
+    session = make_tracked_session(
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
+        redact_values=(api_token,),
+        allow_redirects=False,
+    )
+    try:
+        response = session.get(
+            f"{normalized_base_url}{API_PATH}/audit-events",
+            params={"per_page": 1},
+            timeout=REQUEST_TIMEOUT_SECONDS,
+        )
+    except requests.exceptions.RequestException:
+        return None
+
+    return AUDIT_EVENTS_FORBIDDEN_ERROR if response.status_code == 403 else None

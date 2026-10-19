@@ -1,111 +1,37 @@
-import json
 from typing import Any
-from urllib.parse import parse_qsl, urlsplit
-
-import pytest
-from unittest import mock
 
 import requests
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    route,
+    scripted_network,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.intruder import (
+    IntruderSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder import (
     PAGE_SIZE,
     IntruderResumeConfig,
-    intruder_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.settings import (
     INCREMENTAL_FIELDS,
     INTRUDER_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the intruder module.
-INTRUDER_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.intruder.intruder.make_tracked_session"
-)
-# Kill tenacity's backoff so retry classification tests don't actually sleep.
-SLEEP_PATCH = "tenacity.nap.time.sleep"
+from products.warehouse_sources.backend.temporal.data_imports.sources.intruder.source import IntruderSource
 
 BASE = "https://api.intruder.io/v1"
 
 
-def _resp(body: Any, status: int = 200) -> Response:
-    resp = Response()
-    resp.status_code = status
-    resp._content = json.dumps(body).encode()
-    return resp
+def _driver() -> SourceDriver:
+    return SourceDriver(IntruderSource(), IntruderSourceConfig(access_token="tok"))
 
 
-def _redirect(location: str = "https://evil.com") -> Response:
-    resp = Response()
-    resp.status_code = 302
-    resp.headers["Location"] = location
-    return resp
-
-
-def _norm(url: str) -> tuple[str, tuple[tuple[str, str], ...]]:
-    parts = urlsplit(url)
-    return parts.path, tuple(sorted(parse_qsl(parts.query)))
-
-
-def _make_manager(resume_state: IntruderResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses_by_url: dict[str, list[Response]]) -> list[dict[str, Any]]:
-    """Wire a mock session that resolves each request by its fully-encoded URL.
-
-    Values are per-URL queues so a URL can return different responses across retries/pages. Returns a
-    list capturing each request's params snapshot at prepare time (the params dict is mutated in place
-    across pages, so a post-run read would show only the final state).
-    """
-    session.headers = {}
-    normalized: dict[tuple[str, tuple[tuple[str, str], ...]], list[Response]] = {
-        _norm(url): list(queue) for url, queue in responses_by_url.items()
-    }
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> Any:
-        param_snapshots.append(dict(request.params or {}))
-        return request.prepare()
-
-    def _send(prepared: Any, **_kwargs: Any) -> Response:
-        queue = normalized.get(_norm(prepared.url))
-        if queue is None:
-            raise AssertionError(f"unexpected request url {prepared.url!r}")
-        return queue.pop(0)
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = _send
-    return param_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _run(
-    endpoint: str, responses_by_url: dict[str, list[Response]], manager: mock.MagicMock
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    with mock.patch(CLIENT_SESSION_PATCH) as MockSession:
-        session = MockSession.return_value
-        params = _wire(session, responses_by_url)
-        rows = _rows(
-            intruder_source(
-                access_token="tok",
-                endpoint=endpoint,
-                team_id=1,
-                job_id="job",
-                resumable_source_manager=manager,
-            )
-        )
-    return rows, params
+def _page(rows: list[dict[str, Any]], next_url: str | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": rows, "next": next_url})
 
 
 class TestSourceResponseShape:
@@ -121,26 +47,20 @@ class TestSourceResponseShape:
             ("tags", ["name"], None, None),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_primary_keys_and_partitioning(
         self,
         endpoint: str,
         expected_pks: list[str],
         expected_partition_mode: str | None,
         expected_partition_key: str | None,
-        _MockSession: Any,
     ) -> None:
-        response = intruder_source(
-            access_token="tok",
-            endpoint=endpoint,
-            team_id=1,
-            job_id="job",
-            resumable_source_manager=_make_manager(),
-        )
-        assert response.name == endpoint
-        assert response.primary_keys == expected_pks
-        assert response.partition_mode == expected_partition_mode
-        assert response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
+        result = _driver().run(endpoint, [_page([])])
+        assert result.raised is None
+        assert result.response is not None
+        assert result.response.name == endpoint
+        assert result.response.primary_keys == expected_pks
+        assert result.response.partition_mode == expected_partition_mode
+        assert result.response.partition_keys == ([expected_partition_key] if expected_partition_key else None)
 
 
 class TestEndpointConfig:
@@ -162,12 +82,13 @@ class TestEndpointConfig:
 class TestStandardPagination:
     def test_resumes_from_saved_next_url(self) -> None:
         # With saved state the first request must be the saved cursor, not the initial page.
-        responses = {
-            f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100": [_resp({"results": [{"id": 2}], "next": None})],
-        }
         state = IntruderResumeConfig(next_url=f"{BASE}/targets/?limit={PAGE_SIZE}&offset=100")
-        rows, _params = _run("targets", responses, _make_manager(state))
-        assert [r["id"] for r in rows] == [2]
+        result = _driver().run("targets", [_page([{"id": 2}])], resume_state=state)
+        assert result.raised is None
+        assert result.paths == ["/v1/targets/"]
+        assert result.params("limit") == [str(PAGE_SIZE)]
+        assert result.params("offset") == ["100"]
+        assert result.rows == [{"id": 2}]
 
 
 class TestOccurrencesFanOut:
@@ -175,15 +96,24 @@ class TestOccurrencesFanOut:
     def test_injects_parent_issue_id_into_every_row(self, endpoint: str, child_path: str) -> None:
         # The child response has no issue reference; without the injected issue_id the composite
         # primary key [issue_id, id] collapses to id and duplicate rows accumulate across issues.
-        responses = {
-            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}, {"id": 20}], "next": None})],
-            f"{BASE}/issues/10/{child_path}/?limit={PAGE_SIZE}": [
-                _resp({"results": [{"id": 1}, {"id": 2}], "next": None})
-            ],
-            f"{BASE}/issues/20/{child_path}/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 3}], "next": None})],
-        }
-        rows, _params = _run(endpoint, responses, _make_manager())
-        assert rows == [
+        result = _driver().run(
+            endpoint,
+            route(
+                {
+                    "/v1/issues/": [_page([{"id": 10}, {"id": 20}])],
+                    f"/v1/issues/10/{child_path}/": [_page([{"id": 1}, {"id": 2}])],
+                    f"/v1/issues/20/{child_path}/": [_page([{"id": 3}])],
+                }
+            ),
+        )
+        assert result.raised is None
+        assert result.paths == [
+            "/v1/issues/",
+            f"/v1/issues/10/{child_path}/",
+            f"/v1/issues/20/{child_path}/",
+        ]
+        assert result.params("limit") == [str(PAGE_SIZE)] * 3
+        assert result.rows == [
             {"id": 1, "issue_id": 10},
             {"id": 2, "issue_id": 10},
             {"id": 3, "issue_id": 20},
@@ -192,10 +122,6 @@ class TestOccurrencesFanOut:
     def test_resume_from_deleted_issue_restarts_from_first(self) -> None:
         # The in-progress issue from the saved state no longer exists — its checkpoint is ignored and
         # the surviving issues sync fresh (merge dedupes any re-pulled rows).
-        responses = {
-            f"{BASE}/issues/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 10}], "next": None})],
-            f"{BASE}/issues/10/occurrences/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 1}], "next": None})],
-        }
         state = IntruderResumeConfig(
             fanout_state={
                 "completed": [],
@@ -203,35 +129,44 @@ class TestOccurrencesFanOut:
                 "child_state": {"next_url": f"{BASE}/issues/999/occurrences/?limit={PAGE_SIZE}&offset=100"},
             }
         )
-        rows, _params = _run("occurrences", responses, _make_manager(state))
-        assert rows == [{"id": 1, "issue_id": 10}]
+        result = _driver().run(
+            "occurrences",
+            route(
+                {
+                    "/v1/issues/": [_page([{"id": 10}])],
+                    "/v1/issues/10/occurrences/": [_page([{"id": 1}])],
+                }
+            ),
+            resume_state=state,
+        )
+        assert result.raised is None
+        assert result.paths == ["/v1/issues/", "/v1/issues/10/occurrences/"]
+        assert result.params("limit") == [str(PAGE_SIZE)] * 2
+        assert result.rows == [{"id": 1, "issue_id": 10}]
 
 
 class TestRetryClassification:
     @parameterized.expand([(429,), (500,), (503,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_transient_status_is_retried_then_succeeds(self, status: int, _sleep: Any) -> None:
+    def test_transient_status_is_retried_then_succeeds(self, status: int) -> None:
         # 429/5xx are transient — the client backs off and reissues the same request rather than
         # failing the whole sync.
-        responses = {
-            f"{BASE}/targets/?limit={PAGE_SIZE}": [
-                _resp({"error": "transient"}, status=status),
-                _resp({"results": [{"id": 1}], "next": None}),
-            ],
-        }
-        rows, _params = _run("targets", responses, _make_manager())
-        assert rows == [{"id": 1}]
+        result = _driver().run(
+            "targets",
+            [ScriptedResponse(status=status, json={"error": "transient"}), _page([{"id": 1}])],
+        )
+        assert result.raised is None
+        assert result.paths == ["/v1/targets/", "/v1/targets/"]
+        assert result.params("limit") == [str(PAGE_SIZE)] * 2
+        assert result.rows == [{"id": 1}]
 
     @parameterized.expand([(401,), (403,), (404,)])
-    @mock.patch(SLEEP_PATCH)
-    def test_client_error_fails_loud(self, status: int, _sleep: Any) -> None:
+    def test_client_error_fails_loud(self, status: int) -> None:
         # 4xx (other than 429) are permanent — raise rather than retry or silently sync 0 rows. A 401/
         # 403 is surfaced as a non-retryable credential error upstream via get_non_retryable_errors.
-        responses = {
-            f"{BASE}/targets/?limit={PAGE_SIZE}": [_resp({"error": "nope"}, status=status)],
-        }
-        with pytest.raises(requests.HTTPError):
-            _run("targets", responses, _make_manager())
+        result = _driver().run("targets", [ScriptedResponse(status=status, json={"error": "nope"})])
+        assert isinstance(result.raised, requests.HTTPError)
+        assert result.paths == ["/v1/targets/"]
+        assert result.params("limit") == [str(PAGE_SIZE)]
 
 
 class TestUrlSafety:
@@ -242,44 +177,38 @@ class TestUrlSafety:
             ("userinfo_trick", "https://api.intruder.io@evil.com/v1/targets/"),
         ]
     )
-    @mock.patch(SLEEP_PATCH)
-    def test_off_host_next_url_is_refused(self, _name: str, evil_next: str, _sleep: Any) -> None:
+    def test_off_host_next_url_is_refused(self, _name: str, evil_next: str) -> None:
         # A poisoned resume cursor or a malicious API-returned `next` pointing off the Intruder host
         # must never be followed with the bearer token — allowed_hosts=[] is the SSRF guard. The
         # first page is yielded, then following the off-host `next` raises before the request leaves
         # the process.
-        responses = {
-            f"{BASE}/targets/?limit={PAGE_SIZE}": [_resp({"results": [{"id": 1}], "next": evil_next})],
-        }
-        with pytest.raises(ValueError):
-            _run("targets", responses, _make_manager())
+        result = _driver().run("targets", [_page([{"id": 1}], next_url=evil_next)])
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == [{"id": 1}]
+        assert result.paths == ["/v1/targets/"]
+        assert result.params("limit") == [str(PAGE_SIZE)]
 
-    @mock.patch(SLEEP_PATCH)
-    def test_redirect_is_refused(self, _sleep: Any) -> None:
+    def test_redirect_is_refused(self) -> None:
         # A 3xx could retarget the authenticated request off-origin; allow_redirects=False refuses it
         # rather than following it with the token attached.
-        responses = {f"{BASE}/targets/?limit={PAGE_SIZE}": [_redirect("https://evil.com")]}
-        with pytest.raises(ValueError):
-            _run("targets", responses, _make_manager())
+        result = _driver().run("targets", [ScriptedResponse(status=302, headers={"Location": "https://evil.com"})])
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/v1/targets/"]
+        assert result.params("limit") == [str(PAGE_SIZE)]
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(INTRUDER_SESSION_PATCH)
-    def test_status_maps_to_bool(self, _name: str, status: int, expected: bool, mock_session: Any) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status)
-        assert validate_credentials("tok") is expected
+    def test_status_maps_to_bool(self, _name: str, status: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status)]) as network:
+            assert validate_credentials("tok") is expected
+        assert len(network.requests_log) == 1
+        assert network.requests_log[0].path == "/v1/targets/"
+        assert network.requests_log[0].param("limit") == "1"
+        assert network.requests_log[0].headers["authorization"] == "Bearer tok"
 
     def test_redacts_token(self) -> None:
         # Dropping redact_values would leak the bearer token into logged URLs / captured samples.
-        captured: dict[str, Any] = {}
-
-        def fake_session(*_args: Any, **kwargs: Any) -> mock.MagicMock:
-            captured.update(kwargs)
-            session = mock.MagicMock()
-            session.get.return_value = mock.MagicMock(status_code=200)
-            return session
-
-        with mock.patch(INTRUDER_SESSION_PATCH, side_effect=fake_session):
-            validate_credentials("secret-token")
-        assert captured.get("redact_values") == ("secret-token",)
+        with scripted_network([ScriptedResponse(status=200)]) as network:
+            assert validate_credentials("secret-token") is True
+        assert network.session_options[0].get("redact_values") == ("secret-token",)

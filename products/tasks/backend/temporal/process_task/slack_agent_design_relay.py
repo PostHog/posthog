@@ -76,6 +76,8 @@ class SlackAgentDesignRelayInput:
     setup_title: Optional[str] = None
     # The message this turn answers, so the reply tags its sender.
     message_id: Optional[str] = None
+    # The mention that opened the run. Set only on the relay that streams the first turn.
+    person_message: Optional[str] = None
 
 
 @workflow.defn(name="slack-agent-design-relay")
@@ -482,6 +484,9 @@ class SlackAgentDesignRelayWorkflow(PostHogWorkflow):
                 plan_title=self._closing_plan_title(),
                 mention_sent=mention_sent,
                 actor_slack_user_id=self._stream.actor_slack_user_id,
+                answer_markdown=final_answer if self._turn_complete else None,
+                message_id=input.message_id,
+                mention=input.person_message,
             ),
             # Attachments upload inside this activity. One attempt, because a retry would
             # append the answer a second time.

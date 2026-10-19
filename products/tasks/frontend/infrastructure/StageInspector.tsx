@@ -6,13 +6,19 @@ import {
     Sources,
     Workflow,
     devStackBadge,
+    devStackProgress,
     devStackState,
     fresh,
     imageNames,
     imageState,
     labels,
+    selectedWorkflow,
     variants,
 } from './infrastructureTypes'
+
+function timestamp(value: string): string {
+    return new Date(value).toISOString().replace('T', ' ').slice(0, 16) + ' UTC'
+}
 
 export function StageInspector({
     selected,
@@ -30,9 +36,11 @@ export function StageInspector({
     const source = sources[selected as keyof Sources]
     const image = sources.custom?.data?.images.find((item) => item.id === selected)
     const registry = imageNames.includes(selected as ImageName) ? sources[selected as ImageName]?.data : null
-    const run = workflow?.id === selected ? workflow.source : null
+    const run = selectedWorkflow(selected, sources, workflow)
     const devState = devStackState(sources)
     const devBadge = devStackBadge(sources)
+    const devStack = sources.dev_stack?.data
+    const progress = devStackProgress(sources)
     return (
         <Card className="inspector">
             <div className="inspector-header">
@@ -147,6 +155,56 @@ export function StageInspector({
             )}
             {selected === 'dev_stack' && (
                 <>
+                    {progress && <Badge variant={progress.variant}>{progress.label}</Badge>}
+                    {devStack?.protected && (
+                        <>
+                            <dl>
+                                <dt>Active → target</dt>
+                                <dd>{`${devStack.active_generation || 'None'} → ${devStack.generation || 'None'}`}</dd>
+                                <dt>Active agent</dt>
+                                <dd>{devStack.active_agent_version || 'Unrecorded'}</dd>
+
+                                <dt>Last activation</dt>
+                                <dd>{devStack.activated_at ? timestamp(devStack.activated_at) : 'Not activated'}</dd>
+                                <dt>Requested</dt>
+                                <dd>{devStack.requested_at ? timestamp(devStack.requested_at) : 'Not requested'}</dd>
+                                <dt>Target observed</dt>
+                                <dd>
+                                    {devStack.target_observed_at
+                                        ? timestamp(devStack.target_observed_at)
+                                        : 'Not observed'}
+                                </dd>
+                                <dt>Attempt started</dt>
+                                <dd>
+                                    {devStack.attempt_started_at
+                                        ? timestamp(devStack.attempt_started_at)
+                                        : 'Not started'}
+                                </dd>
+                                <dt>Next retry</dt>
+                                <dd>{devStack.next_retry_at ? timestamp(devStack.next_retry_at) : 'None scheduled'}</dd>
+                            </dl>
+                            {devStack.reason && <p className="alert">{devStack.reason}</p>}
+                            {devStack.observation_error && <p className="alert">{devStack.observation_error}</p>}
+                            {devStack.auto_refresh === false && (
+                                <p className="alert">Automatic base updates are paused after a rollback.</p>
+                            )}
+                            <h3>Active image</h3>
+                            <code className="digest">
+                                {devStack.active_image_id || 'No verified image. Tasks use the VM base.'}
+                            </code>
+                            {devStack.desired_base_reference &&
+                                devStack.desired_base_reference !== sources.vm?.data?.reference && (
+                                    <>
+                                        <h3>Desired VM base</h3>
+                                        <code className="digest">{devStack.desired_base_reference}</code>
+                                    </>
+                                )}
+                            <p className="muted">
+                                Base adoption and bake progress are independent. A nightly rebuild can run while the
+                                base is current.
+                            </p>
+                        </>
+                    )}
                     <p>
                         {devState === 'waiting'
                             ? 'The last successful bake uses a different VM base. A fresh source read does not mean the bake has caught up.'
@@ -187,8 +245,13 @@ export function StageInspector({
                     <code className="digest">{image.base_image_refresh_reference || 'None recorded'}</code>
                 </>
             )}
-            {(image || selected === 'dev_stack') && (
+            {(image || (selected === 'dev_stack' && (!devStack?.protected || devStack.workflow_url))) && (
                 <>
+                    {workflow?.id === selected && workflow.source.status === 'error' && (
+                        <p className="alert" role="alert">
+                            Could not read the build from Temporal. Select Read latest build to retry.
+                        </p>
+                    )}
                     <Button
                         variant="outline"
                         loading={workflowLoading}
@@ -224,7 +287,11 @@ export function StageInspector({
                     >
                         Open Temporal history ↗
                     </a>
-                    <p>Workflow IDs are reused. This is the latest execution, which may target an earlier base.</p>
+                    <p>
+                        {selected === 'dev_stack' && devStack?.protected
+                            ? 'This execution belongs to the displayed attempt.'
+                            : 'Workflow IDs are reused. This is the latest execution, which may target an earlier base.'}
+                    </p>
                 </>
             )}
         </Card>

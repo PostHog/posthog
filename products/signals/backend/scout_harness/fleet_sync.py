@@ -36,7 +36,7 @@ FLEET_SYNCED_EVENT = "signals_scout_fleet_synced"
 # Which surface asked for the materialization. The whole point of the `surface` dimension is to
 # separate a fleet the coordinator was going to deliver anyway from one a person's tab-open
 # rescued, so an unlabelled caller is recorded as unknown rather than folded into a real surface.
-SYNC_SURFACES = ("roster", "desktop", "wizard")
+SYNC_SURFACES = ("roster", "desktop", "wizard", "onboarding")
 UNKNOWN_SURFACE = "unknown"
 
 # A prune reaping more than half the canonical fleet, and at least this many scouts, is not a
@@ -79,7 +79,9 @@ def materialize_scout_fleet(team: Team, *, surface: str | None = None) -> set[st
     seed_config_layers, withheld = resolve_sync_seed_inputs(team.id)
     configs_before = _config_skill_names(team.id)
     result = sync_canonical_skills(team, prune=True, withheld_skill_names=withheld)
-    register_missing_configs(team.id, seed_config_layers, withheld_skill_names=withheld)
+    register_missing_configs(
+        team.id, seed_config_layers, withheld_skill_names=withheld, enable_new_configs=surface != "onboarding"
+    )
     configs_after = _config_skill_names(team.id)
     _capture_fleet_synced(
         team=team,

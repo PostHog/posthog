@@ -1,80 +1,40 @@
-import json
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 import time_machine
-from unittest import mock
 
 from parameterized import parameterized
-from requests import Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px import (
     GainsightPxResumeConfig,
     _base_url,
     _to_epoch_millis,
-    gainsight_px_source,
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.settings import (
     GAINSIGHT_PX_ENDPOINTS,
 )
-
-# RESTClient builds its session via make_tracked_session in the rest_client module.
-CLIENT_SESSION_PATCH = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
-# validate_credentials builds its own tracked session in the gainsight_px module.
-GAINSIGHT_SESSION_PATCH = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.gainsight_px.make_tracked_session"
+from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.source import GainsightPxSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.gainsightpx import (
+    GainsightPxSourceConfig,
 )
 
 
-def _response(data_key: str, records: list[dict[str, Any]], *, status_code: int = 200, **extra: Any) -> Response:
-    body: dict[str, Any] = {data_key: records, **extra}
-    resp = Response()
-    resp.status_code = status_code
-    resp._content = json.dumps(body).encode()
-    return resp
+def _response(data_key: str, records: list[dict[str, Any]], **extra: Any) -> ScriptedResponse:
+    return ScriptedResponse(json={data_key: records, **extra})
 
 
-def _make_manager(resume_state: GainsightPxResumeConfig | None = None) -> mock.MagicMock:
-    manager = mock.MagicMock()
-    manager.can_resume.return_value = resume_state is not None
-    manager.load_state.return_value = resume_state
-    return manager
-
-
-def _wire(session: mock.MagicMock, responses: list[Response]) -> list[dict[str, Any]]:
-    """Wire a mock session and capture each request's params AT SEND TIME.
-
-    ``request.params`` is one dict mutated in place across pages, so snapshot a copy per prepare.
-    """
-    session.headers = {}
-    param_snapshots: list[dict[str, Any]] = []
-
-    def _prepare(request: Any) -> mock.MagicMock:
-        param_snapshots.append(dict(request.params or {}))
-        return mock.MagicMock()
-
-    session.prepare_request.side_effect = _prepare
-    session.send.side_effect = responses
-    return param_snapshots
-
-
-def _rows(source_response: Any) -> list[dict[str, Any]]:
-    return [row for page in source_response.items() for row in page]
-
-
-def _source(endpoint: str, manager: mock.MagicMock, db_incremental_field_last_value: Any = None) -> Any:
-    return gainsight_px_source(
-        api_key="secret-key",
-        region="us",
-        endpoint=endpoint,
-        team_id=1,
-        job_id="j",
-        resumable_source_manager=manager,
-        db_incremental_field_last_value=db_incremental_field_last_value,
-    )
+def _driver() -> SourceDriver:
+    return SourceDriver(GainsightPxSource(), GainsightPxSourceConfig(api_key="secret-key", region="us"))
 
 
 class TestBaseUrl:
@@ -91,75 +51,64 @@ class TestBaseUrl:
 
 
 class TestScrollPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_follows_scroll_id_and_stops_on_short_page(self, MockSession, monkeypatch) -> None:
+    def test_follows_scroll_id_and_stops_on_short_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # users caps at a large pageSize; shrink it so a 2-then-1 record run terminates.
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["users"], "page_size", 2)
-        session = MockSession.return_value
-        params = _wire(
-            session,
+        result = _driver().run(
+            "users",
             [
                 _response("users", [{"id": "1"}, {"id": "2"}], scrollId="s1"),
                 _response("users", [{"id": "3"}], scrollId="s2"),  # short page → stop
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("users", manager))
-
-        assert [r["id"] for r in rows] == ["1", "2", "3"]
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["1", "2", "3"]
         # First request carries only pageSize; the second carries the scroll cursor.
-        assert params[0] == {"pageSize": 2}
-        assert params[1]["scrollId"] == "s1"
+        assert result.queries[0] == {"pageSize": ("2",)}
+        assert result.requests[1].param("scrollId") == "s1"
         # State saved after the first (full) page only, carrying the next scroll cursor.
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == GainsightPxResumeConfig(scroll_id="s1")
+        assert result.saved_states == [GainsightPxResumeConfig(scroll_id="s1")]
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_scroll_id(self, MockSession, monkeypatch) -> None:
+    def test_resumes_from_saved_scroll_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["users"], "page_size", 2)
-        session = MockSession.return_value
-        params = _wire(session, [_response("users", [{"id": "9"}], scrollId=None)])
+        result = _driver().run(
+            "users",
+            [_response("users", [{"id": "9"}], scrollId=None)],
+            resume_state=GainsightPxResumeConfig(scroll_id="saved-cursor"),
+        )
 
-        manager = _make_manager(GainsightPxResumeConfig(scroll_id="saved-cursor"))
-        _rows(_source("users", manager))
-
-        assert params[0]["scrollId"] == "saved-cursor"
+        assert result.raised is None
+        assert result.requests[0].param("scrollId") == "saved-cursor"
 
 
 class TestPageNumberPagination:
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_stops_on_is_last_page(self, MockSession, monkeypatch) -> None:
+    def test_stops_on_is_last_page(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # page_size 1 keeps each page "full", so isLastPage (not the short-page guard) is what stops us.
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["features"], "page_size", 1)
-        session = MockSession.return_value
-        params = _wire(
-            session,
+        result = _driver().run(
+            "features",
             [
                 _response("features", [{"id": "f1"}], isLastPage=False),
                 _response("features", [{"id": "f2"}], isLastPage=True),
             ],
         )
 
-        manager = _make_manager()
-        rows = _rows(_source("features", manager))
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == ["f1", "f2"]
+        assert result.params("pageNumber") == ["0", "1"]
+        assert result.saved_states == [GainsightPxResumeConfig(page_number=1)]
 
-        assert [r["id"] for r in rows] == ["f1", "f2"]
-        assert params[0]["pageNumber"] == 0
-        assert params[1]["pageNumber"] == 1
-        manager.save_state.assert_called_once()
-        assert manager.save_state.call_args.args[0] == GainsightPxResumeConfig(page_number=1)
-
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_from_saved_page_number(self, MockSession, monkeypatch) -> None:
+    def test_resumes_from_saved_page_number(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["features"], "page_size", 100)
-        session = MockSession.return_value
-        params = _wire(session, [_response("features", [{"id": "f"}], isLastPage=True)])
+        result = _driver().run(
+            "features",
+            [_response("features", [{"id": "f"}], isLastPage=True)],
+            resume_state=GainsightPxResumeConfig(page_number=4),
+        )
 
-        manager = _make_manager(GainsightPxResumeConfig(page_number=4))
-        _rows(_source("features", manager))
-
-        assert params[0]["pageNumber"] == 4
+        assert result.raised is None
+        assert result.params("pageNumber") == ["4"]
 
 
 # Maxima published in the vendor's OpenAPI spec (https://px-apidocs.gainsight.com/source.json). A
@@ -185,15 +134,15 @@ VENDOR_PAGE_SIZE_MAXIMA: dict[str, int] = {
 
 class TestPageSizeCaps:
     @parameterized.expand(sorted(VENDOR_PAGE_SIZE_MAXIMA.items()))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requested_page_size_is_within_vendor_cap(self, endpoint: str, maximum: int, MockSession) -> None:
-        session = MockSession.return_value
+    def test_requested_page_size_is_within_vendor_cap(self, endpoint: str, maximum: int) -> None:
         data_key = GAINSIGHT_PX_ENDPOINTS[endpoint].data_key
-        params = _wire(session, [_response(data_key, [{"id": "1"}], isLastPage=True, scrollId=None)])
+        result = _driver().run(endpoint, always(_response(data_key, [{"id": "1"}], isLastPage=True, scrollId=None)))
 
-        next(iter(_source(endpoint, _make_manager()).items()))
-
-        assert params[0]["pageSize"] <= maximum
+        assert result.raised is None
+        assert result.rows
+        page_size = result.requests[0].param("pageSize")
+        assert page_size is not None
+        assert int(page_size) <= maximum
 
 
 # Response list keys published in the vendor's OpenAPI spec. They differ per event stream, and a
@@ -217,10 +166,12 @@ DAY_MS = 24 * 60 * 60 * 1000
 VENDOR_MAX_EVENT_RANGE_MS = 190 * DAY_MS
 
 
-def _event_windows_requested(params: list[dict[str, Any]]) -> list[tuple[int, int]]:
+def _event_windows_requested(requests: list[RecordedRequest]) -> list[tuple[int, int]]:
     windows = []
-    for request_params in params:
-        lower, upper = request_params["filter"].split(";")
+    for request in requests:
+        date_filter = request.param("filter")
+        assert date_filter is not None
+        lower, upper = date_filter.split(";")
         assert lower.startswith("date>=") and upper.startswith("date<")
         windows.append((int(lower.removeprefix("date>=")), int(upper.removeprefix("date<"))))
     return windows
@@ -233,14 +184,16 @@ class TestEventStreams:
             yield
 
     @parameterized.expand(sorted(VENDOR_EVENT_DATA_KEYS.items()))
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_rows_are_read_from_vendor_key_with_date_converted(self, endpoint: str, data_key: str, MockSession) -> None:
-        session = MockSession.return_value
-        _wire(session, [_response(data_key, [{"eventId": "e1", "date": 1609459200000}], scrollId=None)])
+    def test_rows_are_read_from_vendor_key_with_date_converted(self, endpoint: str, data_key: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_response(data_key, [{"eventId": "e1", "date": 1609459200000}], scrollId=None)],
+            incremental_field="date",
+            db_incremental_field_last_value=NOW - timedelta(days=1),
+        )
 
-        rows = _rows(_source(endpoint, _make_manager(), db_incremental_field_last_value=NOW - timedelta(days=1)))
-
-        assert rows == [{"eventId": "e1", "date": datetime(2021, 1, 1, tzinfo=UTC)}]
+        assert result.raised is None
+        assert result.rows == [{"eventId": "e1", "date": datetime(2021, 1, 1, tzinfo=UTC)}]
 
     @parameterized.expand(
         [
@@ -249,50 +202,43 @@ class TestEventStreams:
             ("full_refresh_backfills_history", None, NOW_MS - 730 * DAY_MS),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
     def test_requests_bounded_windows_covering_watermark_to_now(
-        self, _name: str, last_value: Any, expected_start_ms: int, MockSession
+        self, _name: str, last_value: Any, expected_start_ms: int
     ) -> None:
-        session = MockSession.return_value
-        session.headers = {}
-        params: list[dict[str, Any]] = []
+        result = _driver().run(
+            "page_view_events",
+            always(_response("results", [], scrollId=None)),
+            incremental_field="date" if last_value is not None else None,
+            db_incremental_field_last_value=last_value,
+        )
 
-        def _prepare(request: Any) -> mock.MagicMock:
-            params.append(dict(request.params or {}))
-            return mock.MagicMock()
-
-        session.prepare_request.side_effect = _prepare
-        session.send.side_effect = lambda *_args, **_kwargs: _response("results", [], scrollId=None)
-
-        _rows(_source("page_view_events", _make_manager(), db_incremental_field_last_value=last_value))
-
-        windows = _event_windows_requested(params)
-        assert all(p["sort"] == "date" for p in params)
+        assert result.raised is None
+        windows = _event_windows_requested(result.requests)
+        assert all(request.param("sort") == "date" for request in result.requests)
         assert windows[0][0] == expected_start_ms
         assert windows[-1][1] == NOW_MS
         assert all(lower < upper <= lower + VENDOR_MAX_EVENT_RANGE_MS for lower, upper in windows)
         assert all(prev[1] == nxt[0] for prev, nxt in zip(windows, windows[1:]))
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_resumes_mid_window_and_checkpoints_the_next_window(self, MockSession, monkeypatch) -> None:
+    def test_resumes_mid_window_and_checkpoints_the_next_window(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(GAINSIGHT_PX_ENDPOINTS["session_events"], "page_size", 1)
         window_start = NOW_MS - 200 * DAY_MS
-        session = MockSession.return_value
-        params = _wire(
-            session,
+        result = _driver().run(
+            "session_events",
             [
                 _response("sessionInitializedEvents", [], scrollId=None),
                 _response("sessionInitializedEvents", [], scrollId=None),
             ],
+            resume_state=GainsightPxResumeConfig(scroll_id="saved-cursor", window_start=window_start),
+            incremental_field="date",
+            db_incremental_field_last_value=datetime(2019, 1, 1, tzinfo=UTC),
         )
 
-        manager = _make_manager(GainsightPxResumeConfig(scroll_id="saved-cursor", window_start=window_start))
-        _rows(_source("session_events", manager, db_incremental_field_last_value=datetime(2019, 1, 1, tzinfo=UTC)))
-
-        assert params[0]["scrollId"] == "saved-cursor"
-        assert _event_windows_requested(params)[0][0] == window_start
-        assert "scrollId" not in params[1]
-        manager.save_state.assert_called_once_with(GainsightPxResumeConfig(window_start=window_start + 180 * DAY_MS))
+        assert result.raised is None
+        assert result.requests[0].param("scrollId") == "saved-cursor"
+        assert _event_windows_requested(result.requests)[0][0] == window_start
+        assert result.requests[1].param("scrollId") is None
+        assert result.saved_states == [GainsightPxResumeConfig(window_start=window_start + 180 * DAY_MS)]
 
     @parameterized.expand(
         [
@@ -310,18 +256,22 @@ class TestSessionHardening:
     """The API key travels in a custom header the sample-capture denylist can't recognise, so the
     framework auth registers its value for redaction across errors, logs, and captured samples."""
 
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_registers_api_key_for_redaction(self, MockSession) -> None:
-        _source("users", _make_manager())
-        assert MockSession.call_args.kwargs["redact_values"] == ("secret-key",)
+    def test_source_registers_api_key_for_redaction(self) -> None:
+        result = _driver().run("users", [_response("users", [], scrollId=None)])
+
+        assert result.raised is None
+        assert result.session_options[0]["redact_values"] == ("secret-key",)
 
 
 class TestValidateCredentials:
     @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
-    @mock.patch(GAINSIGHT_SESSION_PATCH)
-    def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool, mock_session) -> None:
-        mock_session.return_value.get.return_value = mock.MagicMock(status_code=status_code)
-        assert validate_credentials("key", "us") is expected
+    def test_maps_status_to_bool(self, _name: str, status_code: int, expected: bool) -> None:
+        with scripted_network([ScriptedResponse(status=status_code)]) as network:
+            assert validate_credentials("key", "us") is expected
+
+        assert network.requests_log[0].path == "/v1/accounts"
+        assert network.requests_log[0].param("pageSize") == "1"
+        assert network.requests_log[0].headers["x-aptrinsic-api-key"] == "key"
 
 
 class TestSourceResponse:
@@ -337,12 +287,13 @@ class TestSourceResponse:
             ("session_events", ["eventId"], "date"),
         ]
     )
-    @mock.patch(CLIENT_SESSION_PATCH)
-    def test_source_response_shape(
-        self, endpoint: str, primary_keys: list[str], partition_key: str | None, MockSession
-    ) -> None:
-        response = _source(endpoint, _make_manager())
+    def test_source_response_shape(self, endpoint: str, primary_keys: list[str], partition_key: str | None) -> None:
+        data_key = GAINSIGHT_PX_ENDPOINTS[endpoint].data_key
+        result = _driver().run(endpoint, always(_response(data_key, [], isLastPage=True, scrollId=None)))
+        response = result.response
 
+        assert result.raised is None
+        assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == primary_keys
         if partition_key is None:

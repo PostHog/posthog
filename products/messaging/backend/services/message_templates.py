@@ -4,8 +4,11 @@ from typing import Any
 from uuid import UUID
 
 from django.db import models, transaction
+from django.db.models.fields.json import KT
 from django.db.models.functions import Cast
+from django.utils import timezone
 
+from products.messaging.backend.facade.contracts import EmailTemplateSummary
 from products.messaging.backend.models import MessageCategory, MessageTemplate
 
 
@@ -13,6 +16,22 @@ def get_email_content(team_id: int, template_id: UUID) -> dict | None:
     template = MessageTemplate.objects.filter(team_id=team_id, id=template_id, deleted=False).first()
     email_content = (template.content or {}).get("email") if template else None
     return email_content if isinstance(email_content, dict) else None
+
+
+def list_email_summaries(team_id: int, *, limit: int) -> list[EmailTemplateSummary]:
+    """The team's newest email templates that have a subject and a body. Only the subject leaves the database, so a
+    large saved design is never loaded for a listing."""
+    rows = (
+        MessageTemplate.objects.filter(team_id=team_id, deleted=False, type="email")
+        .annotate(subject=KT("content__email__subject"), html=KT("content__email__html"))
+        .exclude(subject__isnull=True)
+        .exclude(subject="")
+        .exclude(html__isnull=True)
+        .exclude(html="")
+        .order_by("-created_at")
+        .values_list("id", "name", "subject")[:limit]
+    )
+    return [EmailTemplateSummary(id=id, name=name or "", subject=subject) for id, name, subject in rows]
 
 
 def _templates(team_ids: list[int] | None) -> models.QuerySet[MessageTemplate]:
@@ -82,6 +101,14 @@ def update_template(team_id: int, template_id: UUID | str, fields: dict[str, Any
     _apply_fields(template, fields)
     template.save()
     return template
+
+
+def save_draft(team_id: int, template_id: UUID | str, draft: dict[str, Any] | None) -> MessageTemplate:
+    # Writes only the draft, so a draft save that races a publish, a delete or a conversion can't undo it.
+    MessageTemplate.objects.filter(team_id=team_id, deleted=False, pk=template_id).update(
+        draft_content=draft, updated_at=timezone.now()
+    )
+    return team_template(team_id, template_id)
 
 
 def edit_content_locked(

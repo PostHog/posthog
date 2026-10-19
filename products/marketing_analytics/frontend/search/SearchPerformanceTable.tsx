@@ -33,12 +33,14 @@ import { SearchPositionCell } from './SearchPositionCell'
 export function SearchPerformanceTable({
     query,
     metrics,
+    wrapText = false,
     emptyState = 'No results match this date range. Try a wider date range.',
     onSelect,
     queryKey = SEARCH_PERFORMANCE_QUERY_KEY,
 }: {
     query: MarketingAnalyticsSearchQuery
     metrics: SearchMetrics
+    wrapText?: boolean
     emptyState?: React.ReactNode
     onSelect?: (row: MarketingAnalyticsSearchRow) => void
     queryKey?: string
@@ -122,8 +124,12 @@ export function SearchPerformanceTable({
                         }
                     >
                         {goals.length === 0
-                            ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions by landing page.'
-                            : `PostHog conversions use ${conversionsResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution, matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.`}
+                            ? 'Add an event or action conversion goal in Marketing analytics settings to see PostHog conversions.'
+                            : `PostHog conversions use ${conversionsResponse.posthogAttributionMode?.replaceAll('_', ' ') ?? 'your configured'} attribution. ${
+                                  query.breakdown === 'page'
+                                      ? 'Conversions are matched by landing URL and search source. URL query parameters and fragments are combined. Organic rows have no cost per conversion.'
+                                      : 'Paid keywords are matched to the session’s utm_term and search source. Set utm_term to the keyword in your ad links. Organic query conversions are only available by landing page.'
+                              }`}
                         {conversionsResponse.posthogConversionsWarning && (
                             <p className="mb-0 mt-1">{conversionsResponse.posthogConversionsWarning}</p>
                         )}
@@ -142,6 +148,7 @@ export function SearchPerformanceTable({
                 allowContentScroll
                 className={clsx('SearchPerformanceTable [&_th]:whitespace-normal', {
                     'SearchPerformanceTable--paginated': rows.length > 10,
+                    'SearchPerformanceTable--wrap-text': wrapText,
                 })}
                 dataSource={responseLoading ? [] : rows}
                 loading={responseLoading}
@@ -160,9 +167,19 @@ export function SearchPerformanceTable({
                         render: (_, row) => (
                             <div className="min-w-0">
                                 {onSelect && (row.page || row.keyword) ? (
-                                    <LemonButton type="tertiary" size="xsmall" noPadding onClick={() => onSelect(row)}>
+                                    <LemonButton
+                                        type="tertiary"
+                                        size="xsmall"
+                                        noPadding
+                                        fullWidth
+                                        truncate={!wrapText}
+                                        onClick={() => onSelect(row)}
+                                    >
                                         <span
-                                            className="block truncate text-link"
+                                            className={clsx(
+                                                'block text-link',
+                                                wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                            )}
                                             title={row.page ?? row.keyword ?? ''}
                                         >
                                             {row.page ?? row.keyword}
@@ -170,7 +187,10 @@ export function SearchPerformanceTable({
                                     </LemonButton>
                                 ) : (
                                     <span
-                                        className="block truncate"
+                                        className={clsx(
+                                            'block',
+                                            wrapText ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate'
+                                        )}
                                         title={row.page ?? row.keyword ?? 'Keyword unavailable'}
                                     >
                                         {row.page ?? row.keyword ?? 'Keyword unavailable'}
@@ -304,7 +324,7 @@ export function SearchPerformanceTable({
                                         ? (row.currency as CurrencyCode)
                                         : null
                                 return (
-                                    <div>
+                                    <div className="SearchPerformanceTable__metric">
                                         <ChangeValueCell
                                             value={value == null ? null : [value, previous ?? null]}
                                             compare={!!query.compareFilter?.compare}

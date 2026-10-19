@@ -7,12 +7,14 @@ export interface ScoutWriteScopeRow {
     /** Heading the row sits under. Purely a label: the API stores a flat list of scopes. */
     group:
         | 'Analytics'
+        | 'Notebooks'
         | 'Monitoring'
         | 'Customer analytics'
         | 'Scouts and skills'
         | 'Data'
         | 'Replay vision'
         | 'Workflows'
+        | 'Canvases'
     label: string
     description: string
     /** Flag the product is still released behind. Its MCP tools share it, so a grant without it is inert. */
@@ -33,6 +35,12 @@ export interface ScoutWriteScopeRow {
  * picker does not show an unreleased product.
  */
 export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
+    {
+        scope: 'notebook:write',
+        group: 'Notebooks',
+        label: 'Notebooks',
+        description: 'Create, edit, run, and delete notebooks, including ones people made',
+    },
     {
         scope: 'dashboard:write',
         group: 'Analytics',
@@ -99,13 +107,31 @@ export const SCOUT_WRITE_SCOPE_ROWS: ScoutWriteScopeRow[] = [
         description:
             'Suggest changes to workflows whose owner turned suggestions on. A person approves or rejects each one; the scout cannot publish',
     },
+    {
+        scope: 'canvas:write',
+        group: 'Canvases',
+        label: 'Canvases',
+        description:
+            'Publish new versions of any canvas in a public space and of canvases you created, and change their layout and state. A scout cannot create a canvas, so create the one it should keep up to date',
+    },
 ]
 
 /** What every scout can write, whatever its grant. Shown so the picker is the whole picture. */
 export const SCOUT_ALWAYS_GRANTED_ROWS: { label: string; description: string }[] = [
-    { label: 'Notebooks', description: 'Every scout can write notebooks' },
     { label: 'Inbox and memory', description: 'Its reports, findings, and shared scout memory' },
 ]
+
+/**
+ * The grant a new scout starts with, mirroring `SCOUT_DEFAULT_WRITE_SCOPES` in
+ * `posthog/temporal/oauth.py`. Every scout holds these unless a person turned them off, so they are
+ * the norm rather than something to call out.
+ */
+export const SCOUT_DEFAULT_WRITE_SCOPES: readonly string[] = ['notebook:write']
+
+/** The scopes a scout holds beyond the default grant. */
+export function scoutWriteScopesBeyondDefault(scopes: readonly string[] | undefined): string[] {
+    return (scopes ?? []).filter((scope) => !SCOUT_DEFAULT_WRITE_SCOPES.includes(scope))
+}
 
 /**
  * The rows the picker shows. A hidden row still counts in `offeredScoutWriteScopes`, so a save by

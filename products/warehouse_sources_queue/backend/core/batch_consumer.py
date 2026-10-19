@@ -5,6 +5,7 @@ import random
 import signal
 import asyncio
 import contextlib
+import faulthandler
 from collections import defaultdict
 from collections.abc import Callable, Coroutine, Iterator
 from dataclasses import dataclass, replace
@@ -134,7 +135,7 @@ def _is_admin_shutdown_error(error: BaseException) -> bool:
 # worker can roll out ahead of the migration completing, so this is a self-healing race, not a
 # bug — the sweep already retries every interval, and the query succeeds once the migration
 # lands. Mirrors the schema-lag handling in posthog/tasks/alerts/utils.py and
-# products/tasks/backend/loop_retention.py.
+# products/tasks/backend/task_auto_archive.py.
 def _is_schema_lag_error(error: BaseException) -> bool:
     return isinstance(error, psycopg.errors.UndefinedColumn | psycopg.errors.UndefinedTable)
 
@@ -199,6 +200,20 @@ def _is_pooler_login_retry_cached_error(error: BaseException) -> bool:
     if not isinstance(error, psycopg.errors.ProtocolViolation):
         return False
     return _POOLER_LOGIN_RETRY_CACHED_ERROR_MARKER in str(error).lower()
+
+
+# asyncio's default executor (what ``loop.run_in_executor(None, ...)`` submits to -- psycopg
+# uses it for DNS resolution while connecting) is shut down once the running event loop winds
+# down. ``_unlock_group``'s retry-connect runs in a group task's ``finally`` block: that task
+# can still be executing it after ``_close()``'s drain window elapsed and gave up waiting,
+# because the task's own cancellation left the shared per-group connection mid-protocol and
+# triggered the retry in the first place. By then the pod is already exiting, so there is
+# nothing a redial could reach; the lease simply expires and a surviving pod reclaims it.
+_EXECUTOR_SHUTDOWN_ERROR_MARKER = "cannot schedule new futures after shutdown"
+
+
+def _is_executor_shutdown_error(error: BaseException) -> bool:
+    return isinstance(error, RuntimeError) and _EXECUTOR_SHUTDOWN_ERROR_MARKER in str(error).lower()
 
 
 def _is_transient_queue_db_error(error: BaseException) -> bool:
@@ -293,6 +308,10 @@ class BatchConsumerConfig:
     # Withhold liveness after this many consecutive failed polls: a pod that
     # cannot poll does no work but would otherwise pass liveness forever.
     poll_failure_liveness_threshold: int | None = 10
+    # When set, all thread stacks are written to stderr once the heartbeat loop has not run for
+    # this many seconds. faulthandler writes them from a C thread, so the dump also works when a
+    # native call holds the GIL and every Python thread, logging included, is frozen.
+    stall_dump_after_seconds: float | None = None
 
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
@@ -340,6 +359,7 @@ class BatchConsumerAdapter(Protocol):
         *,
         batches: list[PendingBatch],
         owner_token: str,
+        skip_locked: bool = False,
     ) -> None: ...
 
     async def release_all_owned(
@@ -698,7 +718,7 @@ class BatchConsumer:
         through the poll-failure liveness trip and the queue-freshness gauge, which measure
         the outage rather than counting its exceptions.
         """
-        if _is_transient_queue_db_error(error):
+        if _is_transient_queue_db_error(error) or _is_executor_shutdown_error(error):
             logger.warning(event, error=str(error), **context)
             return
         logger.exception(event, **context)
@@ -903,7 +923,9 @@ class BatchConsumer:
                 batch_count=len(undispatched),
             )
             try:
-                await self._adapter.unlock(conn, batches=undispatched, owner_token=self._owner_token)
+                # Best effort: a lease row locked elsewhere expires after its TTL, so waiting on it
+                # only risks the poll connection's statement timeout.
+                await self._adapter.unlock(conn, batches=undispatched, owner_token=self._owner_token, skip_locked=True)
             except Exception as e:
                 self._report_queue_failure(self._event("release_undispatched_failed"), e)
 
@@ -1810,12 +1832,20 @@ class BatchConsumer:
         A poll cycle can run far longer than the health timeout (e.g. large final-batch
         compaction), so the main loop's per-poll health report is not enough on its own.
         """
-        while not self._shutdown.is_set():
-            self._report_health()
-            try:
-                await asyncio.wait_for(self._shutdown.wait(), timeout=self._config.heartbeat_interval_seconds)
-            except TimeoutError:
-                pass
+        stall_dump_after = self._config.stall_dump_after_seconds
+        try:
+            while not self._shutdown.is_set():
+                if stall_dump_after is not None:
+                    faulthandler.dump_traceback_later(stall_dump_after)
+                self._report_health()
+                try:
+                    await asyncio.wait_for(self._shutdown.wait(), timeout=self._config.heartbeat_interval_seconds)
+                except TimeoutError:
+                    pass
+        finally:
+            # The shutdown drain sends no heartbeats, so a timer left armed would dump stacks on every long drain.
+            if stall_dump_after is not None:
+                faulthandler.cancel_dump_traceback_later()
 
     async def _recovery_sweep(self, *, should_abort: Callable[[], bool] | None = None) -> None:
         grace_seconds = self._config.recovery_grace_seconds
