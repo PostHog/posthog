@@ -185,6 +185,30 @@ class TestFanOut:
         assert result.requests[0].query["asset_types"] == ("video", "audio")
         assert dict(result.requests[1].query) == {"include": ("sentences,utterances",)}
 
+    def test_item_tags_fan_out_over_each_store_and_its_video_items(self) -> None:
+        # The tags path needs the store id from two levels up, so it must be carried through the
+        # items level. Image items hold no tags and must not cost a request.
+        tag = {"_id": "t1", "knowledge_store_id": "ks2", "item_id": "i2", "start_sec": 1.5, "end_sec": None}
+        result = _run(
+            "knowledge_store_item_tags",
+            [
+                _page([{"_id": "ks1"}, {"_id": "ks2"}], page=1, total_page=1),
+                _page([{"_id": "i1", "asset_type": "image"}], page=1, total_page=1),
+                _page([{"_id": "i2", "asset_type": "video"}], page=1, total_page=1),
+                _page([tag], page=1, total_page=1),
+            ],
+        )
+
+        assert result.rows == [tag]
+        assert result.paths == [
+            "/v1.3/knowledge-stores",
+            "/v1.3/knowledge-stores/ks1/items",
+            "/v1.3/knowledge-stores/ks2/items",
+            "/v1.3/knowledge-stores/ks2/items/i2/tags",
+        ]
+        assert result.requests[1].param("sort_option") == "asc"
+        assert result.requests[3].param("knowledge_store_id") is None
+
     def test_old_shape_saved_state_still_parses(self) -> None:
         # ResumableSourceManager._load_json does dataclass(**saved) — state saved before the
         # migration must still construct.
