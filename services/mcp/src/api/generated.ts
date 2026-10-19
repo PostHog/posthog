@@ -32494,6 +32494,10 @@ export namespace Schemas {
      * * `Northbeam` - Northbeam
      * * `NaverAds` - NaverAds
      * * `ChannelIO` - ChannelIO
+     * * `Airship` - Airship
+     * * `Creem` - Creem
+     * * `Leantime` - Leantime
+     * * `Testomatio` - Testomatio
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -33886,6 +33890,10 @@ export namespace Schemas {
       Northbeam: 'Northbeam',
       NaverAds: 'NaverAds',
       ChannelIO: 'ChannelIO',
+      Airship: 'Airship',
+      Creem: 'Creem',
+      Leantime: 'Leantime',
+      Testomatio: 'Testomatio',
     } as const;
 
     /**
@@ -35291,7 +35299,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -37941,7 +37953,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -42681,7 +42697,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `system_one` - System One
      * * `openai_compatible` - OpenAI-compatible
      */
@@ -42697,7 +42712,6 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
-      Zeabur: 'zeabur',
       SystemOne: 'system_one',
       OpenaiCompatible: 'openai_compatible',
     } as const;
@@ -45297,6 +45311,18 @@ export namespace Schemas {
       can_view_task: boolean;
     }
 
+    /**
+     * * `split` - Split
+     * * `bucketing` - Bucketing
+     */
+    export type ExperimentHealthFlagChangeKindEnum = typeof ExperimentHealthFlagChangeKindEnum[keyof typeof ExperimentHealthFlagChangeKindEnum];
+
+
+    export const ExperimentHealthFlagChangeKindEnum = {
+      Split: 'split',
+      Bucketing: 'bucketing',
+    } as const;
+
     export interface ExperimentHealthInputsReleaseCondition {
       /** The condition's position in the flag, from 1, as the flag page labels it ('Set 2'). */
       number: number;
@@ -45341,36 +45367,41 @@ export namespace Schemas {
       release_conditions: ExperimentHealthInputsReleaseCondition[];
       /** The flag's variants and their split. */
       variants: ExperimentHealthInputsVariant[];
+      /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
+      split_text: string;
     }
 
-    export interface ExperimentHealthInputsSplitChange {
-      /** When the flag's split changed. */
+    export interface ExperimentHealthInputsFlagChange {
+      /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
+       *
+       * * `split` - Split
+       * * `bucketing` - Bucketing */
+      kind: ExperimentHealthFlagChangeKindEnum;
+      /** When the flag changed. */
       changed_at: string;
-      /** The split before the change. */
-      before: ExperimentHealthInputsVariant[];
-      /** The split after the change. */
-      after: ExperimentHealthInputsVariant[];
+      /** What changed: 'Split', or the name of the setting, such as 'Key'. */
+      changed: string;
+      /** The value before the change as text, such as 'control 50%, test 50%' or 'device_id'. 'none' when unset. */
+      before: string;
+      /** The value after the change, in the same form. */
+      after: string;
       /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
       counted: boolean;
     }
 
-    export interface ExperimentHealthInputsBucketingChange {
-      /** When the setting changed. */
-      changed_at: string;
-      /** The flag setting that decides the variant draw: 'key', 'aggregation' (the group type the flag matches by), 'bucketing_identifier' or 'experience_continuity' (persist the flag across authentication steps). */
-      setting: string;
+    export interface ExperimentHealthInputsExposedBetween {
+      /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
+       *
+       * * `split` - Split
+       * * `bucketing` - Bucketing */
+      kind: ExperimentHealthFlagChangeKindEnum;
+      /** What was asked, as the staff view names it. */
+      question: string;
       /**
-         * The value before the change: the key, the group type index, 'distinct_id' or 'device_id', or 'true' or 'false'. Null for an aggregation by persons, or an unreadable key.
+         * Whether anyone was exposed between the first and the last counted change of this kind. Asked only when the last sets back what the first changed. Null when not asked or unknown.
          * @nullable
          */
-      before: string | null;
-      /**
-         * The value after the change, in the same form.
-         * @nullable
-         */
-      after: string | null;
-      /** Whether the checks count this change: every change counts from the first change, of any kind, with an exposure before it, or an unknown answer. False for every change when not checked. */
-      counted: boolean;
+      exposed: boolean | null;
     }
 
     export interface ExperimentHealthInputsFlagHistory {
@@ -45385,25 +45416,15 @@ export namespace Schemas {
       launched_at: string;
       /** The project's time zone, which the findings use for times. */
       team_timezone: string;
-      /** Every split change since launch. Empty for 'no_history_access', which does not read them. */
-      split_changes: ExperimentHealthInputsSplitChange[];
-      /** Every change since launch of a setting that decides the variant draw, one per setting and save. Empty for 'no_history_access'. */
-      bucketing_changes: ExperimentHealthInputsBucketingChange[];
+      /** Every change since launch that can move exposed people, of every kind, in time order. A bucketing change is one per setting and save. Empty for 'no_history_access', which does not read them. */
+      changes: ExperimentHealthInputsFlagChange[];
       /**
          * Whether anyone was exposed before the first counted change. Null when unknown or not checked.
          * @nullable
          */
       exposed_before_first: boolean | null;
-      /**
-         * Whether anyone was exposed between the first and the last counted split change. Asked only when the last restores the split from before the first. Null when not asked or unknown.
-         * @nullable
-         */
-      split_exposed_between: boolean | null;
-      /**
-         * Whether anyone was exposed between the first and the last counted bucketing change. Asked only when every setting was set back. Null when not asked or unknown.
-         * @nullable
-         */
-      bucketing_exposed_between: boolean | null;
+      /** One entry for each kind of change with a counted change, in the order of the kinds. */
+      exposed_between: ExperimentHealthInputsExposedBetween[];
     }
 
     /**
@@ -50036,7 +50057,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -51462,7 +51487,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -58383,9 +58412,11 @@ export namespace Schemas {
     }
 
     export interface MetricsVariableValue {
-      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets `values`. */
+      /** True when the variable is set to All. PromQL gets `allValue` or `.*`, builder filters drop the filter, and SQL gets every option of the variable. */
       all?: boolean | null;
       allValue?: string | null;
+      /** The definition of a variable set to All, so that a SQL query can load its options. */
+      definition?: MetricsDashboardVariable | null;
       values: string[];
     }
 
@@ -62073,7 +62104,6 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
-     * * `zeabur` - Zeabur AI Hub
      * * `openai_compatible` - OpenAI-compatible
      */
     export type LLMCompletionProviderEnum = typeof LLMCompletionProviderEnum[keyof typeof LLMCompletionProviderEnum];
@@ -62088,7 +62118,6 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
-      Zeabur: 'zeabur',
       OpenaiCompatible: 'openai_compatible',
     } as const;
 
@@ -67669,6 +67698,22 @@ export namespace Schemas {
       MeanSumOrAvg: 'mean_sum_or_avg',
       Ratio: 'ratio',
       Retention: 'retention',
+    } as const;
+
+    /**
+     * * `custom` - custom
+     * * `promql` - promql
+     * * `sql` - sql
+     * * `textbox` - textbox
+     */
+    export type MetricVariableSourceEnum = typeof MetricVariableSourceEnum[keyof typeof MetricVariableSourceEnum];
+
+
+    export const MetricVariableSourceEnum = {
+      Custom: 'custom',
+      Promql: 'promql',
+      Sql: 'sql',
+      Textbox: 'textbox',
     } as const;
 
     export interface MetricsCreatedDashboard {
@@ -76039,7 +76084,6 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
       provider: LLMCompletionProviderEnum;
       /**
@@ -87100,7 +87144,6 @@ export namespace Schemas {
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
        * * `minimax` - MiniMax
-       * * `zeabur` - Zeabur AI Hub
        * * `openai_compatible` - OpenAI-compatible */
       provider: LLMCompletionProviderEnum;
       /**
@@ -102046,6 +102089,70 @@ export namespace Schemas {
       queries: string[];
     }
 
+    export interface SendCalendarBatchJob {
+      /** ID of the batch run. */
+      readonly id: string;
+      /** Status of the batch run.
+       *
+       * * `waiting` - Waiting
+       * * `queued` - Queued
+       * * `active` - Active
+       * * `completed` - Completed
+       * * `cancelled` - Cancelled
+       * * `failed` - Failed */
+      readonly status: HogFlowBatchJobStateEnum;
+      /** When the batch run started. */
+      readonly created_at: string;
+    }
+
+    export type SendCalendarFlowAudiencePropertiesItem = { [key: string]: unknown };
+
+    export interface SendCalendarFlow {
+      /** ID of the workflow. */
+      readonly id: string;
+      /**
+         * Name of the workflow.
+         * @nullable
+         */
+      readonly name: string | null;
+      /** The product surface that owns the workflow, such as broadcasts. Null for a plain workflow.
+       *
+       * * `loops` - Loops
+       * * `broadcasts` - Broadcasts
+       * * `transactional_emails` - Transactional emails */
+      readonly origin_product: HogFlowOriginProductEnum | null;
+      /** User who created the workflow. */
+      readonly created_by: UserBasic | null;
+      /**
+         * The reader's access level on the workflow.
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+      /** The trigger type: batch or schedule. */
+      readonly trigger_type: string;
+      /** The property filters of a batch trigger's audience. Empty for a schedule trigger. */
+      readonly audience_properties: readonly SendCalendarFlowAudiencePropertiesItem[];
+      /**
+         * persons or accounts for a batch trigger's audience. Null when the trigger does not set it.
+         * @nullable
+         */
+      readonly audience_type: string | null;
+      /**
+         * The 'To' address of the first email step. A schedule trigger has no audience, so it sends here.
+         * @nullable
+         */
+      readonly email_to: string | null;
+      /**
+         * ID of the message category of the first email step.
+         * @nullable
+         */
+      readonly message_category_id: string | null;
+      /** The schedules that still have sends to come. */
+      readonly schedules: readonly HogFlowSchedule[];
+      /** The batch runs that started inside the requested range. */
+      readonly batch_jobs: readonly SendCalendarBatchJob[];
+    }
+
     export interface SendCommentToSlack {
       /** ID of the Slack integration (kind='slack') whose bot posts the thread. */
       integration_id: number;
@@ -102234,6 +102341,26 @@ export namespace Schemas {
       /** One-line summary of the plan */
       summary: string;
     }
+
+    /**
+     * * `channel` - Channel
+     * * `domain` - Domain
+     * * `opt-outs` - Opt-outs
+     * * `sending-rules` - Sending rules
+     * * `email-template` - Email template
+     * * `first-workflow` - First workflow
+     */
+    export type SetupStepKeyEnum = typeof SetupStepKeyEnum[keyof typeof SetupStepKeyEnum];
+
+
+    export const SetupStepKeyEnum = {
+      Channel: 'channel',
+      Domain: 'domain',
+      OptOuts: 'opt-outs',
+      SendingRules: 'sending-rules',
+      EmailTemplate: 'email-template',
+      FirstWorkflow: 'first-workflow',
+    } as const;
 
     export interface SharePassword {
       readonly id: number;
@@ -105420,7 +105547,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -106877,7 +107008,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -108301,7 +108436,11 @@ export namespace Schemas {
        * * `LaravelCloud` - LaravelCloud
        * * `Northbeam` - Northbeam
        * * `NaverAds` - NaverAds
-       * * `ChannelIO` - ChannelIO */
+       * * `ChannelIO` - ChannelIO
+       * * `Airship` - Airship
+       * * `Creem` - Creem
+       * * `Leantime` - Leantime
+       * * `Testomatio` - Testomatio */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -116310,6 +116449,46 @@ export namespace Schemas {
       estimated_cost_usd: number | null;
     }
 
+    export interface WorkflowSetupStep {
+      /** Which setup step this is. The steps come in the order the setup wizard asks for them.
+       *
+       * * `channel` - Channel
+       * * `domain` - Domain
+       * * `opt-outs` - Opt-outs
+       * * `sending-rules` - Sending rules
+       * * `email-template` - Email template
+       * * `first-workflow` - First workflow */
+      key: SetupStepKeyEnum;
+      /** Whether the project has done this step. */
+      done: boolean;
+      /** The step's name, as the app shows it. */
+      title: string;
+      /** What the person does to finish the step. */
+      next_step: string;
+      /** Link to the place in the app where the person does this step. */
+      app_url: string;
+    }
+
+    export interface WorkflowSetupStatus {
+      /** Every messaging setup step, in order. */
+      steps: WorkflowSetupStep[];
+      /** Whether an email workflow can send. Needs a connected email channel on a verified domain, and email sending must not be paused for the project. SMS and push use their own channels, and automations that only post to tools like Slack or call webhooks need none of these steps. */
+      ready_to_send_email: boolean;
+      /** Whether email sending is paused for the project, so no email sends even with a verified domain. The person contacts PostHog support to resume it. */
+      email_sending_paused: boolean;
+      /** The first step that is not done, or null when every step is done.
+       *
+       * * `channel` - Channel
+       * * `domain` - Domain
+       * * `opt-outs` - Opt-outs
+       * * `sending-rules` - Sending rules
+       * * `email-template` - Email template
+       * * `first-workflow` - First workflow */
+      next_open_step: SetupStepKeyEnum | null;
+      /** Whether workflows-data-suggestions-list can suggest workflows from this project's events. */
+      data_suggestions_available: boolean;
+    }
+
     export interface WorkflowStatsRow {
       /** The workflow these counts are for. */
       workflow_id: string;
@@ -117731,6 +117910,77 @@ export namespace Schemas {
     export interface _MetricSamplesResponse {
       /** Raw emissions ordered by timestamp descending. */
       results: _MetricEventSample[];
+    }
+
+    export interface _MetricVariableSelection {
+      /**
+         * Variable name. Queries refer to it as `$name`.
+         * @maxLength 128
+         * @pattern ^[A-Za-z_][A-Za-z0-9_]*$
+         */
+      name: string;
+      /**
+         * The selected values. When `all` is true, the options that All stands for.
+         * @maxItems 1000
+         * @items.maxLength 1024
+         */
+      values: string[];
+      /** True when the variable is set to All. */
+      all?: boolean;
+      /**
+         * The text that All puts in a PromQL query. `.*` when it is empty.
+         * @maxLength 1024
+         * @nullable
+         */
+      allValue?: string | null;
+    }
+
+    export interface _MetricVariableOptionsRequest {
+      /** Where the options come from: a static list, a PromQL query, a SQL query, or free text.
+       *
+       * * `custom` - custom
+       * * `promql` - promql
+       * * `sql` - sql
+       * * `textbox` - textbox */
+      source: MetricVariableSourceEnum;
+      /**
+         * The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) and query_result(expr). SQL returns the options in its first column.
+         * @maxLength 10000
+         * @nullable
+         */
+      query?: string | null;
+      /**
+         * The options when `source` is `custom`.
+         * @maxItems 1000
+         * @nullable
+         * @items.maxLength 1024
+         */
+      customValues?: string[] | null;
+      /**
+         * A regex that filters the options of a query, as `pattern` or `/pattern/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.
+         * @maxLength 1024
+         * @nullable
+         */
+      regex?: string | null;
+      /** The current selection of the other dashboard variables that the query can refer to. */
+      variables?: _MetricVariableSelection[];
+      /**
+         * Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago.
+         * @maxLength 64
+         * @nullable
+         */
+      dateFrom?: string | null;
+      /**
+         * End of the window that options come from, in the same format as dateFrom. Defaults to now.
+         * @maxLength 64
+         * @nullable
+         */
+      dateTo?: string | null;
+    }
+
+    export interface _MetricVariableOptionsResponse {
+      /** The options of the variable, at most 1,000. */
+      results: string[];
     }
 
     export interface _MetricsOverviewService {
@@ -126849,6 +127099,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type HogFlowsSendCalendarRetrieveParams = {
+    /**
+     * End of the shown range, exclusive, as an ISO 8601 datetime. At most 92 days after start.
+     */
+    end: string;
+    /**
+     * Start of the shown range, inclusive, as an ISO 8601 datetime.
+     */
+    start: string;
+    };
+
     export type HogFunctionTemplatesListParams = {
     /**
      * Number of results to return per page.
@@ -127984,7 +128245,6 @@ export namespace Schemas {
       Openrouter: 'openrouter',
       SystemOne: 'system_one',
       TogetherAi: 'together_ai',
-      Zeabur: 'zeabur',
     } as const;
 
     export type LlmAnalyticsParserRecipesListParams = {

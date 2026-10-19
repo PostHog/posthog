@@ -67,6 +67,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -8239,9 +8240,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 class TestTrendsQueryRunnerParallelExecution(ClickhouseTestMixin, APIBaseTest):
     """Runs without override_settings(IN_UNIT_TESTING=True) so the queries go through the executor."""
 
-    def _run(self, series: list[EventsNode], breakdown: Optional[BreakdownFilter] = None):
+    def _run(
+        self,
+        series: list[EventsNode],
+        breakdown: Optional[BreakdownFilter] = None,
+        ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
+    ) -> TrendsQueryResponse:
         return TrendsQueryRunner(
             team=self.team,
+            ch_user=ch_user,
             query=TrendsQuery(
                 dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-20"),
                 interval=IntervalType.DAY,
@@ -8250,13 +8257,20 @@ class TestTrendsQueryRunnerParallelExecution(ClickhouseTestMixin, APIBaseTest):
             ),
         ).calculate()
 
-    def test_every_series_comes_back_when_the_queries_run_through_the_executor(self):
+    @parameterized.expand([(ClickHouseUser.DEFAULT,), (ClickHouseUser.SIGNALS,)])
+    def test_every_series_comes_back_when_the_queries_run_through_the_executor(self, ch_user: ClickHouseUser) -> None:
         _create_person(distinct_ids=["p1"], team=self.team)
         for event in ("a", "b", "c"):
             _create_event(team=self.team, event=event, distinct_id="p1", timestamp="2020-01-11T12:00:00Z")
         flush_persons_and_events()
 
-        response = self._run([EventsNode(event=event) for event in ("a", "b", "c")])
+        with patch(
+            "products.product_analytics.backend.hogql_queries.trends.trends_query_runner.execute_hogql_query",
+            wraps=execute_hogql_query,
+        ) as query:
+            response = self._run([EventsNode(event=event) for event in ("a", "b", "c")], ch_user=ch_user)
+        assert len(query.call_args_list) == 3
+        assert all(call.kwargs["ch_user"] == ch_user for call in query.call_args_list)
 
         self.assertEqual([result["label"] for result in response.results], ["a", "b", "c"])
         self.assertEqual([sum(result["data"]) for result in response.results], [1, 1, 1])
