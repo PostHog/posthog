@@ -231,19 +231,6 @@ struct RevokedPartition {
 
 /// The consumer's revocation hook: purge the batcher, and record the revoked
 /// partitions, because the purge means their polls never complete.
-fn forget_partitions(
-    ledger: &TopicOffsetLedger,
-    settlement: &dyn Settlement,
-    partitions: &[TopicPartition],
-) {
-    ledger.forget_partitions(
-        partitions
-            .iter()
-            .map(|tp| (tp.topic.as_str(), tp.partition)),
-    );
-    settlement.forget_partitions(partitions);
-}
-
 fn revoke_hook(
     revoker: Revoker,
     ledger: Arc<TopicOffsetLedger>,
@@ -251,7 +238,7 @@ fn revoke_hook(
     revoked_partitions: Arc<Mutex<Vec<RevokedPartition>>>,
 ) -> PartitionHook {
     Box::new(move |partitions| {
-        forget_partitions(&ledger, &*settlement, partitions);
+        settlement.forget_partitions(partitions);
         let pairs: Vec<(String, i32)> = partitions
             .iter()
             .map(|tp| (tp.topic.clone(), tp.partition))
@@ -268,13 +255,12 @@ fn revoke_hook(
 }
 
 fn assign_hook(
-    ledger: Arc<TopicOffsetLedger>,
     settlement: Arc<dyn Settlement>,
     assignment_epoch: AssignmentEpoch,
 ) -> PartitionHook {
     Box::new(move |partitions| {
         // Also covers a loss with no revoke callback (an error rebalance, a fenced member).
-        forget_partitions(&ledger, &*settlement, partitions);
+        settlement.forget_partitions(partitions);
         assignment_epoch.bump();
     })
 }
@@ -293,11 +279,7 @@ fn wire_rebalance_hooks(
         Arc::clone(settlement),
         Arc::clone(&revoked_partitions),
     ));
-    context.set_on_assign(assign_hook(
-        Arc::clone(ledger),
-        Arc::clone(settlement),
-        assignment_epoch,
-    ));
+    context.set_on_assign(assign_hook(Arc::clone(settlement), assignment_epoch));
     revoked_partitions
 }
 
@@ -1047,14 +1029,12 @@ impl IngestionConsumer {
         // One ledger call per partition keeps the lock and the gauge labels
         // off the per-message path.
         for (topic_partition, partition) in &partitions {
-            // The ledger counts both outcomes and publishes what the window
-            // holds; a rejection is logged here, where the slice is still
-            // known.
-            if let Err(rejection) = self.topic_offset_ledger.charge(
-                topic_partition,
-                partition.generation,
-                partition.charges.iter().copied(),
-            ) {
+            // The ledger counts a rejection; it is logged here, where the
+            // slice is still known.
+            if let Err(rejection) =
+                self.settlement
+                    .charge(topic_partition, partition.generation, &partition.charges)
+            {
                 report_rejection(
                     "charge",
                     topic_partition,
@@ -1271,7 +1251,7 @@ mod tests {
             Duration::from_secs(3600),
         ));
         let epoch = AssignmentEpoch::new();
-        let on_assign = assign_hook(Arc::clone(&ledger), Arc::clone(&settlement), epoch.clone());
+        let on_assign = assign_hook(Arc::clone(&settlement), epoch.clone());
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, ledger.generation(&p0), &[10]);
         settlement

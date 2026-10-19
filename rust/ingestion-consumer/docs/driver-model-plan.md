@@ -619,17 +619,18 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 **Goal:** The number the budget will bound exists and reports before anything constrains it.
 
 - Charge each message to its partition on poll. The ledger slots already carry the costs (change 2).
-- Refund the charge when the commit that covers the message goes out. The ledger keeps a take's offsets and charge until the settlement releases them as it hands the frontier out, which is when the consumer submits the commit; before this change the take itself was the refund, so under the interval pacer the gauges ran up to one interval ahead of the commits. A revoked partition drops everything it holds.
-- The ledger gauges the result per partition. The budget's config and its pause gauges arrive with change 24, where they are read.
+- Refund the charge when the commit that covers the message goes out. The charge is always in one place: the ledger's window until a take, then the pacer with the frontier it covers until the settlement hands the frontier out, which is when the consumer submits the commit. Before this change the pacer kept only the offset, so the take itself was the refund and under the interval pacer the gauges ran up to one interval ahead of the commits. A revoked partition drops everything it holds in both places.
+- The settlement gauges the result per partition, since it alone sees both places. The budget's config and its pause gauges arrive with change 24, where they are read.
 
 **Interfaces:**
 
-- Modify `PartitionOffsetLedger` and `TopicOffsetLedger`: `uncommitted` reports the window plus the takes not yet released; `release_taken` releases them.
-- Modify `Settlement`: `take_due` and `take_all` release the takes of every partition they hand out.
+- Modify `CommitPacer`: keep each partition's pending frontier with the charge of every take since the last commit.
+- Modify `Settlement`: `charge` charges the ledger and returns what the partition holds uncommitted; `forget_partitions` forgets the ledger too. Both granularities move charge between the ledger and the pacer under one lock and publish the gauges.
+- Modify `TopicOffsetLedger`: stop publishing the uncommitted gauges.
 
 **Metrics:**
 
-- `kafka_consumer_ledger_uncommitted_offsets{topic,partition}`, `kafka_consumer_ledger_uncommitted_events{topic,partition}` and `kafka_consumer_ledger_uncommitted_bytes{topic,partition}` now include takes whose commit has not gone out. No new series.
+- `kafka_consumer_ledger_uncommitted_offsets{topic,partition}`, `kafka_consumer_ledger_uncommitted_events{topic,partition}` and `kafka_consumer_ledger_uncommitted_bytes{topic,partition}` now include takes whose commit has not gone out, and the settlement publishes them. No new series.
 
 ### 24. Enable the budget (switchover)
 
@@ -648,7 +649,7 @@ The budget is per partition, and so is the pause. One budget for the whole assig
 **Interfaces:**
 
 - Modify `Config`: add the budget per partition in events and in bytes, and the low watermark as a fraction of the budget (default 0.8). Unset means no constraint.
-- Modify `IngestionConsumer`: pause and resume one partition at a time through the Kafka client, from the ledger's `uncommitted` per partition.
+- Modify `IngestionConsumer`: pause and resume one partition at a time through the Kafka client, from what the settlement reports uncommitted per partition.
 
 **Metrics:**
 

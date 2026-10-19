@@ -2,29 +2,37 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Charge, Held, Offset, Rejection, TopicOffsetLedger, TopicPartition};
 use metrics::counter;
 use tracing::warn;
 
-use super::{ChargedSlice, Settlement};
+use super::{ChargedSlice, Settlement, Uncommitted};
 use crate::commit_pacer::CommitPacer;
 use crate::ledger_rejection::{report_rejection, RejectedSlice};
 
 pub(crate) struct PollSettlement {
-    ledger: Arc<TopicOffsetLedger>,
-    pacer: Arc<CommitPacer>,
+    uncommitted: Uncommitted,
 }
 
 impl PollSettlement {
     pub(crate) fn new(ledger: Arc<TopicOffsetLedger>) -> Self {
         Self {
-            ledger,
-            pacer: Arc::new(CommitPacer::immediate()),
+            uncommitted: Uncommitted::new(ledger, CommitPacer::immediate()),
         }
     }
 }
 
 impl Settlement for PollSettlement {
+    fn charge(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        charges: &[(Offset, Charge)],
+    ) -> Result<Held, Rejection> {
+        self.uncommitted
+            .charge(topic_partition, generation, charges)
+    }
+
     fn settle_run(
         &self,
         _topic_partition: &TopicPartition,
@@ -43,7 +51,7 @@ impl Settlement for PollSettlement {
             return Ok(());
         }
 
-        if let Some(no_frontier) = settle_slices(&self.ledger, &self.pacer, slices)? {
+        if let Some(no_frontier) = settle_slices(&self.uncommitted, slices)? {
             let reason = no_frontier.reason();
             counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
             warn!(reason, "Poll handed over no frontier; nothing to commit");
@@ -52,15 +60,15 @@ impl Settlement for PollSettlement {
     }
 
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
-        super::release_taken(&self.ledger, self.pacer.take_due(now))
+        self.uncommitted.take_due(now)
     }
 
     fn take_all(&self) -> Option<HashMap<TopicPartition, Offset>> {
-        super::release_taken(&self.ledger, self.pacer.take_all())
+        self.uncommitted.take_all()
     }
 
     fn forget_partitions(&self, topic_partitions: &[TopicPartition]) {
-        self.pacer.forget_partitions(topic_partitions);
+        self.uncommitted.forget_partitions(topic_partitions);
     }
 }
 
@@ -79,14 +87,13 @@ impl NoFrontier {
 }
 
 fn settle_slices(
-    ledger: &TopicOffsetLedger,
-    pacer: &CommitPacer,
+    uncommitted: &Uncommitted,
     slices: &[ChargedSlice<'_>],
 ) -> anyhow::Result<Option<NoFrontier>> {
     let mut settled = false;
     let mut handed_over = false;
     for slice in slices {
-        let frontier = match ledger.settle(
+        let frontier = match uncommitted.ledger.settle(
             slice.topic_partition,
             slice.generation,
             slice.charges.iter().map(|(offset, _)| *offset),
@@ -106,8 +113,7 @@ fn settle_slices(
         if frontier.is_none() {
             continue;
         }
-        if let Some(taken) = ledger.take_frontier(slice.topic_partition) {
-            pacer.advance_frontier(slice.topic_partition, taken);
+        if uncommitted.take_frontier(slice.topic_partition) {
             handed_over = true;
         }
     }
@@ -216,11 +222,22 @@ mod tests {
         let (ledger, settlement) = settlement();
         let poll = charged(&ledger, 0, 10, 11);
 
-        settlement.settle_poll(&[poll.slice()]);
-        assert_eq!(ledger.uncommitted(&poll.topic_partition).offsets, 2);
+        let charge = |offset: i64| {
+            settlement
+                .charge(
+                    &poll.topic_partition,
+                    poll.generation,
+                    &[(Offset(offset), Charge::ZERO)],
+                )
+                .expect("the ledger accepts the charge")
+                .offsets
+        };
+
+        settlement.settle_poll(&[poll.slice()]).unwrap();
+        assert_eq!(charge(12), 3, "the retired poll waits for its commit");
 
         settlement.take_due(Instant::now());
-        assert_eq!(ledger.uncommitted(&poll.topic_partition).offsets, 0);
+        assert_eq!(charge(13), 2, "the commit refunds the retired poll");
     }
 
     #[test]
