@@ -334,7 +334,9 @@ class TestInboxOnboarding(APIBaseTest):
         assert scout.enabled is enabled
         assert not SignalScoutConfig.objects.for_team(self.team.id).get(skill_name="signals-scout-general").enabled
         if state == "task_only":
-            assert not SignalTeamConfig.objects.get(team=self.team).onboarding.get("completed_at")
+            onboarding = SignalTeamConfig.objects.get(team=self.team).onboarding
+            assert onboarding is not None
+            assert not onboarding.get("completed_at")
         elif state == "withheld":
             register_missing_configs(self.team.id, withheld_skill_names=set(withheld))
             scout.refresh_from_db()
