@@ -46,7 +46,7 @@ export const PrepaidCredits: Story = {
   },
 };
 
-export const NotInvited: Story = {
+export const SignupsPaused: Story = {
   args: {
     access: { projectId: 1, status: "blocked", reason: null },
   },
