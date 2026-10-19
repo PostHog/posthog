@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import Integration
 
 from products.slack_app.backend.logic.progress_phases import (
     ANSWER_LINE_TITLE,
@@ -45,9 +45,9 @@ from products.slack_app.backend.logic.progress_phases import (
 from products.slack_app.backend.models import SlackChannel
 from products.slack_app.backend.services.followup_invite import build_followup_invite, build_followup_invite_text
 from products.slack_app.backend.services.slack_auth import invalidate_auth_state
-from products.slack_app.backend.services.slack_messages import collect_thread_messages
 from products.slack_app.backend.services.slack_scopes import has_scopes
 from products.slack_app.backend.services.slack_user_info import invalidate_workspace_bot_user_id
+from products.slack_app.backend.services.thread_history import thread_history_before
 
 __all__ = [
     "ANSWER_LINE_TITLE",
@@ -136,18 +136,9 @@ def slack_followup_invite(integration: Integration | None, *, utm_tags: str, ai_
 def slack_thread_history_before(
     integration: Integration, *, channel: str, thread_ts: str, before_ts: str
 ) -> str | None:
-    """The thread as it stood before the message at ``before_ts``, framed as a prompt context block.
+    """The thread above the message at ``before_ts``, framed as a prompt context block.
 
-    For a run that a thread reply started: the reply reaches the agent as its triggering
-    event, and this block carries the root and the earlier replies it answers. ``None`` when
-    nothing was said before ``before_ts``. A Slack read failure raises, so the caller decides
+    ``None`` when nothing precedes it. A Slack read failure raises, so the caller decides
     whether the run still starts without the history.
     """
-    from products.slack_app.backend.temporal.activities.task_creation import (  # noqa: PLC0415 — keeps the Temporal worker module off the facade import path
-        build_thread_history_block,
-    )
-
-    slack = SlackIntegration(integration)
-    our_bot_id = slack.client.auth_test().get("bot_id")
-    messages = collect_thread_messages(slack, integration, channel, thread_ts, our_bot_id, until_ts=before_ts)
-    return build_thread_history_block(messages, before_ts=before_ts)
+    return thread_history_before(integration, channel=channel, thread_ts=thread_ts, before_ts=before_ts)

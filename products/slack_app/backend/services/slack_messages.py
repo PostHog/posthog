@@ -550,6 +550,7 @@ def collect_thread_messages(
     thread_ts: str,
     our_bot_id: str | None,
     until_ts: str | None = None,
+    timeout: float | None = None,
 ) -> list[SlackThreadMessage]:
     """Fetch thread messages, strip bot mentions, and resolve user display names.
 
@@ -558,6 +559,9 @@ def collect_thread_messages(
     Unbounded by default, which is what the mention path wants — it is answering the
     thread as it stands.
 
+    ``timeout`` bounds the thread fetch in seconds, for a caller inside a request that
+    cannot wait out the client default. Unset keeps that default.
+
     A thread whose root no longer exists — the user deleted the message that triggered
     us — comes back empty rather than raising. Callers read an empty thread as "nothing
     to do"; letting `thread_not_found` escape instead would exhaust the activity's
@@ -565,6 +569,8 @@ def collect_thread_messages(
     Slack. There is nothing to announce: the prompt was retracted.
     """
     client = slack.client
+    if timeout is not None:
+        client.timeout = timeout
     client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=3))
     try:
         thread_response = client.conversations_replies(channel=channel, ts=thread_ts)

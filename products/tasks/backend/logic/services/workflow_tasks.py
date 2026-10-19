@@ -260,9 +260,10 @@ def create_workflow_task(
     # Resolved after the gate so a capped or blocked fire never pays for the query, and outside
     # the transaction below so the skills store read never happens while holding the team lock.
     skills = resolve_attached_skills(team, gate_owner, skill_names)
-    # Also outside the transaction: a Slack read under the advisory locks below would stall
-    # every workflow fire for the team.
-    slack_thread_history = _slack_thread_history(team.id, slack_context)
+    # Same for the Slack reads: the install lookup needs no lock, and a thread fetch under the
+    # advisory locks below would stall every workflow fire for the team.
+    slack_integration = _resolve_slack_integration(team.id, slack_context)
+    slack_thread_history = _slack_thread_history(slack_integration, slack_context)
 
     # Snapshot the connector selection onto the run, next to the PostHog MCP scopes the token
     # minter reads back. The mounts themselves follow the same list stamped on the task as its
@@ -340,7 +341,7 @@ def create_workflow_task(
 
             # Resolved under the thread lock so the live-run check inside it holds for the
             # rest of the transaction.
-            slack_binding = _resolve_slack_binding(team.id, slack_context)
+            slack_binding = _resolve_slack_binding(slack_integration, slack_context)
             thread_context = slack_binding.thread_context if slack_binding is not None else None
             if slack_binding is not None:
                 extra_run_state.update(slack_artifact_delivery_state_updates(slack_binding.integration))
@@ -618,47 +619,18 @@ class _SlackBinding:
     thread_context: SlackThreadContext
 
 
-def _find_slack_integration(team_id: int, ctx: contracts.WorkflowTaskSlackContext) -> Integration | None:
-    """Team-scoped on purpose: the team filter is what stops a token binding another team's threads."""
+def _resolve_slack_integration(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> Integration | None:
+    """The install that may read and reply in the thread ``ctx`` names, or ``None``.
+
+    Team-scoped on purpose: the team filter is what stops a token binding another team's threads.
+    """
+    if ctx is None:
+        return None
     integration = Integration.objects.filter(id=ctx.integration_id, team_id=team_id, kind="slack").first()
     if integration is None and ctx.slack_team_id:
         integration = Integration.objects.filter(
             team_id=team_id, kind="slack", integration_id=ctx.slack_team_id
         ).first()
-    return integration
-
-
-def _slack_thread_history(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> str | None:
-    """What the thread said before the reply that fired the run, framed for the prompt.
-
-    Only a reply has history: a run the thread root fired already holds the root as its
-    triggering event. An externally shared channel without an approval is not read, for the
-    same reason the task may not reply there. Never raises: the reply is already in the
-    prompt, so a Slack failure is logged and the run starts without the history.
-    """
-    if ctx is None or not ctx.message_ts or ctx.message_ts == ctx.thread_ts:
-        return None
-    integration = _find_slack_integration(team_id, ctx)
-    if integration is None or not _may_speak_in_channel(integration, ctx):
-        return None
-    try:
-        return slack_thread_history_before(
-            integration, channel=ctx.channel, thread_ts=ctx.thread_ts, before_ts=ctx.message_ts
-        )
-    except Exception:
-        logger.exception(
-            "workflow_task_slack_thread_history_failed",
-            team_id=team_id,
-            channel=ctx.channel,
-            thread_ts=ctx.thread_ts,
-        )
-        return None
-
-
-def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext | None) -> _SlackBinding | None:
-    if ctx is None:
-        return None
-    integration = _find_slack_integration(team_id, ctx)
     if integration is None:
         logger.warning(
             "workflow_task_slack_bind_no_integration",
@@ -669,13 +641,46 @@ def _resolve_slack_binding(team_id: int, ctx: contracts.WorkflowTaskSlackContext
         return None
     if not _may_speak_in_channel(integration, ctx):
         return None
+    return integration
+
+
+def _slack_thread_history(
+    integration: Integration | None, ctx: contracts.WorkflowTaskSlackContext | None
+) -> str | None:
+    """What the thread said before the reply that fired the run, framed for the prompt.
+
+    A run the thread root fired reads nothing: the root is already its triggering event.
+    Never raises: the reply is already in the prompt, so a Slack failure is logged and the
+    run starts without the history.
+    """
+    if integration is None or ctx is None or not ctx.message_ts or ctx.message_ts == ctx.thread_ts:
+        return None
+    try:
+        return slack_thread_history_before(
+            integration, channel=ctx.channel, thread_ts=ctx.thread_ts, before_ts=ctx.message_ts
+        )
+    except Exception:
+        logger.exception(
+            "workflow_task_slack_thread_history_failed",
+            team_id=integration.team_id,
+            channel=ctx.channel,
+            thread_ts=ctx.thread_ts,
+        )
+        return None
+
+
+def _resolve_slack_binding(
+    integration: Integration | None, ctx: contracts.WorkflowTaskSlackContext | None
+) -> _SlackBinding | None:
+    if integration is None or ctx is None:
+        return None
     if _thread_has_a_live_run(integration, ctx):
         # No binding at all, rather than a binding that only loses the mapping race. The
         # thread context also drives the run's own status posts, so a task that kept it
         # would keep talking into a thread another agent owns.
         logger.info(
             "workflow_task_slack_thread_already_bound",
-            team_id=team_id,
+            team_id=integration.team_id,
             channel=ctx.channel,
             thread_ts=ctx.thread_ts,
         )
