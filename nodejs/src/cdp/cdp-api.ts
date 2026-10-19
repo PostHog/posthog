@@ -137,7 +137,9 @@ function canDedupeByEmail(hogFlow: { actions?: unknown }): boolean {
 export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps
 
-function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort'] {
+// Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
+// cohort that is still calculating, so the caller rejects it.
+function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort'] | null {
     if (typeof value !== 'object' || value === null) {
         return undefined
     }
@@ -145,12 +147,14 @@ function parseRealtimeCohort(value: unknown): BatchResolverState['realtimeCohort
     if (!Number.isInteger(id) || !Number.isInteger(team_id)) {
         return undefined
     }
-    const waitUntil = typeof wait_until === 'string' ? new Date(wait_until) : null
-    return {
-        id: id as number,
-        teamId: team_id as number,
-        ...(waitUntil && !isNaN(waitUntil.getTime()) ? { waitUntil: waitUntil.toISOString() } : {}),
+    if (wait_until === undefined || wait_until === null) {
+        return { id: id as number, teamId: team_id as number }
     }
+    const waitUntil = typeof wait_until === 'string' ? new Date(wait_until) : null
+    if (!waitUntil || isNaN(waitUntil.getTime())) {
+        return null
+    }
+    return { id: id as number, teamId: team_id as number, waitUntil: waitUntil.toISOString() }
 }
 
 export class CdpApi {
@@ -1328,16 +1332,11 @@ export class CdpApi {
         }
     }
 
-    // Wake the parked workflow step that dispatched a task run, with the run's outcome. Django
-    // calls this from a retrying Celery task when the run reaches a terminal status. One resume
-    // per call; the outcome tells the caller whether to retry (409: the worker still holds the
-    // job) or stop (200: delivered, or the step is past this wake).
-    //
-    // Auth mirrors the cancel routes: a per-call JWT minted by Django on its own audience and key,
-    // pinned to the team and to the origin key, so a leaked token can wake exactly one step.
     /**
      * Wake a batch resolver parked until its realtime cohort finishes calculating. Django calls this
      * once the cohort is ready. `already_resumed` is a success: a second wake for the same run is a no-op.
+     * Only a running resolver answers 409, so the caller retries. A finished or removed one already ran, so
+     * a wake retried after a lost response gets a 200 and the caller stops.
      */
     private postHogFlowResumeBatchJob = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
@@ -1368,7 +1367,7 @@ export class CdpApi {
                 functionId: id,
                 batchJobId: batch_job_id,
             })
-            return res.status(outcome.startsWith('job_') ? 409 : 200).json({ outcome })
+            return res.status(outcome === 'job_running' ? 409 : 200).json({ outcome })
         } catch (e) {
             logger.error('Error resuming hog flow batch job', {
                 error: e instanceof Error ? e.message : String(e),
@@ -1377,6 +1376,13 @@ export class CdpApi {
         }
     }
 
+    // Wake the parked workflow step that dispatched a task run, with the run's outcome. Django
+    // calls this from a retrying Celery task when the run reaches a terminal status. One resume
+    // per call; the outcome tells the caller whether to retry (409: the worker still holds the
+    // job) or stop (200: delivered, or the step is past this wake).
+    //
+    // Auth mirrors the cancel routes: a per-call JWT minted by Django on its own audience and key,
+    // pinned to the team and to the origin key, so a leaked token can wake exactly one step.
     private postWorkflowStepResume = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
         try {
             if (!this.batchResolverProducer) {
@@ -1587,6 +1593,11 @@ export class CdpApi {
                 throw new Error('Batch resolver producer is not configured (missing CYCLOTRON_NODE_DATABASE_URL)')
             }
 
+            const realtimeCohort = parseRealtimeCohort(req.body.realtime_cohort)
+            if (realtimeCohort === null) {
+                return res.status(400).json({ error: 'realtime_cohort.wait_until must be an ISO 8601 date' })
+            }
+
             const snapshotFilters: BatchResolverState['filters'] | undefined = req.body.filters
             const audienceType = snapshotFilters?.audience_type ?? hogFlow.trigger.filters.audience_type
             // A snapshot saved before assignment statuses existed carries assignee ids or the legacy
@@ -1624,7 +1635,7 @@ export class CdpApi {
                 // dedupe than dedupe wrongly. Also skip when the flow has no email action at all.
                 // Account audiences carry no person (and external ids are already unique), so never dedupe.
                 dedupeKey: audienceType !== 'accounts' && canDedupeByEmail(hogFlow) ? ('email' as const) : undefined,
-                realtimeCohort: parseRealtimeCohort(req.body.realtime_cohort),
+                realtimeCohort,
                 maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
                 cursor: null,
                 totalEnqueued: 0,
