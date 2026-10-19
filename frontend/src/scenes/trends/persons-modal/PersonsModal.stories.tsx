@@ -43,7 +43,7 @@ const EXAMPLE_ACTORS_QUERY_RESPONSE = {
             created_at: person.created_at,
         },
         person.value_at_data_point,
-        [],
+        person.matched_recordings.map((session_id) => ({ session_id, events: [] })),
     ]),
     hasMore: false,
     limit: 100,
