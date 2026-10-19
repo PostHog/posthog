@@ -646,6 +646,8 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             'CAST("users"."user_id" AS DOUBLE)',
         ),
         ("SELECT toDate(user_id) FROM users", "TRY", 'CAST("users"."user_id" AS DATE)'),
+        # Fractional seconds just before midnight must not round up into the next day.
+        ("SELECT toDate(user_id) FROM users", "AS TIMESTAMP(12)", "AS TIMESTAMP)"),
     ],
 )
 def test_lowers_clickhouse_semantics_trino_rejects(query: str, required: str, forbidden: str) -> None:

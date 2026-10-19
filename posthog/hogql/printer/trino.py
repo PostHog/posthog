@@ -884,7 +884,7 @@ class TrinoPrinter(PostgresPrinter):
             # HogQL defines toDate on a string as toDateOrNull, which also accepts a full timestamp.
             value = self.visit(node.args[0])
             return (
-                f"coalesce(TRY(date({value})), TRY(date(CAST({value} AS TIMESTAMP))), "
+                f"coalesce(TRY(date({value})), TRY(date(CAST({value} AS TIMESTAMP(12)))), "
                 f"TRY(date(from_iso8601_timestamp({value}))))"
             )
         if (
