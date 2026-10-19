@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from uuid import UUID
 
 from django.db import transaction
 
@@ -6,11 +7,16 @@ import structlog
 
 from posthog.models import Team
 
-from products.data_modeling.backend.logic.saved_query_dag_sync import lineage_database, replace_incoming_edges
+from products.data_modeling.backend.logic.saved_query_dag_sync import (
+    delete_orphaned_table_nodes,
+    lineage_database,
+    lock_dag,
+    replace_incoming_edges,
+)
 from products.data_modeling.backend.models.dag import DAG
-from products.data_modeling.backend.models.edge import CycleDetectionError
+from products.data_modeling.backend.models.edge import CycleDetectionError, Edge
 from products.data_modeling.backend.models.modeling import get_parents_from_model_query
-from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.node import NOTEBOOK_SOURCE_KEY, Node, NodeType
 
 logger = structlog.get_logger(__name__)
 
@@ -59,7 +65,7 @@ def sync_notebook_table_to_dag(
             **(node.properties if isinstance(node.properties, dict) else {}),
             "origin": "warehouse",
             "warehouse_table_id": warehouse_table_id,
-            "notebook": {"short_id": notebook_short_id, "node_id": notebook_node_id},
+            NOTEBOOK_SOURCE_KEY: {"short_id": notebook_short_id, "node_id": notebook_node_id},
         }
         node.clear_lineage_markers()
         unresolved: list[str] = []
@@ -90,3 +96,33 @@ def sync_notebook_table_to_dag(
         failed=bool(parse_errors),
     )
     return unresolved
+
+
+def delete_notebook_table_node(team_id: int, warehouse_table_id: str) -> None:
+    """Take a deleted notebook table out of the DAG.
+
+    The node loses its notebook lineage and goes away. A view that still reads the table keeps the
+    node as a plain table node, the same as for any deleted source table, so the graph still shows
+    that the view reads a table that no longer exists.
+    """
+    nodes = Node.objects.filter(
+        team_id=team_id,
+        type=NodeType.TABLE,
+        saved_query__isnull=True,
+        metric_id__isnull=True,
+        properties__warehouse_table_id=warehouse_table_id,
+        properties__has_key=NOTEBOOK_SOURCE_KEY,
+    )
+    with transaction.atomic():
+        for dag_id in sorted(set(nodes.values_list("dag_id", flat=True)), key=str):
+            lock_dag(team_id, dag_id)
+        stale_ids: list[UUID] = []
+        for node in nodes.select_for_update():
+            edges = Edge.objects.filter(team_id=team_id, target=node)
+            stale_ids.extend(edges.values_list("source_id", flat=True))
+            edges.delete()
+            node.properties.pop(NOTEBOOK_SOURCE_KEY, None)
+            node.clear_lineage_markers()
+            node.save(update_fields=["properties", "updated_at"])
+            stale_ids.append(node.id)
+        delete_orphaned_table_nodes(team_id, stale_ids)

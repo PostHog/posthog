@@ -33,7 +33,13 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
-from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
+from products.data_modeling.backend.models.node import (
+    SAVED_QUERY_NODE_TYPES,
+    LineageIssueKind,
+    Node,
+    NodeType,
+    NotebookSource,
+)
 
 __all__ = [
     "DAG",
@@ -52,6 +58,7 @@ __all__ = [
     "Edge",
     "Graph",
     "LineageIssueKind",
+    "NotebookSource",
     "Node",
     "NodeType",
     "aget_saved_query_by_id",

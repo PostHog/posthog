@@ -31,6 +31,9 @@ DEGRADED_SYNC_KEY = "degraded_sync"
 
 UNRESOLVED_DEPENDENCIES_KEY = "unresolved"
 
+# properties key on a TABLE node for a warehouse table that a notebook cell saves.
+NOTEBOOK_SOURCE_KEY = "notebook"
+
 MAX_SYNC_ERROR_LENGTH = 500
 
 
@@ -42,6 +45,11 @@ class DegradedSyncMarker(TypedDict):
 class UnresolvedDependenciesMarker(TypedDict):
     names: list[str]
     at: str
+
+
+class NotebookSource(TypedDict):
+    short_id: str
+    node_id: str
 
 
 class LineageIssueKind(models.TextChoices):
@@ -92,6 +100,13 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         system.pop(UNRESOLVED_DEPENDENCIES_KEY, None)
         if not system:
             self.properties.pop("system", None)
+
+    @property
+    def notebook_source(self) -> NotebookSource | None:
+        source = (self.properties or {}).get(NOTEBOOK_SOURCE_KEY)
+        if not isinstance(source, dict) or not source.get("short_id"):
+            return None
+        return {"short_id": str(source["short_id"]), "node_id": str(source.get("node_id") or "")}
 
     @property
     def belongs_to_managed_viewset(self) -> bool:

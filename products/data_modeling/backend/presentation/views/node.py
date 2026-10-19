@@ -40,6 +40,7 @@ from products.data_modeling.backend.facade.models import (
     LineageIssueKind,
     Node,
     NodeType,
+    NotebookSource,
 )
 from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 from products.data_modeling.backend.presentation.views.metric_visibility import DELETE_DENIED, MetricNodeVisibilityMixin
@@ -72,6 +73,11 @@ class NodeLookup(models.TextChoices):
     METRIC = "metric"
 
 
+class NodeNotebookSourceSerializer(serializers.Serializer):
+    short_id = serializers.CharField(help_text="Short id of the notebook whose cell saves this table.")
+    node_id = serializers.CharField(help_text="Id of the notebook cell that saves this table.")
+
+
 class LineageIssueSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(
         choices=LineageIssueKind.choices,
@@ -97,6 +103,7 @@ class NodeSerializer(serializers.ModelSerializer):
     lineage_issue = serializers.SerializerMethodField(read_only=True)
     origin = serializers.SerializerMethodField(read_only=True)
     warehouse_table_id = serializers.SerializerMethodField(read_only=True)
+    notebook = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Node
@@ -110,6 +117,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "lineage_issue",
             "origin",
             "warehouse_table_id",
+            "notebook",
             "created_at",
             "updated_at",
             "upstream_count",
@@ -136,6 +144,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "lineage_issue",
             "origin",
             "warehouse_table_id",
+            "notebook",
         ]
 
     @extend_schema_field(
@@ -224,6 +233,15 @@ class NodeSerializer(serializers.ModelSerializer):
             help_text="Warehouse table identifier for an imported table, or null when unavailable.",
         )
     )
+    @extend_schema_field(
+        NodeNotebookSourceSerializer(
+            allow_null=True,
+            help_text="The notebook cell that saves this table, or null for a node no notebook created.",
+        )
+    )
+    def get_notebook(self, node: Node) -> NotebookSource | None:
+        return node.notebook_source
+
     def get_warehouse_table_id(self, node: Node) -> str | None:
         table_id = node.properties.get("warehouse_table_id") if isinstance(node.properties, dict) else None
         if not isinstance(table_id, str):
