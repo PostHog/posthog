@@ -8102,6 +8102,10 @@ snapshots:
         hash: v1.k794b7964.d553cecf3e544087316e1687404c8e2b3a6c19f618a05e09880e60e656054f23.hNkLLb04XLyd-PQJa59WwPhgRAxMbW5fSDzCnowJKBs
     products-workflows-customerioimportmodal--step-4-track-not-configured--light:
         hash: v1.k794b7964.0954891b73cdc0b1bce1275fa11a5fa4af2055b83b518bce82f3fde886097659.mgEq2W8sZg7x-vt8z2EpwEHPBGRzPI1GWtn-9tu-46o
+    products-workflows-destinationworkflowsuggestionmodal--default--dark:
+        hash: v1.k794b7964.8f5b1832f1012836806c0de8362b81d05c0793c8b6c94efcdad6e505c68abd5b.Qxh0rAnPjQKXrRnq8b-v80_opDrixwysaFVyw50yUMg
+    products-workflows-destinationworkflowsuggestionmodal--default--light:
+        hash: v1.k794b7964.dad27cffc326da3af6825a379ed9f4ed6d3bfb3bc261c3c98669c1b12e8d4462.qjiYb2e3DZysHk9fwcTToUb0y1CFJe_fvE7ZAEvK7YY
     products-workflows-editor-configuration-panel--build--dark:
         hash: v1.k794b7964.ba77097ed29985565b93fbc6783a05e1d057fe5a12779705eaa6d744aa77cfb7.dXBhkcHPwydmzF6HM-fUZqF060li4rZDdMxjFRtqwjQ
     products-workflows-editor-configuration-panel--build--light:
