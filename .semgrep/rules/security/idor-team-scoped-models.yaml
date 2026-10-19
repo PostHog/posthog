@@ -159,7 +159,6 @@ rules:
                               |DataWarehouseExpression
                               |DataWarehouseJoin
                               |DataWarehouseManagedViewSet
-                              |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
                               |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
@@ -631,7 +630,6 @@ rules:
                         |DataWarehouseExpression
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
@@ -1042,7 +1040,6 @@ rules:
                         |DataWarehouseCredential
                         |DataWarehouseJoin
                         |DataWarehouseManagedViewSet
-                        |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
