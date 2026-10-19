@@ -54,4 +54,4 @@ class TestPlatformBillingAlertBackfill(BaseTest):
             evaluation = evaluate_billing_batch(self.team.id, slot, CUTOFF)
 
         (outcome,) = evaluation.outcomes
-        assert (outcome.kind, outcome.evaluation_key) == (AlertEventKind.FIRING, f"slot:{slot}")
+        assert (outcome.groups[0].kind, outcome.evaluation_key) == (AlertEventKind.FIRING, f"slot:{slot}")
