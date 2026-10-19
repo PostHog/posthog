@@ -40,12 +40,12 @@ from products.signals.backend.ranking.overrides import RankingOverrides
 from products.signals.backend.ranking.scorer import NO_PROJECT_VECTORS, NO_VECTOR, ScoringError, score_reports
 from products.signals.backend.ranking.serving_manifest import (
     CROSS_FAMILY_ROLE,
-    DAILY_CANDIDATE_ROLE,
     MANIFEST_SERVED_ROLE,
     METADATA_FILE,
     ONNX_MODEL_FILE,
     ONNX_MODEL_KIND,
     PINNED_ROLE,
+    RECENT_ROLE,
     SERVED_OVERRIDE_ROLE,
     SERVED_ROLE,
     ServingManifest,
@@ -339,12 +339,12 @@ class TestModelStore(_StoreTestMixin, SimpleTestCase):
         load_serving_set()
         model_reads = [key for key in self.store.reads if key != serving_manifest_key(PREFIX)]
 
-        self.store.publish_manifest([served.model_copy(update={"roles": [SERVED_ROLE, DAILY_CANDIDATE_ROLE]})])
+        self.store.publish_manifest([served.model_copy(update={"roles": [SERVED_ROLE, RECENT_ROLE]})])
         serving = load_serving_set()
 
         assert serving is not None
         assert [key for key in self.store.reads if key != serving_manifest_key(PREFIX)] == model_reads
-        assert serving.served.entry.roles == [SERVED_ROLE, DAILY_CANDIDATE_ROLE]
+        assert serving.served.entry.roles == [SERVED_ROLE, RECENT_ROLE]
 
 
 class _FakeVectors:
@@ -408,7 +408,7 @@ class TestScorer(_ScorerTestMixin, SimpleTestCase):
     def test_one_vector_read_per_rendering_whatever_the_number_of_models(self) -> None:
         served = self._served()
         candidate = self.store.publish_model(
-            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[DAILY_CANDIDATE_ROLE]
+            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[RECENT_ROLE]
         )
         challenger = self._challenger("nn", REPORT_EMBEDDINGS_FEATURE_SET, model_kind=ONNX_MODEL_KIND)
         self.store.publish_manifest([served, candidate, challenger])
@@ -553,7 +553,7 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         self.team_id = self.team.id
         served = self._served(thresholds={"open": 0.0})
         candidate = self.store.publish_model(
-            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[DAILY_CANDIDATE_ROLE]
+            "report_embeddings", REPORT_EMBEDDINGS_FEATURE_SET, version=OLDER_VERSION, roles=[RECENT_ROLE]
         )
         manifest = self.store.publish_manifest([served, candidate])
         scored, unscored = self._report(self.team.id), self._report(self.team.id)
