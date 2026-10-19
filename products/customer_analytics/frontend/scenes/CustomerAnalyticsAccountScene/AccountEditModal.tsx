@@ -3,12 +3,20 @@ import { Form } from 'kea-forms'
 
 import { LemonButton, LemonInput, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { canEditEmailMatching } from 'products/customer_analytics/frontend/components/Accounts/accountEmailMatching'
 
-import { ACCOUNT_ID_FIELDS, customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
+import { ACCOUNT_ID_FIELDS } from './accountNativeProperties'
+import { customerAnalyticsAccountSceneLogic } from './customerAnalyticsAccountSceneLogic'
+
+const STATUS_DATE_FIELDS = [
+    { key: 'churned_at', label: 'Churned at', placeholder: 'Not churned' },
+    { key: 'ignored_at', label: 'Ignored at', placeholder: 'Not ignored' },
+] as const
 
 export function AccountEditModal(): JSX.Element {
     const { account, accountEditorOpen, accountFormHasErrors, isAccountFormSubmitting } = useValues(
@@ -89,6 +97,22 @@ export function AccountEditModal(): JSX.Element {
                             />
                         )}
                     </LemonField>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                        {STATUS_DATE_FIELDS.map((field) => (
+                            <LemonField key={field.key} name={field.key} label={field.label}>
+                                {({ value, onChange }) => (
+                                    <LemonCalendarSelectInput
+                                        value={value ? dayjs(value) : null}
+                                        onChange={(date) => onChange(date ? date.toISOString() : null)}
+                                        granularity="minute"
+                                        clearable
+                                        placeholder={field.placeholder}
+                                        buttonProps={{ 'data-attr': `account-edit-${field.key}` }}
+                                    />
+                                )}
+                            </LemonField>
+                        ))}
+                    </div>
                 </div>
             </Form>
         </LemonModal>

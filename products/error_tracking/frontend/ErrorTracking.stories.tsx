@@ -175,6 +175,21 @@ const STORY_BREAKDOWNS_RESPONSE = {
             ],
             total_count: 38,
         },
+        $screen_name: {
+            values: [
+                { value: 'Checkout', count: 21 },
+                { value: 'Settings', count: 11 },
+                { value: 'Home', count: 6 },
+            ],
+            total_count: 38,
+        },
+        $os_name: {
+            values: [
+                { value: 'iOS', count: 24 },
+                { value: 'Android', count: 14 },
+            ],
+            total_count: 38,
+        },
         release_channel: {
             values: [
                 { value: 'stable', count: 25 },
@@ -691,6 +706,13 @@ export const ListPageWithSourceMapsBanner: Story = {
         }),
     ],
 }
+
+// A narrow window wraps the banner buttons below the text instead of squeezing the text
+export const ListPageWithSourceMapsBannerNarrow: Story = {
+    ...ListPageWithSourceMapsBanner,
+    parameters: { testOptions: { viewport: { width: 760, height: 1000 } } },
+}
+
 // Autocapture must be on for the issue list to render instead of the full setup prompt,
 // and it comes from the bootstrap app context, so an msw override isn't enough
 function IssueScenePreviewStory({
@@ -858,19 +880,13 @@ export const GroupPageManageFingerprints: Story = {
 
 export const GroupPageReleases: Story = {
     name: 'Issue scene with releases',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="releases" />,
 }
 
 export const GroupPageReleasesStacked: Story = {
     name: 'Issue scene with stacked releases',
-    parameters: {
-        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
-        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
-    },
+    parameters: { pageUrl: urls.errorTrackingIssue(ISSUE_ID) },
     render: () => <IssueScenePreviewStory activePreview="releases" releasesViewMode="stacked" />,
 }
 

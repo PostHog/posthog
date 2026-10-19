@@ -79,6 +79,21 @@ Expose the values a person may want to change as params. They can then change th
 Params are optional, but add them to each panel, card, or tool that has values worth changing: titles, copy, events, properties, thresholds, limits, colors.
 Params need React components. A plain HTML canvas has no params.
 
+### How the editor uses `editable()`
+
+In the desktop editor, a person can select any element of the canvas: a heading, a paragraph, a section. They can move, duplicate, or delete it, and double-click text to change it. This works with no `editable()` call.
+
+`editable()` makes a component one block. The editor then treats the block as one unit:
+
+- A click selects the full block, not the element inside it.
+- Move, duplicate, and delete act on the full block.
+- The side panel shows the block's params as fields. A change writes the new value into the block's props in the source.
+- To reach the elements inside a block, the person double-clicks the block to open it.
+
+So use `editable()` on the parts a person thinks of as one thing and configures as one thing: a card, a chart, a table, a form. Keep the page layout around them as plain JSX. The person can then select a card as a block, and still select a page heading or section directly. If the component that holds the full page uses `editable()`, the full page becomes one block, and each click selects all of it.
+
+### Adding params
+
 1. Put each panel in its own component. The component takes these values as props, with defaults.
 2. Spread `editable(name, props, params)` from `@posthog/canvas-sdk` on the root element of the component. `name` is the component name. `params` maps each prop name to its field.
 3. Use the component with literal props, for example `<SignupFunnel blockId="b-k3m9x2" title="Signup" windowDays={14} />`. The editor writes changes into these props, so do not compute them inline.

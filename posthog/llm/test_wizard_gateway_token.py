@@ -1,8 +1,10 @@
+import json
+from contextlib import contextmanager
 from datetime import timedelta
 from decimal import Decimal
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from django.test import override_settings
 from django.utils import timezone
@@ -12,20 +14,24 @@ import requests
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
     NO_OVERRIDE,
-    WIZARD_DECLARABLE_EFFORTS,
+    WIZARD_DEFAULT_EFFORTS,
+    WIZARD_DEFAULT_MODELS,
+    WIZARD_DEFAULT_PROGRAMS,
     WIZARD_EFFORT_LEVELS,
+    WIZARD_GATEWAY_ALLOWLIST_FLAG,
     WIZARD_GATEWAY_CONFIG_REJECTS,
-    WIZARD_MODEL_ALLOWLIST,
+    WIZARD_SYSTEM_PROMPT_FLAG,
     WizardGatewayMintError,
+    WizardGatewayPolicy,
     WizardLimitOverride,
+    WizardSystemPrompt,
     WizardTierLimits,
-    allowed_efforts,
-    allowed_models,
     mint_wizard_gateway_token,
     normalize_model,
     parse_limit_override,
     wizard_gateway_base_url,
     wizard_gateway_configured,
+    wizard_gateway_policy,
     wizard_limit_override,
     wizard_posture,
     wizard_product_node,
@@ -44,7 +50,24 @@ MINT_SETTINGS = {
     # assertions indistinguishable.
     "WIZARD_GATEWAY_TOKEN_CAP_USD": "25",
     "WIZARD_GATEWAY_TOKEN_TTL_SECONDS": 86400,
-    "WIZARD_GATEWAY_PROGRAM_IDS": ["integration"],
+}
+
+# Trailing whitespace and an accent: the mint must carry the text byte for byte.
+PROMPT_TEXT = "You are the wizard. [posthog:abort]\n é"
+
+POLICY = WizardGatewayPolicy(
+    # Mixed case, a provider prefix, a duplicate and stray spaces: the mint sends the gateway's spelling.
+    models=("OpenAI/GPT-5.6-Luna", "gpt-5.6-luna", " Claude-Sonnet-5 "),
+    efforts=("none", "high"),
+    programs=("integration", "audit"),
+    prompt=WizardSystemPrompt(text=PROMPT_TEXT),
+)
+
+PROMPT_PAYLOAD = {"version": 4, "text": PROMPT_TEXT}
+ALLOWLIST_PAYLOAD = {
+    "models": ["OpenAI/GPT-5.6-Luna", "claude-sonnet-5"],
+    "efforts": ["high", "none"],
+    "programs": ["integration", "audit"],
 }
 
 
@@ -81,7 +104,7 @@ class TestMintWizardGatewayToken:
             override_settings(WIZARD_GATEWAY_MINT_URL=mint_url),
             patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
         ):
-            assert mint_wizard_gateway_token(obo="7", user="user_1") == minted
+            assert mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY) == minted
             assert wizard_gateway_base_url() == "https://ai-gateway.us.posthog.com"
 
         assert post.call_args[0][0] == expected_url
@@ -91,44 +114,15 @@ class TestMintWizardGatewayToken:
             "product": "wizard",
             "obo": "7",
             "user": "user_1",
-            # Derived: this case pins that the mint carries the pins, not which
-            # models are on the table. TestWizardModelAllowlist owns the contents.
-            "allowed_models": allowed_models(),
-            "allowed_efforts": allowed_efforts(),
+            "allowed_models": ["gpt-5.6-luna", "claude-sonnet-5"],
+            "allowed_efforts": ["none", "high"],
+            "system_prompt": PROMPT_TEXT,
         }
         assert post.call_args.kwargs["headers"] == {"Authorization": "Bearer phs_wizard_secret"}
         assert post.call_args.kwargs["timeout"] > 0
 
 
-class TestWizardModelAllowlist:
-    def test_the_allowlist_is_never_empty(self):
-        # The gateway refuses an explicit [] at mint, so an empty table would
-        # refuse every wizard run rather than pin nothing.
-        assert allowed_models()
-        assert allowed_efforts()
-        assert all(efforts for efforts in WIZARD_MODEL_ALLOWLIST.values())
-
-    def test_models_are_sent_lowercased_and_stripped_of_the_openai_prefix(self):
-        table = {"OpenAI/GPT-5.6-Luna": ("low",), "gpt-5.6-luna": ("medium",), " Claude-Sonnet-5 ": ("none",)}
-        with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
-            assert allowed_models() == ["gpt-5.6-luna", "claude-sonnet-5"]
-
-    def test_efforts_cover_what_the_cli_can_declare_not_what_the_table_measured(self):
-        # A flag payload or a remote prompt can name any declarable level with
-        # no deploy here, so a pin built from the table would refuse those runs.
-        table = {"a": ("high", "none")}
-        with patch("posthog.llm.wizard_gateway_token.WIZARD_MODEL_ALLOWLIST", table):
-            assert allowed_efforts() == ["none", "minimal", "low", "medium", "high", "xhigh"]
-
-    def test_the_effort_pin_withholds_the_level_the_cli_cannot_send(self):
-        assert "max" not in allowed_efforts()
-        assert set(WIZARD_DECLARABLE_EFFORTS) <= set(WIZARD_EFFORT_LEVELS)
-
-    def test_every_effort_in_the_table_is_gateway_vocabulary(self):
-        for model, efforts in WIZARD_MODEL_ALLOWLIST.items():
-            assert set(efforts) <= set(WIZARD_EFFORT_LEVELS), model
-            assert normalize_model(model) == model, model
-
+class TestWizardMintRequest:
     @override_settings(WIZARD_GATEWAY_URL="https://ai-gateway.us.posthog.com/v1/", WIZARD_GATEWAY_MINT_URL="")
     def test_version_suffixed_setting_does_not_double_up(self):
         # The setting may carry /v1; both the mint path and the base handed to the
@@ -136,21 +130,21 @@ class TestWizardModelAllowlist:
         assert wizard_gateway_base_url() == "https://ai-gateway.us.posthog.com"
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="7", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert post.call_args[0][0] == "https://ai-gateway.us.posthog.com/v1/tokens"
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=172800)
     def test_ttl_clamped_to_gateway_ceiling(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="7", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 86400
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=5)
     def test_ttl_clamped_to_a_ttl_that_outlives_a_run(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="7", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 1800
 
     @pytest.mark.parametrize(
@@ -164,7 +158,7 @@ class TestWizardModelAllowlist:
     def test_non_201_raises(self, response):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=response):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
 
     def test_transport_failure_raises(self):
         with patch(
@@ -172,7 +166,7 @@ class TestWizardModelAllowlist:
             side_effect=requests.RequestException("connection reset"),
         ):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
 
     def test_non_json_body_raises(self):
         with patch(
@@ -180,7 +174,7 @@ class TestWizardModelAllowlist:
             return_value=_Response(201, raise_on_json=True),
         ):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
 
     @pytest.mark.parametrize(
         "payload",
@@ -193,7 +187,7 @@ class TestWizardModelAllowlist:
     def test_incomplete_payload_raises(self, payload):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, payload)):
             with pytest.raises(WizardGatewayMintError):
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
 
     @pytest.mark.parametrize(
         "configured",
@@ -222,7 +216,7 @@ class TestWizardModelAllowlist:
                 "posthog.llm.wizard_gateway_token.requests.post",
                 return_value=_Response(201, minted),
             ) as post:
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert post.call_args.kwargs["json"]["cap_usd"] == "7.000000"
 
     @pytest.mark.parametrize(
@@ -238,7 +232,7 @@ class TestWizardModelAllowlist:
     def test_transport_failures_report_whether_a_token_may_exist(self, raised, token_may_exist):
         with patch("posthog.llm.wizard_gateway_token.requests.post", side_effect=raised):
             with pytest.raises(WizardGatewayMintError) as excinfo:
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert excinfo.value.token_may_exist is token_may_exist
 
     def test_a_refusal_reports_that_no_token_exists(self):
@@ -247,7 +241,7 @@ class TestWizardModelAllowlist:
             return_value=_Response(400, {"error": "bad request"}),
         ):
             with pytest.raises(WizardGatewayMintError) as excinfo:
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert excinfo.value.token_may_exist is False
 
     def test_an_unreadable_201_reports_that_a_token_may_exist(self):
@@ -258,7 +252,7 @@ class TestWizardModelAllowlist:
             return_value=_Response(201, {"not": "a token"}),
         ):
             with pytest.raises(WizardGatewayMintError) as excinfo:
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert excinfo.value.token_may_exist is True
 
     @override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD="12.5")
@@ -268,19 +262,19 @@ class TestWizardModelAllowlist:
             "posthog.llm.wizard_gateway_token.requests.post",
             return_value=_Response(201, minted),
         ) as post:
-            mint_wizard_gateway_token(obo="7", user="user_1")
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert post.call_args.kwargs["json"]["cap_usd"] == "12.500000"
 
     def test_an_override_cap_replaces_the_setting(self):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="7", user="user_1", cap_usd=Decimal("30"))
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY, cap_usd=Decimal("30"))
         assert post.call_args.kwargs["json"]["cap_usd"] == "30.000000"
 
     def test_secret_never_appears_in_the_error(self):
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(403)):
             with pytest.raises(WizardGatewayMintError) as raised:
-                mint_wizard_gateway_token(obo="7", user="user_1")
+                mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY)
         assert "phs_wizard_secret" not in str(raised.value)
 
 
@@ -380,7 +374,7 @@ class TestTieredMint:
     def _mint(self, **kwargs):
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
-            mint_wizard_gateway_token(obo="7", user="user_1", **kwargs)
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=POLICY, **kwargs)
         return post.call_args.kwargs["json"]
 
     def test_the_tier_cap_and_ttl_apply(self):
@@ -476,7 +470,7 @@ class TestWizardLimitOverride:
 
 
 class TestWizardGatewayConfigured:
-    def test_all_four_present(self):
+    def test_all_three_present(self):
         with override_settings(**MINT_SETTINGS):
             assert wizard_gateway_configured() is True
 
@@ -486,35 +480,260 @@ class TestWizardGatewayConfigured:
             "WIZARD_GATEWAY_URL",
             "WIZARD_GATEWAY_MINT_KEY",
             "WIZARD_GATEWAY_CLIENT_IDS",
-            # An empty program list refuses every program, so leaving it out is an
-            # unconfigured deploy, not a fleet of callers sending bad names.
-            "WIZARD_GATEWAY_PROGRAM_IDS",
         ],
     )
     def test_any_missing_piece_disables(self, missing):
         blank: dict = {
             **MINT_SETTINGS,
-            missing: [] if missing in ("WIZARD_GATEWAY_CLIENT_IDS", "WIZARD_GATEWAY_PROGRAM_IDS") else "",
+            missing: [] if missing == "WIZARD_GATEWAY_CLIENT_IDS" else "",
         }
         with override_settings(**blank):
             assert wizard_gateway_configured() is False
 
 
 class TestWizardProductNode:
-    @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration", "audit"])
-    def test_a_configured_program_gets_its_own_node(self):
-        assert wizard_product_node("audit") == "wizard:audit"
+    def test_a_program_on_the_allowlist_gets_its_own_node(self):
+        assert wizard_product_node("audit", POLICY) == "wizard:audit"
 
-    @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration"])
-    def test_an_unknown_program_is_refused(self):
-        assert wizard_product_node("../../etc") is None
-        assert wizard_product_node("not-a-program") is None
-        assert wizard_product_node("") is None
-        assert wizard_product_node(None) is None
+    def test_a_program_off_the_allowlist_is_refused(self):
+        assert wizard_product_node("../../etc", POLICY) is None
+        assert wizard_product_node("not-a-program", POLICY) is None
+        assert wizard_product_node("", POLICY) is None
+        assert wizard_product_node(None, POLICY) is None
+        assert wizard_product_node(["integration"], POLICY) is None
 
-    @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=[])
-    def test_no_configured_programs_refuses_every_program(self):
-        assert wizard_product_node("audit") is None
+
+def _policy() -> WizardGatewayPolicy:
+    return wizard_gateway_policy(distinct_id="d1", email="eng@posthog.com", organization_id="org_1", team_id=7)
+
+
+class TestWizardGatewayPolicy:
+    @staticmethod
+    @contextmanager
+    def _flags(prompt=PROMPT_PAYLOAD, allowlist=ALLOWLIST_PAYLOAD):
+        def reader(payloads):
+            def read(key, *args, **kwargs):
+                value = payloads.get(key)
+                if isinstance(value, Exception):
+                    raise value
+                return value
+
+            return read
+
+        with patch(
+            "posthog.llm.wizard_gateway_token.posthoganalytics.get_feature_flag_payload",
+            side_effect=reader({WIZARD_SYSTEM_PROMPT_FLAG: prompt, WIZARD_GATEWAY_ALLOWLIST_FLAG: allowlist}),
+        ) as evaluated:
+            yield evaluated
+
+    def test_both_flags_make_the_policy(self):
+        with self._flags():
+            policy = _policy()
+
+        assert policy == WizardGatewayPolicy(
+            models=("OpenAI/GPT-5.6-Luna", "claude-sonnet-5"),
+            efforts=("none", "high"),
+            programs=("integration", "audit"),
+            prompt=WizardSystemPrompt(text=PROMPT_TEXT),
+        )
+
+    def test_the_prompt_text_is_kept_untrimmed(self):
+        text = "  [posthog:abort] \n"
+        with self._flags(prompt={"version": 1, "text": text}):
+            policy = _policy()
+        assert policy.prompt is not None
+        assert policy.prompt.text == text
+
+    def test_both_flags_are_read_with_the_override_flags_targeting_properties(self):
+        with self._flags() as evaluated:
+            _policy()
+
+        properties = {"email": "eng@posthog.com", "organization_id": "org_1", "team_id": "7"}
+        assert evaluated.call_args_list == [
+            # The prompt read sends its flag event and adds no network time to the mint.
+            call(
+                WIZARD_SYSTEM_PROMPT_FLAG,
+                "d1",
+                person_properties=properties,
+                only_evaluate_locally=True,
+                send_feature_flag_events=True,
+            ),
+            call(
+                WIZARD_GATEWAY_ALLOWLIST_FLAG,
+                "d1",
+                person_properties=properties,
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            ),
+        ]
+
+    @pytest.mark.parametrize("missing", [None, RuntimeError("flags down")])
+    @pytest.mark.parametrize(
+        "flag,message",
+        [
+            (WIZARD_SYSTEM_PROMPT_FLAG, "system prompt flag"),
+            (WIZARD_GATEWAY_ALLOWLIST_FLAG, "allowlist flag"),
+        ],
+    )
+    def test_a_flag_that_returns_nothing_is_logged(self, flag, message, missing):
+        # The SDK swallows its own errors and returns None, so None is the outage a
+        # production mint sees; the exception is the same outage in a client that raises.
+        kwargs = {"prompt": missing} if flag == WIZARD_SYSTEM_PROMPT_FLAG else {"allowlist": missing}
+        with self._flags(**kwargs), patch("posthog.llm.wizard_gateway_token.logger") as log:
+            _policy()
+
+        logged = [call.args[0] for call in log.warning.call_args_list]
+        expected = f"wizard_gateway_token: {message} " + ("returned no payload" if missing is None else "unavailable")
+        assert logged == [expected]
+
+    def test_models_that_spell_one_model_do_not_count_twice_against_the_gateways_cap(self):
+        names = [f"m{i}" for i in range(31)]
+        allowlist = {
+            "models": [*names, "gpt-x", "openai/gpt-x", "GPT-X"],
+            "efforts": ["high"],
+            "programs": ["integration"],
+        }
+        with self._flags(allowlist=allowlist):
+            policy = _policy()
+
+        assert policy.programs == ("integration",)
+
+    def test_a_program_id_saved_with_stray_spaces_is_stored_stripped(self):
+        allowlist = {**ALLOWLIST_PAYLOAD, "programs": ["posthog-integration ", " audit"]}
+        with self._flags(allowlist=allowlist):
+            policy = _policy()
+
+        assert policy.programs == ("posthog-integration", "audit")
+        assert wizard_product_node("posthog-integration", policy) == "wizard:posthog-integration"
+
+    def test_the_defaults_stay_inside_what_the_gateway_and_the_cli_accept(self):
+        # The fallback pins every run when the allowlist flag is unreadable, so a
+        # level the gateway does not know, or a model it spells differently,
+        # would refuse them all.
+        assert set(WIZARD_DEFAULT_EFFORTS) <= set(WIZARD_EFFORT_LEVELS)
+        assert "max" not in WIZARD_DEFAULT_EFFORTS
+        for model in WIZARD_DEFAULT_MODELS:
+            assert normalize_model(model) == model, model
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            {"text": PROMPT_TEXT},
+            {"version": 4, "text": PROMPT_TEXT},
+            {"version": "not a number", "text": PROMPT_TEXT},
+            {"version": None, "text": PROMPT_TEXT},
+        ],
+    )
+    def test_a_version_in_the_payload_is_tolerated_and_ignored(self, payload):
+        with self._flags(prompt=payload):
+            policy = _policy()
+        assert policy.prompt == WizardSystemPrompt(text=PROMPT_TEXT)
+
+    def test_the_prompt_text_stays_out_of_a_repr(self):
+        assert PROMPT_TEXT not in repr(POLICY)
+        assert PROMPT_TEXT not in repr(POLICY.prompt)
+
+    def test_a_json_string_payload_reads_like_an_object(self):
+        with self._flags(prompt=json.dumps(PROMPT_PAYLOAD), allowlist=json.dumps(ALLOWLIST_PAYLOAD)):
+            policy = _policy()
+        assert policy.prompt is not None
+        assert policy.prompt.text == PROMPT_TEXT
+        assert policy.programs == ("integration", "audit")
+
+    @staticmethod
+    def _rejects(field: str) -> float:
+        return WIZARD_GATEWAY_CONFIG_REJECTS.labels(field=field)._value.get()
+
+    @pytest.mark.parametrize(
+        "prompt,counted",
+        [
+            # Off or unreadable is quiet: a flag outage is not a bad payload.
+            (None, False),
+            (RuntimeError("flags down"), False),
+            ("not json", True),
+            ([], True),
+            ({"version": 4}, True),
+            ({"version": 4, "text": ""}, True),
+            ({"version": 4, "text": 7}, True),
+            ({"version": 4, "text": "no marker here"}, True),
+            # 16385 bytes: the cap counts bytes, not characters.
+            ({"version": 4, "text": "[posthog:abort]" + "é" * 8185}, True),
+            # The gateway refuses these two, so they must never reach it.
+            ({"version": 4, "text": "[posthog:abort] \ud800"}, True),
+            ({"version": 4, "text": "[posthog:abort] \ufffd"}, True),
+        ],
+    )
+    def test_an_unusable_prompt_flag_leaves_the_token_unpinned(self, prompt, counted):
+        before = self._rejects("system_prompt")
+        with self._flags(prompt=prompt):
+            policy = _policy()
+
+        assert policy.prompt is None
+        # The allowlist is read on its own and is untouched.
+        assert policy.programs == ("integration", "audit")
+        assert self._rejects("system_prompt") == before + (1 if counted else 0)
+
+    def test_a_prompt_of_exactly_the_gateways_byte_cap_is_carried(self):
+        text = "[posthog:abort]" + "é" * 8184  # 15 + 16368 = 16383 bytes
+        text += "a"
+        assert len(text.encode("utf-8")) == 16384
+        with self._flags(prompt={"text": text}):
+            policy = _policy()
+        assert policy.prompt is not None
+        assert policy.prompt.text == text
+
+    @pytest.mark.parametrize(
+        "allowlist,counted",
+        [
+            (None, False),
+            (RuntimeError("flags down"), False),
+            ("not json", True),
+            ([], True),
+            ({}, True),
+            ({"models": [], "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": [], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": ["high"], "programs": []}, True),
+            ({"models": ["a"], "efforts": ["high"]}, True),
+            ({"models": "a", "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": [7], "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": [" "], "efforts": ["high"], "programs": ["integration"]}, True),
+            # Non-empty as saved, but empty once the mint strips the provider prefix.
+            ({"models": ["gpt-x", "OpenAI/"], "efforts": ["high"], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": ["extreme"], "programs": ["integration"]}, True),
+            ({"models": ["a"], "efforts": ["high"], "programs": [""]}, True),
+            # The gateway refuses more than 32 models, after it reads them in its own spelling.
+            ({"models": [f"m{i}" for i in range(33)], "efforts": ["high"], "programs": ["integration"]}, True),
+        ],
+    )
+    def test_an_unusable_allowlist_flag_falls_back_to_the_defaults(self, allowlist, counted):
+        before = self._rejects("allowlist")
+        with self._flags(allowlist=allowlist):
+            policy = _policy()
+
+        # All three lists fall back together, never a mix of flag and default.
+        assert (policy.models, policy.efforts, policy.programs) == (
+            WIZARD_DEFAULT_MODELS,
+            WIZARD_DEFAULT_EFFORTS,
+            WIZARD_DEFAULT_PROGRAMS,
+        )
+        # The prompt is read on its own and is untouched.
+        assert policy.prompt is not None
+        assert self._rejects("allowlist") == before + (1 if counted else 0)
+
+    def test_a_mint_without_a_prompt_omits_the_prompt(self):
+        unpinned = WizardGatewayPolicy(
+            models=POLICY.models, efforts=POLICY.efforts, programs=POLICY.programs, prompt=None
+        )
+        minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
+        with (
+            override_settings(**MINT_SETTINGS),
+            patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post,
+        ):
+            mint_wizard_gateway_token(obo="7", user="user_1", policy=unpinned)
+
+        body = post.call_args.kwargs["json"]
+        assert "system_prompt" not in body
+        assert body["allowed_models"] == ["gpt-5.6-luna", "claude-sonnet-5"]
 
 
 class TestWizardConfigRejectCounter:

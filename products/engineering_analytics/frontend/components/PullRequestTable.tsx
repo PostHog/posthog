@@ -113,7 +113,10 @@ export function PullRequestTable({
                               <Link
                                   to={
                                       combineUrl(
-                                          urls.engineeringAnalyticsAuthor(row.authorHandle),
+                                          urls.engineeringAnalyticsAuthor(
+                                              row.authorHandle,
+                                              `${row.repoOwner}/${row.repoName}`
+                                          ),
                                           sourceId ? { source: sourceId } : {}
                                       ).url
                                   }

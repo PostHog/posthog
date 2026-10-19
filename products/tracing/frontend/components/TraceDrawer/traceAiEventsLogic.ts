@@ -1,13 +1,13 @@
-import { MakeLogicType, connect, kea, key, path, props, selectors } from 'kea'
+import { MakeLogicType, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TraceAiEvent } from '../../aiEventSpans'
-import { usableId } from '../../errorCorrelation'
 import { tracingSpansTraceAiEventsRetrieve } from '../../generated/api'
 import type { _TracingTraceAiEventsResponseApi } from '../../generated/api.schemas'
 
@@ -22,6 +22,7 @@ export interface traceAiEventsLogicValues {
     aiEvents: TraceAiEvent[]
     aiEventsEnabled: boolean
     aiEventsLimit: number
+    aiEventsLoadFailed: boolean
     aiEventsResponse: _TracingTraceAiEventsResponseApi
     aiEventsResponseLoading: boolean
     hasMoreAiEvents: boolean
@@ -91,6 +92,17 @@ export const traceAiEventsLogic = kea<traceAiEventsLogicType>([
             },
         },
     })),
+
+    reducers({
+        aiEventsLoadFailed: [
+            false as boolean,
+            {
+                loadAiEvents: () => false,
+                loadAiEventsSuccess: () => false,
+                loadAiEventsFailure: () => true,
+            },
+        ],
+    }),
 
     selectors({
         aiEventsEnabled: [

@@ -114,6 +114,8 @@ async def execute_with_conflict_retry(
     operation_fn: Callable[[], T],
     operation_name: str,
     logger: FilteringBoundLogger,
+    *,
+    conflict_retries: int = DELTA_MERGE_CONFLICT_RETRIES,
 ) -> T:
     """Run a Delta operation that commits (merge, overwrite, append, optimize.compact, vacuum, ...),
     refreshing the table and re-running it on a commit conflict.
@@ -150,12 +152,12 @@ async def execute_with_conflict_retry(
                 raise
             if not isinstance(e, deltalake.exceptions.CommitFailedError) and not is_invalid_version_race(e):
                 raise
-            if attempt >= DELTA_MERGE_CONFLICT_RETRIES:
+            if attempt >= conflict_retries:
                 raise
             attempt += 1
             await logger.awarning(
                 f"{operation_name}: commit conflict, retrying with refreshed table "
-                f"(attempt {attempt}/{DELTA_MERGE_CONFLICT_RETRIES})"
+                f"(attempt {attempt}/{conflict_retries})"
             )
             await asyncio.to_thread(table.update_incremental)
 

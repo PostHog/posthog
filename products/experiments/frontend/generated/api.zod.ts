@@ -1072,7 +1072,8 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
  * Trigger a batch recalculation of all metrics for this experiment.
  *
  * Returns 201 with the new pending recalculation, or 200 with the active one if a recalculation is
- * already pending or in progress for this experiment. The response payload intentionally does not
+ * already pending or in progress for this experiment. A manual trigger within five minutes after the latest
+ * completed run finished returns 429 with a Retry-After header. The response payload intentionally does not
  * include the `results` array — at POST time the workflow has just been queued and no per-metric
  * results exist yet. Clients should poll `GET metrics_recalculation/{id}/` for results as the workflow
  * progresses.
@@ -1542,6 +1543,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                             'in',
                                             'not_in',
                                             'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
                                             'flag_evaluates_to',
                                             'semver_eq',
                                             'semver_neq',
@@ -1604,6 +1606,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',
@@ -1685,6 +1688,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                             'in',
                                             'not_in',
                                             'is_cleaned_path_exact',
+                                            'is_cleaned_path_not_exact',
                                             'flag_evaluates_to',
                                             'semver_eq',
                                             'semver_neq',
@@ -1747,6 +1751,7 @@ export const ExperimentsSetupContextCreateBody = /* @__PURE__ */ zod
                                     'in',
                                     'not_in',
                                     'is_cleaned_path_exact',
+                                    'is_cleaned_path_not_exact',
                                     'flag_evaluates_to',
                                     'semver_eq',
                                     'semver_neq',

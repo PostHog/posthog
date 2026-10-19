@@ -1,18 +1,31 @@
 import json
+from copy import deepcopy
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.utils import timezone
+
 from parameterized import parameterized
 
-from posthog.cdp.templates.hog_function_template import sync_template_to_db
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.messaging import MessagingRecord, get_email_hash
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.models.access_control import AccessControl
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
+from products.cdp.backend.templates.hog_function_template import sync_template_to_db
+from products.notifications.backend.facade.testing import stored_notification_for_resource
+from products.signals.backend.models import SignalScoutConfig
+from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
@@ -33,6 +46,38 @@ def _trigger_action() -> dict:
     }
 
 
+def _email_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-email"
+    template["name"] = "Email"
+    template["inputs_schema"] = [
+        {"key": "email", "type": "native_email", "label": "Email", "required": True, "templating": "liquid"}
+    ]
+    return template
+
+
+def _email_action() -> dict:
+    return {
+        "id": "email_1",
+        "name": "email_1",
+        "type": "function_email",
+        "config": {
+            "template_id": "template-email",
+            "inputs": {
+                "email": {
+                    "value": {
+                        "to": "{{ person.properties.email }}",
+                        "from": "noreply@example.com",
+                        "subject": "Hello",
+                        "html": "<p>Hello</p>",
+                    },
+                    "templating": "liquid",
+                }
+            },
+        },
+    }
+
+
 def _webhook_action(action_id: str = "action_1", url: str = "https://example.com") -> dict:
     return {
         "id": action_id,
@@ -47,6 +92,7 @@ class TestWorkflowProposals(APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_template_to_db(webhook_template)
+        sync_template_to_db(_email_template())
         # Filing needs the scout's own scope, which no session carries.
         self.producer_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -62,16 +108,19 @@ class TestWorkflowProposals(APIBaseTest):
         )
         assert response.status_code == 200, response.json()
 
-    def _create_active_flow(self) -> str:
+    def _create_active_flow(self, optimize: bool = True, team_id: int | None = None) -> str:
+        team_id = team_id or self.team.id
         create = self.client.post(
-            f"/api/projects/{self.team.id}/hog_flows",
-            {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action()]},
+            f"/api/projects/{team_id}/hog_flows",
+            {"name": "Proposal Flow", "actions": [_trigger_action(), _webhook_action(), _email_action()]},
+            format="json",
         )
         assert create.status_code == 201, create.json()
         flow_id = create.json()["id"]
-        activate = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+        activate = self.client.patch(f"/api/projects/{team_id}/hog_flows/{flow_id}", {"status": "active"})
         assert activate.status_code == 200, activate.json()
-        self._optimize(flow_id)
+        if optimize:
+            self._optimize(flow_id)
         return flow_id
 
     def _propose(self, flow_id: str, **overrides) -> dict:
@@ -451,6 +500,11 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.json()["code"] == "proposal_out_of_date"
         assert HogFlow.objects.get(id=flow_id).exit_condition == "exit_on_trigger_not_matched"
         assert HogFlow.objects.get(id=flow_id).draft is None
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", {}
+        )
+        assert rejected.status_code == 200, rejected.json()
+        assert rejected.json()["is_stale"] is True
 
     def test_a_field_change_still_approves_after_an_edit_elsewhere(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -539,6 +593,23 @@ class TestWorkflowProposals(APIBaseTest):
         assert turned_on.status_code == 409, turned_on.json()
         assert turned_on.json()["code"] == "workflow_not_live"
 
+    def test_a_workflow_with_no_published_email_step_can_be_opted_out_but_not_back_in(self, _mock_flag):
+        flow_id = self._create_active_flow()
+        HogFlow.objects.filter(id=flow_id).update(
+            actions=[_trigger_action(), _webhook_action()],
+            draft={"actions": [_trigger_action(), _webhook_action(), _email_action()]},
+        )
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}/optimization"
+
+        turned_off = self.client.post(url, {"enabled": False}, format="json")
+        assert turned_off.status_code == 200, turned_off.json()
+        assert turned_off.json()["enabled"] is False
+
+        turned_on = self.client.post(url, {"enabled": True}, format="json")
+        assert turned_on.status_code == 409, turned_on.json()
+        assert turned_on.json()["code"] == "workflow_has_no_email_step"
+        assert HogFlowOptimization.objects.for_team(self.team.id).get(hog_flow_id=flow_id).enabled is False
+
     def test_a_workflow_nobody_opted_in_is_not_suggested_against(self, _mock_flag):
         flow_id = self._create_active_flow()
         self.client.post(
@@ -566,6 +637,236 @@ class TestWorkflowProposals(APIBaseTest):
         assert refused.status_code == 409, refused.json()
         assert refused.json()["code"] == "workflow_not_optimized"
         assert WorkflowProposal.objects.for_team(self.team.id).count() == 0
+
+    def _suggestions_scout(self) -> SignalScoutConfig | None:
+        return SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name="signals-scout-workflows").first()
+
+    def _toggle(
+        self,
+        flow_id: str,
+        enabled: bool,
+        headers: dict | None = None,
+        team_id: int | None = None,
+        expected_status: int = 200,
+    ) -> dict:
+        response = self.client.post(
+            f"/api/projects/{team_id or self.team.id}/hog_flows/{flow_id}/optimization",
+            {"enabled": enabled},
+            format="json",
+            headers=headers or {},
+        )
+        assert response.status_code == expected_status, response.json()
+        return response.json()
+
+    def test_suggestions_scout_runs_while_any_workflow_asks_for_suggestions(self, _mock_flag):
+        first, second = self._create_active_flow(optimize=False), self._create_active_flow(optimize=False)
+        assert self._suggestions_scout() is None
+
+        self._toggle(first, True)
+        scout = self._suggestions_scout()
+        assert scout is not None
+        assert (scout.enabled, scout.write_scopes, scout.enabled_by_id) == (
+            True,
+            ["hog_flow_proposal:write", "notebook:write"],
+            self.user.id,
+        )
+
+        self._toggle(second, True)
+        self._toggle(first, False)
+        assert self._suggestions_scout() is not None
+
+        self._toggle(second, False)
+        assert self._suggestions_scout() is None
+
+    @parameterized.expand(
+        [
+            ("paused by a person", "paused", "paused_by_user"),
+            ("paused by the system", "system_paused", "paused_by_system"),
+            ("a member widening another person's scout", "widen", "running"),
+            ("api key without the proposal scope turning one off", "key_off", "not_running"),
+            ("a scout a person set up", "own", "running"),
+        ]
+    )
+    def test_suggestions_scout_gains_no_grant(self, _mock_flag, _name: str, case: str, scout_status: str):
+        flow_team_id = self.team.id
+        flow_id = self._create_active_flow(optimize=False, team_id=flow_team_id)
+        headers: dict = {}
+        enabled = True
+        if case == "paused":
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team, skill_name="signals-scout-workflows", enabled=False
+            )
+        elif case == "system_paused":
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team,
+                skill_name="signals-scout-workflows",
+                source_product="workflows",
+                status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+            )
+        elif case == "widen":
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            other = User.objects.create_and_join(self.organization, "other@example.com", None)
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team,
+                skill_name="signals-scout-workflows",
+                source_product="workflows",
+                enabled=True,
+                created_by=other,
+                enabled_by=other,
+            )
+        elif case == "own":
+            SignalScoutConfig.objects.for_team(self.team.id).create(
+                team=self.team, skill_name="signals-scout-workflows", enabled=True
+            )
+        elif case == "key_off":
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="toggle", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:write"]
+            )
+            headers = {"authorization": f"Bearer {key}"}
+            for flow in (flow_id, self._create_active_flow(optimize=False)):
+                HogFlowOptimization.objects.for_team(self.team.id).create(hog_flow_id=flow, enabled=True)
+            enabled = False
+            self.client.logout()
+
+        original_check = UserAccessControl.check_access_level_for_resource
+        with (
+            patch(
+                "products.signals.backend.scout_harness.team_limits.max_enabled_scouts_for_team",
+                return_value=0 if case == "at_cap" else 100,
+            ),
+            patch.object(
+                UserAccessControl,
+                "check_access_level_for_resource",
+                autospec=True,
+                side_effect=lambda uac, resource, *args, **kwargs: (
+                    resource != "llm_skill"
+                    if case == "no_skill_access"
+                    else original_check(uac, resource, *args, **kwargs)
+                ),
+            ),
+        ):
+            response = self._toggle(flow_id, enabled, headers, team_id=flow_team_id)
+
+        scout = self._suggestions_scout()
+        assert scout is None or "hog_flow_proposal:write" not in scout.write_scopes
+        assert response["scout_status"] == scout_status
+        if case == "system_paused":
+            assert scout is not None and scout.status == SignalScoutConfig.Status.PAUSED_BY_SYSTEM
+
+    @parameterized.expand(
+        [
+            ("a project at its enabled-scout limit", "at_cap", "already runs as many scouts"),
+            ("a person without editor access to skills", "no_skill_access", "editor access to skills"),
+            ("an organization that has not approved AI", "ai_not_approved", "approved AI data processing"),
+            ("a member when a teammate wrote the scout skill", "other_author", "person who wrote"),
+            ("api key without the proposal scope", "key_on", "hog_flow_proposal:write"),
+            ("api key limited to a child environment", "child_key", "hog_flow_proposal:write"),
+        ]
+    )
+    def test_turning_suggestions_on_is_refused_when_no_scout_could_run(
+        self, _mock_flag, _name: str, case: str, message: str
+    ):
+        flow_team_id = self.team.id
+        if case == "child_key":
+            flow_team_id = Team.objects.create(organization=self.organization, name="child", parent_team=self.team).id
+        flow_id = self._create_active_flow(optimize=False, team_id=flow_team_id)
+        headers: dict = {}
+        if case == "ai_not_approved":
+            self.organization.is_ai_data_processing_approved = False
+            self.organization.save()
+        elif case == "other_author":
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            author = User.objects.create_and_join(
+                self.organization, "author@example.com", None, level=OrganizationMembership.Level.ADMIN
+            )
+            LLMSkill.objects.create(
+                team=self.team, name="signals-scout-workflows", description="d", body="b", created_by=author
+            )
+        elif case in ("key_on", "child_key"):
+            key = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="toggle",
+                user=self.user,
+                secure_value=hash_key_value(key),
+                scopes=["*"] if case == "child_key" else ["hog_flow:write"],
+                scoped_teams=[flow_team_id] if case == "child_key" else None,
+            )
+            headers = {"authorization": f"Bearer {key}"}
+            self.client.logout()
+
+        original_check = UserAccessControl.check_access_level_for_resource
+        with (
+            patch(
+                "products.signals.backend.scout_harness.team_limits.max_enabled_scouts_for_team",
+                return_value=0 if case == "at_cap" else 100,
+            ),
+            patch.object(
+                UserAccessControl,
+                "check_access_level_for_resource",
+                autospec=True,
+                side_effect=lambda uac, resource, *args, **kwargs: (
+                    resource != "llm_skill"
+                    if case == "no_skill_access"
+                    else original_check(uac, resource, *args, **kwargs)
+                ),
+            ),
+        ):
+            response = self._toggle(flow_id, True, headers, team_id=flow_team_id, expected_status=400)
+
+        assert message in response["detail"]
+        assert not HogFlowOptimization.objects.unscoped().filter(hog_flow_id=flow_id, enabled=True).exists()
+        assert self._suggestions_scout() is None
+
+    @parameterized.expand(
+        [
+            ("a pause by a person", {"status": SignalScoutConfig.Status.PAUSED_BY_USER}),
+            (
+                "a pause by the system",
+                {
+                    "status": SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
+                    "pause_reason": SignalScoutConfig.PauseReason.REPEATED_FAILURES,
+                },
+            ),
+            ("a lifecycle lock", {"lifecycle_locked": True}),
+        ]
+    )
+    def test_suggestions_scout_keeps_its_settings_across_opt_out(self, _mock_flag, _name: str, kept: dict):
+        flow_id = self._create_active_flow(optimize=False)
+        self._toggle(flow_id, True)
+        scout = self._suggestions_scout()
+        assert scout is not None
+        for field, value in kept.items():
+            setattr(scout, field, value)
+        scout.save(update_fields=list(kept))
+
+        self._toggle(flow_id, False)
+        scout = self._suggestions_scout()
+        assert scout is not None
+        self._toggle(flow_id, True)
+
+        scout = self._suggestions_scout()
+        assert scout is not None
+        assert {field: getattr(scout, field) for field in kept} == kept
+
+    @parameterized.expand([("archived",), ("draft",)])
+    def test_the_suggestions_scout_follows_the_last_opted_in_workflow_leaving_live(self, _mock_flag, status):
+        flow_id = self._create_active_flow(optimize=False)
+        self._toggle(flow_id, True)
+        assert self._suggestions_scout() is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": status})
+        assert response.status_code == 200, response.json()
+        assert self._suggestions_scout() is None
+
+        if status == "draft":
+            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"status": "active"})
+            assert response.status_code == 200, response.json()
+            assert self._suggestions_scout() is not None
 
     def test_a_retry_after_opt_out_returns_the_suggestion_it_already_made(self, _mock_flag):
         flow_id = self._create_active_flow()
@@ -677,23 +978,136 @@ class TestWorkflowProposals(APIBaseTest):
 
     def test_repeat_source_id_returns_the_same_proposal(self, _mock_flag):
         flow_id = self._create_active_flow()
-        first = self._propose(flow_id, source_id="run:1:finding:webhook-url")
+        with patch(
+            "products.workflows.backend.services.proposal_notifications.create_notification",
+            side_effect=RuntimeError("notification store unavailable"),
+        ):
+            first = self._propose(flow_id, source_id="run:1:finding:webhook-url")
 
-        again = self.client.post(
+        for _ in range(2):
+            again = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
+                {
+                    "title": "Retry of the same finding",
+                    "rationale": "A retried agent run must not queue a second copy for the human.",
+                    "content": {"actions": [_trigger_action(), _webhook_action()]},
+                    "base_version": 1,
+                    "source_id": "run:1:finding:webhook-url",
+                },
+                format="json",
+                headers={"authorization": f"Bearer {self.producer_key}"},
+            )
+            assert again.status_code == 200, again.json()
+            assert again.json()["id"] == first["id"]
+        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
+        assert stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id).resolved_user_ids == [
+            self.user.id
+        ]
+
+    def _member_who_opts_in(self, flow_id: str) -> User:
+        member = User.objects.create_and_join(self.organization, "opted-in@example.com", None)
+        self.client.force_login(member)
+        self._optimize(flow_id)
+        self.client.force_login(self.user)
+        return member
+
+    @parameterized.expand(
+        [
+            ("the person who turned suggestions on", None, "opted-in@example.com"),
+            ("the creator once that person is deactivated", "deactivate", None),
+            ("the creator once that person leaves the organization", "remove", None),
+            ("the creator when that person can see only this workflow", "object_grant_only", None),
+        ]
+    )
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_a_new_suggestion_notifies(
+        self, _name: str, change: str | None, expected_email: str | None, mock_email, _mock_available, _mock_flag
+    ):
+        flow_id = self._create_active_flow(optimize=False)
+        member = self._member_who_opts_in(flow_id)
+        if change == "deactivate":
+            member.is_active = False
+            member.save()
+        elif change == "remove":
+            OrganizationMembership.objects.filter(user=member).delete()
+        elif change == "object_grant_only":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            OrganizationMembership.objects.filter(user=self.user).update(level=OrganizationMembership.Level.ADMIN)
+            AccessControl.objects.create(team=self.team, resource="hog_flow", resource_id=None, access_level="none")
+            AccessControl.objects.create(
+                team=self.team,
+                resource="hog_flow",
+                resource_id=flow_id,
+                access_level="viewer",
+                organization_member=OrganizationMembership.objects.get(user=member),
+            )
+        recipient = User.objects.get(email=expected_email) if expected_email else self.user
+        HogFlow.objects.filter(id=flow_id).update(name="Verify at attacker.example.com")
+        Team.objects.filter(id=self.team.id).update(name="Team at attacker.example.com")
+
+        self._propose(flow_id, rationale="The open rate on https://evil.example.com/landing dropped.")
+
+        notification = stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id)
+        assert notification.resolved_user_ids == [recipient.id]
+        assert notification.source_url == f"/project/{self.team.id}/workflows/{flow_id}/self-driving"
+        mock_email.return_value.add_user_recipient.assert_called_once_with(recipient)
+        context = mock_email.call_args.kwargs["template_context"]
+        assert "https://evil.example.com" not in context["suggestion_rationale"]
+        assert "attacker.example.com" not in context["workflow_name"]
+        assert "attacker.example.com" not in context["team_name"]
+
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_a_retry_after_the_recipient_changes_does_not_notify_someone_else(
+        self, mock_email, _mock_available, _mock_flag
+    ):
+        flow_id = self._create_active_flow(optimize=False)
+        member = self._member_who_opts_in(flow_id)
+        proposal = self._propose(flow_id, source_id="run:1:finding:retry-identity")
+        MessagingRecord.objects.create(
+            email_hash=get_email_hash(member.email),
+            campaign_key=f"workflow_suggestion_{proposal['id']}",
+            sent_at=timezone.now(),
+        )
+        member.is_active = False
+        member.save()
+        mock_email.reset_mock()
+
+        retry = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/",
             {
                 "title": "Retry of the same finding",
-                "rationale": "A retried agent run must not queue a second copy for the human.",
+                "rationale": "The producer retried after a timeout.",
                 "content": {"actions": [_trigger_action(), _webhook_action()]},
                 "base_version": 1,
-                "source_id": "run:1:finding:webhook-url",
+                "source_id": "run:1:finding:retry-identity",
             },
             format="json",
             headers={"authorization": f"Bearer {self.producer_key}"},
         )
-        assert again.status_code == 200, again.json()
-        assert again.json()["id"] == first["id"]
-        assert WorkflowProposal.objects.for_team(self.team.id).filter(hog_flow_id=flow_id).count() == 1
+        assert retry.status_code == 200, retry.json()
+
+        mock_email.assert_not_called()
+        notification = stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id)
+        assert notification.resolved_user_ids == [member.id]
+
+    @patch("products.workflows.backend.services.proposal_notifications.is_email_available", return_value=True)
+    @patch("products.workflows.backend.services.proposal_notifications.EmailMessage")
+    def test_turning_the_email_off_keeps_the_in_app_notification(self, mock_email, _mock_available, _mock_flag):
+        self.user.partial_notification_settings = {"workflow_suggestions": False}
+        self.user.save()
+        flow_id = self._create_active_flow()
+
+        self._propose(flow_id)
+
+        assert stored_notification_for_resource(resource_type="hog_flow", resource_id=flow_id).resolved_user_ids == [
+            self.user.id
+        ]
+        mock_email.assert_not_called()
 
     @parameterized.expand(
         [
@@ -1032,7 +1446,7 @@ class TestWorkflowProposals(APIBaseTest):
         assert approve.status_code == 200, approve.json()
         draft = HogFlow.objects.get(id=flow_id).draft
         assert draft is not None
-        assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1"]
+        assert [action["id"] for action in draft["actions"]] == ["trigger_node", "action_1", "email_1"]
         assert draft["actions"][1]["config"]["inputs"]["url"]["value"] == "https://proposed.example.com"
 
     def test_a_step_carries_only_the_fields_it_changes(self, _mock_flag):
@@ -1317,35 +1731,68 @@ class TestWorkflowProposals(APIBaseTest):
         assert "proposal_approved" in activities
         assert "proposal_rejected" in activities
 
-    def test_applied_suggestions_are_listed_by_the_version_that_carried_them(self, _mock_flag):
+    @parameterized.expand(
+        [
+            (
+                "with a reason",
+                {"reason": "  This is the sign-off email, it is not meant to convert.  "},
+                "This is the sign-off email, it is not meant to convert.",
+            ),
+            ("without a body", {}, ""),
+        ]
+    )
+    def test_the_producer_reads_why_a_suggestion_was_rejected(self, _mock_flag, _name: str, body: dict, expected: str):
         flow_id = self._create_active_flow()
-        flow = HogFlow.objects.get(id=flow_id)
-        written_first = WorkflowProposal(
-            hog_flow=flow,
-            team=self.team,
-            title="Written first, shipped last",
-            rationale="Approved after the other one had already shipped.",
-            content={"exit_condition": "exit_on_conversion"},
-            base_version=1,
-            status=WorkflowProposal.Status.APPLIED,
-            applied_version=3,
-        )
-        written_first.save()
-        written_last = WorkflowProposal(
-            hog_flow=flow,
-            team=self.team,
-            title="Written last, shipped first",
-            rationale="Approved and published before the other one.",
-            content={"exit_condition": "exit_on_conversion"},
-            base_version=1,
-            status=WorkflowProposal.Status.APPLIED,
-            applied_version=2,
-        )
-        written_last.save()
+        proposal = self._propose(flow_id)
 
-        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=applied&limit=1")
+        rejected = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/reject/", body, format="json"
+        )
+        assert rejected.status_code == 200, rejected.json()
+        self.client.logout()
+
+        listed = self.client.get(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/?status=rejected",
+            headers={"authorization": f"Bearer {self.producer_key}"},
+        )
         assert listed.status_code == 200, listed.json()
-        assert [row["id"] for row in listed.json()["results"]] == [str(written_first.id)]
+        assert [row["rejection_reason"] for row in listed.json()["results"]] == [expected]
+
+    @parameterized.expand(
+        [
+            ("applied", WorkflowProposal.Status.APPLIED, [{"applied_version": v} for v in (3, 4, 2)]),
+            (
+                "rejected",
+                WorkflowProposal.Status.REJECTED,
+                [{"resolved_at": datetime(2026, 5, day, tzinfo=UTC)} for day in (3, 4, 2)],
+            ),
+        ]
+    )
+    def test_resolved_suggestions_are_listed_by_when_they_were_resolved(
+        self, _mock_flag, status: str, kind: str, resolutions: list[dict]
+    ):
+        flow = HogFlow.objects.get(id=self._create_active_flow())
+        proposals = []
+        for index, resolution in enumerate(resolutions):
+            proposal = WorkflowProposal(
+                hog_flow=flow,
+                team=self.team,
+                title=f"Written {index + 1}",
+                rationale="Resolved out of filing order.",
+                content={"exit_condition": "exit_on_conversion"},
+                base_version=1,
+                status=kind,
+                **resolution,
+            )
+            proposal.save()
+            WorkflowProposal.objects.for_team(self.team.id).filter(id=proposal.id).update(
+                created_at=datetime(2026, 5, 1, index, tzinfo=UTC)
+            )
+            proposals.append(proposal)
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow.id}/proposals/?status={status}")
+        assert listed.status_code == 200, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == [str(proposals[i].id) for i in (1, 0, 2)]
 
 
 @patch("products.workflows.backend.presentation.views.hog_flow.posthoganalytics.feature_enabled", return_value=False)

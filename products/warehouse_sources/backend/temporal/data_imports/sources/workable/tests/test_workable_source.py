@@ -1,10 +1,13 @@
 from typing import Any
 
 from unittest import mock
-from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.workable import (
     WorkableSourceConfig,
 )
@@ -53,39 +56,25 @@ class TestValidateCredentials:
 
 
 class TestMisc:
-    def test_source_for_pipeline_plumbs_arguments(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
+    def test_source_for_pipeline_plumbs_arguments(self) -> None:
+        result = SourceDriver(WorkableSource(), _config()).run(
+            "candidates",
+            [ScriptedResponse(json={"candidates": [], "paging": {}})],
+            incremental_field="updated_at",
+            db_incremental_field_last_value="2026-01-01",
+        )
 
-        def fake_source(**kwargs: Any) -> str:
-            captured.update(kwargs)
-            return "response"
+        request = result.requests[0]
+        assert request.url.startswith("https://acme.workable.com/spi/v3/candidates?")
+        assert request.headers["authorization"] == "Bearer tok"
+        assert request.param("updated_after") == "2026-01-01"
 
-        monkeypatch.setattr(source_module, "workable_source", fake_source)
+    def test_source_for_pipeline_omits_last_value_when_not_incremental(self) -> None:
+        result = SourceDriver(WorkableSource(), _config()).run(
+            "members",
+            [ScriptedResponse(json={"members": [], "paging": {}})],
+            db_incremental_field_last_value="2026-01-01",
+        )
 
-        inputs = MagicMock()
-        inputs.schema_name = "candidates"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = "2026-01-01"
-        inputs.incremental_field = "updated_at"
-        manager = MagicMock()
-
-        result: Any = WorkableSource().source_for_pipeline(_config(), manager, inputs)
-        assert result == "response"
-        assert captured["subdomain"] == "acme"
-        assert captured["api_token"] == "tok"
-        assert captured["endpoint"] == "candidates"
-        assert captured["incremental_field"] == "updated_at"
-        assert captured["db_incremental_field_last_value"] == "2026-01-01"
-
-    def test_source_for_pipeline_omits_last_value_when_not_incremental(self, monkeypatch: Any) -> None:
-        captured: dict[str, Any] = {}
-        monkeypatch.setattr(source_module, "workable_source", lambda **kwargs: captured.update(kwargs))
-
-        inputs = MagicMock()
-        inputs.schema_name = "members"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = "2026-01-01"
-        inputs.incremental_field = None
-
-        WorkableSource().source_for_pipeline(_config(), MagicMock(), inputs)
-        assert captured["db_incremental_field_last_value"] is None
+        assert "updated_after" not in result.requests[0].query
+        assert "created_after" not in result.requests[0].query

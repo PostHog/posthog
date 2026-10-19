@@ -13,6 +13,7 @@ import { scannerScoutLogic } from '../../scannerScoutLogic'
 import {
     UNATTRIBUTED_VARIANT,
     scannerVariantsLogic,
+    variantAnalysisRunDisabledReason,
     variantComparisonState,
     variantObservationsUrl,
 } from '../../scannerVariantsLogic'
@@ -30,11 +31,12 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const scannerName = scanner?.name || ''
     const scoutLogic = scannerScoutLogic({ scannerId, scannerName })
-    const { scoutConfigsForScanner, createTemplateKey, settingsSkillName } = useValues(scoutLogic)
+    const { scoutConfigsForScanner, createTemplateKey, settingsSkillName, rollups } = useValues(scoutLogic)
     const { openCreateModal, openScoutSettings } = useActions(scoutLogic)
     const logic = scannerVariantsLogic({ scannerId })
-    const { readout, readoutLoading, readoutFailed, variantColors } = useValues(logic)
-    const { loadReadout, setupAnalysisClicked, variantObservationsOpened } = useActions(logic)
+    const { readout, readoutLoading, readoutFailed, variantColors, analysisRunStarting, analysisRunInFlight, now } =
+        useValues(logic)
+    const { loadReadout, setupAnalysisClicked, variantObservationsOpened, runAnalysisNow } = useActions(logic)
 
     if (!readout) {
         if (readoutFailed && !readoutLoading) {
@@ -56,6 +58,29 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
     const existingScout = variantAnalysisScout(scoutConfigsForScanner)
     const comparisonState = variantComparisonState(readout.analysis, !!existingScout)
     const balanced = scanner?.scanner_type !== 'experiment' || scanner.scanner_config.balance_variants !== false
+    // Themes come from the variant analysis scout, so without a running one each card says how to get them.
+    const themesHint =
+        comparisonState === 'no_scout'
+            ? 'Set up variant analysis above to see themes here.'
+            : readout.analysis?.scout_enabled === false || existingScout?.enabled === false
+              ? 'Variant analysis is paused. Turn it on in the scout settings above to see themes here.'
+              : null
+    const analysisRollup = existingScout ? rollups.get(existingScout.skill_name) : undefined
+    const runNow = existingScout
+        ? {
+              onClick: () => runAnalysisNow(existingScout.id, existingScout.skill_name),
+              loading: analysisRunStarting,
+              running: analysisRunInFlight,
+              disabledReason:
+                  getReplayVisionEditDisabledReason(scanner?.user_access_level) ??
+                  variantAnalysisRunDisabledReason({
+                      running: analysisRunInFlight,
+                      lastRunStartedAt: analysisRollup?.latestRun?.started_at ?? null,
+                      hasObservations: readout.window.total_observations > 0,
+                      now,
+                  }),
+          }
+        : undefined
 
     return (
         <div className="@container flex flex-col gap-4" data-attr="vision-variants-tab">
@@ -69,8 +94,11 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
                     openCreateModal('variant-analysis')
                 }}
                 onOpenScout={existingScout ? () => openScoutSettings(existingScout.skill_name) : undefined}
+                runNow={runNow}
             />
-            {readout.window.total_observations === 0 ? (
+            {/* Each watched variant gets a card from the start; the readout lists none only when the
+                experiment can't be read, for example after it was deleted. */}
+            {readout.variants.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-4 text-sm text-muted">
                     No observations yet. The scanner summarizes sessions of exposed people as they arrive, and each
                     variant shows here once it has some.
@@ -89,6 +117,7 @@ export function VariantsTab({ scannerId }: VariantsTabProps): JSX.Element {
                             variant={variant}
                             color={variantColors[variant.key]}
                             balanced={balanced}
+                            themesHint={themesHint}
                             observationsUrl={variantObservationsUrl(scannerId, variant.key)}
                             onOpenObservations={() => variantObservationsOpened(variant.key)}
                         />

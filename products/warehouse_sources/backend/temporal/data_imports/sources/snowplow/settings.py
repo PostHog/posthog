@@ -61,6 +61,33 @@ SNOWPLOW_ENDPOINTS: dict[str, SnowplowEndpointConfig] = {
         path="/data-structures/v1",
         primary_keys=["hash"],
     ),
+    "data_products": SnowplowEndpointConfig(
+        name="data_products",
+        path="/data-products/v2",
+        primary_keys=["id"],
+        partition_key="createdAt",
+        data_key="data",
+    ),
+    "event_specs": SnowplowEndpointConfig(
+        name="event_specs",
+        path="/event-specs/v1",
+        # The spec does not say whether the list returns one row per event specification or one
+        # per version, so the version is part of the key.
+        primary_keys=["id", "version"],
+        data_key="data",
+    ),
+    "source_apps": SnowplowEndpointConfig(
+        name="source_apps",
+        path="/source-apps/v1",
+        primary_keys=["id"],
+        data_key="data",
+    ),
+    "data_catalog": SnowplowEndpointConfig(
+        name="data_catalog",
+        path="/data-catalog/v1",
+        # Catalog items have no id; the schema key plus the item type (EVENT or ENTITY) identifies one.
+        primary_keys=["vendor", "name", "format", "version", "itemType"],
+    ),
     "job_runs": SnowplowEndpointConfig(
         name="job_runs",
         path="/jobs/v1/runs",

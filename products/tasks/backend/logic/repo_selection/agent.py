@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Q, Value, When
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, GitHubIntegrationBase
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
@@ -136,7 +137,7 @@ def resolve_team_github_integration(
     )
     # Prefer the first GitHub integration from the team
     if integration is not None:
-        return GitHubIntegration(integration)
+        return GitHubIntegration(integration, source="repo_selection", priority=Priority.CRITICAL)
 
     if team_only:
         return None
@@ -146,7 +147,7 @@ def resolve_team_github_integration(
     if requester_user_id is not None:
         requester_integration = _first_user_github_integration([requester_user_id])
         if requester_integration is not None:
-            return UserGitHubIntegration(requester_integration)
+            return UserGitHubIntegration(requester_integration, source="repo_selection", priority=Priority.CRITICAL)
 
     organization = (team if team is not None else Team.objects.get(id=team_id)).organization
     owner_user_ids = OrganizationMembership.objects.filter(
@@ -157,7 +158,7 @@ def resolve_team_github_integration(
     # If no team integration - pick an org owner's integration (personal account preferred)
     owner_integration = _first_user_github_integration(owner_user_ids)
     if owner_integration is not None:
-        return UserGitHubIntegration(owner_integration)
+        return UserGitHubIntegration(owner_integration, source="repo_selection", priority=Priority.CRITICAL)
     return None
 
 
@@ -587,6 +588,7 @@ async def select_repository(
     context: str,
     *,
     origin_product: Task.OriginProduct,
+    priority: Priority,
     github: GitHubIntegrationBase | None = None,
     candidate_repos: list[str] | None = None,
     step_name: str = "repo_selection",
@@ -649,7 +651,7 @@ async def select_repository(
     # concurrent calls for the same team wait on the leader and then read the warm cache.
     if output_fn:
         output_fn("Refreshing repository cache...")
-    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id)
+    repo_cache = GitHubRepositoryFullCache(github, team_id=team_id, priority=priority)
     await repo_cache.sync_full_cache()
     # Drop archived repos (agent can't fix code there) and repos missing from the heavy cache
     # (the prompt treats SQL as primary evidence — a missing row reads as a false-negative).

@@ -138,7 +138,9 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsCreateBodyCooldownMinutesMin)
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -260,7 +262,9 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsUpdateBodyCooldownMinutesMin)
         .default(logsAlertsUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -382,7 +386,9 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
         .default(logsAlertsPartialUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -540,7 +546,9 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
-        .describe('Minutes to wait after firing before sending another notification.'),
+        .describe(
+            'Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.'
+        ),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 
@@ -823,7 +831,7 @@ export const LogsFacetValuesCreateBody = /* @__PURE__ */ zod.object({
                 ])
                 .optional()
                 .describe(
-                    'Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Its own filter is excluded so counts reflect the other active filters.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name'
+                    "Top-level column to facet on. Provide exactly one of facetField, facetResourceAttribute or facetAttribute. Counts come from a rollup with 5-minute buckets, so the window widens to the buckets that contain date_from and date_to. The rollup honours severityLevels and serviceNames, but not body search, log-attribute filters, or resource-attribute filters. When personId or sessionId is set, counts come from the logs table with the exact window and every other filter. Both paths exclude this facet's own filter.\n\n\* `severity_text` - severity_text\n\* `service_name` - service_name"
                 ),
             facetResourceAttribute: zod
                 .string()
@@ -1346,6 +1354,35 @@ export const LogsMetricRulesPartialUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Turn a plain-language request into ranked log viewer filter candidates. Nothing is persisted. Only the request text, service names and attribute keys are sent to the models.
+ */
+export const logsNaturalLanguageQueryCreateBodyQueryMax = 500
+
+export const LogsNaturalLanguageQueryCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .string()
+        .max(logsNaturalLanguageQueryCreateBodyQueryMax)
+        .describe("The plain-language request, for example 'error logs from checkout in the last 2 hours'."),
+    dateRange: zod
+        .object({
+            date_from: zod
+                .string()
+                .nullish()
+                .describe(
+                    'Start of the date range. Accepts ISO 8601 timestamps or relative formats such as -1h or -7d.'
+                ),
+            date_to: zod
+                .string()
+                .nullish()
+                .describe('End of the date range. Same format as date_from. Null means \"now\".'),
+        })
+        .optional()
+        .describe(
+            "The viewer's current date range. Used when the request names no time, and to scope the service and attribute lists the model may choose from."
+        ),
+})
+
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -1563,7 +1600,6 @@ export const LogsPatternsDiffCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsQueryCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsQueryCreateBodyQueryOneServiceNamesDefault = []
-export const logsQueryCreateBodyQueryOneFilterGroupDefault = []
 export const logsQueryCreateBodyQueryOneLimitDefault = 100
 export const logsQueryCreateBodyQueryOneExcludeAttributesDefault = false
 export const logsQueryCreateBodyQueryOneCustomColumnsDefault = []
@@ -1607,57 +1643,128 @@ export const LogsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Order results by timestamp.\n\n\* `latest` - latest\n\* `earliest` - earliest'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
             filterGroup: zod
-                .array(
+                .union([
+                    zod.array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                ),
+                            type: zod
+                                .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                .describe(
+                                    '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                )
+                                .describe(
+                                    '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                ),
+                            operator: zod
+                                .enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'lt',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'is_set',
+                                    'is_not_set',
+                                ])
+                                .describe(
+                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                )
+                                .describe(
+                                    'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                ),
+                            value: zod
+                                .unknown()
+                                .optional()
+                                .describe(
+                                    'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                ),
+                        })
+                    ),
                     zod.object({
-                        key: zod
-                            .string()
-                            .describe(
-                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
-                            ),
                         type: zod
-                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
-                            .describe(
-                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            .enum(['AND', 'OR'])
+                            .describe('How to combine the groups in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'),
+                        values: zod
+                            .array(
+                                zod.object({
+                                    type: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe(
+                                            'How to combine the filters in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'
+                                        ),
+                                    values: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                                    ),
+                                                type: zod
+                                                    .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                                    .describe(
+                                                        '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    )
+                                                    .describe(
+                                                        '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'lt',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    )
+                                                    .describe(
+                                                        'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    ),
+                                                value: zod
+                                                    .unknown()
+                                                    .optional()
+                                                    .describe(
+                                                        'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                                    ),
+                                            })
+                                        )
+                                        .describe('Property filters in this group.'),
+                                })
                             )
-                            .describe(
-                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
-                            ),
-                        operator: zod
-                            .enum([
-                                'exact',
-                                'is_not',
-                                'icontains',
-                                'not_icontains',
-                                'starts_with',
-                                'not_starts_with',
-                                'ends_with',
-                                'not_ends_with',
-                                'regex',
-                                'not_regex',
-                                'gt',
-                                'lt',
-                                'is_date_exact',
-                                'is_date_before',
-                                'is_date_after',
-                                'is_set',
-                                'is_not_set',
-                            ])
-                            .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            )
-                            .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            ),
-                        value: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
-                            ),
-                    })
-                )
-                .default(logsQueryCreateBodyQueryOneFilterGroupDefault)
-                .describe('Property filters for the query.'),
+                            .describe('Groups of property filters.'),
+                    }),
+                ])
+                .optional()
+                .describe(
+                    'Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND\/OR groups.'
+                ),
             limit: zod.number().default(logsQueryCreateBodyQueryOneLimitDefault).describe('Max results (1-1000).'),
             after: zod.string().optional().describe('Pagination cursor from previous response.'),
             excludeAttributes: zod
@@ -2084,7 +2191,6 @@ export const LogsServicesCreateBody = /* @__PURE__ */ zod.object({
 
 export const logsSparklineCreateBodyQueryOneSeverityLevelsDefault = []
 export const logsSparklineCreateBodyQueryOneServiceNamesDefault = []
-export const logsSparklineCreateBodyQueryOneFilterGroupDefault = []
 
 export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
     query: zod
@@ -2120,57 +2226,128 @@ export const LogsSparklineCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Filter by service names.'),
             searchTerm: zod.string().optional().describe('Full-text search term to filter log bodies.'),
             filterGroup: zod
-                .array(
+                .union([
+                    zod.array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .describe(
+                                    'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                ),
+                            type: zod
+                                .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                .describe(
+                                    '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                )
+                                .describe(
+                                    '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                ),
+                            operator: zod
+                                .enum([
+                                    'exact',
+                                    'is_not',
+                                    'icontains',
+                                    'not_icontains',
+                                    'starts_with',
+                                    'not_starts_with',
+                                    'ends_with',
+                                    'not_ends_with',
+                                    'regex',
+                                    'not_regex',
+                                    'gt',
+                                    'lt',
+                                    'is_date_exact',
+                                    'is_date_before',
+                                    'is_date_after',
+                                    'is_set',
+                                    'is_not_set',
+                                ])
+                                .describe(
+                                    '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                )
+                                .describe(
+                                    'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                ),
+                            value: zod
+                                .unknown()
+                                .optional()
+                                .describe(
+                                    'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                ),
+                        })
+                    ),
                     zod.object({
-                        key: zod
-                            .string()
-                            .describe(
-                                'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
-                            ),
                         type: zod
-                            .enum(['log', 'log_attribute', 'log_resource_attribute'])
-                            .describe(
-                                '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                            .enum(['AND', 'OR'])
+                            .describe('How to combine the groups in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'),
+                        values: zod
+                            .array(
+                                zod.object({
+                                    type: zod
+                                        .enum(['AND', 'OR'])
+                                        .describe(
+                                            'How to combine the filters in `values`.\n\n\* `AND` - AND\n\* `OR` - OR'
+                                        ),
+                                    values: zod
+                                        .array(
+                                            zod.object({
+                                                key: zod
+                                                    .string()
+                                                    .describe(
+                                                        'Attribute key. For type \"log\", use \"message\" for the body text, or a log column: \"pattern\" and \"pattern_version\" (the patterns pivot), \"severity_level\", \"service_name\", \"trace_id\", \"span_id\". For \"log_attribute\"\/\"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").'
+                                                    ),
+                                                type: zod
+                                                    .enum(['log', 'log_attribute', 'log_resource_attribute'])
+                                                    .describe(
+                                                        '\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    )
+                                                    .describe(
+                                                        '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
+                                                    ),
+                                                operator: zod
+                                                    .enum([
+                                                        'exact',
+                                                        'is_not',
+                                                        'icontains',
+                                                        'not_icontains',
+                                                        'starts_with',
+                                                        'not_starts_with',
+                                                        'ends_with',
+                                                        'not_ends_with',
+                                                        'regex',
+                                                        'not_regex',
+                                                        'gt',
+                                                        'lt',
+                                                        'is_date_exact',
+                                                        'is_date_before',
+                                                        'is_date_after',
+                                                        'is_set',
+                                                        'is_not_set',
+                                                    ])
+                                                    .describe(
+                                                        '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    )
+                                                    .describe(
+                                                        'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
+                                                    ),
+                                                value: zod
+                                                    .unknown()
+                                                    .optional()
+                                                    .describe(
+                                                        'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
+                                                    ),
+                                            })
+                                        )
+                                        .describe('Property filters in this group.'),
+                                })
                             )
-                            .describe(
-                                '\"log\" filters the log body\/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes.\n\n\* `log` - log\n\* `log_attribute` - log_attribute\n\* `log_resource_attribute` - log_resource_attribute'
-                            ),
-                        operator: zod
-                            .enum([
-                                'exact',
-                                'is_not',
-                                'icontains',
-                                'not_icontains',
-                                'starts_with',
-                                'not_starts_with',
-                                'ends_with',
-                                'not_ends_with',
-                                'regex',
-                                'not_regex',
-                                'gt',
-                                'lt',
-                                'is_date_exact',
-                                'is_date_before',
-                                'is_date_after',
-                                'is_set',
-                                'is_not_set',
-                            ])
-                            .describe(
-                                '\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            )
-                            .describe(
-                                'Comparison operator.\n\n\* `exact` - exact\n\* `is_not` - is_not\n\* `icontains` - icontains\n\* `not_icontains` - not_icontains\n\* `starts_with` - starts_with\n\* `not_starts_with` - not_starts_with\n\* `ends_with` - ends_with\n\* `not_ends_with` - not_ends_with\n\* `regex` - regex\n\* `not_regex` - not_regex\n\* `gt` - gt\n\* `lt` - lt\n\* `is_date_exact` - is_date_exact\n\* `is_date_before` - is_date_before\n\* `is_date_after` - is_date_after\n\* `is_set` - is_set\n\* `is_not_set` - is_not_set'
-                            ),
-                        value: zod
-                            .unknown()
-                            .optional()
-                            .describe(
-                                'Value to compare against. String, number, or array of strings. Omit for is_set\/is_not_set operators.'
-                            ),
-                    })
-                )
-                .default(logsSparklineCreateBodyQueryOneFilterGroupDefault)
-                .describe('Property filters for the query.'),
+                            .describe('Groups of property filters.'),
+                    }),
+                ])
+                .optional()
+                .describe(
+                    'Property filters for the query. Pass a list of filters, which are all combined with AND, or a filter group object with nested AND\/OR groups.'
+                ),
             sparklineBreakdownBy: zod
                 .enum(['severity', 'service'])
                 .describe('\* `severity` - severity\n\* `service` - service')

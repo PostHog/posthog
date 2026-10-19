@@ -76,6 +76,15 @@ _TRANSITIVE_SYSTEM_TABLE_SCOPES: dict[str, frozenset[str]] = {
 }
 
 
+@frozen
+class _SavedViewRow:
+    """The saved-query fields `models_namespace_chain` reads, loaded without the model instance."""
+
+    name: str
+    origin: str | None
+    managed_viewset_id: object | None
+
+
 @frozen(frozen=False)
 class _WarehouseCatalog:
     """Warehouse reads shared by one fingerprint and every view definition it walks.
@@ -127,15 +136,37 @@ class _WarehouseCatalog:
         return bool(names & self.table_names)
 
     def get_views(self, names: set[str]) -> list[tuple[str, object]]:
+        # Deferred to break the query_runner -> this module -> hogql import cycle.
+        from posthog.hogql.database.database import models_namespace_chain  # noqa: PLC0415
+
         from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
 
         unknown_names = names - self.looked_up_names
         if unknown_names:
-            self.view_queries.update(
-                DataWarehouseSavedQuery.objects.filter(team_id=self.team_id, name__in=unknown_names)
+            # An authored model is also queryable as `models.<stored name>` (see the schema build in
+            # database.py), so load the stored names of those reads in the same query. Without them the
+            # alias matches no row, the query carries no warehouse scope, and a user denied the model is
+            # served an allowed user's cached rows on a hit, together with whatever the definition reads.
+            stored_names = {name: name.removeprefix("models.") for name in unknown_names if name.startswith("models.")}
+            rows = {
+                name: (_SavedViewRow(name=name, origin=origin, managed_viewset_id=managed_viewset_id), query)
+                for name, query, origin, managed_viewset_id in DataWarehouseSavedQuery.objects.filter(
+                    team_id=self.team_id, name__in=unknown_names | set(stored_names.values())
+                )
                 .exclude(deleted=True)
-                .values_list("name", "query")
-            )
+                .values_list("name", "query", "origin", "managed_viewset_id")
+            }
+            for name in unknown_names:
+                found = rows.get(name)
+                if found is None:
+                    # The derived slot takes the name only when no stored row holds it, and only for the
+                    # rows that get one, so the eligibility rule has a single definition.
+                    stored_name = stored_names.get(name)
+                    candidate = rows.get(stored_name) if stored_name else None
+                    if candidate is not None and models_namespace_chain(candidate[0]) == name.split("."):
+                        found = candidate
+                if found is not None:
+                    self.view_queries[name] = found[1]
             self.looked_up_names |= unknown_names
         return [(name, self.view_queries[name]) for name in sorted(names) if name in self.view_queries]
 

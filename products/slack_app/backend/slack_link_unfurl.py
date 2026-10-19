@@ -1,44 +1,139 @@
-"""Slack link unfurling for PostHog resource URLs (metadata only).
+"""Slack link unfurling for PostHog resource URLs.
 
 Ticket subjects and messages are customer-authored, so every one goes through `escape_slack_mrkdwn`.
 """
 
 from __future__ import annotations
 
-from typing import Literal
-from urllib.parse import parse_qs, urlparse
+import re
+import json
+import asyncio
+import dataclasses
+from collections.abc import Callable
+from datetime import datetime
+from typing import Literal, cast
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlparse, urlsplit, urlunsplit
 from uuid import UUID
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
+from django.db.models.functions import Substr
+from django.utils import timezone
 
 import structlog
+from slack_sdk.errors import SlackApiError
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.models import Team
+from posthog.dataclasses import frozen
+from posthog.models import Team, User
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.user_integration import UserIntegration
+from posthog.object_tags.kinds import OBJECT_URL_TEMPLATES, ObjectRef, object_ref_for_url
 from posthog.redis import get_client
 from posthog.slack.formatting import escape_slack_mrkdwn
+from posthog.temporal.common.client import sync_connect
 from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     access_level_satisfied_for_resource,
 )
+from products.canvas.backend.facade import access as canvas_access
+from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.error_tracking.backend.facade import api as error_tracking_facade
+from products.experiments.backend.models.experiment import Experiment
+from products.exports.backend.facade import api as exports_facade
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.filters import condition_rollout_percentage
+from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.models import SignalReport
+from products.signals.backend.report_access import may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.logic.link_unfurl_charts import (
+    UNFURL_IMAGE_ASSET_TTL,
+    UNFURL_IMAGE_URL_TTL,
+    chat_unfurl_kwargs,
+    has_project_access,
+    slack_fetchable_image_url,
+    with_chart_images,
+)
 from products.slack_app.backend.services.followup_invite import build_followup_invite
 from products.slack_app.backend.services.slack_messages import UNFURL_OPT_OUT_PARAM
+from products.slack_app.backend.temporal.slack_app_unfurl_charts import (
+    SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
+    SlackAppUnfurlChartsWorkflow,
+)
+from products.slack_app.backend.temporal.types import SlackAppUnfurlChartsWorkflowInputs, SlackUnfurlChartRequest
+from products.surveys.backend.models import Survey
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import TaskSlackUnfurlDTO
 
 logger = structlog.get_logger(__name__)
 
-_MAX_DESCRIPTION_CHARS = 2800
 # Keep title + status + message under Slack's 3000-char section limit; the client shows "Show more".
-_MAX_OPENING_MESSAGE_CHARS = 2000
+_MAX_BODY_CHARS = 200
+_MAX_TITLE_CHARS = 150
+_MAX_DETAIL_CHARS = 100
+_MAX_LINK_CHARS = 1000
+_MAX_CHART_LINES = 4
+_DATE_RANGE_UNITS = {"h": "hour", "d": "day", "w": "week", "m": "month", "y": "year"}
+_NAMED_DATE_RANGES = {"dStart": "Today", "mStart": "This month", "yStart": "This year", "all": "All time"}
+_MAX_GRID_TILES = 6
+_CHART_WIDTH = 20
+_CHART_LABEL_CHARS = 16
+
+ADHOC_INSIGHT_KIND = "adhoc_insight"
+TASK_ARTIFACT_KIND = "task_artifact"
+
+_SLACK_IMAGE_CONTENT_TYPES = frozenset({"image/png", "image/jpeg", "image/gif"})
+_MAX_ARTIFACT_IMAGE_BYTES = 5 * 1024 * 1024
+_TASK_ARTIFACT_PATH = re.compile(
+    r"/api/projects/(?P<project>[^/]+)/tasks/(?P<task>[^/]+)/runs/(?P<run>[^/]+)/artifacts/(?P<artifact>[^/]+)/"
+)
+
+_UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
+    "insight": (*OBJECT_URL_TEMPLATES["insight"], "/bi/{id}"),
+    "dashboard": OBJECT_URL_TEMPLATES["dashboard"],
+    "ticket": OBJECT_URL_TEMPLATES["ticket"],
+    "task": ("/tasks/{id}", "/code/task/{id}", "/code/channel/{channel}/tasks/{id}", "/ai?task={id}"),
+    "canvas": ("/canvases/{id}", "/code/canvas/{channel}/{id}"),
+    "notebook": ("/notebooks/{id}",),
+    "flag": OBJECT_URL_TEMPLATES["flag"],
+    "experiment": OBJECT_URL_TEMPLATES["experiment"],
+    "survey": OBJECT_URL_TEMPLATES["survey"],
+    "cohort": OBJECT_URL_TEMPLATES["cohort"],
+    "error": OBJECT_URL_TEMPLATES["error"],
+    "report": ("/inbox/{tab}/{id}", *OBJECT_URL_TEMPLATES["report"]),
+}
+
+_KIND_EMOJI: dict[str, str] = {
+    "insight": "📈",
+    "dashboard": "📊",
+    "ticket": "🎫",
+    "task": "🤖",
+    TASK_ARTIFACT_KIND: "📎",
+    "canvas": "🎨",
+    "notebook": "📓",
+    "flag": "🚩",
+    "experiment": "🧪",
+    "survey": "📝",
+    "cohort": "👥",
+    "error": "🐞",
+    "report": "📥",
+    ADHOC_INSIGHT_KIND: "📈",
+}
+
+_SkipReason = Literal["not_found", "no_access", "other_project", "not_found_or_no_access", "public_sharing_disabled"]
+
+_REJECTED_PAYLOAD_ERRORS = frozenset(
+    {"cannot_parse_attachment", "invalid_unfurls_format", "invalid_arguments", "invalid_array_arg", "invalid_blocks"}
+)
 
 _INVITE_UTM_TAGS = "utm_source=slack&utm_medium=unfurl&utm_campaign=link_unfurl_followup"
 # A channel that shares PostHog links all day would otherwise carry the invite on every unfurl,
@@ -82,7 +177,9 @@ _LEGACY_FILTER_INSIGHT_TO_SHORT_NAME: dict[str, str] = {
 def _truncate(text: str, max_len: int) -> str:
     if len(text) <= max_len:
         return text
-    return text[: max_len - 1] + "…"
+    cut = text[: max_len - 1]
+    word_end = cut.rfind(" ")
+    return (cut[:word_end] if word_end > max_len // 2 else cut).rstrip(" ,.;:") + "…"
 
 
 # App hosts that name a Cloud region. `app.posthog.com` is the legacy alias for US Cloud; a bare
@@ -99,68 +196,45 @@ def link_url_region(url: str) -> str | None:
     return _APP_HOST_REGIONS.get(urlparse(url).hostname or "")
 
 
-def parse_posthog_resource_link(
-    url: str,
-) -> tuple[Literal["insight", "dashboard", "ticket", "task"], str | int] | None:
-    """
-    Parse a PostHog app URL into (resource kind, reference id).
+def adhoc_insight_query(url: str) -> dict | None:
+    raw = parse_qs(urlparse(url).fragment).get("q")
+    if not raw:
+        return None
+    try:
+        query = json.loads(raw[0])
+    except ValueError:
+        return None
+    return query if isinstance(query, dict) else None
 
-    Reference is insight short_id (str), dashboard primary key (int), or ticket ref (str — ticket
-    number or UUID).
+
+def _is_adhoc_insight_url(url: str) -> bool:
+    segments = [segment for segment in urlparse(url).path.split("/") if segment]
+    if segments[:1] == ["project"]:
+        segments = segments[2:]
+    return segments[:2] == ["insights", "new"] and adhoc_insight_query(url) is not None
+
+
+def parse_posthog_resource_link(url: str) -> ObjectRef | None:
+    """
+    Parse a PostHog app URL into the object a card can unfurl.
+
+    An unsaved insight link (`/insights/new#q=<query>`) has the id "new", so logs never carry its
+    query. Read the query with `adhoc_insight_query`.
 
     A URL carrying `?unfurl=false` is not a resource here: links we post ourselves already
     sit beside the detail a card would add, so they opt out rather than repeat it.
 
     If the path includes `/project/:id`, that segment is ignored — lookup is always scoped to the
     Slack-connected project and the resolved PostHog user, not to any project id in the URL.
-
-    Related: `removeProjectIdIfPresent` + `urlToResource` (`router-utils.ts`, `urls.ts`); legacy paths in `get_target_queryset` (`middleware.py`).
     """
-    parsed = urlparse(url)
-    if "false" in parse_qs(parsed.query).get(UNFURL_OPT_OUT_PARAM, []):
+    if "false" in parse_qs(urlparse(url).query).get(UNFURL_OPT_OUT_PARAM, []):
         return None
-    parts = [p for p in parsed.path.split("/") if p]
-    if not parts:
-        return None
-
-    idx = 0
-    if len(parts) >= 2 and parts[0] == "project":
-        # Skip project/{anything} — do not use for authorization (see handle_posthog_link_unfurl).
-        idx = 2
-
-    if len(parts) > idx and parts[idx] == "i" and len(parts) > idx + 1:
-        short_id = parts[idx + 1]
-        if short_id == "new":
-            return None
-        return ("insight", short_id)
-
-    if len(parts) > idx and parts[idx] == "insights" and len(parts) > idx + 1:
-        short_id = parts[idx + 1]
-        if short_id in ("new", "options"):
-            return None
-        return ("insight", short_id)
-
-    if len(parts) > idx and parts[idx] == "dashboard" and len(parts) > idx + 1:
-        try:
-            dashboard_id = int(parts[idx + 1])
-        except ValueError:
-            return None
-        return ("dashboard", dashboard_id)
-
-    if len(parts) > idx + 2 and parts[idx] == "support" and parts[idx + 1] == "tickets":
-        ref = parts[idx + 2]
-        if ref == "new":
-            return None
-        return ("ticket", ref)
-
-    if len(parts) > idx and parts[idx] == "tasks" and len(parts) > idx + 1:
-        try:
-            task_id = UUID(parts[idx + 1])
-        except ValueError:
-            return None
-        return ("task", str(task_id))
-
-    return None
+    if _is_adhoc_insight_url(url):
+        return ObjectRef(kind=ADHOC_INSIGHT_KIND, id="new")
+    artifact_ref = _task_artifact_ref(url)
+    if artifact_ref is not None:
+        return ObjectRef(kind=TASK_ARTIFACT_KIND, id=artifact_ref.artifact_id or artifact_ref.name or "")
+    return object_ref_for_url(url, _UNFURL_TEMPLATES)
 
 
 def _extract_query_source_kind(query: dict) -> str | None:
@@ -197,18 +271,25 @@ def _extract_query_source_kind(query: dict) -> str | None:
     return None
 
 
+def _query_resource_label(query: dict) -> str | None:
+    inner = _extract_query_source_kind(query)
+    if not inner:
+        return None
+    short = _QUERY_KIND_TO_SHORT_NAME.get(inner)
+    if short:
+        return f"{short} insight"
+    if inner.endswith("Query"):
+        return f"{inner[: -len('Query')]} insight"
+    return f"{inner} insight"
+
+
 def _insight_resource_label(insight: Insight) -> str:
     """e.g. 'Trends insight', 'SQL insight' — from query JSON or legacy filters only (no execution)."""
     q = insight.query
     if isinstance(q, dict) and q:
-        inner = _extract_query_source_kind(q)
-        if inner:
-            short = _QUERY_KIND_TO_SHORT_NAME.get(inner)
-            if short:
-                return f"{short} insight"
-            if inner.endswith("Query"):
-                return f"{inner[: -len('Query')]} insight"
-            return f"{inner} insight"
+        label = _query_resource_label(q)
+        if label:
+            return label
 
     filters = insight.filters if isinstance(insight.filters, dict) else {}
     legacy = filters.get("insight")
@@ -268,31 +349,117 @@ def _ticket_opening_message(team_id: int, ticket_id: UUID) -> str | None:
         .values_list("content", flat=True)
         .first()
     )
-    return _truncate(escape_slack_mrkdwn((content or "").strip()), _MAX_OPENING_MESSAGE_CHARS) or None
+    return content
 
 
-def _unfurl_payload(*, resource_label: str, title: str, description: str | None) -> dict:
-    title = title or "Untitled"
-    body = f"*{title} • {resource_label}*"
-    if description:
-        body += "\n\n" + _truncate(description.strip(), _MAX_DESCRIPTION_CHARS)
-    return {"blocks": [{"type": "section", "text": {"type": "mrkdwn", "text": body}}]}
+@frozen
+class _CardButton:
+    label: str
+    url: str
 
 
-def _ticket_unfurl_payload(*, url: str, ticket: Ticket, requester: str, opening_message: str | None) -> dict:
-    """A linked title, a requester/status context line, and (optionally) the quoted opening message."""
+@frozen
+class _TaskArtifactRef:
+    project_id: int | None
+    task_id: UUID
+    run_id: UUID | None = None
+    artifact_id: str | None = None
+    name: str | None = None
+
+
+def _task_artifact_ref(url: str) -> _TaskArtifactRef | None:
+    """A task artifact named by its download link, or by its place in the task's Artifacts tab."""
+    parsed = urlparse(url)
+    match = _TASK_ARTIFACT_PATH.search(parsed.path)
+    if match:
+        task_id, run_id = _uuid(match["task"]), _uuid(match["run"])
+        if task_id is None or run_id is None:
+            return None
+        project = match["project"]
+        return _TaskArtifactRef(
+            project_id=int(project) if project.isdigit() else None,
+            task_id=task_id,
+            run_id=run_id,
+            artifact_id=match["artifact"],
+        )
+    segments = [segment for segment in parsed.path.split("/") if segment]
+    params = parse_qs(parsed.query)
+    if (segments[2:] if segments[:1] == ["project"] else segments) != ["ai"] or "artifact" not in params:
+        return None
+    task_id = _uuid(params.get("task", [""])[0])
+    if task_id is None:
+        return None
+    return _TaskArtifactRef(
+        project_id=_url_team_id(url),
+        task_id=task_id,
+        artifact_id=params.get("artifact_version", [None])[0],
+        name=params["artifact"][0],
+    )
+
+
+@frozen
+class _UnfurlCard:
+    label: str
+    title: str
+    status: str | None = None
+    details: tuple[str, ...] = ()
+    body: str | None = None
+    chart: str | None = None
+    timestamp: datetime | None = None
+    timestamp_label: str = "Updated"
+    button: _CardButton | None = None
+    chart_insight_id: int | None = None
+    # Set for an ad hoc insight. Its card goes out only together with its chart.
+    chart_query: dict | None = None
+    artifact_image: bool = False
+    # Set when the shared link is not the page that shows the resource, such as a file download.
+    open_url: str | None = None
+
+
+def _tracked_url(url: str, kind: str) -> str:
+    parts = urlsplit(url)
+    for trimmed in ("fragment", "query"):
+        if len(urlunsplit(parts)) > _MAX_LINK_CHARS:
+            parts = parts._replace(**{trimmed: ""})
+    params = [*parse_qsl(parts.query), ("utm_source", "slack"), ("utm_medium", "unfurl"), ("utm_content", kind)]
+    return urlunsplit(parts._replace(query=urlencode(params)))
+
+
+def _card_summary(card: _UnfurlCard, *, compact: bool) -> str:
+    parts = [escape_slack_mrkdwn(card.label)]
+    if card.status:
+        parts.append(f"*{escape_slack_mrkdwn(card.status)}*")
+    if not compact:
+        parts.extend(escape_slack_mrkdwn(_truncate(detail, _MAX_DETAIL_CHARS)) for detail in card.details)
+    if card.timestamp:
+        label = card.timestamp_label
+        parts.append(f"<!date^{int(card.timestamp.timestamp())}^{label} {{ago}}|{label} {card.timestamp:%Y-%m-%d}>")
+    return "  ·  ".join(parts)
+
+
+def _card_blocks(card: _UnfurlCard, *, kind: str, url: str, compact: bool) -> list[dict]:
+    link = _tracked_url(card.open_url or url, kind)
+    title = f"{_KIND_EMOJI[kind]}  *<{link}|{escape_slack_mrkdwn(_truncate(card.title, _MAX_TITLE_CHARS))}>*"
     blocks: list[dict] = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": f"<{url}|*Support Ticket #{ticket.ticket_number}*>"}},
-        {
-            "type": "context",
-            "elements": [
-                {"type": "mrkdwn", "text": f"*Requested by:* {requester}  •  *Status:* {ticket.get_status_display()}"}
-            ],
-        },
+        {"type": "section", "text": {"type": "mrkdwn", "text": title}},
+        {"type": "context", "elements": [{"type": "mrkdwn", "text": _card_summary(card, compact=compact)}]},
     ]
-    if opening_message:
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": f">>> {opening_message}"}})
-    return {"blocks": blocks}
+    if compact:
+        return blocks
+    if card.chart:
+        chart = f"```{escape_slack_mrkdwn(card.chart)}```"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": chart}})
+    body = (card.body or "").strip()
+    if body:
+        text = _truncate(escape_slack_mrkdwn(body), _MAX_BODY_CHARS)
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": text}})
+    buttons = [{"type": "button", "text": {"type": "plain_text", "text": "Open in PostHog"}, "url": link}]
+    if card.button:
+        buttons.append(
+            {"type": "button", "text": {"type": "plain_text", "text": card.button.label}, "url": card.button.url}
+        )
+    blocks.append({"type": "actions", "elements": buttons})
+    return blocks
 
 
 def _claim_invite_slot(slack_team_id: str, channel: str) -> bool:
@@ -342,7 +509,7 @@ def _build_unfurl_invite(integration: Integration, kind: str, channel: str) -> d
         integration,
         utm_tags=_INVITE_UTM_TAGS,
         ai_enabled=ai_enabled,
-        subject=f"this {kind}",
+        subject=f"this {kind.replace('_', ' ')}",
     )
 
 
@@ -439,24 +606,720 @@ def _attach_public_slack_thread_reference(
     )
 
 
+@frozen
+class _UnfurlContext:
+    slack: SlackIntegration
+    integration: Integration
+    team: Team
+    user: User
+    uac: UserAccessControl
+    event: dict
+    public_channel_cache: dict[str, bool] = dataclasses.field(default_factory=dict)
+    owner_access_cache: dict[str, bool] = dataclasses.field(default_factory=dict)
+
+
+def _count(value: int, noun: str) -> str:
+    return f"{value:,} {noun}{'' if value == 1 else 's'}"
+
+
+def _humanize(value: str) -> str:
+    return value.replace("_", " ").capitalize()
+
+
+def _uuid(value: str) -> UUID | None:
+    try:
+        return UUID(value)
+    except ValueError:
+        return None
+
+
+def _bar(fraction: float) -> str:
+    filled = round(min(max(fraction, 0.0), 1.0) * _CHART_WIDTH)
+    return "█" * filled + "░" * (_CHART_WIDTH - filled)
+
+
+def _chart_label(value: object, max_len: int = _CHART_LABEL_CHARS) -> str:
+    return _truncate(str(value or "").replace("`", "'"), max_len)
+
+
+def _capped_lines(lines: list[str]) -> list[str]:
+    if len(lines) <= _MAX_CHART_LINES:
+        return lines
+    kept = _MAX_CHART_LINES - 1
+    return [*lines[:kept], f"+ {len(lines) - kept} more"]
+
+
+@frozen
+class _ChartRow:
+    label: str
+    bar: str
+    value: str
+
+
+def _chart_rows(rows: list[_ChartRow]) -> str | None:
+    if not rows:
+        return None
+    width = max(len(row.label) for row in rows)
+    lines = [f"{row.label.ljust(width)}  {row.bar}  {row.value}".rstrip() for row in rows]
+    return "\n".join(_capped_lines(lines))
+
+
+def _tile_grid(names: list[str]) -> str | None:
+    if not names:
+        return None
+    width = _CHART_WIDTH + 2
+    cells = [f"▪ {_chart_label(name, width)}" for name in names[:_MAX_GRID_TILES]]
+    rows = [cells[index : index + 2] for index in range(0, len(cells), 2)]
+    lines = ["   ".join(cell.ljust(width + 2) for cell in row).rstrip() for row in rows]
+    if len(names) > _MAX_GRID_TILES:
+        lines.append(f"+ {len(names) - _MAX_GRID_TILES} more")
+    return "\n".join(lines)
+
+
+def _question_list(questions: object) -> str | None:
+    if not isinstance(questions, list):
+        return None
+    texts = [str(question.get("question") or "").strip() for question in questions if isinstance(question, dict)]
+    lines = [f"{index}. {_truncate(text, 60)}" for index, text in enumerate(texts, 1)]
+    return "\n".join(_capped_lines(lines)) or None
+
+
+def _by(user: User | None) -> tuple[str, ...]:
+    return (f"By {user.first_name}",) if user and user.first_name else ()
+
+
+def _user(user_id: int | None) -> User | None:
+    return User.objects.filter(id=user_id).only("first_name").first() if user_id else None
+
+
+def _date_range(query: object) -> str | None:
+    source = query.get("source") if isinstance(query, dict) else None
+    date_range = source.get("dateRange") if isinstance(source, dict) else None
+    date_from = date_range.get("date_from") if isinstance(date_range, dict) else None
+    if not isinstance(date_from, str):
+        return None
+    if date_from in _NAMED_DATE_RANGES:
+        return _NAMED_DATE_RANGES[date_from]
+    match = re.fullmatch(r"-(\d+)([hdwmy])", date_from)
+    if not match:
+        return None
+    amount, unit = int(match[1]), _DATE_RANGE_UNITS[match[2]]
+    return f"Last {unit}" if amount == 1 else f"Last {_count(amount, unit)}"
+
+
+def _primary_metric(metrics: object) -> str | None:
+    first = metrics[0] if isinstance(metrics, list) and metrics else None
+    name = first.get("name") if isinstance(first, dict) else None
+    return name if isinstance(name, str) and name else None
+
+
+def _variant_rows(variants: list[dict]) -> list[_ChartRow]:
+    return [
+        _ChartRow(
+            label=_chart_label(variant["key"]),
+            bar=_bar(variant["rollout_percentage"] / 100),
+            value=f"{variant['rollout_percentage']}%",
+        )
+        for variant in variants
+    ]
+
+
+def _flag_variants(flag: FeatureFlag) -> list[dict]:
+    try:
+        return flag.variants
+    except ConfigFormatError:
+        return []
+
+
+def _insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    insight = Insight.objects.filter(team_id=ctx.team.pk, short_id=ref).first()
+    if not insight:
+        return "not_found"
+    level = ctx.uac.get_user_access_level(insight)
+    if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label=_insight_resource_label(insight),
+        title=insight.name or insight.derived_name or "Untitled",
+        details=(*filter(None, [_date_range(insight.query)]), *_by(insight.created_by)),
+        body=insight.description,
+        timestamp=insight.last_modified_at,
+        chart_insight_id=insight.id,
+    )
+
+
+def _adhoc_insight_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    query = adhoc_insight_query(url)
+    if query is None:
+        return "not_found"
+    # The card shows only with its chart, and the chart image opens without a PostHog login.
+    if not ctx.team.organization.allow_publicly_shared_resources:
+        return "public_sharing_disabled"
+    # Rendering an ad hoc query runs it, so it needs the same access as running it directly.
+    if not ctx.uac.check_access_level_for_resource("query", "viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label=_query_resource_label(query) or "Insight",
+        title="Unsaved insight",
+        details=tuple(filter(None, [_date_range(query)])),
+        chart_query=query,
+    )
+
+
+def _dashboard_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    dashboard = Dashboard.objects.filter(pk=ref, team_id=ctx.team.pk).first() if ref.isdigit() else None
+    if not dashboard:
+        return "not_found"
+    level = ctx.uac.get_user_access_level(dashboard)
+    if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
+        return "no_access"
+    tiles = (
+        DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
+        .exclude(deleted=True)
+        .select_related("insight")
+        .order_by("id")
+    )
+    insights = [tile.insight for tile in tiles if tile.insight]
+    ctx.uac.preload_object_access_controls(cast(list, insights))
+    names = [
+        insight.name or insight.derived_name or "Untitled"
+        for insight in insights
+        if ctx.uac.check_access_level_for_object(insight, required_level="viewer")
+    ]
+    return _UnfurlCard(
+        label="Dashboard",
+        title=dashboard.name or "Untitled",
+        details=(_count(len(names), "insight"), *_by(dashboard.created_by)),
+        chart=_tile_grid(names),
+        body=dashboard.description,
+    )
+
+
+def _ticket_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    # Ticket numbers are per-project sequential, so the same number exists in every project.
+    # Unlike insights/dashboards (globally-unique ids, safe to resolve within the connected
+    # project), a link that names a different project must not resolve to our project's ticket
+    # of the same number — refuse rather than show the wrong ticket.
+    url_team_id = _url_team_id(url)
+    if url_team_id is not None and url_team_id != ctx.team.pk:
+        return "other_project"
+    ticket = _find_ticket(ctx.team.pk, ref)
+    if not ticket:
+        return "not_found"
+    if not ctx.uac.check_access_level_for_object(ticket, required_level="viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label="Support ticket",
+        title=f"Ticket #{ticket.ticket_number}",
+        status=ticket.get_status_display(),
+        details=(
+            f"Requested by {_ticket_requester(ctx.team, ticket)}",
+            *((f"{ticket.get_priority_display()} priority",) if ticket.priority else ()),
+        ),
+        body=_ticket_opening_message(ctx.team.pk, ticket.id),
+        timestamp=ticket.created_at,
+        timestamp_label="Opened",
+    )
+
+
+def _may_read_tasks(uac: UserAccessControl) -> bool:
+    return uac.check_access_level_for_resource("task", "viewer")
+
+
+def _task_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    url_team_id = _url_team_id(url)
+    if url_team_id is not None and url_team_id != ctx.team.pk:
+        return "other_project"
+    if not _may_read_tasks(ctx.uac):
+        return "no_access"
+    task = tasks_facade.get_task_for_slack_unfurl(ref, ctx.team.pk, ctx.user.id) if _uuid(ref) else None
+    if task is None:
+        return "not_found_or_no_access"
+    try:
+        _attach_public_slack_thread_reference(
+            slack=ctx.slack,
+            integration=ctx.integration,
+            task=task,
+            event=ctx.event,
+            shared_by_slack_user_id=ctx.event["user"],
+            public_channel_cache=ctx.public_channel_cache,
+            owner_access_cache=ctx.owner_access_cache,
+        )
+    except Exception:
+        logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=ctx.team.pk)
+    pr_url = tasks_facade.get_latest_pr_url_by_task([task.id]).get(str(task.id))
+    dto = next(iter(tasks_facade.get_tasks_by_ids([task.id], [ctx.team.pk])), None)
+    return _UnfurlCard(
+        label="Task",
+        title=task.title,
+        status=task.latest_run_status,
+        details=(*((dto.repository,) if dto and dto.repository else ()), *_by(_user(task.created_by_id))),
+        button=_CardButton(label="View pull request", url=pr_url) if pr_url else None,
+        timestamp=dto.updated_at if dto else None,
+    )
+
+
+def _file_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    value = size / 1024
+    for unit in ("KB", "MB"):
+        if value < 1024:
+            return f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{value:.1f} GB"
+
+
+def _task_artifact_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    artifact_ref = _task_artifact_ref(url)
+    if artifact_ref is None:
+        return "not_found"
+    if artifact_ref.project_id is not None and artifact_ref.project_id != ctx.team.pk:
+        return "other_project"
+    if not _may_read_tasks(ctx.uac):
+        return "no_access"
+    artifact = tasks_facade.get_task_artifact_for_slack_unfurl(
+        task_id=artifact_ref.task_id,
+        team_id=ctx.team.pk,
+        user_id=ctx.user.id,
+        run_id=artifact_ref.run_id,
+        artifact_id=artifact_ref.artifact_id,
+        name=artifact_ref.name,
+    )
+    if artifact is None:
+        return "not_found_or_no_access"
+    origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
+    artifacts_tab = urlencode(
+        {"task": artifact.task_id, "artifact": artifact.name, "artifact_version": artifact.artifact_id}
+    )
+    size = _file_size(artifact.size) if artifact.size is not None else None
+    return _UnfurlCard(
+        label="Task artifact",
+        title=artifact.name,
+        details=(*filter(None, [size]), f"Task: {artifact.task_title}"),
+        timestamp=artifact.uploaded_at,
+        timestamp_label="Uploaded",
+        button=_CardButton(label="Download", url=f"{origin}{artifact.download_path}"),
+        open_url=f"{origin}/project/{ctx.team.pk}/ai?{artifacts_tab}",
+        artifact_image=(
+            artifact.content_type in _SLACK_IMAGE_CONTENT_TYPES
+            and artifact.size is not None
+            and artifact.size <= _MAX_ARTIFACT_IMAGE_BYTES
+        ),
+    )
+
+
+def _canvas_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    summary = canvas_access.live_canvas_summary(team_id=ctx.team.pk, canvas_id=ref) if _uuid(ref) else None
+    if summary is None:
+        return "not_found"
+    if not canvas_access.canvas_is_visible(team_id=ctx.team.pk, canvas_id=ref, user_id=ctx.user.id):
+        return "no_access"
+    owner = _user(canvas_access.canvas_owner_id(team_id=ctx.team.pk, canvas_id=ref))
+    return _UnfurlCard(label="Canvas", title=summary.name, details=(f"Space: {summary.channel_name}", *_by(owner)))
+
+
+def _notebook_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    notebook = (
+        Notebook.objects.filter(team_id=ctx.team.pk, short_id=ref, deleted=False)
+        .exclude(visibility=Notebook.Visibility.INTERNAL)
+        .defer("content", "text_content")
+        .annotate(excerpt=Substr("text_content", 1, _MAX_BODY_CHARS + 1))
+        .first()
+    )
+    if not notebook:
+        return "not_found"
+    if not ctx.uac.check_access_level_for_object(notebook, required_level="viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label="Notebook",
+        title=notebook.title or "Untitled",
+        details=_by(notebook.created_by),
+        body=notebook.excerpt,
+        timestamp=notebook.last_modified_at,
+    )
+
+
+def _flag_chart(conditions: list[dict], variants: list[dict]) -> str | None:
+    rows = _variant_rows(variants)
+    if len(conditions) == 1 and not conditions[0].get("properties"):
+        rollout = condition_rollout_percentage(conditions[0])
+        rows.insert(0, _ChartRow(label="Rollout", bar=_bar(rollout / 100), value=f"{rollout}% of users"))
+    return _chart_rows(rows)
+
+
+def _flag_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    flag = FeatureFlag.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).first()
+    if not flag:
+        return "not_found"
+    if not ctx.uac.check_access_level_for_object(flag, required_level="viewer"):
+        return "no_access"
+    try:
+        conditions: list[dict] | None = flag.conditions
+    except ConfigFormatError:
+        conditions = None
+    condition_count = _count(len(conditions), "release condition") if conditions is not None else None
+    return _UnfurlCard(
+        label="Feature flag",
+        title=flag.key,
+        status="Active" if flag.active else "Disabled",
+        details=(*filter(None, [condition_count]), *_by(flag.created_by)),
+        chart=_flag_chart(conditions or [], _flag_variants(flag)),
+        body=flag.name,
+        timestamp=flag.updated_at,
+    )
+
+
+def _experiment_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    experiment = (
+        Experiment.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).select_related("feature_flag").first()
+        if ref.isdigit()
+        else None
+    )
+    if not experiment:
+        return "not_found"
+    if not ctx.uac.check_access_level_for_object(experiment, required_level="viewer"):
+        return "no_access"
+    details: list[str] = []
+    if experiment.start_date:
+        days = ((experiment.end_date or timezone.now()) - experiment.start_date).days + 1
+        details.append(f"Ran {_count(days, 'day')}" if experiment.end_date else f"Day {days}")
+    metric = _primary_metric(experiment.metrics)
+    if metric:
+        details.append(f"Metric: {metric}")
+    return _UnfurlCard(
+        label="Experiment",
+        title=experiment.name,
+        status=_humanize(experiment.status_label),
+        details=tuple(details),
+        chart=_chart_rows(_variant_rows(_flag_variants(experiment.feature_flag))),
+        body=experiment.description,
+        timestamp=experiment.updated_at,
+    )
+
+
+def _survey_status(survey: Survey) -> str:
+    if survey.archived:
+        return "Archived"
+    if survey.end_date:
+        return "Completed"
+    if survey.start_date and survey.start_date > timezone.now():
+        return "Scheduled"
+    return "Running" if survey.start_date else "Draft"
+
+
+def _survey_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    survey = Survey.objects.filter(team_id=ctx.team.pk, pk=ref).first() if _uuid(ref) else None
+    if not survey:
+        return "not_found"
+    if not ctx.uac.check_access_level_for_object(survey, required_level="viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label="Survey",
+        title=survey.name,
+        status=_survey_status(survey),
+        details=(_count(len(survey.questions or []), "question"), *_by(survey.created_by)),
+        chart=_question_list(survey.questions),
+        body=survey.description,
+        timestamp=survey.updated_at,
+    )
+
+
+def _cohort_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    cohort = Cohort.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).first() if ref.isdigit() else None
+    if not cohort:
+        return "not_found"
+    if not ctx.uac.check_access_level_for_object(cohort, required_level="viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label="Static cohort" if cohort.is_static else "Cohort",
+        title=cohort.name or "Untitled",
+        details=(*((_count(cohort.count, "person"),) if cohort.count is not None else ()), *_by(cohort.created_by)),
+        body=cohort.description,
+        timestamp=cohort.last_calculation,
+        timestamp_label="Calculated",
+    )
+
+
+def _error_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    issue_id = _uuid(ref)
+    if issue_id is None:
+        return "not_found"
+    try:
+        issue = error_tracking_facade.get_issue(issue_id, ctx.team.pk)
+    except error_tracking_facade.IssueNotFoundError:
+        return "not_found"
+    access = ctx.uac.access_level_for_resource("error_tracking")
+    if not access or not access_level_satisfied_for_resource("error_tracking", access.access_level, "viewer"):
+        return "no_access"
+    return _UnfurlCard(
+        label="Error issue",
+        title=issue.name or "Untitled issue",
+        status=_humanize(issue.status),
+        details=(f"{issue.severity.capitalize()} severity",) if issue.severity else (),
+        body=issue.description,
+        timestamp=issue.first_seen,
+        timestamp_label="First seen",
+    )
+
+
+def _report_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    report = (
+        SignalReport.objects.filter(team_id=ctx.team.pk, pk=ref).exclude(status=SignalReport.Status.DELETED).first()
+        if _uuid(ref)
+        else None
+    )
+    if not report:
+        return "not_found"
+    if not may_read_reports(user=ctx.user, team=ctx.team):
+        return "no_access"
+    return _UnfurlCard(
+        label="Inbox report",
+        title=report.title or "Untitled report",
+        status=_humanize(report.status),
+        details=(_count(report.signal_count, "signal"),),
+        body=report.summary,
+        timestamp=report.updated_at,
+    )
+
+
+_CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _SkipReason]] = {
+    "insight": _insight_card,
+    ADHOC_INSIGHT_KIND: _adhoc_insight_card,
+    "dashboard": _dashboard_card,
+    "ticket": _ticket_card,
+    "task": _task_card,
+    TASK_ARTIFACT_KIND: _task_artifact_card,
+    "canvas": _canvas_card,
+    "notebook": _notebook_card,
+    "flag": _flag_card,
+    "experiment": _experiment_card,
+    "survey": _survey_card,
+    "cohort": _cohort_card,
+    "error": _error_card,
+    "report": _report_card,
+}
+
+
+def _unfurls(cards: dict[str, tuple[str, _UnfurlCard]], *, compact: bool, invite: dict | None) -> dict[str, dict]:
+    unfurls = {
+        url: {"blocks": _card_blocks(card, kind=kind, url=url, compact=compact)} for url, (kind, card) in cards.items()
+    }
+    if invite:
+        next(iter(unfurls.values()))["blocks"].append(invite)
+    return unfurls
+
+
+def _post_unfurls(slack: SlackIntegration, event: dict, unfurls: dict[str, dict]) -> str | None:
+    try:
+        slack.client.chat_unfurl(
+            **chat_unfurl_kwargs(
+                channel=event["channel"],
+                ts=event["message_ts"],
+                unfurls=unfurls,
+                unfurl_id=event.get("unfurl_id"),
+                source=event.get("source"),
+            )
+        )
+    except SlackApiError as e:
+        error = (e.response.get("error") if e.response is not None else None) or "slack_api_error"
+        logger.warning("slack_link_unfurl_chat_unfurl_failed", channel=event["channel"], error=error)
+        return error
+    except Exception:
+        logger.exception("slack_link_unfurl_chat_unfurl_failed", channel=event["channel"])
+        return "unknown"
+    return None
+
+
+def start_unfurl_charts(
+    *,
+    integration: Integration,
+    user: User,
+    event: dict,
+    unfurls: dict[str, dict],
+    charts: list[SlackUnfurlChartRequest],
+) -> None:
+    """Start the workflow that adds chart images to the posted cards. Best effort: a failure keeps the text cards.
+
+    The image url opens without a PostHog login, so an organization that turns off public
+    sharing gets no charts.
+    """
+    if not integration.team.organization.allow_publicly_shared_resources:
+        return
+    channel = event["channel"]
+    message_ts = event["message_ts"]
+    inputs = SlackAppUnfurlChartsWorkflowInputs(
+        team_id=integration.team_id,
+        integration_id=integration.id,
+        user_id=user.pk,
+        slack_user_id=event["user"],
+        channel=channel,
+        message_ts=message_ts,
+        unfurl_id=event.get("unfurl_id"),
+        source=event.get("source"),
+        unfurls=unfurls,
+        charts=charts,
+        export_task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+    )
+    try:
+        client = sync_connect()
+        asyncio.run(
+            client.start_workflow(
+                SlackAppUnfurlChartsWorkflow.run,
+                inputs,
+                id=f"slack-app-unfurl-charts-{integration.integration_id}:{channel}:{message_ts}",
+                task_queue=settings.TASKS_TASK_QUEUE,
+                execution_timeout=SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT,
+            )
+        )
+    except WorkflowAlreadyStartedError:
+        # Slack sent the event again while the first run is still rendering.
+        pass
+    except Exception:
+        logger.warning("slack_app_unfurl_charts_dispatch_failed", team_id=integration.team_id, exc_info=True)
+
+
+def _queue_unfurl_charts(
+    *,
+    integration: Integration,
+    user: User,
+    event: dict,
+    unfurls: dict[str, dict],
+    charts: list[SlackUnfurlChartRequest],
+) -> bool:
+    """Queue ``start_unfurl_charts`` on Celery. The flag check and the Temporal start make network
+    calls, and the webhook must ack within Slack's three-second budget."""
+    # noqa reason: the task module imports api, which imports this module at load time.
+    from products.slack_app.backend.tasks import start_slack_unfurl_charts  # noqa: PLC0415
+
+    try:
+        start_slack_unfurl_charts.delay(
+            team_id=integration.team_id,
+            integration_id=integration.id,
+            user_id=user.pk,
+            event=event,
+            unfurls=unfurls,
+            charts=[dataclasses.asdict(chart) for chart in charts],
+        )
+    except Exception:
+        logger.warning("slack_app_unfurl_charts_queue_failed", team_id=integration.team_id, exc_info=True)
+        return False
+    return True
+
+
+def _queue_unfurl_artifact_image(
+    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+) -> bool:
+    """Reading and storing the file is too slow for the webhook's ack budget, so it runs on Celery."""
+    # noqa reason: the task module imports api, which imports this module at load time.
+    from products.slack_app.backend.tasks import add_slack_unfurl_artifact_image  # noqa: PLC0415
+
+    try:
+        add_slack_unfurl_artifact_image.delay(
+            team_id=integration.team_id,
+            integration_id=integration.id,
+            user_id=user.pk,
+            event=event,
+            unfurls=unfurls,
+            url=url,
+            title=title,
+        )
+    except Exception:
+        logger.warning("slack_app_unfurl_artifact_image_queue_failed", team_id=integration.team_id, exc_info=True)
+        return False
+    return True
+
+
+_ImageFailure = Literal["public_sharing_disabled", "no_access", "unavailable", "not_an_image", "unfurl_failed"]
+
+
+@frozen
+class _ImageLink:
+    url: str | None = None
+    failure: _ImageFailure | None = None
+
+
+def _artifact_image_link(*, integration: Integration, user: User, url: str, title: str) -> _ImageLink:
+    # The link opens without a PostHog login, so it follows the public sharing setting like chart images do.
+    team = integration.team
+    if not team.organization.allow_publicly_shared_resources:
+        return _ImageLink(failure="public_sharing_disabled")
+    # Access can change while the job waits in the queue, and the link it publishes needs no login.
+    if not has_project_access(user, team) or not _may_read_tasks(UserAccessControl(user, team=team)):
+        return _ImageLink(failure="no_access")
+    artifact_ref = _task_artifact_ref(url)
+    content = (
+        tasks_facade.read_task_artifact_for_slack_unfurl(
+            task_id=artifact_ref.task_id,
+            team_id=integration.team_id,
+            user_id=user.pk,
+            max_bytes=_MAX_ARTIFACT_IMAGE_BYTES,
+            run_id=artifact_ref.run_id,
+            artifact_id=artifact_ref.artifact_id,
+            name=artifact_ref.name,
+        )
+        if artifact_ref
+        else None
+    )
+    if content is None:
+        return _ImageLink(failure="unavailable")
+    image_url = exports_facade.create_png_delivery_url(
+        team_id=integration.team_id,
+        created_by_id=user.pk,
+        content=content,
+        filename=title,
+        url_ttl=UNFURL_IMAGE_URL_TTL,
+        asset_ttl=UNFURL_IMAGE_ASSET_TTL,
+    )
+    if image_url is None:
+        return _ImageLink(failure="not_an_image")
+    return _ImageLink(url=slack_fetchable_image_url(image_url))
+
+
+def add_artifact_image_to_unfurl(
+    *, integration: Integration, user: User, event: dict, unfurls: dict[str, dict], url: str, title: str
+) -> None:
+    """Post a task artifact card again with its image. Best effort: a failure keeps the text card."""
+    link = _artifact_image_link(integration=integration, user=user, url=url, title=title)
+    failure = link.failure
+    error: str | None = None
+    if link.url is not None:
+        error = _post_unfurls(
+            SlackIntegration(integration), event, with_chart_images(unfurls, {url: link.url}, {url: title})
+        )
+        failure = "unfurl_failed" if error else None
+    logger.info(
+        "slack_app_unfurl_artifact_image_result",
+        team_id=integration.team_id,
+        channel=event.get("channel"),
+        failure=failure,
+        error=error,
+    )
+    capture_slack_event(
+        integration,
+        "slack app link unfurl artifact image",
+        slack_user_id=event["user"],
+        posthog_user=user,
+        shown=failure is None,
+        failure=failure,
+        error=error,
+    )
+
+
 def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
     """
     Unfurl supported PostHog resource links with metadata.
 
     Scope is always the Slack-connected project (`integration.team`); `resolve_slack_user` enforces
-    that the sharer can access it. Insights, dashboards, and tickets add a per-resource
-    access-control check. Ticket links naming a different project are also refused because ticket
-    numbers are per-project and could otherwise resolve to the wrong ticket.
+    that the sharer can access it. Each resource adds its own access check. Ticket and task links
+    naming a different project are also refused because ticket numbers are per-project and could
+    otherwise resolve to the wrong ticket.
     """
     slack = SlackIntegration(integration)
     channel = event.get("channel")
     message_ts = event.get("message_ts")
     slack_user_id = event.get("user")
-    unfurl_id = event.get("unfurl_id")
-    source = event.get("source")
     links = event.get("links") or []
-    public_channel_cache: dict[str, bool] = {}
-    owner_access_cache: dict[str, bool] = {}
 
     if not channel or not message_ts or not slack_user_id or not links:
         logger.info("slack_link_unfurl_skip_missing_fields", has_channel=bool(channel), has_ts=bool(message_ts))
@@ -484,12 +1347,16 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
 
     user = user_context.user
     team = integration.team
-    uac = UserAccessControl(user, team=team)
+    ctx = _UnfurlContext(
+        slack=slack,
+        integration=integration,
+        team=team,
+        user=user,
+        uac=UserAccessControl(user, team=team),
+        event=event,
+    )
 
-    unfurls: dict[str, dict] = {}
-    unfurled_kinds: list[str] = []
-    # Carries the kind alongside the url so the invite never has to guess which payload is first.
-    first_unfurled: tuple[str, str] | None = None
+    cards: dict[str, tuple[str, _UnfurlCard]] = {}
     # Every resource we recognized but chose not to unfurl, so a report of "no unfurl appeared"
     # can be answered from logs instead of by re-deriving the path by hand.
     skipped: list[dict[str, str]] = []
@@ -499,11 +1366,12 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         if not raw_url:
             continue
 
-        parsed = parse_posthog_resource_link(raw_url)
-        if not parsed:
+        ref = parse_posthog_resource_link(raw_url)
+        if not ref:
+            known = object_ref_for_url(raw_url)
+            if known and known.kind not in _CARD_BUILDERS:
+                skipped.append({"kind": known.kind, "reason": "unsupported"})
             continue
-
-        kind, ref = parsed
 
         # Resource ids repeat across regions, so a link for the other region would otherwise resolve
         # to whatever local resource carries the same id and unfurl the wrong thing. Routing sends
@@ -511,133 +1379,100 @@ def handle_posthog_link_unfurl(event: dict, integration: Integration) -> None:
         # message carrying links for both.
         url_region = link_url_region(raw_url)
         if url_region is not None and url_region != get_instance_region():
-            skipped.append({"kind": kind, "ref": str(ref), "reason": "other_region"})
+            skipped.append({"kind": ref.kind, "ref": ref.id, "reason": "other_region"})
             continue
 
-        if kind == "insight":
-            if not isinstance(ref, str):
-                continue
-            insight = Insight.objects.filter(team_id=team.pk, short_id=ref).first()
-            if not insight:
-                skipped.append({"kind": kind, "ref": ref, "reason": "not_found"})
-                continue
-            level = uac.get_user_access_level(insight)
-            if not level or not access_level_satisfied_for_resource("insight", level, "viewer"):
-                skipped.append({"kind": kind, "ref": ref, "reason": "no_access"})
-                continue
-            title = insight.name or insight.derived_name or "Untitled"
-            desc = (insight.description or "").strip() or None
-            unfurls[raw_url] = _unfurl_payload(
-                resource_label=_insight_resource_label(insight), title=title, description=desc
-            )
-        elif kind == "dashboard":
-            if not isinstance(ref, int):
-                continue
-            dashboard = Dashboard.objects.filter(pk=ref, team_id=team.pk).first()
-            if not dashboard:
-                skipped.append({"kind": kind, "ref": str(ref), "reason": "not_found"})
-                continue
-            level = uac.get_user_access_level(dashboard)
-            if not level or not access_level_satisfied_for_resource("dashboard", level, "viewer"):
-                skipped.append({"kind": kind, "ref": str(ref), "reason": "no_access"})
-                continue
-            title = dashboard.name or "Untitled"
-            desc = (dashboard.description or "").strip() or None
-            unfurls[raw_url] = _unfurl_payload(resource_label="Dashboard", title=title, description=desc)
-        elif kind == "ticket":
-            if not isinstance(ref, str):
-                continue
-            # Ticket numbers are per-project sequential, so the same number exists in every project.
-            # Unlike insights/dashboards (globally-unique ids, safe to resolve within the connected
-            # project), a link that names a different project must not resolve to our project's ticket
-            # of the same number — refuse rather than show the wrong ticket.
-            url_team_id = _url_team_id(raw_url)
-            if url_team_id is not None and url_team_id != team.pk:
-                skipped.append({"kind": kind, "ref": ref, "reason": "other_project"})
-                continue
-            ticket = _find_ticket(team.pk, ref)
-            if not ticket:
-                skipped.append({"kind": kind, "ref": ref, "reason": "not_found"})
-                continue
-            if not uac.check_access_level_for_object(ticket, required_level="viewer"):
-                skipped.append({"kind": kind, "ref": ref, "reason": "no_access"})
-                continue
-            unfurls[raw_url] = _ticket_unfurl_payload(
-                url=raw_url,
-                ticket=ticket,
-                requester=escape_slack_mrkdwn(_ticket_requester(team, ticket)),
-                opening_message=_ticket_opening_message(team.pk, ticket.id),
-            )
-        elif kind == "task":
-            if not isinstance(ref, str):
-                continue
-            url_team_id = _url_team_id(raw_url)
-            if url_team_id is not None and url_team_id != team.pk:
-                skipped.append({"kind": kind, "ref": ref, "reason": "other_project"})
-                continue
-            task = tasks_facade.get_task_for_slack_unfurl(ref, team.pk, user.id)
-            if task is None:
-                skipped.append({"kind": kind, "ref": ref, "reason": "not_found_or_no_access"})
-                continue
-            label = "Task" if task.latest_run_status is None else f"Task · {task.latest_run_status}"
-            unfurls[raw_url] = _unfurl_payload(
-                resource_label=label, title=escape_slack_mrkdwn(task.title), description=None
-            )
-            try:
-                _attach_public_slack_thread_reference(
-                    slack=slack,
-                    integration=integration,
-                    task=task,
-                    event=event,
-                    shared_by_slack_user_id=slack_user_id,
-                    public_channel_cache=public_channel_cache,
-                    owner_access_cache=owner_access_cache,
-                )
-            except Exception:
-                logger.exception("slack_task_reference_attach_failed", task_id=str(task.id), team_id=team.pk)
+        card = _CARD_BUILDERS[ref.kind](ctx, ref.id, raw_url)
+        if isinstance(card, str):
+            skipped.append({"kind": ref.kind, "ref": ref.id, "reason": card})
+            continue
+        cards[raw_url] = (ref.kind, card)
 
-        if raw_url in unfurls:
-            unfurled_kinds.append(kind)
-            if first_unfurled is None:
-                first_unfurled = (raw_url, kind)
+    # A card shows a chart only when it is the only link. An ad hoc card has no card without its
+    # chart, because the flag check is a network call this webhook cannot afford before it acks.
+    adhoc = {url: entry for url, entry in cards.items() if entry[1].chart_query is not None}
+    if adhoc and len(cards) > 1:
+        skipped.extend({"kind": kind, "ref": "new", "reason": "multiple_links"} for kind, _ in adhoc.values())
+        cards = {url: entry for url, entry in cards.items() if url not in adhoc}
+        adhoc = {}
 
     logger.info(
         "slack_app_link_unfurl_result",
         team_id=team.pk,
         integration_id=integration.id,
         channel=channel,
-        unfurled=len(unfurls),
+        unfurled=len(cards) - len(adhoc),
+        deferred=len(adhoc),
         skipped=skipped,
     )
 
-    if not unfurls:
+    if adhoc:
+        url, (_, card) = next(iter(adhoc.items()))
+        _queue_unfurl_charts(
+            integration=integration,
+            user=user,
+            event=event,
+            unfurls=_unfurls(adhoc, compact=False, invite=None),
+            charts=[SlackUnfurlChartRequest(url=url, query=card.chart_query, title=card.title)],
+        )
         return
 
-    invite = None
-    if first_unfurled is not None:
-        invite_url, invite_kind = first_unfurled
-        invite = _build_unfurl_invite(integration, invite_kind, channel)
-        if invite:
-            unfurls[invite_url]["blocks"].append(invite)
+    if not cards:
+        return
 
-    unfurl_kwargs: dict = {"channel": channel, "ts": message_ts, "unfurls": unfurls}
-    if unfurl_id:
-        unfurl_kwargs["unfurl_id"] = unfurl_id
-    if source:
-        unfurl_kwargs["source"] = source
-
-    try:
-        slack.client.chat_unfurl(**unfurl_kwargs)
-    except Exception:
-        logger.exception("slack_link_unfurl_chat_unfurl_failed", team_id=team.pk)
-    else:
+    invite_kind, _ = next(iter(cards.values()))
+    invite = _build_unfurl_invite(integration, invite_kind, channel)
+    kinds = sorted({kind for kind, _ in cards.values()})
+    for compact in (True,) if len(cards) > 1 else (False, True):
+        unfurls = _unfurls(cards, compact=compact, invite=invite)
+        error = _post_unfurls(slack, event, unfurls)
+        if error is None:
+            break
         capture_slack_event(
             integration,
-            "slack app link unfurled",
+            "slack app link unfurl failed",
             slack_user_id=slack_user_id,
             posthog_user=user,
-            kinds=sorted(set(unfurled_kinds)),
-            unfurled_count=len(unfurls),
-            skipped_count=len(skipped),
-            followup_invite_shown=invite is not None,
+            kinds=kinds,
+            compact=compact,
+            error=error,
         )
+        if error not in _REJECTED_PAYLOAD_ERRORS:
+            return
+    else:
+        return
+
+    chart_requests = [
+        SlackUnfurlChartRequest(url=url, insight_id=card.chart_insight_id, title=card.title)
+        for url, (_, card) in cards.items()
+        if card.chart_insight_id is not None and not compact
+    ]
+    charts_queued = bool(chart_requests) and _queue_unfurl_charts(
+        integration=integration,
+        user=user,
+        event=event,
+        unfurls=unfurls,
+        charts=chart_requests,
+    )
+    # A card is full size, and can carry an image, only when it is the only link.
+    first_url, (_, first_card) = next(iter(cards.items()))
+    artifact_image_queued = (
+        not compact
+        and first_card.artifact_image
+        and _queue_unfurl_artifact_image(
+            integration=integration, user=user, event=event, unfurls=unfurls, url=first_url, title=first_card.title
+        )
+    )
+    capture_slack_event(
+        integration,
+        "slack app link unfurled",
+        slack_user_id=slack_user_id,
+        posthog_user=user,
+        kinds=kinds,
+        unfurled_count=len(unfurls),
+        compact=compact,
+        skipped_count=len(skipped),
+        followup_invite_shown=invite is not None,
+        charts_queued=charts_queued,
+        artifact_image_queued=artifact_image_queued,
+    )

@@ -1,0 +1,11 @@
+{% extends "email/base.html" %}
+{% block heading %}{{ headline }}{% endblock %} {% block section %}
+{% if details %}
+    <ul>
+        {% for detail in details %}
+            <li><strong>{{ detail.label }}:</strong> {{ detail.value }}</li>
+        {% endfor %}
+    </ul>
+{% endif %}
+<p>You're getting this email because you're subscribed to this alert in PostHog.</p>
+{% endblock %}

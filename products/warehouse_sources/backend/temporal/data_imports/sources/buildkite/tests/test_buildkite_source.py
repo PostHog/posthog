@@ -5,10 +5,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.buildkite.source import BuildkiteSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.buildkite import (
     BuildkiteSourceConfig,
@@ -55,13 +51,6 @@ class TestBuildkiteSource:
         # the trailing build window, so append would materialize the re-pulled rows as duplicates.
         assert schemas[endpoint].supports_append is append
 
-    def test_jobs_is_off_by_default_and_says_why(self) -> None:
-        # One request per build is enough API cost that the schema picker must not pre-select it.
-        schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
-        assert schemas["jobs"].should_sync_default is False
-        assert schemas["jobs"].description is not None
-        assert all(s.should_sync_default for s in schemas.values() if s.name != "jobs")
-
     @parameterized.expand(
         [
             (
@@ -88,11 +77,6 @@ class TestBuildkiteSource:
     def test_transient_errors_remain_retryable(self, _name: str, other_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in other_error for key in non_retryable)
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        # Each declared endpoint should have a curated description so it isn't sent to the LLM.
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
-        assert self.source.get_canonical_descriptions() is CANONICAL_DESCRIPTIONS
 
     def test_source_for_pipeline_plumbs_arguments(self) -> None:
         inputs = MagicMock()

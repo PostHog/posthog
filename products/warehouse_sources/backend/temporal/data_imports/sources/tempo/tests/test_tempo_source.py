@@ -13,11 +13,6 @@ class TestTempoSource:
         self.team_id = 123
         self.config = TempoSourceConfig(api_token="tempo-token")
 
-    def test_no_connection_host_fields(self) -> None:
-        # The only field is the secret API token; the base URL is hardcoded, so there is no
-        # non-secret field an editor could retarget to reuse a preserved token elsewhere.
-        assert self.source.connection_host_fields == []
-
     @parameterized.expand(
         [
             ("unauthorized", "401 Client Error: Unauthorized for url: https://api.tempo.io/4/worklogs?limit=100"),

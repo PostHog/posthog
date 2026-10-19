@@ -10,14 +10,14 @@ import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
+import { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/actionsAndEventsToSeries'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { EntityTypes, FilterType } from '~/types'
+import { NodeKind, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ChartDisplayCategory, InsightType } from '~/types'
 
 import { ConfigureWithAIButton } from 'products/customer_analytics/frontend/components/ConfigureWithAIButton'
 import { isPageviewWithoutFilters } from 'products/customer_analytics/frontend/utils'
@@ -30,14 +30,14 @@ function reportCustomerAnalyticsDashboardEventPickerClicked({ event }: { event: 
 
 export interface EventSelectorProps {
     caption?: string
-    filters: FilterType | null
-    setFilters: (filters: FilterType) => void
+    series: SeriesNode[] | null
+    setSeries: (series: SeriesNode[]) => void
     title: string
     prompt: string
     relatedSeries: string[]
 }
 
-function EventSelector({ filters, setFilters, title, caption, prompt }: EventSelectorProps): JSX.Element {
+function EventSelector({ series, setSeries, title, caption, prompt }: EventSelectorProps): JSX.Element {
     const { eventsToHighlight } = useValues(customerAnalyticsDashboardEventsLogic)
     const highlight = eventsToHighlight.includes(title) ? 'border rounded border-dashed border-danger' : ''
 
@@ -46,8 +46,7 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
         minimumAccessLevel: TeamMembershipLevel.Admin,
     })
 
-    const shouldShowAIButton =
-        !filters || isPageviewWithoutFilters(actionsAndEventsToSeries(filters as any, true, MathAvailability.None)[0])
+    const shouldShowAIButton = !series?.[0] || isPageviewWithoutFilters(series[0])
 
     return (
         <div className={`py-2 ${highlight}`}>
@@ -60,18 +59,20 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
                 </div>
                 <p className="text-xs text-muted-alt">{caption}</p>
             </div>
-            {filters ? (
+            {series ? (
                 <div className="flex">
-                    <ActionFilter
+                    <SeriesActionFilter
                         hideRename
                         hideDuplicate
                         hideFilter={false}
                         propertyFiltersPopover
-                        filters={filters}
-                        setFilters={(filters) => {
-                            setFilters(filters)
+                        series={series}
+                        onChange={(nextSeries) => {
+                            setSeries(nextSeries)
                             reportCustomerAnalyticsDashboardEventPickerClicked({ event: title })
                         }}
+                        insightType={InsightType.TRENDS}
+                        trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
                         typeKey={`customer-analytics-${title.toLowerCase()}`}
                         mathAvailability={MathAvailability.None}
                         actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
@@ -86,15 +87,7 @@ function EventSelector({ filters, setFilters, title, caption, prompt }: EventSel
                         type="tertiary"
                         icon={<IconPlusSmall />}
                         onClick={() => {
-                            setFilters({
-                                events: [
-                                    {
-                                        id: '$pageview',
-                                        name: '$pageview',
-                                        type: EntityTypes.EVENTS,
-                                    },
-                                ],
-                            })
+                            setSeries([{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' }])
                             reportCustomerAnalyticsDashboardEventPickerClicked({ event: title })
                         }}
                         disabledReason={restrictedReason}

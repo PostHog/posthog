@@ -75,6 +75,7 @@ function resolveRequestFinish(
             ...(status === "failed" && message
               ? { error_message: message }
               : {}),
+            ...(status === "failed" ? { error_type: "agent_declined" } : {}),
           },
           signal,
         ),

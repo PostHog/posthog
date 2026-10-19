@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import Any
 
 from django.test import SimpleTestCase, override_settings
@@ -21,6 +22,7 @@ from products.feature_flags.backend.filters_validation import (
     collect_filters_violations,
     flatten_structural_errors,
 )
+from products.feature_flags.backend.models import FeatureFlag
 
 
 def _multivariate(*variants: tuple[str, float]) -> dict[str, Any]:
@@ -360,7 +362,7 @@ class TestFiltersValidation(SimpleTestCase):
     def test_group_is_the_only_property_type_outside_person_aggregation(self) -> None:
         assert set(FEATURE_FLAG_PROPERTY_TYPES) - set(PERSON_AGGREGATED_PROPERTY_TYPES) == {"group"}, (
             "services/mcp/src/tools/featureFlags/preserveGroupTargeting.ts encodes the person-aggregation rule as "
-            "`type !== 'group'` (in mergeConditionGroup and mergeProperty). That is the complement of "
+            "`type !== 'group'` (in isPersonAggregatedType). That is the complement of "
             "PERSON_AGGREGATED_PROPERTY_TYPES only while 'group' is the sole type outside it. A group-side type "
             "that slips through as person-aggregated lets that merge helper silently clear a flag's group "
             "targeting. If the new type belongs under person aggregation, add it to "
@@ -473,29 +475,62 @@ class TestRejectSerdeUnsafeFilters(SimpleTestCase):
         _reject_serde_unsafe_filters(filters)
 
 
+def _variant_filters(*keys: str) -> dict[str, Any]:
+    return {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": _multivariate(*((key, 100 / len(keys)) for key in keys)),
+    }
+
+
+def _new_variant_serializer(key: str, stored_keys: list[str] | None) -> FeatureFlagSerializer:
+    instance = FeatureFlag(filters=_variant_filters(*stored_keys)) if stored_keys is not None else None
+    request = SimpleNamespace(method="POST" if instance is None else "PATCH")
+    return FeatureFlagSerializer(
+        instance, data={"filters": _variant_filters("control", key)}, partial=True, context={"request": request}
+    )
+
+
 class TestReservedVariantKey(SimpleTestCase):
     @parameterized.expand(
         [
-            (f"{sentinel}_{name}", sentinel, enforced_rules)
-            for sentinel in FEATURE_FLAG_VARIANT_SENTINELS
-            for name, enforced_rules in (("log_only", set()), ("full", {"*"}))
+            *(
+                (f"{key or 'empty'}_{name}", key, enforced_rules, None)
+                for key in (*FEATURE_FLAG_VARIANT_SENTINELS, "null", "")
+                for name, enforced_rules in (("log_only", set()), ("full", {"*"}))
+            ),
+            *((f"{key or 'empty'}_added_on_update", key, set(), ["control"]) for key in ("null", "")),
+            *(
+                (f"{sentinel}_kept_on_update", sentinel, set(), ["control", sentinel])
+                for sentinel in FEATURE_FLAG_VARIANT_SENTINELS
+            ),
         ]
     )
-    def test_sentinel_is_rejected_as_a_variant_key(self, _name: str, sentinel: str, enforced_rules: set[str]) -> None:
-        filters = {
-            "groups": [{"properties": [], "rollout_percentage": 100}],
-            "multivariate": {
-                "variants": [
-                    {"key": "control", "rollout_percentage": 50},
-                    {"key": sentinel, "rollout_percentage": 50},
-                ]
-            },
-        }
+    def test_reserved_key_is_rejected_as_a_variant_key(
+        self, _name: str, key: str, enforced_rules: set[str], stored_keys: list[str] | None
+    ) -> None:
         with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
-            serializer = FeatureFlagSerializer(data={"filters": filters}, partial=True)
+            serializer = _new_variant_serializer(key, stored_keys)
             assert not serializer.is_valid()
         assert serializer.errors["filters"][0].code == "reserved_variant_key"
-        assert sentinel in str(serializer.errors["filters"][0])
+        assert (key or "can't be empty") in str(serializer.errors["filters"][0])
+
+    @parameterized.expand(
+        [
+            ("uppercase_on_create", "NULL", {"*"}, None),
+            ("title_case_on_create", "Null", {"*"}, None),
+            ("null_kept_on_update", "null", {"*"}, ["control", "null"]),
+            # A structural rule rejects a blank key under full enforcement. This case therefore runs log-only.
+            ("empty_kept_on_update", "", set(), ["control", ""]),
+        ]
+    )
+    def test_unreserved_key_is_accepted_as_a_variant_key(
+        self, _name: str, key: str, enforced_rules: set[str], stored_keys: list[str] | None
+    ) -> None:
+        with override_settings(FEATURE_FLAG_FILTERS_ENFORCED_RULES=enforced_rules):
+            serializer = _new_variant_serializer(key, stored_keys)
+            # is_valid() would go on to the object-level validate(), which reads the team from the database.
+            validated = serializer.validate_filters(serializer.initial_data["filters"])
+        assert [variant["key"] for variant in validated["multivariate"]["variants"]] == ["control", key]
 
     @parameterized.expand([("list", ["$true"]), ("dict", {"key": "$true"})])
     def test_non_string_key_is_a_validation_error(self, _name: str, key: Any) -> None:

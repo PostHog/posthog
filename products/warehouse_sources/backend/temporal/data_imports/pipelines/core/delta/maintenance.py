@@ -798,8 +798,10 @@ class DeltaMaintenance:
         can't drift between them. The persisted keys are also merged into the in-memory schema, so
         the post-load pass of the same sync sees the vacuum that the pre-write pass ran.
 
-        The vacuum runs and persists before the compaction, so a compaction that fails on every
-        sync does not stop the vacuum cadence.
+        The vacuum and the compaction are each best-effort. The vacuum runs and persists before the
+        compaction, so a compaction that fails on every sync does not stop the vacuum cadence. A
+        vacuum that fails does not stop the compaction either: the largest tables are the most likely
+        to hit object-store throttling on a vacuum, and they are also the tables that need compaction.
 
         One schema can back two delta tables (snapshot + `_cdc` companion) whose delta versions are
         unrelated numbers, so each table's vacuum cadence gets its own watermark keys — sharing them
@@ -818,30 +820,42 @@ class DeltaMaintenance:
         The watermarks are not persisted either, so the cadence re-attempts the vacuum on the next
         pass instead of waiting for a cleanup that never ran.
         """
+        watermarks: VacuumWatermarks | None = None
+        decision: VacuumDecision | None = None
         try:
             watermarks = VacuumWatermarks.from_config(schema.sync_type_config, is_cdc_companion)
-
             decision = await self.vacuum_if_due(watermarks, VacuumCadence.from_settings())
-            if decision is None:
-                return
-            updates = decision.watermarks.config_updates(watermarks, is_cdc_companion)
+            # None means the table does not exist, and then there is nothing to persist.
+            updates = decision.watermarks.config_updates(watermarks, is_cdc_companion) if decision is not None else None
             if updates:
                 await database_sync_to_async_pool(update_sync_type_config_keys)(
                     schema.id, schema.team_id, updates=updates
                 )
                 schema.sync_type_config = {**(schema.sync_type_config or {}), **updates}
+        except Exception as e:
+            await self._log_maintenance_failure(e, step="vacuum")
 
+        try:
+            # A vacuum that raised leaves no decision, so only an earlier vacuum in this sync enables the
+            # table-wide trigger. Enabling it on each failed attempt would run it on every pass while
+            # the vacuum keeps failing.
+            vacuum_due = decision is not None and decision.reason is not None
+            vacuumed_during_job = watermarks is not None and self._vacuumed_during_job(watermarks)
             await self.compact_if_fragmented(
                 compact_small_files=compact_small_files,
-                table_wide_small_files=compact_small_files
-                and (decision.reason is not None or self._vacuumed_during_job(watermarks)),
+                table_wide_small_files=compact_small_files and (vacuum_due or vacuumed_during_job),
             )
-        except ObjectStorePermissionDeniedError:
-            await self._logger.awarning("Delta maintenance skipped: the object store denied the operation")
-            return
         except Exception as e:
-            if is_transient_maintenance_error(e):
-                await self._logger.awarning(f"Delta maintenance skipped: transient infra error: {e}")
-                return
-            capture_exception(e)
-            await self._logger.aexception(f"Delta maintenance failed: {e}", exc_info=e)
+            await self._log_maintenance_failure(e, step="compact")
+
+    async def _log_maintenance_failure(self, e: Exception, *, step: str) -> None:
+        if isinstance(e, ObjectStorePermissionDeniedError):
+            await self._logger.awarning(
+                "Delta maintenance skipped: the object store denied the operation", maintenance_step=step
+            )
+            return
+        if is_transient_maintenance_error(e):
+            await self._logger.awarning(f"Delta maintenance skipped: transient infra error: {e}", maintenance_step=step)
+            return
+        capture_exception(e)
+        await self._logger.aexception(f"Delta maintenance failed: {e}", exc_info=e, maintenance_step=step)

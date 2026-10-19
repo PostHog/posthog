@@ -44,7 +44,9 @@ const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
     'false',
 ]
 
-// '$posthog_cookieless' is the cookieless mode sentinel. Every cookieless visitor shares it.
+/** Every cookieless visitor shares this distinct id. */
+export const COOKIELESS_SENTINEL_VALUE = '$posthog_cookieless'
+
 const BARE_CASE_SENSITIVE_ILLEGAL_IDS = [
     '[object Object]',
     'NaN',
@@ -53,7 +55,7 @@ const BARE_CASE_SENSITIVE_ILLEGAL_IDS = [
     'null',
     '0',
     'undefined',
-    '$posthog_cookieless',
+    COOKIELESS_SENTINEL_VALUE,
 ]
 
 // we have seen illegal ids received but wrapped in double quotes

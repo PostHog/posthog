@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 import pytest
 from unittest import mock
@@ -14,8 +15,28 @@ from posthog.egress.github.limiter import GitHubRateResource
 from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.github import (
+    GithubAuthMethodConfig,
+    GithubSourceConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.github import github
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.source import GithubSource
+
+
+def _drive(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
+    config = GithubSourceConfig(
+        auth_method=GithubAuthMethodConfig(github_integration_id=None, selection="pat", personal_access_token="tok"),
+        repository="o/r",
+        repositories=None,
+    )
+    return SourceDriver(GithubSource(), config).run(endpoint, script, **inputs)
 
 
 def _ok_response() -> mock.Mock:
@@ -73,29 +94,16 @@ def test_fetch_page_404_skips_only_for_org_scoped_endpoints(skip_on_not_found, e
             )
 
 
-def _unprocessable_response(message: str) -> mock.Mock:
-    response = mock.Mock(spec=requests.Response)
-    response.status_code = 422
-    response.ok = False
-    response.headers = {}
-    response.text = json.dumps({"message": message})
-    response.json.return_value = {"message": message}
-    response.request = None
-    response.raise_for_status.side_effect = requests.exceptions.HTTPError(
-        "422 Client Error: Unprocessable Entity for url", response=response
-    )
-    return response
-
-
 def test_fetch_page_raises_repository_too_large_for_code_frequency_422():
     # GitHub permanently 422s /stats/code_frequency once a repo passes 10,000 commits; the caller
     # must treat this as a benign skip, not crash and retry the activity forever.
-    session = mock.Mock()
-    session.request.return_value = _unprocessable_response("repository must have fewer than 10000 commits")
-
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
-        with pytest.raises(github.GithubRepositoryTooLargeError):
-            github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
+    result = _drive(
+        "code_frequency_stats",
+        [ScriptedResponse(status=422, json={"message": "repository must have fewer than 10000 commits"})],
+    )
+    assert result.raised is None
+    assert result.rows == []
+    assert result.paths == ["/repos/o/r/stats/code_frequency"]
 
 
 def _empty_repository_response() -> mock.Mock:
@@ -130,23 +138,18 @@ def test_iter_pages_stops_on_empty_repository():
 def test_fetch_page_reraises_other_422_errors():
     # A generic 422 (e.g. malformed request params) is a real, fixable problem and must stay fatal
     # rather than being swallowed by the too-large-repository check.
-    session = mock.Mock()
-    session.request.return_value = _unprocessable_response("Validation failed")
-
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
-        with pytest.raises(requests.exceptions.HTTPError):
-            github._fetch_page("https://api.github.com/repos/o/r/stats/code_frequency", {}, mock.Mock())
+    result = _drive("code_frequency_stats", [ScriptedResponse(status=422, json={"message": "Validation failed"})])
+    assert isinstance(result.raised, requests.exceptions.HTTPError)
+    assert result.paths == ["/repos/o/r/stats/code_frequency"]
 
 
 def test_fetch_page_treats_topics_422_as_resource_unavailable():
     # GitHub 422s the topics endpoint for some repositories; it's optional metadata, so the caller
     # must sync zero rows rather than crash and fail the schema over a raw 422.
-    session = mock.Mock()
-    session.request.return_value = _unprocessable_response("Validation failed")
-
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
-        with pytest.raises(github.GithubResourceUnavailableError):
-            github._fetch_page("https://api.github.com/repos/o/r/topics?per_page=100", {}, mock.Mock())
+    result = _drive("topics", [ScriptedResponse(status=422, json={"message": "Validation failed"})])
+    assert result.raised is None
+    assert result.rows == []
+    assert result.paths == ["/repos/o/r/topics"]
 
 
 def test_fetch_page_retries_chunked_encoding_error():
@@ -164,14 +167,9 @@ def test_fetch_page_treats_unmapped_4xx_as_retryable():
     # GitHub's edge has been observed returning the nginx-style 499 ("client closed request") on an
     # upstream hiccup. It's not a real denial, so it must retry like a 5xx rather than crash the sync
     # on a raw, unclassified HTTPError.
-    session = mock.Mock()
-    session.request.return_value = _error_response(499, "Unknown")
-
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
-        with pytest.raises(github.GithubRetryableError):
-            github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock())
-
-    assert session.request.call_count == 5
+    result = _drive("issues", always(ScriptedResponse(status=499, json={"message": "Unknown"})))
+    assert isinstance(result.raised, github.GithubRetryableError)
+    assert result.paths == ["/repos/o/r/issues"] * 5
 
 
 def test_fetch_page_reraises_chunked_encoding_error_after_exhausting_retries():
@@ -247,18 +245,16 @@ def test_retry_wait_falls_through_when_the_budget_error_carries_no_scope():
 def test_fetch_page_gates_on_egress_budget_when_installation_known():
     # App path: a denied BATCH gate must defer (raise the retryable error) without ever sending the
     # request, and the gate must run on every retry attempt before reraising.
-    session = mock.Mock()
-    session.request.return_value = _ok_response()
     identity = github.GithubEgressIdentity(installation_id="123")
 
     with (
         mock.patch("posthog.egress.github.transport.consume_github_installation_sync", return_value=False) as gate,
-        mock.patch.object(github, "make_tracked_session", return_value=session),
+        mock.patch.object(GithubSource, "_egress_identity", return_value=identity),
     ):
-        with pytest.raises(github.GitHubEgressBudgetExhausted):
-            github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+        result = _drive("issues", [])
 
-    assert session.request.call_count == 0
+    assert isinstance(result.raised, github.GitHubEgressBudgetExhausted)
+    assert result.requests == []
     assert gate.call_count == 5
     assert gate.call_args.args[0] == "123"
     assert gate.call_args.kwargs == {
@@ -287,22 +283,21 @@ def test_fetch_page_waits_for_egress_budget_before_asking_for_it(installation_id
     # Waiting first is what keeps a long walk inside the budget rather than recovering from it. Every
     # way of breaking this is silent: no wait means the run drains its share and is shed for the rest
     # of the window, and waiting when there is headroom slows every small sync instead.
-    session = mock.Mock()
-    session.request.return_value = _ok_response()
     identity = github.GithubEgressIdentity(installation_id=installation_id)
 
     with (
         mock.patch.object(github, "github_installation_pace_seconds", return_value=pace) as pace_for,
         mock.patch.object(github, "activity") as temporal_activity,
-        mock.patch.object(github, "make_tracked_session", return_value=session),
+        mock.patch.object(GithubSource, "_egress_identity", return_value=identity),
     ):
         temporal_activity.in_activity.return_value = True
-        github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), identity)
+        result = _drive("issues", [ScriptedResponse(json=[])])
 
+    assert result.raised is None
     expected_waits = [] if expected_wait is None else [mock.call(timeout=expected_wait)]
     assert temporal_activity.wait_for_worker_shutdown_sync.call_args_list == expected_waits
     assert pace_for.called is (installation_id is not None)
-    assert session.request.call_count == 1
+    assert result.paths == ["/repos/o/r/issues"]
 
 
 @pytest.mark.parametrize(
@@ -367,14 +362,16 @@ def _error_response(status_code: int, message: str, headers: dict[str, str] | No
     ],
 )
 def test_fetch_page_403_separates_switched_off_features_from_denials(message, expected_exc):
-    session = mock.Mock()
-    session.request.return_value = _error_response(403, message)
-
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
-        with pytest.raises(expected_exc) as raised:
-            github._fetch_page("https://api.github.com/repos/o/r/dependabot/alerts", {}, mock.Mock(), repository="o/r")
-
-    assert message in str(raised.value)
+    logger = mock.MagicMock()
+    result = _drive("dependabot_alerts", [ScriptedResponse(status=403, json={"message": message})], logger=logger)
+    assert result.paths == ["/repos/o/r/dependabot/alerts"]
+    if expected_exc is github.GithubResourceUnavailableError:
+        assert result.raised is None
+        assert result.rows == []
+        assert message in str(logger.info.call_args)
+    else:
+        assert isinstance(result.raised, expected_exc)
+        assert message in str(result.raised)
 
 
 @pytest.mark.parametrize(
@@ -423,31 +420,29 @@ def test_denials_raised_by_fetch_page_are_classified_non_retryable(message):
     # The raised message and GithubSource.get_non_retryable_errors are two halves of one contract:
     # a denial that matches no key there keeps retrying and never disables the schema. Drive the
     # real raised message through the real key set, so rewording either side alone fails here.
-    session = mock.Mock()
-    session.request.return_value = _error_response(403, message)
-
-    with mock.patch.object(github, "make_tracked_session", return_value=session):
-        with pytest.raises(github.GithubAccessDeniedError) as raised:
-            github._fetch_page("https://api.github.com/repos/o/r/collaborators", {}, mock.Mock(), repository="o/r")
-
+    result = _drive("collaborators", [ScriptedResponse(status=403, json={"message": message})])
+    assert isinstance(result.raised, github.GithubAccessDeniedError)
+    assert result.paths == ["/repos/o/r/collaborators"]
     errors = GithubSource().get_non_retryable_errors()
-    assert any(error_message_matches(str(raised.value), [key]) for key in errors)
+    assert any(error_message_matches(str(result.raised), [key]) for key in errors)
 
 
 def test_fetch_page_403_from_rate_limit_is_not_a_denial():
     # The denial classification must stay behind the rate-limit check: a rate-limited 403 has to keep
     # backing off and retrying, not become a permanent "GitHub denied access" that stops the schema.
-    session = mock.Mock()
-    session.request.return_value = _error_response(
-        403, "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+    result = _drive(
+        "issues",
+        always(
+            ScriptedResponse(
+                status=403,
+                json={
+                    "message": "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."
+                },
+            )
+        ),
     )
-
-    with (
-        mock.patch.object(github, "make_tracked_session", return_value=session),
-        mock.patch("tenacity.nap.time.sleep"),
-    ):
-        with pytest.raises(github.GitHubRateLimitError):
-            github._fetch_page("https://api.github.com/repos/o/r/issues", {}, mock.Mock(), repository="o/r")
+    assert isinstance(result.raised, github.GitHubRateLimitError)
+    assert set(result.paths) == {"/repos/o/r/issues"}
 
 
 @pytest.mark.parametrize(
@@ -500,17 +495,9 @@ def test_fetch_page_404_probes_the_repository_before_blaming_it(page_url, probe_
 
 def test_fetch_page_skips_gate_on_pat_path():
     # PAT path has no installation budget, so the gate must never run and the request proceeds.
-    session = mock.Mock()
-    session.request.return_value = _ok_response()
+    with mock.patch("posthog.egress.github.transport.consume_github_installation_sync") as gate:
+        result = _drive("issues", [ScriptedResponse(json=[])])
 
-    with (
-        mock.patch("posthog.egress.github.transport.consume_github_installation_sync") as gate,
-        mock.patch.object(github, "make_tracked_session", return_value=session),
-    ):
-        response = github._fetch_page(
-            "https://api.github.com/repos/o/r/issues", {}, mock.Mock(), github.GithubEgressIdentity()
-        )
-
-    assert response.status_code == 200
+    assert result.raised is None
+    assert result.paths == ["/repos/o/r/issues"]
     assert gate.call_count == 0
-    assert session.request.call_count == 1

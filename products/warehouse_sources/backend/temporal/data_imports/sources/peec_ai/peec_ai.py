@@ -9,6 +9,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
     Endpoint,
     EndpointResource,
+    PaginatorConfig,
     RESTAPIConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -89,13 +90,28 @@ def peec_ai_source(
             end_date = resume.end_date or end_date
         params.update(start_date=start_date, end_date=end_date)
 
-    endpoint_config: Endpoint = {"path": definition["path"], "data_selector": "data", "params": params}
+    method = definition.get("method", "GET")
+    endpoint_config: Endpoint = {"path": definition["path"], "method": method, "data_selector": "data"}
+    if method == "POST":
+        endpoint_config["json"] = params
+    else:
+        endpoint_config["params"] = params
+
+    paginator: PaginatorConfig = "single_page"
+    if definition.get("paginated", True):
+        paginator = {
+            "type": "offset",
+            "limit": PAGE_SIZE,
+            "total_path": definition["total_path"],
+            "param_location": "json" if method == "POST" else "query",
+        }
+
     resource_config: EndpointResource = {"name": endpoint, "endpoint": endpoint_config}
     rest_config: RESTAPIConfig = {
         "client": {
             "base_url": f"{BASE_URL}/{api_version}/",
             "auth": {"type": "api_key", "api_key": config.api_key, "name": "x-api-key", "location": "header"},
-            "paginator": {"type": "offset", "limit": PAGE_SIZE, "total_path": definition["total_path"]},
+            "paginator": paginator,
             "request_timeout": 30,
         },
         "resources": [resource_config],
@@ -118,7 +134,7 @@ def peec_ai_source(
     return SourceResponse(
         name=endpoint,
         items=lambda: resource,
-        primary_keys=["id"],
+        primary_keys=definition.get("primary_keys", ["id"]),
         sort_mode="asc" if endpoint == "chats" else None,
         on_complete=resumable_source_manager.clear_state,
     )

@@ -43,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
+from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
@@ -543,6 +544,7 @@ async def _execute_run(
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
+        page_state_hook: Optional[Any] = None,
     ):
         return iter(mock_data_response)
 
@@ -561,6 +563,7 @@ async def _execute_run(
         data_selector_required: bool = False,
         data_selector_empty_ok: bool = False,
         data_selector_malformed_retryable: bool = False,
+        page_state_hook: Optional[Any] = None,
     ):
         # Yield each record as its own page so tests that probe chunking
         # by record size still see one call per record.
@@ -688,9 +691,8 @@ async def test_stripe_charges(team, stripe_charge, mock_stripe_client):
         mock_data_response=stripe_charge["data"],
     )
 
-    # Get team from the DB to remove cached config value
-    team = await sync_to_async(Team.objects.get)(id=team.id)
-    assert team.revenue_analytics_config.notified_first_sync
+    config = await sync_to_async(TeamRevenueAnalyticsConfig.objects.get)(team_id=team.id)
+    assert config.notified_first_sync
 
 
 _ZENDESK_JOB_INPUTS: dict[str, str | dict[str, str]] = {
@@ -3479,7 +3481,13 @@ async def test_postgres_deleting_schemas_with_pre_synced_data(team, postgres_con
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_query_folder_slots_rotate(team, stripe_balance_transaction, mock_stripe_client, minio_client):
+async def test_query_folder_slots_rotate(
+    team, stripe_balance_transaction, mock_stripe_client, minio_client, monkeypatch
+):
+    monkeypatch.setattr(
+        "products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model._start_to_close_deadline_passed",
+        lambda: False,
+    )
     datetime_1 = datetime.now()
     with time_machine.travel(datetime_1, tick=False):
         workflow_id, inputs = await _run(
@@ -4424,8 +4432,9 @@ async def test_mysql_keyset_resume_seeks_past_checkpoint(team, mysql_config, mys
         manager = source.get_resumable_source_manager(inputs)
 
         # Simulate the checkpoint a previous pod committed just before it drained. The commit is what
-        # puts it in Redis — `save_state` only stages — and `can_resume()` reads Redis.
+        # puts it in Redis — `save_state` only stages, `confirm` readies it — and `can_resume()` reads Redis.
         await sync_to_async(manager.save_state)(KeysetResumeState(last_key=3))
+        await sync_to_async(manager.confirm)()
         await sync_to_async(manager.commit)()
 
         # A small chunk keeps resumption paging rather than one-shotting the tail.

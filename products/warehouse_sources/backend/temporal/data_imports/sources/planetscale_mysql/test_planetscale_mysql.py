@@ -8,6 +8,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
     PlanetScaleMySQLSourceConfig,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
+    CONNECT_TIMEOUT_SECONDS,
+    METADATA_READ_TIMEOUT_SECONDS,
+    WRITE_TIMEOUT_SECONDS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
     PlanetScaleMySQLImplementation,
 )
@@ -75,9 +80,13 @@ def test_port_is_coerced_to_int(port):
         assert kwargs["port"] == 3306
 
 
-def test_read_timeout_is_only_sent_when_requested():
+def test_every_connection_has_a_read_timeout():
+    # The metadata connections of the shared MySQL code pass no read timeout. Without a default
+    # here they wait on a silent server for as long as the socket stays open.
     with _connect(_config()) as kwargs:
-        assert "read_timeout" not in kwargs
+        assert kwargs["read_timeout"] == METADATA_READ_TIMEOUT_SECONDS
+        assert kwargs["connect_timeout"] == CONNECT_TIMEOUT_SECONDS
+        assert kwargs["write_timeout"] == WRITE_TIMEOUT_SECONDS
 
     with _connect(_config(), read_timeout=600) as kwargs:
         assert kwargs["read_timeout"] == 600

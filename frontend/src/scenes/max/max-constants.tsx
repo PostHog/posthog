@@ -771,16 +771,16 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Summarizing experiment results...'
         },
     },
-    summarize_replay_vision_summaries: {
-        name: 'Summarize session summaries',
-        description: 'Summarize session summaries across a Replay Vision summarizer scanner',
+    compare_replay_vision_variants: {
+        name: 'Compare experiment variants',
+        description: 'Compare experiment variants: what an experiment scanner found in each variant',
         icon: iconForType('session_replay'),
         modes: [AgentMode.SessionReplay],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Summarized session summaries'
+                return 'Compared experiment variants'
             }
-            return 'Summarizing session summaries...'
+            return 'Comparing experiment variants...'
         },
     },
     draft_replay_vision_scanner_prompt: {

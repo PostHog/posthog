@@ -183,12 +183,16 @@ class TestPostgresProducerSupersede:
 
     @pytest.mark.parametrize(
         "sync_type,spare",
-        [("full_refresh", False), ("incremental", True), ("append", True), ("cdc", True)],
+        [("full_refresh", False), ("incremental", True), ("append", False), ("cdc", True)],
     )
-    def test_only_full_refresh_supersedes_a_run_that_is_still_loading(self, sync_type: str, spare: bool) -> None:
-        """A fresh full_refresh overwrites the table on batch 0, so an older attempt's loaded rows
-        are discarded either way and its queued batches are dead weight on the serial per-schema
-        gate. Every other sync type keeps the sparing rule, because partially merged work survives."""
+    def test_only_full_refresh_and_append_supersede_a_run_that_is_still_loading(
+        self, settings: Any, sync_type: str, spare: bool
+    ) -> None:
+        """A fresh full_refresh overwrites the table on batch 0, and the loader removes an older
+        append attempt's rows on batch 0, so the loaded rows of an older attempt are discarded
+        either way and its queued batches are dead weight on the serial per-schema gate. The other
+        sync types keep the sparing rule, because partially merged work survives."""
+        settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = True
         producer = _make_producer(is_resume=False, sync_type=sync_type)
         batch_result = _make_batch_result(batch_index=0)
 
@@ -199,6 +203,18 @@ class TestPostgresProducerSupersede:
             producer.send_batch_notification(batch_result)
 
         assert mock_supersede.call_args.kwargs["spare_runs_with_progress"] is spare
+
+    def test_append_spares_a_loading_run_when_rollback_is_disabled(self, settings: Any) -> None:
+        settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED = False
+        producer = _make_producer(is_resume=False, sync_type="append")
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer.BatchQueue.supersede_other_runs",
+            return_value=0,
+        ) as mock_supersede:
+            producer.send_batch_notification(_make_batch_result(batch_index=0))
+
+        assert mock_supersede.call_args.kwargs["spare_runs_with_progress"] is True
 
     def test_does_not_supersede_on_non_zero_batch(self) -> None:
         producer = _make_producer(is_resume=False)
@@ -326,6 +342,23 @@ class TestPostgresProducerHeldBatch:
         producer.send_final_batch(batch, total_batches=1, total_rows=100, data_folder="s3://d", schema_path=None)
 
         assert _inserted_rows(producer) == [(0, False), (0, True)]
+
+    def test_a_zero_batch_continuation_finalizes_the_previous_queue_run(self) -> None:
+        producer = _make_producer()
+        _mock_conn(producer).execute.return_value.rowcount = 1
+
+        producer.send_final_batch_for_resumed_run("workflow-run-a1")
+
+        query, params = _mock_conn(producer).execute.call_args.args
+        assert "batch_index + 1, cumulative_row_count" in query
+        assert params == {"job_id": "job-1", "run_uuid": "workflow-run-a1"}
+
+    def test_a_zero_batch_continuation_fails_if_the_previous_queue_run_is_missing(self) -> None:
+        producer = _make_producer()
+        _mock_conn(producer).execute.return_value.rowcount = 0
+
+        with pytest.raises(RuntimeError, match="Could not finalize resumed queue run"):
+            producer.send_final_batch_for_resumed_run("workflow-run-a1")
 
     def test_superseding_fires_when_batch_zero_is_staged_not_when_it_is_inserted(self) -> None:
         # Holding the row back must not delay retiring the previous attempt's stalled batches, or

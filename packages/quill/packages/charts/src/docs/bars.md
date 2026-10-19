@@ -9,6 +9,7 @@ Field docs live on `BarChartConfig` and `BarsConfig` in `core/types.ts`; the per
 - `axisOrientation: 'horizontal'` for horizontal bars. Drag-to-zoom is disabled there, since the interaction axis is vertical.
 - `divergingStack` (stacked only) stacks negative values below the zero baseline instead of clamping them to 0. Same semantics on `ComboChart` and `TimeSeriesComboChart`.
 - `barCornerRadius` rounds the end caps. It is a top-level key on every bar-capable chart, including the time-series and combo configs.
+- Set `bandPadding: 0` to remove both category and within-group gaps. Set `barCornerRadius: 0` for adjoining square bars. `TimeSeriesComboChart` accepts the same top-level `bandPadding` setting.
 - `TimeSeriesBarChart` takes `minBarSize`, `bandPadding`, `margins`, and `maxCategoryLabelWidth` as top-level config keys (alongside `barCornerRadius` and `fillStyle`) rather than under `bars`.
 
 ## Per-bar overrides
@@ -32,6 +33,12 @@ A breakdown stack floors only its top segment, so the option is aimed at single-
 `bars.minBarSizeScope: 'hover'` restricts the floor to the hover highlight and hit-testing.
 The static layer draws true sizes and a tiny bar grows to a clickable nub under the cursor; while its track is hovered, the floored bar is also revealed in its plain color.
 The default `'always'` floors the static layer too.
+
+## Solid track
+
+`bars.track: 'solid'` draws one neutral track per band, in `theme.gridColor`, behind every bar in the band, on any layout.
+It is the "remainder of the whole" backdrop for horizontal bar lists, as in `BarList`.
+Unlike the hatched track it ignores `trackData` and has no hover highlight.
 
 ## Interactive extent: `trackData`
 

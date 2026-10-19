@@ -174,6 +174,7 @@ const RECIPES: Partial<Record<ChartDisplayType, PreviewRecipe>> = {
     [ChartDisplayType.BoldNumber]: { needs: 'totals', when: noBreakdown },
     [ChartDisplayType.ActionsPie]: { needs: 'totals' },
     [ChartDisplayType.ActionsDonut]: { needs: 'totals' },
+    [ChartDisplayType.ActionsProportionBar]: { needs: 'totals' },
     [ChartDisplayType.ActionsBarValue]: { needs: 'totals' },
     [ChartDisplayType.ActionsTable]: { needs: 'totals' },
     [ChartDisplayType.WorldMap]: { needs: 'totals', when: completeCountries, sampleRows: sampleWorldMapRows },

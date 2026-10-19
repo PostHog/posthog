@@ -79,6 +79,18 @@ describe('getChartDisplayOptions', () => {
             undefined,
         ],
         ['nothing in the way', RENDERS_EVERYTHING, ChartDisplayType.ActionsLineGraph, undefined],
+        [
+            'nothing in the way of a proportion bar',
+            RENDERS_EVERYTHING,
+            ChartDisplayType.ActionsProportionBar,
+            undefined,
+        ],
+        [
+            'comparing to a previous period',
+            { ...RENDERS_EVERYTHING, isComparing: true },
+            ChartDisplayType.ActionsProportionBar,
+            "This type doesn't support comparing to a previous period.",
+        ],
     ])('says why %s disables a chart type', (_case, eligibility, display, disabledReason) => {
         const reasons = disabledReasons(eligibility)
 
@@ -89,9 +101,7 @@ describe('getChartDisplayOptions', () => {
     it.each([
         [true, true],
         [false, false],
-    ])('offers the metric chart type only behind its flag (%s)', (hasMetricInsight, isOffered) => {
-        expect(disabledReasons({ ...RENDERS_EVERYTHING, hasMetricInsight }).has(ChartDisplayType.Metric)).toBe(
-            isOffered
-        )
+    ])('offers Metric when hasMetricInsight is %s: %s', (hasMetricInsight, offered) => {
+        expect(disabledReasons({ ...RENDERS_EVERYTHING, hasMetricInsight }).has(ChartDisplayType.Metric)).toBe(offered)
     })
 })

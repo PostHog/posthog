@@ -1,5 +1,6 @@
 import re
 import json
+import base64
 from datetime import timedelta
 from types import SimpleNamespace
 from typing import Any, cast
@@ -162,6 +163,20 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
 
+    @parameterized.expand([("mine", True, ["mine"]), ("invalid uuid", False, [])])
+    def test_list_filters_by_creator(self, _name: str, valid: bool, expected: list[str]) -> None:
+        self._create_canvas(name="mine")
+        other_id = self._create_canvas(name="theirs")
+        other_user = self._create_user("canvas-creator@example.com")
+        with team_scope(self.team.id):
+            Canvas.objects.filter(id=other_id).update(created_by=other_user)
+        created_by = self.user.uuid if valid else "not-a-uuid"
+
+        response = self.client.get(f"/api/projects/{self.team.id}/canvases/?created_by={created_by}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["name"] for row in response.json()["results"]] == expected
+
     @parameterized.expand(
         [("default", "", ["newer", "older"]), ("updated", "?ordering=-updated_at", ["older", "newer"])]
     )
@@ -280,6 +295,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         for path in ("", "view/", "source/"):
             response = self.client.get(f"/api/projects/{self.team.id}/canvases/{hidden_canvas_id}/{path}")
             assert response.status_code == status.HTTP_403_FORBIDDEN, (path, response.json())
+            assert response.json()["detail"] == "You do not have viewer access to this resource.", path
         assert self.client.get(f"/api/projects/{self.team.id}/canvases/{visible_canvas_id}/").status_code == 200
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
@@ -1835,6 +1851,40 @@ class TestCanvasState(CanvasAPIBaseTest):
         selected = self.client.get(url, {"key": "policy"}).json()
         assert [(entry["key"], entry["value"]) for entry in selected["entries"]] == [("policy", "a long policy")]
 
+    def test_state_cursor_pages_do_not_skip_entries_when_earlier_keys_change(self):
+        canvas_id = self._state_canvas()
+        for key in ("a", "b", "c"):
+            self._set_state(canvas_id, "shared", key, key)
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/"
+
+        first = self.client.get(url, {"keys_only": "true", "limit": "2"}).json()
+        assert [entry["key"] for entry in first["entries"]] == ["a", "b"]
+        assert first["next_cursor"] is not None
+        # With offsets, deleting an already-read key shifts "c" to offset 1 and the next page skips it.
+        assert self._set_state(canvas_id, "shared", "a", None).status_code == status.HTTP_204_NO_CONTENT
+        second = self.client.get(url, {"keys_only": "true", "limit": "2", "cursor": first["next_cursor"]}).json()
+        assert [entry["key"] for entry in second["entries"]] == ["c"]
+        assert second["complete"] is True
+        assert second["next_cursor"] is None
+
+        # The decoded cursor must be the [scope, key] pair, not any two-item JSON value.
+        valid_cursor = first["next_cursor"]
+        for bad_cursor in ("not-a-cursor", base64.urlsafe_b64encode(b'"ab"').decode(), f"{valid_cursor}!!!!"):
+            assert self.client.get(url, {"cursor": bad_cursor}).status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_state_cursor_for_a_long_non_ascii_key_is_accepted(self):
+        canvas_id = self._state_canvas()
+        long_key = "\U0001f600" * 200
+        for key in (long_key, "~"):
+            assert self._set_state(canvas_id, "shared", key, 1).status_code == status.HTTP_200_OK
+        url = f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/"
+
+        first = self.client.get(url, {"keys_only": "true", "limit": "1"}).json()
+        second = self.client.get(url, {"keys_only": "true", "limit": "1", "cursor": first["next_cursor"]})
+
+        assert second.status_code == status.HTTP_200_OK, second.json()
+        assert [entry["key"] for entry in [*first["entries"], *second.json()["entries"]]] == ["~", long_key]
+
     def test_state_value_chunks_detect_changes(self):
         canvas_id = self._state_canvas()
         value = {"text": "é\\n" * 30}
@@ -2401,6 +2451,44 @@ class TestCanvasActions(CanvasAPIBaseTest):
         assert refused.status_code == status.HTTP_404_NOT_FOUND, refused.json()
         assert get_workflow_summary(team_id=other_team.id, workflow_id=foreign.id).status == "active"
         assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == "active"
+
+    @parameterized.expand(
+        [
+            ("archived_editor", "archived", "editor", status.HTTP_409_CONFLICT),
+            # Archived wins over a missing editor grant, so the caller learns why nothing changed.
+            ("archived_viewer", "archived", "viewer", status.HTTP_409_CONFLICT),
+            ("active_viewer", "active", "viewer", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_workflow_verbs_refuse_archived_then_check_object_access(
+        self, _name, workflow_status, access_level, expected_status
+    ):
+        canvas_id = self._actions_canvas(verbs=("workflows.pause",))
+        loop = create_workflow_for_test(
+            team_id=self.team.id,
+            name="Plan",
+            status=workflow_status,
+            trigger={"type": "schedule"},
+            actions=[{"id": "trigger", "type": "trigger", "name": "Scheduled", "config": {"type": "schedule"}}],
+            edges=[],
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="hog_flow",
+            resource_id=str(loop.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=self.user),
+            access_level=access_level,
+        )
+        cache.clear()
+
+        response = self._invoke(canvas_id, "workflows.pause", {"workflow_ids": [str(loop.id)]})
+
+        assert response.status_code == expected_status, response.json()
+        assert get_workflow_summary(team_id=self.team.id, workflow_id=loop.id).status == workflow_status
 
     @parameterized.expand(
         [

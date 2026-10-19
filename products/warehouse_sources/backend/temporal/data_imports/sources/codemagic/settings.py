@@ -3,7 +3,18 @@ from typing import Optional
 
 from products.warehouse_sources.backend.types import IncrementalField
 
+CODEMAGIC_V1 = "v1"
+CODEMAGIC_V3 = "v3"
+SUPPORTED_VERSIONS = (CODEMAGIC_V1, CODEMAGIC_V3)
+DEFAULT_VERSION = CODEMAGIC_V3
+
 BASE_URL = "https://api.codemagic.io"
+# v3 is served from the main host under /api/v3, not from the legacy api. subdomain.
+V3_BASE_URL = "https://codemagic.io"
+V3_PAGE_SIZE = 100
+# v3 has no account-wide build list, only GET /teams/{team_id}/builds, so builds fan out over
+# the teams the token's user belongs to.
+V3_TEAMS_PATH = "/api/v3/user/teams"
 
 
 @dataclass
@@ -36,6 +47,20 @@ ENDPOINTS: dict[str, CodemagicEndpointConfig] = {
         # documented GET /apps endpoint — adjust `data_selector` if the vendor's actual key differs.
         data_selector="builds",
         partition_key="createdAt",
+    ),
+}
+
+V3_ENDPOINTS: dict[str, CodemagicEndpointConfig] = {
+    "Applications": CodemagicEndpointConfig(
+        name="Applications",
+        path="/api/v3/user/apps",
+        data_selector="data",
+    ),
+    "Builds": CodemagicEndpointConfig(
+        name="Builds",
+        path="/api/v3/teams/{team_id}/builds",
+        data_selector="data",
+        partition_key="created_at",
     ),
 }
 

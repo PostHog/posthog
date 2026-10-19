@@ -47,7 +47,7 @@ function createService(
       .fn()
       .mockResolvedValue({ accessToken: "tok", apiHost: API_HOST }),
     authenticatedFetch,
-    fetch: options.fetch,
+    fetch: options.fetch ?? authenticatedFetch,
   };
 
   const endpoints: LlmGatewayEndpoints = {
@@ -58,9 +58,7 @@ function createService(
     defaultModel: "claude-default",
   };
   const gatewayTokens = {
-    getRoute: vi
-      .fn()
-      .mockResolvedValue(options.route ?? { mode: "legacy", reason: "test" }),
+    getRoute: vi.fn().mockResolvedValue(options.route ?? GO_ROUTE),
     remint: options.remint ?? vi.fn().mockResolvedValue(null),
     fallBack: vi.fn(),
     clearBlocked: vi.fn(),
@@ -119,13 +117,18 @@ const SUCCESS_BODY = {
   usage: { input_tokens: 12, output_tokens: 7 },
 };
 
-const MODEL_GATE_BODY = {
-  error: {
-    message:
-      "Model 'claude-haiku-4-5' needs a paid PostHog plan. Models available on the free tier: @cf/zai-org/glm-5.2. Add a payment method to your organization to unlock all models. (rate_limit)",
-    type: "permission_error",
-    code: "model_gate",
-  },
+const CHAT_SUCCESS_BODY = {
+  id: "chatcmpl_1",
+  object: "chat.completion",
+  model: "zai-org/glm-5.2",
+  choices: [
+    {
+      index: 0,
+      message: { role: "assistant", content: "glm says hi" },
+      finish_reason: "stop",
+    },
+  ],
+  usage: { prompt_tokens: 9, completion_tokens: 4, total_tokens: 13 },
 };
 
 describe("LlmGatewayService.prompt", () => {
@@ -147,60 +150,6 @@ describe("LlmGatewayService.prompt", () => {
       stopReason: "end_turn",
       usage: { inputTokens: 12, outputTokens: 7 },
     });
-  });
-
-  it("posts to the resolved messages URL with the default model and request body", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(createJsonResponse(SUCCESS_BODY));
-    const { service } = createService(fetchMock);
-
-    await service.prompt([{ role: "user", content: "hi" }], {
-      system: "be terse",
-      maxTokens: 256,
-    });
-
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe(`${API_HOST}/gateway/v1/messages`);
-    expect(init.method).toBe("POST");
-    expect(init.headers).toMatchObject({ "X-PostHog-Project-Id": "42" });
-    const body = JSON.parse(init.body);
-    expect(body.model).toBe("claude-default");
-    expect(body.system).toBe("be terse");
-    expect(body.max_tokens).toBe(256);
-    expect(body.stream).toBe(false);
-  });
-
-  it("forwards posthogProperties as x-posthog-property-* request headers and skips nulls", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(createJsonResponse(SUCCESS_BODY));
-    const { service } = createService(fetchMock);
-
-    await service.prompt([{ role: "user", content: "hi" }], {
-      posthogProperties: {
-        $ai_span_name: "pr_description",
-        task_id: 42,
-        is_dry_run: false,
-        // Null/undefined values are dropped so the gateway doesn't see
-        // literal "null" strings on the captured event.
-        unused: null,
-        skipped: undefined,
-        // Newlines and non-ASCII characters are sanitized so no HTTP client
-        // (undici, Bun's fetch) rejects the request before it's sent.
-        rich: "line one\nline two — done 🎉",
-      },
-    });
-
-    const [, init] = fetchMock.mock.calls[0];
-    expect(init.headers).toMatchObject({
-      "x-posthog-property-$ai_span_name": "pr_description",
-      "x-posthog-property-task_id": "42",
-      "x-posthog-property-is_dry_run": "false",
-      "x-posthog-property-rich": "line one line two  done ",
-    });
-    expect(init.headers).not.toHaveProperty("x-posthog-property-unused");
-    expect(init.headers).not.toHaveProperty("x-posthog-property-skipped");
   });
 
   it("throws a typed LlmGatewayError with parsed error fields on non-ok response", async () => {
@@ -248,106 +197,6 @@ describe("LlmGatewayService.prompt", () => {
       type: "unknown_error",
       statusCode: 403,
     });
-  });
-
-  it("retries once on the free-tier model when the model gate 403s", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(createJsonResponse(MODEL_GATE_BODY, 403))
-      .mockResolvedValueOnce(createJsonResponse(SUCCESS_BODY));
-    const { service } = createService(fetchMock);
-
-    const result = await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-
-    expect(result.content).toBe("hello world");
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const firstBody = JSON.parse(fetchMock.mock.calls[0][1].body as string);
-    const retryBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
-    expect(firstBody.model).toBe("claude-haiku-4-5");
-    expect(retryBody.model).toBe("@cf/zai-org/glm-5.2");
-  });
-
-  it("routes straight to the free-tier model once the org is known unsubscribed", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(createJsonResponse(MODEL_GATE_BODY, 403))
-      .mockImplementation(async () => createJsonResponse(SUCCESS_BODY));
-    const { service } = createService(fetchMock);
-
-    // First call learns "unsubscribed" from the gate's 403.
-    await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-    // Second call must not burn a round trip on the gate.
-    await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const thirdBody = JSON.parse(fetchMock.mock.calls[2][1].body as string);
-    expect(thirdBody.model).toBe("@cf/zai-org/glm-5.2");
-  });
-
-  it("forgets the learned subscription state when the organization changes", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(createJsonResponse(MODEL_GATE_BODY, 403))
-      .mockImplementation(async () => createJsonResponse(SUCCESS_BODY));
-    const { service, emitAuthState } = createService(fetchMock);
-
-    await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-    emitAuthState("org-2");
-    await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-
-    const bodyAfterSwitch = JSON.parse(
-      fetchMock.mock.calls[2][1].body as string,
-    );
-    expect(bodyAfterSwitch.model).toBe("claude-haiku-4-5");
-  });
-
-  it("keeps the learned subscription state across same-org auth changes", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(createJsonResponse(MODEL_GATE_BODY, 403))
-      .mockImplementation(async () => createJsonResponse(SUCCESS_BODY));
-    const { service, emitAuthState } = createService(fetchMock);
-
-    await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-    emitAuthState("org-1");
-    await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const bodyAfterRefresh = JSON.parse(
-      fetchMock.mock.calls[2][1].body as string,
-    );
-    expect(bodyAfterRefresh.model).toBe("@cf/zai-org/glm-5.2");
-  });
-
-  it("does not retry non-gate 403s on the free-tier model", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        createJsonResponse(
-          { detail: "Product 'posthog_code' requires OAuth authentication" },
-          403,
-        ),
-      );
-    const { service } = createService(fetchMock);
-
-    await expect(
-      service.prompt([{ role: "user", content: "hi" }]),
-    ).rejects.toMatchObject({ statusCode: 403 });
-    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("throws a timeout LlmGatewayError when the request aborts via the internal timeout", async () => {
@@ -520,24 +369,6 @@ describe("LlmGatewayService.fetchUsage", () => {
 
     expect(usage.ai_credits?.breakdown).toEqual(breakdown);
   });
-
-  it("feeds code_usage_subscribed into helper model routing", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(
-        createJsonResponse({ ...USAGE_BODY, code_usage_subscribed: false }),
-      )
-      .mockResolvedValue(createJsonResponse(SUCCESS_BODY));
-    const { service } = createService(fetchMock);
-
-    await service.fetchUsage();
-    await service.prompt([{ role: "user", content: "hi" }], {
-      model: "claude-haiku-4-5",
-    });
-
-    const promptBody = JSON.parse(fetchMock.mock.calls[1][1].body as string);
-    expect(promptBody.model).toBe("@cf/zai-org/glm-5.2");
-  });
 });
 
 describe("LlmGatewayService.prompt on the Go gateway", () => {
@@ -565,7 +396,26 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
       ai_product: "posthog_code",
       team_id: 7,
     });
+    expect(init.headers["X-PostHog-Span-Name"]).toBe("title");
+    expect(init.headers).not.toHaveProperty("X-PostHog-Session-Id");
     expect(JSON.parse(init.body).model).toBe("claude-haiku-4-5");
+  });
+
+  it("sends a caller's session id in the session header", async () => {
+    const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: GO_ROUTE,
+      fetch: goFetch,
+    });
+
+    await service.prompt([{ role: "user", content: "hi" }], {
+      model: "claude-haiku-4-5",
+      posthogProperties: { $ai_session_id: "task-9" },
+    });
+
+    expect(goFetch.mock.calls[0][1].headers["X-PostHog-Session-Id"]).toBe(
+      "task-9",
+    );
   });
 
   it("sends a default max_tokens when the caller passes none", async () => {
@@ -583,12 +433,14 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
   });
 
   it("picks the free-tier model from the pin without a round trip", async () => {
-    const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const goFetch = vi
+      .fn()
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
     const { service } = createService(vi.fn(), {
       route: {
         ...GO_ROUTE,
         plan: "free",
-        allowedModels: ["zai-org/glm-5.3", "@cf/zai-org/glm-5.2"],
+        allowedModels: ["zai-org/glm-5.3", "zai-org/glm-5.2"],
       },
       fetch: goFetch,
     });
@@ -599,12 +451,123 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
 
     expect(goFetch).toHaveBeenCalledTimes(1);
     expect(JSON.parse(goFetch.mock.calls[0][1].body).model).toBe(
-      "@cf/zai-org/glm-5.2",
+      "zai-org/glm-5.2",
     );
   });
 
-  it("falls back to the first allowed model when the free model is not pinned", async () => {
+  it("sends a chat prompt with no system message when the caller passes none, and tolerates null content and no usage", async () => {
+    const goFetch = vi.fn().mockResolvedValue(
+      createJsonResponse({
+        model: "zai-org/glm-5.2",
+        choices: [{ message: { content: null }, finish_reason: "length" }],
+      }),
+    );
+    const { service } = createService(vi.fn(), {
+      route: { ...GO_ROUTE, plan: "free", allowedModels: ["zai-org/glm-5.2"] },
+      fetch: goFetch,
+    });
+
+    const result = await service.prompt([{ role: "user", content: "hi" }]);
+
+    expect(JSON.parse(goFetch.mock.calls[0][1].body).messages).toEqual([
+      { role: "user", content: "hi" },
+    ]);
+    expect(result).toEqual({
+      content: "",
+      model: "zai-org/glm-5.2",
+      stopReason: "length",
+      usage: { inputTokens: 0, outputTokens: 0 },
+    });
+  });
+
+  it("keeps a re-minted retry on chat completions", async () => {
+    const goFetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        createJsonResponse({ error: { message: "bad token" } }, 401),
+      )
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
+    const freeRoute = {
+      ...GO_ROUTE,
+      plan: "free" as const,
+      allowedModels: ["zai-org/glm-5.2"],
+    };
+    const remint = vi
+      .fn()
+      .mockResolvedValue({ ...freeRoute, token: "phe_two" });
+    const { service } = createService(vi.fn(), {
+      route: freeRoute,
+      fetch: goFetch,
+      remint,
+    });
+
+    const result = await service.prompt([{ role: "user", content: "hi" }]);
+
+    expect(result.content).toBe("glm says hi");
+    expect(remint).toHaveBeenCalledWith("unauthorized", "phe_one", 42);
+    const [retryUrl, retryInit] = goFetch.mock.calls[1];
+    expect(retryUrl).toBe(
+      "https://ai-gateway.us.posthog.com/v1/chat/completions",
+    );
+    expect(retryInit.headers.Authorization).toBe("Bearer phe_two");
+  });
+
+  it("sends an open-weight helper prompt as chat completions with the system prompt first", async () => {
+    const goFetch = vi
+      .fn()
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: { ...GO_ROUTE, plan: "free", allowedModels: ["zai-org/glm-5.2"] },
+      fetch: goFetch,
+    });
+
+    const result = await service.prompt([{ role: "user", content: "hi" }], {
+      system: "be brief",
+      maxTokens: 64,
+    });
+
+    const [url, init] = goFetch.mock.calls[0];
+    expect(url).toBe("https://ai-gateway.us.posthog.com/v1/chat/completions");
+    expect(init.headers.Authorization).toBe("Bearer phe_one");
+    expect(JSON.parse(init.body)).toEqual({
+      model: "zai-org/glm-5.2",
+      messages: [
+        { role: "system", content: "be brief" },
+        { role: "user", content: "hi" },
+      ],
+      stream: false,
+      // The chat floor, above the caller's 64.
+      max_tokens: 1024,
+    });
+    expect(result).toEqual({
+      content: "glm says hi",
+      model: "zai-org/glm-5.2",
+      stopReason: "stop",
+      usage: { inputTokens: 9, outputTokens: 4 },
+    });
+  });
+
+  it("keeps a Claude helper prompt on the Messages API", async () => {
     const goFetch = vi.fn().mockResolvedValue(createJsonResponse(SUCCESS_BODY));
+    const { service } = createService(vi.fn(), {
+      route: GO_ROUTE,
+      fetch: goFetch,
+    });
+
+    await service.prompt([{ role: "user", content: "hi" }], {
+      model: "claude-haiku-4-5",
+      system: "be brief",
+    });
+
+    const [url, init] = goFetch.mock.calls[0];
+    expect(url).toBe("https://ai-gateway.us.posthog.com/v1/messages");
+    expect(JSON.parse(init.body).system).toBe("be brief");
+  });
+
+  it("falls back to the first allowed model when the free model is not pinned", async () => {
+    const goFetch = vi
+      .fn()
+      .mockResolvedValue(createJsonResponse(CHAT_SUCCESS_BODY));
     const { service } = createService(vi.fn(), {
       route: { ...GO_ROUTE, plan: "free", allowedModels: ["zai-org/glm-5.3"] },
       fetch: goFetch,
@@ -841,6 +804,7 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
         mode: "blocked",
         reason: "credit_bucket_exhausted",
         detail: "Your organization has reached its PostHog Desktop usage limit",
+        status: 402,
       },
       fetch: goFetch,
     });
@@ -852,12 +816,43 @@ describe("LlmGatewayService.prompt on the Go gateway", () => {
     expect(error).toMatchObject({
       statusCode: 402,
       code: "credit_bucket_exhausted",
+      type: "billing_error",
     });
     expect(classifyGatewayLimitError((error as Error).message)).toBe(
       "org_limit",
     );
     expect(authenticatedFetch).not.toHaveBeenCalled();
     expect(goFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["email_unverified", 403, "permission_error"],
+    ["signed_out", 401, "authentication_error"],
+    ["mint_failed", 503, "api_error"],
+  ] as const)(
+    "refuses a helper prompt on a %s block with its status, without legacy",
+    async (reason, status, type) => {
+      const authenticatedFetch = vi.fn();
+      const { service } = createService(authenticatedFetch, {
+        route: { mode: "blocked", reason, detail: "blocked", status },
+      });
+
+      await expect(
+        service.prompt([{ role: "user", content: "hi" }]),
+      ).rejects.toMatchObject({ statusCode: status, code: reason, type });
+      expect(authenticatedFetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("refuses a helper prompt with a retryable error when the route lookup fails", async () => {
+    const authenticatedFetch = vi.fn();
+    const { service, gatewayTokens } = createService(authenticatedFetch);
+    vi.mocked(gatewayTokens.getRoute).mockRejectedValueOnce(new Error("boom"));
+
+    await expect(
+      service.prompt([{ role: "user", content: "hi" }]),
+    ).rejects.toMatchObject({ statusCode: 503, code: "route_failed" });
+    expect(authenticatedFetch).not.toHaveBeenCalled();
   });
 });
 

@@ -11,6 +11,7 @@ matters. Refusals are raised as the error types defined here — the caller deci
 response they become.
 """
 
+import re
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING, Any
 
@@ -21,15 +22,20 @@ from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_shared_dashboard
+from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models.user import User
+from posthog.models.user_home_settings import UserHomeSettings
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade.enums import PrivilegeLevel
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
+
     from products.product_analytics.backend.facade.models import Insight
 
 
@@ -87,6 +93,89 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
         for dashboard_id in dashboard_ids
         if dashboard_id in names
     )
+
+
+@dataclass(frozen=True)
+class DashboardInsightTile:
+    insight_short_id: str
+    filters_overrides: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class DashboardInsights:
+    dashboard_id: int
+    name: str | None
+    filters: dict[str, Any]
+    variables: dict[str, Any] | None
+    tiles: tuple[DashboardInsightTile, ...]
+
+
+def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> DashboardInsights | None:
+    homepage = UserHomeSettings.objects.filter(team=team, user=user).values_list("homepage", flat=True).first()
+    match = re.search(r"/dashboard/(\d+)", str((homepage or {}).get("pathname") or ""))
+    dashboard_id = int(match.group(1)) if match else team.primary_dashboard_id
+    if dashboard_id is None:
+        return None
+    return dashboard_insights(team=team, user=user, dashboard_id=dashboard_id, limit=limit)
+
+
+def dashboard_insights(*, team: "Team", user: User, dashboard_id: int, limit: int) -> DashboardInsights | None:
+    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
+    access = UserAccessControl(user=user, team=team)
+    if dashboard is None or not access.check_access_level_for_object(dashboard, "viewer"):
+        return None
+    insight_tiles = DashboardTile.objects.filter(dashboard=dashboard, insight__isnull=False, insight__deleted=False)
+    tiles = DashboardTile.sort_tiles_by_layout(insight_tiles.select_related("insight"))
+    return DashboardInsights(
+        dashboard_id=dashboard.id,
+        name=dashboard.name,
+        filters=dashboard.filters or {},
+        variables=dashboard.variables or None,
+        tiles=tuple(
+            DashboardInsightTile(
+                insight_short_id=tile.insight.short_id, filters_overrides=tile.filters_overrides or None
+            )
+            for tile in tiles[:limit]
+            if tile.insight is not None
+        ),
+    )
+
+
+def viewable_dashboard_ref(dashboard_id: int, *, team: "Team", user: User) -> DashboardRef | None:
+    """The dashboard as a ref when it is live in this team and the user may view it, else None.
+
+    Object-level access rules can hide one dashboard from a user who has team-wide dashboard access.
+    """
+    dashboard = Dashboard.objects.filter(team_id=team.id, pk=dashboard_id).first()
+    if dashboard is None:
+        return None
+    if UserAccessControl(user=user, team=team).check_access_level_for_object(dashboard, "viewer") is False:
+        return None
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def create_dashboard_from_tiles(
+    *,
+    team: "Team",
+    user: User,
+    name: str,
+    description: str,
+    filters: dict[str, Any],
+    tiles: list[dict[str, Any]],
+    tags: list[str],
+) -> DashboardRef:
+    """Create a dashboard from template-shaped tile definitions, for products that build dashboards in code.
+
+    Runs inside the caller's transaction, so a failure part way leaves no dashboard behind when the caller rolls back.
+    """
+    template = DashboardTemplate(
+        template_name=name, dashboard_description=description, dashboard_filters=filters, tiles=tiles, tags=tags
+    )
+    dashboard = Dashboard.objects.create(
+        team_id=team.id, name=name, created_by=user, creation_mode=Dashboard.CreationMode.TEMPLATE
+    )
+    create_from_template(dashboard, template, user, user_access_control=UserAccessControl(user=user, team=team))
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
 
 
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:

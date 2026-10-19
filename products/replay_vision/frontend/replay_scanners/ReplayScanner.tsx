@@ -8,7 +8,6 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -24,6 +23,7 @@ import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { replayScannerLogic } from './replayScannerLogic'
 import { ReplayScannerTab, replayScannerSceneLogic } from './replayScannerSceneLogic'
+import { scannerEditUrl } from './scannerEditorSceneLogic'
 
 const ScannerAlertsTab = lazyWithRetry(() =>
     import('./components/ScannerAlertsTab').then((module) => ({ default: module.ScannerAlertsTab }))
@@ -45,7 +45,7 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannerSceneComponent(): JSX.Element {
-    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
+    const { scannerId, activeTab, defaultTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab, setDefaultTab } = useActions(replayScannerSceneLogic)
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
@@ -82,7 +82,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         <LemonButton
                             type="primary"
                             size="small"
-                            to={urls.replayVisionScannerConfigure(scannerId)}
+                            to={scannerEditUrl(scannerId, activeTab === defaultTab ? null : activeTab)}
                             disabledReason={getReplayVisionEditDisabledReason(scanner.user_access_level)}
                             data-attr="vision-scanner-edit"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}

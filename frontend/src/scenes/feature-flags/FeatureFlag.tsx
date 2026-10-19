@@ -95,6 +95,7 @@ import { openFeatureFlagDeleteDialog } from './featureFlagDeleteDialog'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { ExperimentsTab } from './FeatureFlagExperimentsTab'
 import { FeedbackTab } from './FeatureFlagFeedbackTab'
+import { FeatureFlagLoadError } from './FeatureFlagLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from './featureFlagLogic'
 import { FeatureFlagOverview } from './FeatureFlagOverview'
 import FeatureFlagProjects from './FeatureFlagProjects'
@@ -103,7 +104,7 @@ import FeatureFlagSchedule from './FeatureFlagSchedule'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 import { FeatureFlagTestingTab } from './FeatureFlagTestingTab'
 import { FeatureFlagUsageMetrics } from './FeatureFlagUsageMetrics'
-import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './featureFlagUsageQueries'
+import { FLAG_EVALUATIONS_RETENTION_DAYS, readsFlagEvaluationsTable } from './flagEvaluationsTable'
 import { useFeatureFlagAgentRefresh } from './useFeatureFlagAgentRefresh'
 
 const RESOURCE_TYPE = 'feature_flag'
@@ -140,6 +141,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlag,
         featureFlagLoading,
         featureFlagMissing,
+        featureFlagLoadFailed,
         activeTab,
         availableTabs,
         accessDeniedToFeatureFlag,
@@ -270,6 +272,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+
+    // Before the form branch below: an edit session whose flag never loaded has nothing to edit.
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={props.id} />
     }
 
     if (featureFlagLoading) {
@@ -726,11 +733,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 function ConnectedUsageDashboard({
     featureFlag,
     dashboardId,
-    hasEnrichedAnalytics,
 }: {
     featureFlag: FeatureFlagType
     dashboardId: number
-    hasEnrichedAnalytics: boolean | undefined
 }): JSX.Element | null {
     const { dashboard, error404 } = useValues(
         dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
@@ -738,18 +743,6 @@ function ConnectedUsageDashboard({
         dashboard: DashboardType | null
         error404: boolean
     }
-    const { enrichUsageDashboard } = useActions(featureFlagLogic)
-
-    useEffect(() => {
-        if (
-            dashboard &&
-            hasEnrichedAnalytics &&
-            !(dashboard.tiles?.find((tile) => (tile.insight?.name?.indexOf('Feature Viewed') ?? -1) > -1) !== undefined)
-        ) {
-            enrichUsageDashboard()
-        }
-    }, [dashboard, hasEnrichedAnalytics, enrichUsageDashboard])
-
     // The dashboard FK survives a soft delete (SET_NULL only fires on a hard delete), so a
     // deleted dashboard still looks linked here. Fall back to the same inline charts a
     // dashboardless flag gets instead of an unrecoverable skeleton.
@@ -808,11 +801,7 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                 </LemonBanner>
             )}
             {dashboardId ? (
-                <ConnectedUsageDashboard
-                    featureFlag={featureFlag}
-                    dashboardId={dashboardId}
-                    hasEnrichedAnalytics={hasEnrichedAnalytics}
-                />
+                <ConnectedUsageDashboard featureFlag={featureFlag} dashboardId={dashboardId} />
             ) : featureFlag.id ? (
                 <FeatureFlagUsageMetrics id={featureFlag.id} />
             ) : null}

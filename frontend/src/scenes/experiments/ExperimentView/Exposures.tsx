@@ -18,7 +18,11 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ExperimentExposureCriteria, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from 'products/experiments/frontend/constants'
-import { getTotalExposures, hasSampleRatioMismatch } from 'products/experiments/frontend/health/exposureHealth'
+import {
+    SAMPLE_RATIO_MISMATCH_DESCRIPTION,
+    getTotalExposures,
+    hasSampleRatioMismatch,
+} from 'products/experiments/frontend/health/exposureHealth'
 import { useHealthFindingReporting } from 'products/experiments/frontend/health/useHealthFindingReporting'
 
 import { experimentLogic } from '../experimentLogic'
@@ -27,9 +31,6 @@ import { filterLowMultipleVariant, getExposureConfigDisplayName, resolveMultiple
 import { exposureCriteriaModalLogic } from './exposureCriteriaModalLogic'
 import { buildExposureSeries } from './exposuresTransforms'
 import { VariantTag } from './VariantTag'
-
-const srmFailureTooltipText =
-    "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001). This may indicate issues with randomization or data collection."
 
 // Below this, a load looks like any other; above it, the user has no way to tell a slow query
 // from a stuck one, so we start showing elapsed time and a way to retry.
@@ -169,8 +170,8 @@ export function Exposures(): JSX.Element {
 
     // The open panel says "No exposures yet" for a draft and after a failed exposure query too.
     // Only a launched experiment with an answer that holds no exposure is the zero-exposure state.
-    const hasZeroExposures =
-        !isExperimentDraft && !exposuresLoading && exposures != null && !exposures.timeseries?.length
+    // The answer holds a series for every configured variant, with zero counts, so only the total tells.
+    const hasZeroExposures = !isExperimentDraft && !exposuresLoading && exposures != null && totalExposures === 0
 
     const { reportOpened: reportSrmOpened } = useHealthFindingReporting(
         hasSRM && !isExperimentDraft && !exposuresLoading ? { code: 'srm' } : null
@@ -243,7 +244,7 @@ export function Exposures(): JSX.Element {
                                     </div>
                                 )}
                                 {hasSRM && (
-                                    <Tooltip title={srmFailureTooltipText}>
+                                    <Tooltip title={SAMPLE_RATIO_MISMATCH_DESCRIPTION}>
                                         <IconWarning className="text-warning text-lg" />
                                     </Tooltip>
                                 )}
@@ -303,7 +304,7 @@ export function Exposures(): JSX.Element {
                                         </div>
                                     )}
                                 </div>
-                            ) : !exposures?.timeseries?.length ? (
+                            ) : totalExposures === 0 ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">
                                     <div className="text-center">
                                         <IconCorrelationAnalysis className="text-3xl mb-2 text-tertiary" />
@@ -481,7 +482,7 @@ export function Exposures(): JSX.Element {
                                         <div className="flex items-center gap-1 text-xs mt-2">
                                             {hasSRM ? (
                                                 <>
-                                                    <Tooltip title={srmFailureTooltipText}>
+                                                    <Tooltip title={SAMPLE_RATIO_MISMATCH_DESCRIPTION}>
                                                         <span className="flex items-center gap-1 text-warning cursor-pointer">
                                                             <IconWarning className="text-sm" />
                                                             <span className="font-semibold">

@@ -24,22 +24,18 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG, MetricFilter
 from products.metrics.backend.facade.enums import AttributeScope, FilterOp
+from products.metrics.backend.hogql_queries.metrics_query_runner import metrics_query_date_range
 from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _QUERY_SETTINGS, _interval_step
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 
 if TYPE_CHECKING:
     from posthog.models import User
-
-# Metrics dashboards are usually about "what is happening now", so the node
-# defaults to a tighter window than the analytics-wide -7d. Mirrors MetricsQueryRunner.
-DEFAULT_DATE_FROM = "-24h"
 
 # The grid materializes bounds x time columns of Python objects, so its size is
 # capped up front: an authenticated user could otherwise pair a fine interval
@@ -88,17 +84,9 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
             "MetricsHistogramQuery reuses MetricQueryRunner's histogram query; there is no single statement"
         )
 
-    def _query_date_range(self) -> QueryDateRange:
-        date_range = DateRange(
-            date_from=(self.query.dateRange.date_from if self.query.dateRange else None) or DEFAULT_DATE_FROM,
-            date_to=self.query.dateRange.date_to if self.query.dateRange else None,
-            explicitDate=True,
-        )
-        return QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime.now())
-
     def _calculate(self) -> MetricsHistogramQueryResponse:
         self._enforce_alpha_gate_for_anonymous_viewers()
-        date_range = self._query_date_range()
+        date_range = metrics_query_date_range(self.team, self.query.dateRange)
         date_from = date_range.date_from()
         date_to = date_range.date_to()
 
@@ -220,3 +208,5 @@ class MetricsHistogramQueryRunner(AnalyticsQueryRunner[MetricsHistogramQueryResp
                 date_from=dashboard_filter.date_from,
                 date_to=dashboard_filter.date_to,
             )
+        if dashboard_filter.metricFilters:
+            self.query.filters = [*(self.query.filters or []), *dashboard_filter.metricFilters]

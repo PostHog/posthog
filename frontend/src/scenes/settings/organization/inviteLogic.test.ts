@@ -35,4 +35,20 @@ describe('inviteLogic', () => {
             canSubmit: !isExistingMember,
         })
     })
+
+    it('shows a message validation error under the field until the message changes', async () => {
+        logic.actions.inviteTeamMembersFailure('', {
+            status: 400,
+            attr: 'message',
+            code: 'invalid_url',
+            detail: 'URLs are not allowed in this field.',
+        })
+        await expectLogic(logic).toMatchValues({ messageError: 'URLs are not allowed in this field.' })
+
+        logic.actions.updateInviteAtIndex({ first_name: 'Jo' }, 0)
+        await expectLogic(logic).toMatchValues({ messageError: 'URLs are not allowed in this field.' })
+
+        logic.actions.updateMessage('no link this time')
+        await expectLogic(logic).toMatchValues({ messageError: null })
+    })
 })

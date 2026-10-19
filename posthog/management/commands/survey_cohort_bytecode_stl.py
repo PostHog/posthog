@@ -102,6 +102,8 @@ RUST_NATIVE_STL: frozenset[str] = frozenset(
         "toDate",
         "multiSearchAnyCaseInsensitive",
         "randomFloat",
+        # Ordered numeric property filters compile to a toFloat(...) LHS cast; stl.rs registers it.
+        "toFloat",
     }
 )
 # inCohort/notInCohort exist in stl.rs but take 2 args (cohort_id, cohort_ids); stored realtime cohort

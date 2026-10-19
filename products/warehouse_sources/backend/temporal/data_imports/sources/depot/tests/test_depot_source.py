@@ -7,6 +7,10 @@ from unittest import mock
 
 from requests import HTTPError, Response
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    scripted_network,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.depot import DEPOT_CI_SERVICE_URL
 from products.warehouse_sources.backend.temporal.data_imports.sources.depot.source import DepotSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.depot import DepotSourceConfig
@@ -30,26 +34,24 @@ class TestDepotSource:
         ["posthog", "https://github.com/PostHog/posthog", "PostHog/posthog/tree/master", "PostHog/ posthog", ""],
     )
     def test_rejects_a_repository_that_is_not_owner_slash_name_without_calling_depot(self, repository: str) -> None:
-        with mock.patch(f"{MODULE}.make_tracked_session") as make_session:
+        with scripted_network([]) as network:
             valid, message = DepotSource().validate_credentials(
                 DepotSourceConfig(api_token="token", repository=repository), team_id=1
             )
 
         assert valid is False
         assert message is not None and "owner/name" in message
-        make_session.assert_not_called()
+        assert network.requests_log == []
 
     @pytest.mark.parametrize("repository", ["PostHog/posthog", "example-org/repo.name_2"])
     def test_accepts_an_owner_slash_name_repository_that_depot_lists(self, repository: str) -> None:
-        session = mock.MagicMock()
-        session.post.return_value = _response(200, "OK", {"runs": []})
-
-        with mock.patch(f"{MODULE}.make_tracked_session", return_value=session):
+        with scripted_network([ScriptedResponse(json={"runs": []})]) as network:
             result = DepotSource().validate_credentials(
                 DepotSourceConfig(api_token="token", repository=repository), team_id=1
             )
 
         assert result == (True, None)
+        assert network.requests_log[0].json() == {"repo": repository, "pageSize": 1}
 
     @pytest.mark.parametrize(
         "status, reason, body",

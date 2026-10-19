@@ -21,6 +21,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.flag_evaluations import FlagEvaluationsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsTable
 from posthog.hogql.database.schema.persons import PersonsTable
@@ -225,6 +226,10 @@ class ReplaceFilters(CloningVisitor):
         return node
 
     def visit_placeholder(self, node):
+        if node.chain in (["filters", "previous", "dateRange", "from"], ["filters", "previous", "dateRange", "to"]):
+            return self._comparison_visitor().visit_placeholder(
+                ast.Placeholder(expr=ast.Field(chain=["filters", "dateRange", node.chain[-1]]))
+            )
         if node.chain == ["filters", "previous"]:
             return self._comparison_visitor().visit_placeholder(ast.Placeholder(expr=ast.Field(chain=["filters"])))
         # The column-bound form {filters(expr AS key, ...)}: the query author maps each filter key
@@ -263,36 +268,15 @@ class ReplaceFilters(CloningVisitor):
 
         if node.chain == ["filters"]:
             return self._replace_native_filters()
-        if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
-            if no_filters:
-                compare_op_wrapper.skip = True
+        if node.chain in (["filters", "dateRange", "from"], ["filters", "dateRange", "to"]):
+            bound = node.chain[-1]
+            value = None if no_filters else self._resolve_date_from() if bound == "from" else self._resolve_date_to()[0]
+            if value is not None:
+                return ast.Constant(value=value)
+            if self.compare_operations:
+                self.compare_operations[-1].skip = True
                 return ast.Constant(value=True)
-
-            assert self.filters is not None
-
-            date_from = self._resolve_date_from()
-            if date_from is not None:
-                return ast.Constant(value=date_from)
-            else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
-        if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
-
-            if no_filters:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
-
-            assert self.filters is not None
-
-            date_to, _date_to_inclusive = self._resolve_date_to()
-            if date_to is not None:
-                return ast.Constant(value=date_to)
-            else:
-                compare_op_wrapper.skip = True
-                return ast.Constant(value=True)
+            raise QueryError(f"Select a bounded date range to use {{filters.dateRange.{bound}}} as a value")
 
         if node.chain == ["filters", "interval"]:
             return self._replace_interval([])
@@ -326,7 +310,7 @@ class ReplaceFilters(CloningVisitor):
         while last_join is not None:
             if isinstance(last_join.table, ast.Field):
                 resolved = self._resolve_table(last_join.table.chain)
-                if isinstance(resolved, (EventsTable, AiEventsTable)):
+                if isinstance(resolved, (EventsTable, AiEventsTable, FlagEvaluationsTable)):
                     found_events = True
                 if isinstance(resolved, SessionsTableV1 | SessionsTableV2 | SessionsTableV3):
                     found_sessions = True
@@ -344,7 +328,7 @@ class ReplaceFilters(CloningVisitor):
 
         if not any([found_events, found_sessions, found_logs, found_traces, found_groups, found_persons]):
             raise QueryError(
-                f"Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, sessions, logs, traces, groups or persons table."
+                "Cannot use 'filters' placeholder in a SELECT clause that does not select from the events, ai_events, flag_evaluations, sessions, logs, traces, groups or persons table."
             )
 
         # Person semantics apply only when persons is the sole recognized table; any query that also

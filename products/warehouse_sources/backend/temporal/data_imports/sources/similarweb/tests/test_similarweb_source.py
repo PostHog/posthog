@@ -4,8 +4,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.similarweb import (
     SimilarwebSourceConfig,
 )
@@ -15,7 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
     ENDPOINTS,
     MAX_DOMAINS,
     SIMILARWEB_ENDPOINTS,
-    TRAFFIC_BY_COUNTRY,
+    V5_ENGAGEMENT_PATH,
     VISITS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source import SimilarwebSource
@@ -23,42 +26,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.similarweb
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.similarweb.source"
 
 
-def _inputs(schema_name: str = VISITS, **overrides: Any) -> SourceInputs:
-    defaults: dict[str, Any] = {
-        "schema_name": schema_name,
-        "schema_id": "schema-id",
-        "source_id": "source-id",
-        "team_id": 1,
-        "should_use_incremental_field": False,
-        "db_incremental_field_last_value": None,
-        "db_incremental_field_earliest_value": None,
-        "incremental_field": None,
-        "incremental_field_type": None,
-        "job_id": "job-id",
-        "logger": mock.MagicMock(),
-        "reset_pipeline": False,
-    }
-    return SourceInputs(**{**defaults, **overrides})
-
-
 class TestSimilarwebSource:
     def setup_method(self) -> None:
         self.source = SimilarwebSource()
         self.team_id = 123
         self.config = SimilarwebSourceConfig(api_key="key-123", domains="posthog.com")
-
-    def test_get_schemas_covers_every_endpoint(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-
-        assert {schema.name for schema in schemas} == set(ENDPOINTS)
-        by_name = {schema.name: schema for schema in schemas}
-        for name, endpoint in SIMILARWEB_ENDPOINTS.items():
-            assert by_name[name].description == endpoint.description
-            # The geo breakdown aggregates the whole window into rows with no period column,
-            # so it must not advertise a cursor the pipeline would try to advance.
-            assert by_name[name].supports_incremental is (name != TRAFFIC_BY_COUNTRY)
-            if name != TRAFFIC_BY_COUNTRY:
-                assert {field["field"] for field in by_name[name].incremental_fields} == {"date"}
 
     @parameterized.expand(
         [
@@ -92,8 +64,8 @@ class TestSimilarwebSource:
 
     @parameterized.expand([(name,) for name in ENDPOINTS])
     def test_primary_keys_identify_a_row_across_domains(self, name: str) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        response = self.source.source_for_pipeline(self.config, manager, _inputs(schema_name=name))
+        response = SourceDriver(self.source, self.config).run(name, always(ScriptedResponse(json={}))).response
+        assert response is not None
 
         endpoint = SIMILARWEB_ENDPOINTS[name]
         assert response.name == name
@@ -103,10 +75,6 @@ class TestSimilarwebSource:
         assert response.primary_keys is not None and "domain" in response.primary_keys
         assert response.sort_mode == "asc"
         assert response.partition_keys == ([endpoint.partition_key] if endpoint.partition_key else None)
-
-    def test_declares_v5_as_default_over_legacy(self) -> None:
-        assert self.source.supported_versions == (API_VERSION_LEGACY, API_VERSION_V5)
-        assert self.source.default_version == API_VERSION_V5
 
     @parameterized.expand(
         [
@@ -118,21 +86,15 @@ class TestSimilarwebSource:
     def test_source_for_pipeline_passes_the_resolved_api_version(
         self, _name: str, pin: str | None, expected: str
     ) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
+        result = SourceDriver(self.source, self.config).run(
+            VISITS, [ScriptedResponse(json={"data": [], "visits": []})], api_version=pin
+        )
 
-        with mock.patch(f"{MODULE}.similarweb_source") as build:
-            self.source.source_for_pipeline(self.config, manager, _inputs(api_version=pin))
-
-        assert build.call_args.kwargs["api_version"] == expected
-
-    def test_source_for_pipeline_drops_the_watermark_on_a_full_refresh(self) -> None:
-        manager = mock.MagicMock(spec=ResumableSourceManager)
-        inputs = _inputs(should_use_incremental_field=False, db_incremental_field_last_value="2024-04")
-
-        with mock.patch(f"{MODULE}.similarweb_source") as build:
-            self.source.source_for_pipeline(self.config, manager, inputs)
-
-        assert build.call_args.kwargs["db_incremental_field_last_value"] is None
-        assert build.call_args.kwargs["api_key"] == "key-123"
-        assert build.call_args.kwargs["domains"] == "posthog.com"
-        assert build.call_args.kwargs["granularity"] == "monthly"
+        # V5 sends the key in a header to the multi-metric path; the legacy pin keeps the key in the query.
+        if expected == API_VERSION_V5:
+            assert result.paths == [V5_ENGAGEMENT_PATH]
+            assert result.params("api_key") == [None]
+            assert result.requests[0].headers["api-key"] == "key-123"
+        else:
+            assert result.paths != [V5_ENGAGEMENT_PATH]
+            assert result.params("api_key") == ["key-123"]

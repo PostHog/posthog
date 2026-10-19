@@ -13,6 +13,16 @@
 //!             probe-heavy tail: every file's footer and PK column is read)
 //!   smallbig  unpartitioned, 60 files x 20k rows; 34-row update touching 2 files
 //!   mixed10k  unpartitioned, 60 files x 20k rows; 10k-row update spread over all files
+//!   tail23    as median, but 73 partitions and a checkpoint every 25 commits, so the log
+//!             holds 23 commits after the last checkpoint (the longest tail production sees)
+//!   nockpt    as median, with no checkpoint at all (60 commits to replay)
+//!   manysmall unpartitioned, 300 files x 200 rows; 50-row insert-only batch (every small
+//!             file is probed)
+//!   hourly    partitioned, 2000 partitions x 1 file x 50 rows; 30-row update across 3
+//!             partitions
+//!
+//! `--cold` opens a new handle for every upsert, which is what the loader does for most
+//! batches. `--compact` runs one compaction after the upserts.
 //!
 //! Usage:
 //!   cargo run --release -p deltalite-core --example upsert_io -- \
@@ -55,15 +65,32 @@ mod counted {
     };
 
     pub static GETS: AtomicUsize = AtomicUsize::new(0);
+    pub static HEADS: AtomicUsize = AtomicUsize::new(0);
     pub static GET_BYTES: AtomicU64 = AtomicU64::new(0);
     pub static LISTS: AtomicUsize = AtomicUsize::new(0);
     pub static WRITES: AtomicUsize = AtomicUsize::new(0);
     pub static PUT_BYTES: AtomicU64 = AtomicU64::new(0);
     pub static LATENCY_MS: AtomicU64 = AtomicU64::new(0);
+    pub static TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    fn trace(op: &str, what: impl std::fmt::Display) {
+        if TRACE.load(Ordering::Relaxed) {
+            eprintln!("    [io] {op:<5} {what}");
+        }
+    }
+
+    /// The last two path segments, enough to tell a log entry from a data file.
+    fn tail(p: &Path) -> String {
+        let s = p.as_ref();
+        let mut parts: Vec<&str> = s.rsplit('/').take(2).collect();
+        parts.reverse();
+        parts.join("/")
+    }
 
     #[derive(Clone, Copy, Debug, Default)]
     pub struct Snap {
         pub gets: usize,
+        pub heads: usize,
         pub get_bytes: u64,
         pub lists: usize,
         pub writes: usize,
@@ -73,6 +100,7 @@ mod counted {
     pub fn snapshot() -> Snap {
         Snap {
             gets: GETS.load(Ordering::Relaxed),
+            heads: HEADS.load(Ordering::Relaxed),
             get_bytes: GET_BYTES.load(Ordering::Relaxed),
             lists: LISTS.load(Ordering::Relaxed),
             writes: WRITES.load(Ordering::Relaxed),
@@ -84,6 +112,7 @@ mod counted {
         pub fn delta(&self, since: &Snap) -> Snap {
             Snap {
                 gets: self.gets - since.gets,
+                heads: self.heads - since.heads,
                 get_bytes: self.get_bytes - since.get_bytes,
                 lists: self.lists - since.lists,
                 writes: self.writes - since.writes,
@@ -155,6 +184,7 @@ mod counted {
         ) -> object_store::Result<PutResult> {
             WRITES.fetch_add(1, Ordering::Relaxed);
             PUT_BYTES.fetch_add(payload.content_length() as u64, Ordering::Relaxed);
+            trace("PUT", format!("{} {:?}", tail(location), opts.mode));
             delay().await;
             self.inner.put_opts(location, payload, opts).await
         }
@@ -175,10 +205,21 @@ mod counted {
             location: &Path,
             options: GetOptions,
         ) -> object_store::Result<GetResult> {
-            GETS.fetch_add(1, Ordering::Relaxed);
+            if options.head {
+                HEADS.fetch_add(1, Ordering::Relaxed);
+            } else {
+                GETS.fetch_add(1, Ordering::Relaxed);
+            }
+            trace(
+                if options.head { "HEAD" } else { "GET" },
+                format!("{} {:?}", tail(location), options.range),
+            );
             delay().await;
+            let head = options.head;
             let r = self.inner.get_opts(location, options).await?;
-            GET_BYTES.fetch_add(r.range.end - r.range.start, Ordering::Relaxed);
+            if !head {
+                GET_BYTES.fetch_add(r.range.end - r.range.start, Ordering::Relaxed);
+            }
             Ok(r)
         }
 
@@ -212,6 +253,7 @@ mod counted {
             prefix: Option<&Path>,
         ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
             LISTS.fetch_add(1, Ordering::Relaxed);
+            trace("LIST", format!("{:?}", prefix.map(tail)));
             sorted(self.inner.list(prefix))
         }
 
@@ -221,6 +263,10 @@ mod counted {
             offset: &Path,
         ) -> BoxStream<'static, object_store::Result<ObjectMeta>> {
             LISTS.fetch_add(1, Ordering::Relaxed);
+            trace(
+                "LIST",
+                format!("{:?} offset {}", prefix.map(tail), tail(offset)),
+            );
             sorted(self.inner.list_with_offset(prefix, offset))
         }
 
@@ -229,6 +275,7 @@ mod counted {
             prefix: Option<&Path>,
         ) -> object_store::Result<ListResult> {
             LISTS.fetch_add(1, Ordering::Relaxed);
+            trace("LIST", format!("{:?} delimiter", prefix.map(tail)));
             delay().await;
             self.inner.list_with_delimiter(prefix).await
         }
@@ -300,6 +347,10 @@ enum Scenario {
     Insert,
     SmallBig,
     Mixed10k,
+    Tail23,
+    NoCkpt,
+    ManySmall,
+    Hourly,
 }
 
 impl Scenario {
@@ -309,6 +360,10 @@ impl Scenario {
             "insert" => Self::Insert,
             "smallbig" => Self::SmallBig,
             "mixed10k" => Self::Mixed10k,
+            "tail23" => Self::Tail23,
+            "nockpt" => Self::NoCkpt,
+            "manysmall" => Self::ManySmall,
+            "hourly" => Self::Hourly,
             other => panic!("unknown scenario {other}"),
         }
     }
@@ -318,21 +373,47 @@ impl Scenario {
             Self::Insert => "insert",
             Self::SmallBig => "smallbig",
             Self::Mixed10k => "mixed10k",
+            Self::Tail23 => "tail23",
+            Self::NoCkpt => "nockpt",
+            Self::ManySmall => "manysmall",
+            Self::Hourly => "hourly",
         }
     }
     fn partitioned(self) -> bool {
-        matches!(self, Self::Median)
+        matches!(
+            self,
+            Self::Median | Self::Tail23 | Self::NoCkpt | Self::Hourly
+        )
+    }
+    fn checkpoint_interval(self) -> &'static str {
+        match self {
+            Self::Tail23 => "25",
+            Self::NoCkpt => "100000",
+            _ => "10",
+        }
+    }
+    /// Files written per fixture commit.
+    fn files_per_commit(self) -> usize {
+        match self {
+            Self::Hourly => 40,
+            Self::ManySmall => 4,
+            _ => 1,
+        }
     }
     fn files(self) -> usize {
         match self {
-            Self::Median => 60,
+            Self::Median | Self::NoCkpt => 60,
+            Self::Tail23 => 73,
             Self::Insert => 173,
             Self::SmallBig | Self::Mixed10k => 60,
+            Self::ManySmall => 300,
+            Self::Hourly => 2000,
         }
     }
     fn rows_per_file(self) -> usize {
         match self {
-            Self::Median => 200,
+            Self::Median | Self::Tail23 | Self::NoCkpt | Self::ManySmall => 200,
+            Self::Hourly => 50,
             Self::Insert => 5_000,
             Self::SmallBig | Self::Mixed10k => 20_000,
         }
@@ -346,6 +427,8 @@ struct Args {
     probe_concurrency: usize,
     max_parallel_files: usize,
     dir: Option<PathBuf>,
+    cold: bool,
+    compact: bool,
 }
 
 fn parse_args() -> Args {
@@ -356,10 +439,20 @@ fn parse_args() -> Args {
         probe_concurrency: 8,
         max_parallel_files: 4,
         dir: None,
+        cold: false,
+        compact: false,
     };
     // nosemgrep: rust.lang.security.args.args
     let mut it = std::env::args().skip(1);
     while let Some(flag) = it.next() {
+        if flag == "--cold" {
+            args.cold = true;
+            continue;
+        }
+        if flag == "--compact" {
+            args.compact = true;
+            continue;
+        }
         let mut take = |name: &str| it.next().unwrap_or_else(|| panic!("{name} needs a value"));
         match flag.as_str() {
             "--scenario" => args.scenario = Scenario::parse(&take("--scenario")),
@@ -465,7 +558,7 @@ fn batch(
     RecordBatch::try_new(schema.clone(), cols).expect("batch")
 }
 
-async fn create_table(uri: &str, partitioned: bool) -> deltalake::DeltaTable {
+async fn create_table(uri: &str, partitioned: bool, interval: &str) -> deltalake::DeltaTable {
     let mut cols = vec![StructField::new("id", KernelType::STRING, true)];
     if partitioned {
         cols.push(StructField::new("p", KernelType::STRING, true));
@@ -483,7 +576,7 @@ async fn create_table(uri: &str, partitioned: bool) -> deltalake::DeltaTable {
     let mut b = CreateBuilder::new()
         .with_location(uri)
         .with_columns(cols)
-        .with_configuration_property(deltalake::TableProperty::CheckpointInterval, Some("10"));
+        .with_configuration_property(deltalake::TableProperty::CheckpointInterval, Some(interval));
     if partitioned {
         b = b.with_partition_columns(vec!["p".to_string()]);
     }
@@ -493,13 +586,24 @@ async fn create_table(uri: &str, partitioned: bool) -> deltalake::DeltaTable {
 /// One file per commit: file `f` holds rows `f*rows_per_file .. (f+1)*rows_per_file`
 /// of namespace "base" (partition `f` when partitioned).
 async fn build_fixture(uri: &str, sc: Scenario, schema: &SchemaRef) {
-    let mut table = create_table(uri, sc.partitioned()).await;
+    let mut table = create_table(uri, sc.partitioned(), sc.checkpoint_interval()).await;
     let mut writer = RecordBatchWriter::for_table(&table).expect("writer");
     for f in 0..sc.files() {
         let ids: Vec<usize> = (f * sc.rows_per_file()..(f + 1) * sc.rows_per_file()).collect();
         let b = batch(schema, sc.partitioned(), f, "base", &ids, 0);
         writer.write(b).await.expect("write");
-        writer.flush_and_commit(&mut table).await.expect("commit");
+        if sc.partitioned() {
+            if (f + 1) % sc.files_per_commit() == 0 || f + 1 == sc.files() {
+                writer.flush_and_commit(&mut table).await.expect("commit");
+            }
+        } else {
+            // One file per flush; several flushes per commit.
+            if (f + 1) % sc.files_per_commit() == 0 || f + 1 == sc.files() {
+                writer.flush_and_commit(&mut table).await.expect("commit");
+            } else {
+                writer.flush().await.expect("flush");
+            }
+        }
         if (f + 1) % 50 == 0 {
             eprintln!("  fixture: {} / {} files", f + 1, sc.files());
         }
@@ -523,7 +627,22 @@ fn copy_tree(src: &std::path::Path, dst: &std::path::Path) {
 fn scenario_batch(sc: Scenario, schema: &SchemaRef, i: usize) -> RecordBatch {
     let rpf = sc.rows_per_file();
     match sc {
-        Scenario::Median => {
+        Scenario::ManySmall => {
+            let ids: Vec<usize> = (i * 50..(i + 1) * 50).collect();
+            batch(schema, false, 0, &format!("new{i}"), &ids, 1000 + i)
+        }
+        Scenario::Hourly => {
+            // 10 rows in each of 3 partitions. One batch per partition, concatenated.
+            let parts: Vec<RecordBatch> = (0..3)
+                .map(|k| {
+                    let p = (i * 3 + k) % sc.files();
+                    let ids: Vec<usize> = (p * rpf..p * rpf + 10).collect();
+                    batch(schema, true, p, "base", &ids, 1000 + i)
+                })
+                .collect();
+            arrow_select::concat::concat_batches(schema, &parts).expect("concat")
+        }
+        Scenario::Median | Scenario::Tail23 | Scenario::NoCkpt => {
             let p = i % sc.files();
             let ids: Vec<usize> = (p * rpf..p * rpf + 34).collect();
             batch(schema, true, p, "base", &ids, 1000 + i)
@@ -586,6 +705,10 @@ async fn main() {
     copy_tree(&dir, &run_dir);
     counted::register();
     counted::LATENCY_MS.store(args.latency_ms, std::sync::atomic::Ordering::Relaxed);
+    counted::TRACE.store(
+        std::env::var("UPSERT_IO_TRACE").is_ok(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
     let uri = format!("counted://{}", run_dir.to_string_lossy());
     let so: HashMap<String, String> = HashMap::new();
 
@@ -613,9 +736,10 @@ async fn main() {
     let open_ms = ms(t);
     let d = counted::snapshot().delta(&c0);
     println!(
-        "open_handle      gets {:4} ({:7.2} MB)  lists {:3}  writes {:3}  wall {:8.1} ms",
+        "open_handle      gets {:4} ({:7.2} MB)  heads {:3}  lists {:3}  writes {:3}  wall {:8.1} ms",
         d.gets,
         d.get_bytes as f64 / 1e6,
+        d.heads,
         d.lists,
         d.writes,
         open_ms
@@ -636,10 +760,17 @@ async fn main() {
         "add",
         "copied"
     );
+    let run_started = Instant::now();
+    let run_c0 = counted::snapshot();
     for i in 0..args.iters {
         let b = scenario_batch(sc, &schema, i);
         let c = counted::snapshot();
         let t = Instant::now();
+        if args.cold {
+            handle = TableHandle::open(uri.clone(), so.clone())
+                .await
+                .expect("open");
+        }
         let stats = handle
             .upsert(
                 vec![b],
@@ -666,6 +797,39 @@ async fn main() {
             stats.files_removed,
             stats.files_added,
             stats.rows_copied,
+        );
+    }
+    let d = counted::snapshot().delta(&run_c0);
+    println!(
+        "total{}  gets {:5} ({:8.2} MB)  heads {:3}  lists {:4}  writes {:4}  wall {:9.1} ms",
+        if args.cold { " (cold)" } else { "       " },
+        d.gets,
+        d.get_bytes as f64 / 1e6,
+        d.heads,
+        d.lists,
+        d.writes,
+        ms(run_started)
+    );
+    if args.compact {
+        let c = counted::snapshot();
+        let t = Instant::now();
+        let stats = handle
+            .compact(
+                deltalite_core::CompactOptions::default(),
+                MultipartConfig::default(),
+            )
+            .await
+            .expect("compact");
+        let d = counted::snapshot().delta(&c);
+        println!(
+            "compact          gets {:4} ({:7.2} MB)  heads {:3}  lists {:3}  writes {:3}  wall {:8.1} ms  {:?}",
+            d.gets,
+            d.get_bytes as f64 / 1e6,
+            d.heads,
+            d.lists,
+            d.writes,
+            ms(t),
+            stats
         );
     }
     // A refresh with nothing new to read: what one log refresh costs.

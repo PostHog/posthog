@@ -1,15 +1,27 @@
-import dataclasses
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.settings import BUTTONDOWN_ENDPOINTS
+from posthog.dataclasses import frozen
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.buttondown.settings import (
+    BUTTONDOWN_ENDPOINTS,
+    ButtondownEndpointConfig,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.fanout import (
+    build_dependent_resource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     JSONResponsePaginator,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import (
+    ClientConfig,
+    Endpoint,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import validate_via_probe
@@ -21,11 +33,14 @@ BUTTONDOWN_BASE_URL = "https://api.buttondown.com/v1"
 BUTTONDOWN_API_VERSION = "2026-04-01"
 
 
-@dataclasses.dataclass
+@frozen
 class ButtondownResumeConfig:
     # Absolute URL of the next unfetched page. Buttondown paginates DRF-style: each page body carries
     # a fully-formed `next` link (or null on the last page).
-    next_url: str
+    next_url: Optional[str] = None
+    # Per-subscriber endpoints checkpoint the fan-out instead: the subscribers already done and the
+    # child page of the one in progress.
+    fanout_state: Optional[dict[str, Any]] = None
 
 
 def _headers(api_version: str) -> dict[str, str]:
@@ -58,18 +73,33 @@ def _to_start_date(value: Any) -> Optional[str]:
     return (day - timedelta(days=1)).isoformat()
 
 
-def buttondown_source(
-    api_key: str,
-    endpoint: str,
+def _client_config(api_key: str, api_version: str) -> ClientConfig:
+    return {
+        "base_url": BUTTONDOWN_BASE_URL,
+        "headers": _headers(api_version),
+        "auth": {
+            "type": "api_key",
+            "name": "Authorization",
+            # Buttondown requires the literal "Token " prefix, not "Bearer ".
+            "api_key": f"Token {api_key}",
+            "location": "header",
+        },
+        "paginator": JSONResponsePaginator(next_url_path="next"),
+        # Pagination follows absolute `next` links straight out of the response body, so pin
+        # them to the API host: a spoofed link would otherwise replay the API key elsewhere.
+        "allowed_hosts": [],
+    }
+
+
+def _top_level_resource(
+    config: ButtondownEndpointConfig,
+    client_config: ClientConfig,
     team_id: int,
     job_id: str,
     resumable_source_manager: ResumableSourceManager[ButtondownResumeConfig],
-    api_version: str = BUTTONDOWN_API_VERSION,
-    db_incremental_field_last_value: Optional[Any] = None,
-    should_use_incremental_field: bool = False,
-) -> SourceResponse:
-    config = BUTTONDOWN_ENDPOINTS[endpoint]
-
+    db_incremental_field_last_value: Optional[Any],
+    should_use_incremental_field: bool,
+) -> Resource:
     params: dict[str, Any] = {}
     if config.ordering is not None:
         params["ordering"] = config.ordering
@@ -82,25 +112,11 @@ def buttondown_source(
         }
 
     rest_config: RESTAPIConfig = {
-        "client": {
-            "base_url": BUTTONDOWN_BASE_URL,
-            "headers": _headers(api_version),
-            "auth": {
-                "type": "api_key",
-                "name": "Authorization",
-                # Buttondown requires the literal "Token " prefix, not "Bearer ".
-                "api_key": f"Token {api_key}",
-                "location": "header",
-            },
-            "paginator": JSONResponsePaginator(next_url_path="next"),
-            # Pagination follows absolute `next` links straight out of the response body, so pin
-            # them to the API host: a spoofed link would otherwise replay the API key elsewhere.
-            "allowed_hosts": [],
-        },
+        "client": client_config,
         "resource_defaults": {},
         "resources": [
             {
-                "name": endpoint,
+                "name": config.name,
                 "write_disposition": {"disposition": "merge", "strategy": "upsert"}
                 if should_use_incremental_field
                 else "replace",
@@ -120,7 +136,7 @@ def buttondown_source(
     initial_paginator_state: Optional[dict[str, Any]] = None
     if resumable_source_manager.can_resume():
         resume = resumable_source_manager.load_state()
-        if resume is not None:
+        if resume is not None and resume.next_url:
             initial_paginator_state = {"next_url": resume.next_url}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
@@ -129,7 +145,7 @@ def buttondown_source(
         if state and state.get("next_url"):
             resumable_source_manager.save_state(ButtondownResumeConfig(next_url=str(state["next_url"])))
 
-    resource = rest_api_resource(
+    return rest_api_resource(
         rest_config,
         team_id,
         job_id,
@@ -137,6 +153,73 @@ def buttondown_source(
         resume_hook=save_checkpoint,
         initial_paginator_state=initial_paginator_state,
     )
+
+
+def _fanout_resource(
+    config: ButtondownEndpointConfig,
+    client_config: ClientConfig,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ButtondownResumeConfig],
+) -> Resource:
+    assert config.fanout is not None
+
+    initial_paginator_state: Optional[dict[str, Any]] = None
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.fanout_state:
+            initial_paginator_state = resume.fanout_state
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(ButtondownResumeConfig(fanout_state=state))
+
+    results_selector: Endpoint = {"data_selector": "results", "data_selector_required": True}
+    return cast(
+        Resource,
+        build_dependent_resource(
+            endpoint_configs=BUTTONDOWN_ENDPOINTS,
+            child_endpoint=config.name,
+            fanout=config.fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param=None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state=initial_paginator_state,
+            parent_endpoint_extra=results_selector,
+            child_endpoint_extra=results_selector,
+        ),
+    )
+
+
+def buttondown_source(
+    api_key: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[ButtondownResumeConfig],
+    api_version: str = BUTTONDOWN_API_VERSION,
+    db_incremental_field_last_value: Optional[Any] = None,
+    should_use_incremental_field: bool = False,
+) -> SourceResponse:
+    config = BUTTONDOWN_ENDPOINTS[endpoint]
+    client_config = _client_config(api_key, api_version)
+
+    if config.fanout is not None:
+        resource = _fanout_resource(config, client_config, team_id, job_id, resumable_source_manager)
+    else:
+        resource = _top_level_resource(
+            config,
+            client_config,
+            team_id,
+            job_id,
+            resumable_source_manager,
+            db_incremental_field_last_value,
+            should_use_incremental_field,
+        )
 
     return SourceResponse(
         name=endpoint,

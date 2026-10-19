@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 import { cn } from 'lib/utils/css-classes'
@@ -9,8 +10,9 @@ import { newInternalTab } from 'lib/utils/newInternalTab'
 
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
+import { CommandKSearch } from '../CommandKSearch/CommandKSearch'
 import { Search } from '../Search/Search'
-import { SearchItem } from '../Search/searchLogic'
+import { SearchItem } from '../Search/searchItems'
 import { commandLogic } from './commandLogic'
 
 const TODAY_PHONE_SHEET =
@@ -20,6 +22,7 @@ export function Command(): JSX.Element {
     const { isCommandOpen } = useValues(commandLogic)
     const { todayRailEnabled } = useValues(todayShellLogic)
     const { closeCommand } = useActions(commandLogic)
+    const newCommandKSearch = useFeatureFlag('NEW_COMMAND_K_SEARCH')
 
     const handleItemSelect = useCallback(
         (item: SearchItem, openInNewTab?: boolean) => {
@@ -42,6 +45,20 @@ export function Command(): JSX.Element {
     const handleAskAiClick = useCallback(() => {
         closeCommand()
     }, [closeCommand])
+
+    if (newCommandKSearch) {
+        return (
+            <DialogPrimitive
+                open={isCommandOpen}
+                onOpenChange={(open) => !open && closeCommand()}
+                className={cn('w-[640px]', todayRailEnabled && TODAY_PHONE_SHEET)}
+            >
+                <DialogPrimitiveTitle>Command</DialogPrimitiveTitle>
+                {/* Mounted only while open, which scopes the search's caches and requests to one use of the palette. */}
+                {isCommandOpen && <CommandKSearch />}
+            </DialogPrimitive>
+        )
+    }
 
     return (
         <DialogPrimitive

@@ -1,13 +1,17 @@
 """Public Python interface for creating and retrieving one-off exports."""
 
+import io
 from collections.abc import Collection
 from datetime import datetime, timedelta
 
 from django.conf import settings
+from django.db.models import Q
 from django.http.response import HttpResponseBase
+from django.utils.timezone import now
 
 import structlog
 from asgiref.sync import async_to_sync
+from PIL import Image, UnidentifiedImageError
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.hogql.constants import LimitContext
@@ -18,10 +22,12 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
     get_content_response,
+    save_content as _save_content,
     save_content_from_file as _save_content_from_file,
 )
 from products.exports.backend.models.subscription import Subscription
@@ -38,6 +44,8 @@ JSONL_EXPORT_FORMAT = ExportedAsset.ExportFormat.JSONL
 # Caps the whole workflow including retries; callers block on this, so it must stay
 # well under the web tier's request timeout.
 RENDER_TIMEOUT = timedelta(seconds=90)
+_MAX_IMAGE_PIXELS = 25_000_000
+_PNG_MODES = frozenset({"1", "L", "LA", "I", "I;16", "P", "RGB", "RGBA"})
 EXPORT_WORKFLOW_TIMEOUT = timedelta(minutes=35)
 
 
@@ -94,6 +102,18 @@ def get_export_asset_content_response(*, asset: ExportedAsset, download: bool) -
     return get_content_response(asset, download=download)
 
 
+def read_export_asset_content(*, team_id: int, asset_id: int) -> bytes | None:
+    """The stored bytes of an export, or None when the export has no content or does not exist in the team."""
+    asset = get_export_asset(team_id=team_id, asset_id=asset_id)
+    if asset is None:
+        return None
+    if asset.content is not None:
+        return bytes(asset.content)
+    if asset.content_location:
+        return object_storage.read_bytes(asset.content_location)
+    return None
+
+
 def save_export_asset_content_from_file(
     *,
     asset: ExportedAsset,
@@ -104,6 +124,7 @@ def save_export_asset_content_from_file(
 
 
 def delete_insight_subscriptions(*, project_id: int, insight_ids: Collection[int]) -> None:
+    # nosemgrep: environment-model-scoped-by-project -- insights are project-level, so deleting one removes its subscriptions in every environment
     for subscription in Subscription.objects.filter(team__project_id=project_id, insight_id__in=insight_ids):
         subscription.delete()
 
@@ -194,32 +215,64 @@ def get_delivery_image_url(
     return asset.get_subscription_delivery_content_url(expiry_delta=expiry_delta)
 
 
-def render_png_export(
+def create_png_delivery_url(
+    *, team_id: int, created_by_id: int, content: bytes, filename: str, url_ttl: timedelta, asset_ttl: timedelta
+) -> str | None:
+    """Store image bytes as a PNG export and mint a delivery url for it. None when the bytes are not an image.
+
+    The url opens without a login, so the caller must check that the user may see the image.
+    """
+    png = _as_png(content)
+    if png is None:
+        return None
+    asset = ExportedAsset.objects.create(
+        team_id=team_id,
+        created_by_id=created_by_id,
+        export_format=ExportedAsset.ExportFormat.PNG,
+        export_context={"filename": filename},
+        expires_after=now() + asset_ttl,
+    )
+    _save_content(asset, png)
+    return asset.get_subscription_delivery_content_url(expiry_delta=url_ttl)
+
+
+def _as_png(content: bytes) -> bytes | None:
+    try:
+        with Image.open(io.BytesIO(content)) as image:
+            # A small compressed file can decode to a very large bitmap.
+            if image.width * image.height > _MAX_IMAGE_PIXELS:
+                return None
+            if image.format == "PNG":
+                image.verify()
+                return content
+            image.load()
+            png_ready: Image.Image = image
+            if image.mode not in _PNG_MODES:
+                png_ready = image.convert("RGBA" if "A" in image.getbands() else "RGB")
+            output = io.BytesIO()
+            png_ready.save(output, format="PNG")
+            return output.getvalue()
+    except (UnidentifiedImageError, Image.DecompressionBombError, OSError, ValueError):
+        return None
+
+
+def _create_png_export_asset(
     *,
     team: Team,
     created_by: User,
     export_context: dict | None = None,
     insight_id: int | None = None,
     insight_short_id: str | None = None,
+    dashboard_id: int | None = None,
     is_system: bool = False,
     expires_after: datetime | None = None,
-) -> tuple[ExportedAsset, bytes | None]:
-    """Render a PNG export synchronously and return the asset together with its content bytes.
-
-    Blocks until the export workflow finishes (typically a few seconds). On failure the
-    returned bytes are None and ``asset.exception`` carries the error.
-
-    ``is_system`` marks the asset as created by an internal process, which excludes it from
-    the user's export listings and the per-team export quota. ``expires_after`` overrides
-    the format's default TTL; pass it when the render backs a short-lived delivery URL so
-    the stored bytes do not outlive their only consumer by months.
-    """
+) -> ExportedAsset:
     if created_by is None:
         # Access control below resolves against created_by; a principal-less render would
         # silently skip it, so service callers must attribute the render to a real user.
         raise ValueError("created_by is required")
-    if sum(value is not None for value in (export_context, insight_id, insight_short_id)) != 1:
-        raise ValueError("Provide exactly one of export_context, insight_id or insight_short_id")
+    if sum(value is not None for value in (export_context, insight_id, insight_short_id, dashboard_id)) != 1:
+        raise ValueError("Provide exactly one of export_context, insight_id, insight_short_id or dashboard_id")
     if export_context is not None:
         _validate_adhoc_export_context(export_context)
         # An ad-hoc render runs whatever query the caller supplies, so it needs the same gate as
@@ -235,6 +288,12 @@ def render_png_export(
         ):
             raise ValueError("Insight not found")
         insight_id = insight.id
+    if dashboard_id is not None:
+        dashboard = Dashboard.objects.filter(team_id=team.id, id=dashboard_id, deleted=False).first()
+        if dashboard is None or not UserAccessControl(user=created_by, team=team).check_access_level_for_object(
+            dashboard, "viewer"
+        ):
+            raise ValueError("Dashboard not found")
 
     asset = ExportedAsset.objects.create(
         team=team,
@@ -242,8 +301,80 @@ def render_png_export(
         export_format=ExportedAsset.ExportFormat.PNG,
         export_context=export_context,
         insight_id=insight_id,
+        dashboard_id=dashboard_id,
         is_system=is_system,
         # None keeps the model's format-default TTL (see ExportedAsset.save).
+        expires_after=expires_after,
+    )
+    return asset
+
+
+def create_png_export(
+    *,
+    team: Team,
+    created_by: User,
+    insight_id: int | None = None,
+    query: dict | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
+) -> int:
+    """Check access and create the PNG asset that ``ExportAssetWorkflow`` renders, without rendering it.
+
+    Returns the asset id. For a caller that is itself a Temporal workflow: it runs the export as a
+    child workflow instead of blocking a worker on ``render_png_export``. The access rules and the
+    ``is_system`` and ``expires_after`` arguments are the same as for ``render_png_export``.
+
+    Pass exactly one of a saved ``insight_id`` or an ad hoc ``query``. A query must be an
+    InsightVizNode or a DataVisualizationNode over HogQL. A request that breaks a rule raises ``ValueError``.
+    """
+    return _create_png_export_asset(
+        team=team,
+        created_by=created_by,
+        insight_id=insight_id,
+        export_context={"source": query} if query is not None else None,
+        is_system=is_system,
+        expires_after=expires_after,
+    ).id
+
+
+def png_export_has_content(*, team_id: int, asset_id: int) -> bool:
+    return (
+        ExportedAsset.objects.filter(team_id=team_id, id=asset_id, export_format=ExportedAsset.ExportFormat.PNG)
+        .filter(Q(exception__isnull=True) | Q(exception=""))
+        .filter(Q(content__isnull=False) | (Q(content_location__isnull=False) & ~Q(content_location="")))
+        .exists()
+    )
+
+
+def render_png_export(
+    *,
+    team: Team,
+    created_by: User,
+    export_context: dict | None = None,
+    insight_id: int | None = None,
+    insight_short_id: str | None = None,
+    dashboard_id: int | None = None,
+    is_system: bool = False,
+    expires_after: datetime | None = None,
+) -> tuple[ExportedAsset, bytes | None]:
+    """Render a PNG export synchronously and return the asset together with its content bytes.
+
+    Blocks until the export workflow finishes (typically a few seconds). On failure the
+    returned bytes are None and ``asset.exception`` carries the error.
+
+    ``is_system`` marks the asset as created by an internal process, which excludes it from
+    the user's export listings and the per-team export quota. ``expires_after`` overrides
+    the format's default TTL; pass it when the render backs a short-lived delivery URL so
+    the stored bytes do not outlive their only consumer by months.
+    """
+    asset = _create_png_export_asset(
+        team=team,
+        created_by=created_by,
+        export_context=export_context,
+        insight_id=insight_id,
+        insight_short_id=insight_short_id,
+        dashboard_id=dashboard_id,
+        is_system=is_system,
         expires_after=expires_after,
     )
 
