@@ -3441,6 +3441,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": [16],
             "type": "Numeric",
         },
+        "$ai_cache_read_image_tokens": {
+            "label": "AI cache read image tokens (LLM)",
+            "description": "The number of image tokens read from the prompt cache.",
+            "examples": [16],
+            "type": "Numeric",
+        },
         "$ai_audio_cost_usd": {
             "label": "AI audio cost USD (LLM)",
             "description": "The cost in USD of the audio tokens for this LLM request.",
