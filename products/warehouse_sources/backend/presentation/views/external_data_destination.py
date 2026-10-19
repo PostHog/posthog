@@ -25,9 +25,15 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSourceDestination,
 )
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
-    CheckFailure,
+    CONFIG_FAILURES,
     DestinationConnectionCheckError,
     check_postgres_destination,
+)
+from products.warehouse_sources.backend.presentation.destination_connection_test import (
+    ConnectionTestRun,
+    DestinationConnectionTestStepStatus,
+    run_connection_test,
+    run_postgres_connection_test,
 )
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
 from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
@@ -97,6 +103,41 @@ class AddSourcesResponseSerializer(serializers.Serializer):
     resync_failures = ResyncFailureSerializer(
         many=True, help_text="Tables whose resync did not start. The sources are still attached."
     )
+
+
+class DestinationConnectionTestStepSerializer(serializers.Serializer):
+    name = serializers.CharField(help_text="What this step checks.")
+    description = serializers.CharField(help_text="A longer explanation of what this step checks.")
+    status = serializers.ChoiceField(
+        choices=DestinationConnectionTestStepStatus.choices,
+        allow_null=True,
+        help_text="The result of the step. Null when the step did not run because an earlier step failed.",
+    )
+    message = serializers.CharField(
+        allow_null=True,
+        help_text="Why the step failed or was skipped. Null when the step passed or did not run.",
+    )
+
+
+class DestinationConnectionTestResponseSerializer(serializers.Serializer):
+    steps = DestinationConnectionTestStepSerializer(
+        many=True,
+        help_text="The steps of the connection test, in order. The test stops at the first failed step.",
+    )
+
+
+def _connection_test_response(run: ConnectionTestRun) -> dict[str, Any]:
+    return {
+        "steps": [
+            {
+                "name": step.name,
+                "description": step.description,
+                "status": step.result.status if step.result else None,
+                "message": step.result.message if step.result else None,
+            }
+            for step in run.steps
+        ]
+    }
 
 
 def _source_summary(source: ExternalDataSource, *, via_table_override: bool = False) -> dict[str, Any]:
@@ -256,6 +297,8 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             self._reject_retargeting(attrs)
         elif destination_type == ExternalDataDestination.Type.POSTGRES:
             self._check_postgres_connection(integration, attrs.get("config"))
+        else:
+            self._run_connection_test(destination_type, integration, attrs.get("config"))
 
         return attrs
 
@@ -265,12 +308,13 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         try:
             check_postgres_destination(integration, config)
         except DestinationConnectionCheckError as error:
-            field = (
-                "config"
-                if error.failure in (CheckFailure.UNKNOWN_DATABASE, CheckFailure.MISSING_PRIVILEGE)
-                else "integration"
-            )
+            field = "config" if error.failure in CONFIG_FAILURES else "integration"
             raise ValidationError({field: str(error)})
+
+    def _run_connection_test(self, destination_type: str, integration: Integration, config: Any) -> None:
+        run = run_connection_test(destination_type, integration, config)
+        if run is not None and run.failure is not None:
+            raise ValidationError({run.failure.field: str(run.failure)})
 
     # Where a destination points is fixed once it exists. Everything already synced sits at the
     # current server and schema, so repointing one strands that data and needs a full resync of
@@ -542,6 +586,26 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 }
             ).data
         )
+
+    @extend_schema(request=None, responses={200: DestinationConnectionTestResponseSerializer})
+    @action(methods=["POST"], detail=True)
+    def test_connection(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Test the credentials and target of an existing destination, and return the result of each step."""
+        destination: ExternalDataDestination = self.get_object()
+        integration = destination.integration
+        if destination.is_posthog_warehouse or integration is None:
+            raise ValidationError(
+                {"type": "The PostHog warehouse is managed for you, so it has no connection to test."}
+            )
+
+        if destination.type == ExternalDataDestination.Type.POSTGRES:
+            run: ConnectionTestRun | None = run_postgres_connection_test(integration, destination.config)
+        else:
+            run = run_connection_test(destination.type, integration, destination.config)
+        if run is None:
+            raise ValidationError({"type": f"Connection tests are not available for {destination.type} destinations."})
+
+        return Response(DestinationConnectionTestResponseSerializer(_connection_test_response(run)).data)
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
         # `.instance` is `Any | None` on the base serializer type, but `update`/`partial_update`
