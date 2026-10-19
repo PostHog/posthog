@@ -7377,6 +7377,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "groups": [
                     {"properties": [{"key": "id", "type": "cohort", "value": "not-a-cohort-id"}]},
                     {"properties": [{"key": "id", "type": "cohort", "value": True}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": cohort.pk + 0.5}]},
                 ]
             },
         )
@@ -7437,6 +7438,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                     "cohort_deleted": True,
                 },
                 {"key": "id", "type": "cohort", "value": True, "cohort_name": None, "cohort_deleted": True},
+                {"key": "id", "type": "cohort", "value": cohort.pk + 0.5, "cohort_name": None, "cohort_deleted": True},
             ],
         )
         self.assertEqual(

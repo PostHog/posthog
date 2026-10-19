@@ -1348,13 +1348,16 @@ def _condition_cohort_properties(filters: Any) -> Iterator[dict[str, Any]]:
 
 def _condition_cohort_id(value: Any) -> int | None:
     """Return the cohort id a condition's value names, or None when the value is not an id."""
-    # A JSON true is the Python integer 1. The flag evaluator and the write check both reject it.
+    # The Rust flag evaluator (PropertyFilter::get_cohort_id) accepts only a JSON integer or a string of
+    # digits. It rejects a float such as 42.5, which int() would truncate to a live cohort's id.
+    # A JSON true is the Python integer 1, so the bool check must come before the int check.
     if isinstance(value, bool):
         return None
-    try:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and re.fullmatch(r"[+-]?[0-9]+", value):
         return int(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
+    return None
 
 
 def _load_condition_cohorts(flags: Iterable[FeatureFlag], project_id: int) -> dict[int, _ConditionCohort]:
