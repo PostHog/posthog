@@ -20,13 +20,14 @@ import {
     engineeringAnalyticsCiSignalsConfigUpdate,
 } from 'products/engineering_analytics/frontend/generated/api'
 import type { CISignalsConfigApi } from 'products/engineering_analytics/frontend/generated/api.schemas'
+import { errorTrackingIssuesExistsRetrieve } from 'products/error_tracking/frontend/generated/api'
 import { eventDefinitionsList } from 'products/event_definitions/frontend/generated/api'
 import { visionScannersList, visionScannersPartialUpdate } from 'products/replay_vision/frontend/generated/api'
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import type { SignalSourceTypeApi } from '../generated/api.schemas'
+import type { SignalSourceTypeApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
 import type { AgentRosterSource } from './components/config/agentRosterMeta'
 import {
     SignalSourceToggleFailureReason,
@@ -90,7 +91,7 @@ type WarehouseSourceCompletion =
     | {
           kind: 'source_config'
           sourceProduct: SignalSourceProduct
-          sourceType: SignalSourceType
+          sourceType: SignalSourceConfigSourceTypeEnumApi
           enableErrorMessage: string
       }
     | { kind: 'ci_signals_bundle' }
@@ -243,6 +244,7 @@ export interface signalSourcesLogicValues {
     enabledSourcesCount: number
     enablingProduct: SourceProductEnablement | null
     errorTrackingConfigs: SignalSourceConfig[]
+    errorTrackingHasIssues: boolean | null
     errorTrackingIsFullyEnabled: boolean
     errorTrackingTypeStates: {
         enabled: boolean
@@ -270,6 +272,7 @@ export interface signalSourcesLogicValues {
     productDataEventsFailed: boolean
     productDataEventsLoading: boolean
     productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
+    scannerInventoryKnown: boolean
     sourceConfigs: SignalSourceConfig[] | null
     sourceConfigsLoadFailed: boolean
     sourceConfigsLoading: boolean
@@ -407,6 +410,12 @@ export interface signalSourcesLogicActions {
         enabled: boolean
         source: WarehouseBackedSource
     }
+    setErrorTrackingHasIssues: (hasIssues: boolean | null) => {
+        hasIssues: boolean | null
+    }
+    setScannerInventoryKnown: (known: boolean) => {
+        known: boolean
+    }
     startDataWarehouseSourceToggle: (source: WarehouseBackedSource) => {
         source: WarehouseBackedSource
     }
@@ -491,7 +500,8 @@ export interface signalSourcesLogicMeta {
             currentTeam: TeamPublicType | TeamType | null,
             productDataEvents: Set<string> | null,
             productDataEventsLoading: boolean,
-            productDataEventsFailed: boolean
+            productDataEventsFailed: boolean,
+            errorTrackingHasIssues: boolean | null
         ) => Partial<Record<AgentRosterSource, SourceProductStatus>>
         errorTrackingIsFullyEnabled: (sourceConfigs: SignalSourceConfig[] | null) => boolean
         ciSignalsIsFullyEnabled: (ciSignalsConfig: CISignalsConfigApi | null) => boolean
@@ -530,6 +540,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     })),
 
     actions({
+        setScannerInventoryKnown: (known: boolean) => ({ known }),
         openSourcesModal: true,
         closeSourcesModal: true,
         initiateDataWarehouseSourceToggle: (source: WarehouseBackedSource) => ({ source }),
@@ -557,9 +568,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleAnomalyInvestigation: true,
         enableSourceProduct: (enablement: SourceProductEnablement) => ({ enablement }),
         enableSourceProductComplete: true,
+        setErrorTrackingHasIssues: (hasIssues: boolean | null) => ({ hasIssues }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         sourceConfigs: [
             null as SignalSourceConfig[] | null,
             {
@@ -580,11 +592,16 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             null as Set<string> | null,
             {
                 loadProductDataEvents: async (): Promise<Set<string>> => {
-                    const response = await eventDefinitionsList(String(teamLogic.values.currentTeamId), {
-                        exclude_stale: true,
-                        names: PRODUCT_USAGE_EVENTS,
-                        limit: PRODUCT_USAGE_EVENTS.length,
-                    })
+                    const projectId = String(ApiConfig.getCurrentProjectId())
+                    const [response, issues] = await Promise.all([
+                        eventDefinitionsList(projectId, {
+                            exclude_stale: true,
+                            names: PRODUCT_USAGE_EVENTS,
+                            limit: PRODUCT_USAGE_EVENTS.length,
+                        }),
+                        errorTrackingIssuesExistsRetrieve(projectId).catch(() => null),
+                    ])
+                    actions.setErrorTrackingHasIssues(issues?.exists ?? null)
                     return new Set(
                         response.results.filter(({ last_seen_at }) => !!last_seen_at).map(({ name }) => name)
                     )
@@ -605,8 +622,10 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                             enabled: 'enabled',
                             limit: ENTITY_PAGE_SIZE,
                         })
+                        actions.setScannerInventoryKnown(!response.next)
                         return response.results
                     } catch {
+                        actions.setScannerInventoryKnown(false)
                         // Replay Vision 404s when its flag is off, and this source only ever adds to
                         // the count, so a failure reads as "no scanners" rather than stranding every
                         // consumer of the count on a loading state.
@@ -650,6 +669,11 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
     })),
 
     reducers({
+        scannerInventoryKnown: [false, { setScannerInventoryKnown: (_, { known }) => known }],
+        errorTrackingHasIssues: [
+            null as boolean | null,
+            { setErrorTrackingHasIssues: (_, { hasIssues }) => hasIssues },
+        ],
         sourcesModalOpen: [
             false,
             {
@@ -876,16 +900,23 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 keys.has(`${SignalSourceProduct.Analytics}_${SignalSourceType.AnomalyInvestigation}`),
         ],
         productStatusBySource: [
-            (s) => [s.currentTeam, s.productDataEvents, s.productDataEventsLoading, s.productDataEventsFailed],
+            (s) => [
+                s.currentTeam,
+                s.productDataEvents,
+                s.productDataEventsLoading,
+                s.productDataEventsFailed,
+                s.errorTrackingHasIssues,
+            ],
             (
                 currentTeam: TeamPublicType | TeamType | null,
                 productDataEvents: Set<string> | null,
                 productDataEventsLoading: boolean,
-                productDataEventsFailed: boolean
+                productDataEventsFailed: boolean,
+                errorTrackingHasIssues: boolean | null
             ): Partial<Record<AgentRosterSource, SourceProductStatus>> => {
                 const team = currentTeam as TeamType | null
                 const dataStatus = (...events: string[]): SourceProductDataStatus => {
-                    if (productDataEventsLoading || (productDataEvents === null && !productDataEventsFailed)) {
+                    if (productDataEvents === null && (productDataEventsLoading || !productDataEventsFailed)) {
                         return 'loading'
                     }
                     if (productDataEventsFailed) {
@@ -893,9 +924,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     }
                     return events.some((event) => productDataEvents?.has(event)) ? 'recent' : 'none'
                 }
-                const errorTrackingDataStatus = dataStatus('$exception')
+                const exceptionEventStatus = dataStatus('$exception')
+                const errorTrackingDataStatus =
+                    errorTrackingHasIssues && exceptionEventStatus !== 'recent'
+                        ? 'unavailable'
+                        : exceptionEventStatus === 'none' && errorTrackingHasIssues === null
+                          ? 'error'
+                          : exceptionEventStatus
                 const errorTrackingEnabled =
-                    team?.autocapture_exceptions_opt_in === true || errorTrackingDataStatus === 'recent'
+                    team?.autocapture_exceptions_opt_in === true ||
+                    errorTrackingHasIssues === true ||
+                    errorTrackingDataStatus === 'recent'
                         ? true
                         : team && errorTrackingDataStatus === 'none'
                           ? false
@@ -911,8 +950,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 return {
                     error_tracking: {
                         productName: 'Error tracking',
-                        // Server SDKs capture exceptions without the autocapture opt-in, so recent
-                        // exception data counts as on.
+                        // Server SDKs and manually captured exceptions do not require browser autocapture.
                         enabled: errorTrackingEnabled,
                         enablement: 'error_tracking',
                         dataStatus: errorTrackingDataStatus,

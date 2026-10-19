@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import MagicMock
 
+from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpResponse
@@ -187,17 +188,54 @@ class TestGetContextForTemplate(APIBaseTest):
         app_context = actual["posthog_app_context"]
         assert app_context["homepage"] == (stored_homepage or None)
 
+    @parameterized.expand([("shares_email", False, "user@example.com"), ("anonymized", True, None)])
     @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={})
-    def test_flag_bootstrap_evaluates_with_the_project_group(self, mock_get_all_flags):
+    def test_flag_bootstrap_evaluates_with_the_identity_the_browser_sends(
+        self, _name, anonymize_data, expected_email, mock_get_all_flags
+    ):
+        self.user.email = "user@example.com"
+        self.user.anonymize_data = anonymize_data
+        self.user.save()
+        self.organization.customer_id = "cus_123"
+        self.organization.save()
         request = RequestFactory().get("/")
         SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
         request.user = self.user
 
-        get_context_for_template("layout", request)
+        with self.settings(SITE_URL="https://app.example.com"):
+            get_context_for_template("layout", request)
 
         kwargs = mock_get_all_flags.call_args.kwargs
-        assert kwargs["groups"]["project"] == str(self.team.uuid)
-        assert kwargs["group_properties"]["project"]["id"] == self.team.id
+        assert kwargs["person_properties"] == {
+            "email": expected_email,
+            "joined_at": self.user.date_joined.isoformat(),
+        }
+        assert kwargs["groups"] == {
+            "project": str(self.team.uuid),
+            "organization": str(self.organization.id),
+            "customer": "cus_123",
+            "instance": "https://app.example.com",
+        }
+        assert kwargs["group_properties"]["project"] == {
+            "id": self.team.id,
+            "uuid": str(self.team.uuid),
+            "name": self.team.name,
+            "ingested_event": self.team.ingested_event,
+            "is_demo": self.team.is_demo,
+            "timezone": self.team.timezone,
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+        assert kwargs["group_properties"]["organization"] == {
+            "id": str(self.organization.id),
+            "name": self.organization.name,
+            "slug": self.organization.slug,
+            "created_at": mock.ANY,
+            "available_product_features": self.organization.available_product_features or [],
+            "member_count": 1,
+            "project_count": 1,
+            "instance_tag": settings.INSTANCE_TAG,
+        }
+        assert kwargs["group_properties"]["instance"] == {"site_url": "https://app.example.com"}
 
     def test_bootstraps_project_tags_into_app_context(self):
         # projectLogic reads currentProject from the app context and only calls the API when it is

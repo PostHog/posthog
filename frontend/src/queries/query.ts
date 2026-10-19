@@ -324,6 +324,12 @@ async function executeQuery<N extends DataNode>(
             )
         })
 
+        // A successful response with no content (such as a 204) parses to null.
+        if (!response) {
+            const message = 'The server returned an empty response. Try again.'
+            throw new ApiError(message, undefined, undefined, { detail: message })
+        }
+
         if (response.detail) {
             throw new Error(response.detail)
         }

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 from unittest import TestCase
@@ -7,25 +8,11 @@ from parameterized import parameterized
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingCode
 from products.experiments.backend.health.checks.no_metric import no_metric
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.test.factories import RUNNING_CONTEXT
 
 
 def _context(**changes: Any) -> HealthContext:
-    values: dict[str, Any] = {
-        "is_launched": True,
-        "is_running": True,
-        "has_ended": False,
-        "is_paused": False,
-        "archived": False,
-        "flag": None,
-        "baseline_variant_key": None,
-        "primary_metric_count": 0,
-        "secondary_metric_count": 0,
-        "exposures": None,
-        "split_history": None,
-        "condition_set_traffic": None,
-        "excluded_variant_keys": frozenset(),
-    }
-    return HealthContext(**{**values, **changes})
+    return replace(RUNNING_CONTEXT, **{"primary_metric_count": 0, **changes})
 
 
 class TestNoMetric(TestCase):
