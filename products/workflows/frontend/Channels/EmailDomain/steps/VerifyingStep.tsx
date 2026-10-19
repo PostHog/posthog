@@ -18,7 +18,8 @@ import { emailDomainStatusLogic } from '../emailDomainStatusLogic'
 import { HedgehogHourglass, HedgehogPanic } from '../hoggies'
 
 function Heading(): JSX.Element {
-    const { status, pollingStopped, missingRecords, foundCount, records } = useValues(emailDomainStatusLogic)
+    const { status, pollingStopped, missingRecords, foundCount, records, allRecordsFound } =
+        useValues(emailDomainStatusLogic)
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
     const { recordsAdded } = useValues(emailDomainManualSetupLogic)
     const host = hostName ?? 'your DNS host'
@@ -31,7 +32,7 @@ function Heading(): JSX.Element {
             />
         )
     }
-    if (pollingStopped && missingRecords.length === 0) {
+    if (pollingStopped && allRecordsFound && status?.status !== 'temporary_failure') {
         return (
             <StepHeading
                 Hoggie={HedgehogHourglass}
@@ -74,7 +75,7 @@ function SecondaryActions(): JSX.Element {
 }
 
 function Actions(): JSX.Element {
-    const { status, pollingStopped, missingRecords, rechecking, restartResultLoading } =
+    const { status, pollingStopped, allRecordsFound, rechecking, restartResultLoading } =
         useValues(emailDomainStatusLogic)
     const { checkAgain, restartVerification } = useActions(emailDomainStatusLogic)
     if (status?.status === 'failed') {
@@ -96,7 +97,7 @@ function Actions(): JSX.Element {
     if (pollingStopped) {
         return (
             <div className="flex flex-col items-center gap-2">
-                {missingRecords.length > 0 && (
+                {!allRecordsFound && (
                     <LemonBanner type="warning" className="w-full">
                         Still waiting on DNS. We stopped checking automatically, so check again once you have added the
                         missing settings.
@@ -119,9 +120,10 @@ function Actions(): JSX.Element {
 }
 
 export function VerifyingStep(): JSX.Element {
-    const { status, pollingStopped, missingRecords, foundCount, records } = useValues(emailDomainStatusLogic)
+    const { status, pollingStopped, missingRecords, foundCount, records, allRecordsFound } =
+        useValues(emailDomainStatusLogic)
     const { verificationSteps } = useValues(emailDomainLogic)
-    const stuck = (pollingStopped && missingRecords.length > 0) || status?.status === 'failed'
+    const stuck = (pollingStopped && !allRecordsFound) || status?.status === 'failed'
     const temporaryFailure = status?.status === 'temporary_failure'
     return (
         <div className="flex flex-col gap-8">
@@ -140,7 +142,7 @@ export function VerifyingStep(): JSX.Element {
                 <LemonBanner type="error">
                     The email provider could not find these settings:{' '}
                     {missingRecords.map((record) => RECORD_KIND_LABEL[record.kind]).join(', ') || 'some of them'}. Check
-                    them at your DNS host. We keep checking.
+                    them at your DNS host.{pollingStopped ? '' : ' We keep checking.'}
                 </LemonBanner>
             )}
             <Actions />
