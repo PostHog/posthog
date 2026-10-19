@@ -91,6 +91,9 @@ describe('searchParamsWithUrlFilters', () => {
         expect(
             searchParamsWithUrlFilters({}, persistedFilters, persistedFilters)[SEARCH_PARAM_FILTERS_KEY]
         ).toBeUndefined()
+        expect(combineSavedAndUrlFilters({}, parseURLFilters(searchParams))).toEqual({
+            metricVariables: [{ name: 'env', current: { values: ['b'] } }],
+        })
     })
 
     it('keeps an override that clears an external filter', () => {

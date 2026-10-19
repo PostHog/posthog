@@ -364,10 +364,12 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
     loaders(({ values, props, cache }) => ({
         preview: {
             loadPreview: async (_: void, breakpoint): Promise<string[] | null> => {
-                // A newer preview cancels the request of the older one, so a slow query does not keep running.
-                cache.previewController?.abort()
-                const controller = new AbortController()
-                cache.previewController = controller
+                // A cancelled fetch leaves its query running on the server, so a preview waits for the one before it.
+                // A newer edit made during the wait cancels this preview.
+                if (cache.previewRequest) {
+                    await cache.previewRequest.catch(() => undefined)
+                    breakpoint()
+                }
                 const variable = values.selectedVariable
                 if (
                     !variable ||
@@ -391,22 +393,19 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
                               ),
                           }
                 )
+                const request = metricsVariableOptionsCreate(String(values.currentTeamId), {
+                    source: variable.source,
+                    query: variable.query ?? null,
+                    regex: variable.regex ?? null,
+                    variables: selectionsForRequest(variable, draft, props.options),
+                    dateFrom: props.dateFrom ?? null,
+                    dateTo: props.dateTo ?? null,
+                })
+                cache.previewRequest = request
                 let response
                 try {
-                    response = await metricsVariableOptionsCreate(
-                        String(values.currentTeamId),
-                        {
-                            source: variable.source,
-                            query: variable.query ?? null,
-                            regex: variable.regex ?? null,
-                            variables: selectionsForRequest(variable, draft, props.options),
-                            dateFrom: props.dateFrom ?? null,
-                            dateTo: props.dateTo ?? null,
-                        },
-                        { signal: controller.signal }
-                    )
+                    response = await request
                 } catch (error) {
-                    // A cancelled request belongs to an older preview, which the newer one replaces.
                     breakpoint()
                     throw error
                 }

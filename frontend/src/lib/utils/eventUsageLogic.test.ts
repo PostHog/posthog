@@ -411,7 +411,8 @@ describe('eventUsageLogic', () => {
 
     it('keeps metric variable definitions out of a sanitized dashboard', () => {
         const metricVariables = [{ name: 'env', source: 'sql', query: 'SELECT private_value' }]
-        const dashboard = { id: 7, tiles: [], filters: { metricVariables }, persisted_filters: { metricVariables } }
+        const tile = { id: 1, insight: { id: 2, filter_override_context: { dashboard: { metricVariables } } } }
+        const dashboard = { id: 7, tiles: [tile], filters: { metricVariables }, persisted_filters: { metricVariables } }
 
         const sanitized = sanitizeDashboard(dashboard as unknown as DashboardType)
 

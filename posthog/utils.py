@@ -1871,6 +1871,25 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
+def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict) -> dict:
+    """A metric variable that the client sends as its name and selection gets its saved definition."""
+    requested = request_filters.get("metricVariables")
+    if not isinstance(requested, list):
+        return request_filters
+    saved = {
+        variable.get("name"): variable
+        for variable in dashboard_filters.get("metricVariables") or []
+        if isinstance(variable, dict)
+    }
+    metric_variables = []
+    for variable in requested:
+        if not isinstance(variable, dict) or variable.get("source"):
+            metric_variables.append(variable)
+        elif variable.get("name") in saved:
+            metric_variables.append({**saved[variable["name"]], "current": variable.get("current")})
+    return {**request_filters, "metricVariables": metric_variables}
+
+
 def filters_override_requested_by_client(
     request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
 ) -> dict:
@@ -1897,6 +1916,8 @@ def filters_override_requested_by_client(
     except Exception:
         raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
 
+    if isinstance(request_filters, dict):
+        request_filters = _with_saved_metric_variables(request_filters, dashboard_filters or {})
     return {**dashboard_filters, **request_filters}
 
 

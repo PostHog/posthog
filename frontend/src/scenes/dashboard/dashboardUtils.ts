@@ -625,8 +625,12 @@ function withoutCurrent(variable: Partial<MetricsDashboardVariable>): Partial<Me
     return definition
 }
 
-/** A saved metric variable goes into the URL as its name and selection, so its query and options stay out of it. */
-function withCompactMetricVariables(filters: DashboardFilter, saved: MetricsDashboardVariable[]): DashboardFilter {
+/** A saved metric variable goes into the URL and requests as its name and selection, so its query and options stay
+ * out of them. The server and `combineSavedAndUrlFilters` put the saved definition back. */
+export function withCompactMetricVariables(
+    filters: DashboardFilter,
+    saved: MetricsDashboardVariable[]
+): DashboardFilter {
     if (!filters.metricVariables) {
         return filters
     }
@@ -643,7 +647,8 @@ function withCompactMetricVariables(filters: DashboardFilter, saved: MetricsDash
 
 /** Saved filters with the filters from the URL on top. A metric variable that the URL names gets its saved definition. */
 export function combineSavedAndUrlFilters(saved: DashboardFilter, url: DashboardFilter): DashboardFilter {
-    if (!url.metricVariables) {
+    // Until the dashboard loads, the saved definitions are unknown, so the server resolves the names.
+    if (!url.metricVariables || !saved.metricVariables) {
         return combineDashboardFilters(saved, url)
     }
     const metricVariables = url.metricVariables.flatMap((variable) => {
