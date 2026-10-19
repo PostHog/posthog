@@ -1116,39 +1116,6 @@ export interface eventUsageLogicActions {
         isPrimary: boolean
         metricUuid: string
     }
-    reportExperimentMetricFinished: (
-        experimentId: ExperimentIdType,
-        metric: ExperimentMetric,
-        teamId?: number | null,
-        queryId?: string | null,
-        context?: {
-            duration_ms: number
-            execution_mode: 'async' | 'sync'
-            is_cached: boolean
-            is_primary: boolean
-            is_retry: boolean
-            metric_index: number
-            metric_kind: string
-            refresh_id: string
-        }
-    ) => {
-        context:
-            | {
-                  duration_ms: number
-                  execution_mode: 'async' | 'sync'
-                  is_cached: boolean
-                  is_primary: boolean
-                  is_retry: boolean
-                  metric_index: number
-                  metric_kind: string
-                  refresh_id: string
-              }
-            | undefined
-        experimentId: ExperimentIdType
-        metric: ExperimentMetricUnion
-        queryId: string | null | undefined
-        teamId: number | null | undefined
-    }
     reportExperimentRecordingOpened: (
         experimentId: ExperimentIdType,
         context: ExperimentRecordingsFilterContext
@@ -1277,6 +1244,16 @@ export interface eventUsageLogicActions {
         hasSearch: boolean
         page: number
         statusFilter: string
+    }
+    reportExperimentsSettingChanged: (
+        setting: string,
+        value: unknown
+    ) => {
+        setting: string
+        value: unknown
+    }
+    reportExperimentsSettingsViewed: () => {
+        value: true
     }
     reportFeatureFlagBulkCopy: (
         flagCount: number,
@@ -1586,8 +1563,10 @@ export interface eventUsageLogicActions {
     reportSurveyCreated: (
         survey: Survey,
         isDuplicate?: boolean,
-        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard'
+        creationSource?: 'form_builder' | 'full_editor' | 'llm_analytics' | 'quick_create' | 'template' | 'wizard',
+        createdFrom?: SURVEY_CREATED_SOURCE
     ) => {
+        createdFrom: SURVEY_CREATED_SOURCE | undefined
         creationSource:
             | 'form_builder'
             | 'full_editor'
@@ -1920,6 +1899,8 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             hasSearch: boolean
             archived: boolean
         }) => listView,
+        reportExperimentsSettingsViewed: true,
+        reportExperimentsSettingChanged: (setting: string, value: unknown) => ({ setting, value }),
         reportExperimentViewed: (experiment: Experiment, duration: number | null) => ({ experiment, duration }),
         reportExperimentMetricBreakdownAdded: (
             experiment: Experiment,
@@ -1968,28 +1949,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportExperimentDashboardCreated: (experiment: Experiment, dashboardId: number) => ({
             experiment,
             dashboardId,
-        }),
-        reportExperimentMetricFinished: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric,
-            teamId?: number | null,
-            queryId?: string | null,
-            context?: {
-                duration_ms: number
-                is_cached: boolean
-                metric_index: number
-                is_primary: boolean
-                is_retry: boolean
-                refresh_id: string
-                metric_kind: string
-                execution_mode: 'sync' | 'async'
-            }
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            context,
         }),
         reportExperimentFeatureFlagModalOpened: () => ({}),
         reportExperimentTimeseriesViewed: (experimentId: ExperimentIdType, metric: ExperimentMetric) => ({
@@ -2096,8 +2055,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportSurveyCreated: (
             survey: Survey,
             isDuplicate?: boolean,
-            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder'
-        ) => ({ survey, isDuplicate, creationSource }),
+            creationSource?: 'wizard' | 'full_editor' | 'quick_create' | 'template' | 'llm_analytics' | 'form_builder',
+            createdFrom?: SURVEY_CREATED_SOURCE
+        ) => ({ survey, isDuplicate, creationSource, createdFrom }),
         reportUserFeedbackButtonClicked: (source: SURVEY_CREATED_SOURCE, meta: Record<string, any>) => ({
             source,
             meta,
@@ -2554,6 +2514,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 archived,
             })
         },
+        reportExperimentsSettingsViewed: () => {
+            posthog.capture('experiments settings viewed')
+        },
+        reportExperimentsSettingChanged: ({ setting, value }) => {
+            posthog.capture('experiments setting changed', { setting, value })
+        },
         reportExperimentViewed: ({ experiment, duration }) => {
             posthog.capture('experiment viewed', {
                 ...getEventPropertiesForExperiment(experiment),
@@ -2637,16 +2603,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 experiment_name: experiment.name,
                 experiment_id: experiment.id,
                 dashboard_id: dashboardId,
-            })
-        },
-        reportExperimentMetricFinished: ({ experimentId, metric, teamId, queryId, context }) => {
-            posthog.capture('experiment metric finished', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
-                metric,
-                ...context,
             })
         },
         reportExperimentFeatureFlagModalOpened: () => {
@@ -2844,7 +2800,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 language,
             })
         },
-        reportSurveyCreated: ({ survey, isDuplicate, creationSource }) => {
+        reportSurveyCreated: ({ survey, isDuplicate, creationSource, createdFrom }) => {
             const questionsWithShuffledOptions = survey.questions.filter((question) => {
                 return question.hasOwnProperty('shuffleOptions') && (question as MultipleSurveyQuestion).shuffleOptions
             })
@@ -2861,6 +2817,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 question_types: survey.questions.map((question) => question.type),
                 is_duplicate: isDuplicate ?? false,
                 creation_source: creationSource ?? 'full_editor',
+                created_from: createdFrom,
                 linked_insight_id: survey.linked_insight_id,
                 events_count: survey.conditions?.events?.values.length,
                 recurring_survey_iteration_count: survey.iteration_count == undefined ? 0 : survey.iteration_count,

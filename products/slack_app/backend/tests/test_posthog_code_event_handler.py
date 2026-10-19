@@ -926,10 +926,19 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         passed_integration = mock_unfurl.call_args[0][1]
         assert passed_integration.id == self.posthog_code_integration.id
 
+    @parameterized.expand(
+        [
+            ("task_link", "https://us.posthog.com/project/{team}/tasks/{task}"),
+            (
+                "artifact_download_link",
+                "https://us.posthog.com/api/projects/{team}/tasks/{task}/runs/{task}/artifacts/a1/download/",
+            ),
+        ]
+    )
     @patch("products.slack_app.backend.api.handle_posthog_link_unfurl")
     @patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=False)
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
-    def test_link_shared_routes_to_project_integration(self, mock_claims, mock_unfurl):
+    def test_link_shared_routes_to_project_integration(self, _name, url_template, mock_claims, mock_unfurl):
         other_team = Team.objects.create(organization=self.organization, name="Other")
         other_integration = Integration.objects.create(
             team=other_team,
@@ -942,7 +951,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         event = {
             "type": "link_shared",
             "channel": "C001",
-            "links": [{"url": f"https://us.posthog.com/project/{other_team.id}/tasks/{task_id}"}],
+            "links": [{"url": url_template.format(team=other_team.id, task=task_id)}],
         }
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region

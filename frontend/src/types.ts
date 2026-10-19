@@ -1122,6 +1122,7 @@ export enum PropertyOperator {
     In = 'in',
     NotIn = 'not_in',
     IsCleanedPathExact = 'is_cleaned_path_exact',
+    IsCleanedPathNotExact = 'is_cleaned_path_not_exact',
     FlagEvaluatesTo = 'flag_evaluates_to',
     SemverEq = 'semver_eq',
     SemverNeq = 'semver_neq',
@@ -5269,19 +5270,6 @@ export interface ExperimentVelocityStats {
     completed_last_30d: number
 }
 
-export interface FunnelExperimentVariant {
-    key: string
-    success_count: number
-    failure_count: number
-}
-
-export interface TrendExperimentVariant {
-    key: string
-    count: number
-    exposure: number
-    absolute_exposure: number
-}
-
 export interface SecondaryExperimentMetric {
     name: string
     filters: Partial<FilterType>
@@ -5404,14 +5392,6 @@ export interface PathEdgeParameters {
     maxEdgeWeight?: number | undefined
 }
 
-export enum SignificanceCode {
-    Significant = 'significant',
-    NotEnoughExposure = 'not_enough_exposure',
-    LowWinProbability = 'low_win_probability',
-    HighLoss = 'high_loss',
-    HighPValue = 'high_p_value',
-}
-
 export enum HelpType {
     Slack = 'slack',
     GitHub = 'github',
@@ -5500,8 +5480,7 @@ export type GraphDataset = Partial<
         | 'compare'
         | 'compare_label'
         | 'status'
-        | 'action'
-        | 'actions'
+        | 'order'
         | 'breakdown_value'
         | 'persons_urls'
         | 'persons'
@@ -5525,8 +5504,6 @@ export type GraphDataset = Partial<
     pointValue?: number
     /** Value (count) for specific data point; only valid in the context of an xy intercept */
     personUrl?: string
-    /** Action/event filter defition */
-    action?: ActionFilter | null
     yAxisID?: string
 }
 

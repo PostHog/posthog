@@ -621,10 +621,8 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
 }
 
 /**
- * The legacy query runner uses ExperimentTrendsQuery and ExperimentFunnelsQuery
- * to run experiments.
- *
- * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
+ * True when an inline or shared metric of the experiment still uses the legacy ExperimentTrendsQuery or
+ * ExperimentFunnelsQuery shape. The app shows no results for such an experiment until it is migrated.
  */
 export const isLegacyExperiment = (experiment?: Experiment | null): boolean => {
     if (!experiment) {

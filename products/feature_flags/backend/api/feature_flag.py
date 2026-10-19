@@ -2014,10 +2014,12 @@ class FeatureFlagSerializer(
         stored_filters = (self.instance.filters or {}) if self.instance is not None else {}
         reserved_variant_key = _reserved_variant_key(filters, stored=stored_filters)
         if reserved_variant_key is not None:
-            raise serializers.ValidationError(
-                f"The variant key {reserved_variant_key} is reserved. Choose another key.",
-                code="reserved_variant_key",
+            message = (
+                "Variant keys can't be empty. Enter a key for each variant."
+                if reserved_variant_key == ""
+                else f"The variant key {reserved_variant_key} is reserved. Choose another key."
             )
+            raise serializers.ValidationError(message, code="reserved_variant_key")
 
         if self._v2_limits is not None:
             # An admitted v2 document passes through untouched (no v1 merge or normalization): a

@@ -121,7 +121,13 @@ describe('useInsightsLegendConfig', () => {
         const groupOf = result.current.visibilityGroupKey!
 
         expect(groupOf(String(current.id))).toBe(groupOf(String(previous.id)))
-        expect(groupOf(String(current.id))).toBe(getTrendResultCustomizationKey(ResultCustomizationBy.Value, current))
+        expect(groupOf(String(current.id))).toBe(
+            getTrendResultCustomizationKey(
+                ResultCustomizationBy.Value,
+                current,
+                trendsDataLogic(insightProps).values.querySource
+            )
+        )
     })
 
     it.each([

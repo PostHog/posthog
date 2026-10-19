@@ -115,6 +115,10 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_INSIGHT = "alerts_platform_insight"
     # Exists on the logs cluster only. Pass it with Workload.LOGS, never as a query tag.
     ALERTS_PLATFORM_LOGS = "alerts_platform_logs"
+    # The platform's own bookkeeping, shared by every source: its check history and the default
+    # user of its evaluation worker. A source's checks keep their own user, so a new source never
+    # takes from another source's budget.
+    ALERTS_PLATFORM = "alerts_platform"
 
     # Backups - used by Dagster backup jobs
     BACKUPS = "backups"

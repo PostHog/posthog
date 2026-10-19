@@ -25,6 +25,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
@@ -72,6 +74,7 @@ from products.experiments.backend.metric_resolution import metric_reads_data_war
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
 
 logger = structlog.get_logger(__name__)
 
@@ -441,12 +444,29 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             settings.join_algorithm = "grace_hash"
             settings.grace_hash_join_initial_buckets = 2
 
+        # Built once here and handed to the executor, so the timestamp check reads the same catalog
+        # the query runs against. The column can change type after the metric was saved.
+        database = Database.create_for(
+            team=self.team,
+            user=self.user,
+            modifiers=modifiers,
+            timings=self.timings,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
+        enforce_warehouse_metric_timestamp_types([self.metric.model_dump(mode="json")], database)
+
         response = execute_hogql_query(
             query_type="ExperimentQuery",
             query=experiment_query_ast,
             team=self.team,
             user=self.user,
             bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+            context=HogQLContext(
+                team_id=self.team.pk,
+                user=self.user,
+                bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+                database=database,
+            ),
             timings=self.timings,
             modifiers=modifiers,
             settings=settings,

@@ -325,6 +325,7 @@ export const PropertyOperatorApi = {
     In: 'in',
     NotIn: 'not_in',
     IsCleanedPathExact: 'is_cleaned_path_exact',
+    IsCleanedPathNotExact: 'is_cleaned_path_not_exact',
     FlagEvaluatesTo: 'flag_evaluates_to',
     SemverEq: 'semver_eq',
     SemverNeq: 'semver_neq',
@@ -1948,6 +1949,7 @@ export const DataColorTokenApi = {
 export interface ResultCustomizationByValueApi {
     assignmentBy?: 'value'
     color?: DataColorTokenApi | null
+    customColor?: string | null
     hidden?: boolean | null
 }
 
@@ -8073,6 +8075,13 @@ export interface ScatterChartSettingsApi {
     xStartAtZero?: boolean | null
 }
 
+export type ValueLabelPositionApi = (typeof ValueLabelPositionApi)[keyof typeof ValueLabelPositionApi]
+
+export const ValueLabelPositionApi = {
+    End: 'end',
+    Center: 'center',
+} as const
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -8129,6 +8138,7 @@ export interface ChartAxisApi {
 export type ChartSettingsApiResultCustomizations = { [key: string]: ResultCustomizationByValueApi } | null
 
 export interface ChartSettingsApi {
+    barGap?: number | null
     boxPlot?: BoxPlotSettingsApi | null
     /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
     chartStyle?: ChartStyleApi | null
@@ -8155,8 +8165,14 @@ export interface ChartSettingsApi {
     showYAxisBorder?: boolean | null
     /** Whether we fill the bars to 100% in stacked mode */
     stackBars100?: boolean | null
+    valueLabelBackground?: boolean | null
+    valueLabelFontSize?: number | null
+    valueLabelPosition?: ValueLabelPositionApi | null
+    valueLabelRotation?: number | null
     xAxis?: ChartAxisApi | null
+    xAxisDateFormat?: string | null
     xAxisLabel?: string | null
+    xAxisTickRotation?: number | null
     yAxis?: ChartAxisApi[] | null
     /** Deprecated: use `[left|right]YAxisSettings`. Whether the Y axis should start at zero */
     yAxisAtZero?: boolean | null
@@ -8497,6 +8513,8 @@ export interface BIValueApi {
 }
 
 export interface BIConfigApi {
+    /** Catalog provenance only: the snapshot does not track subsequent definition edits. */
+    catalogMetric?: string | null
     chartType: ChartDisplayTypeApi
     colorBy?: string | null
     columns: BIFieldApi[]
@@ -8518,6 +8536,8 @@ export interface BIConfigApi {
     missingDates?: MissingDatesApi | null
     /** Split the returned groups into charts using these ordered dimension IDs. */
     panes?: BIPaneSettingsApi | null
+    /** Executable catalog query snapshot. Dates and grouping belong to the definition, not the shelves. */
+    querySnapshot?: HogQLQueryApi | null
     resultFilterGroup?: BIConditionGroupApi | null
     resultFilters?: BIResultFilterApi[] | null
     rowFilterGroup?: BIConditionGroupApi | null
@@ -9122,6 +9142,210 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+/**
+ * * `passed` - No data issues found
+ * * `warning` - A check found a small issue
+ * * `problem` - A check found a large issue
+ * * `no_events` - No events to check
+ * * `unsupported` - This kind of insight cannot be checked
+ * * `inconclusive` - No check could run
+ */
+export type InsightDataChecksStatusEnumApi =
+    (typeof InsightDataChecksStatusEnumApi)[keyof typeof InsightDataChecksStatusEnumApi]
+
+export const InsightDataChecksStatusEnumApi = {
+    Passed: 'passed',
+    Warning: 'warning',
+    Problem: 'problem',
+    NoEvents: 'no_events',
+    Unsupported: 'unsupported',
+    Inconclusive: 'inconclusive',
+} as const
+
+/**
+ * * `internal_users` - Internal and test users
+ * * `local_development` - Local development events
+ * * `bot_traffic` - Bot and crawler traffic
+ * * `duplicate_events` - Events sent twice
+ */
+export type InsightDataCheckKeyEnumApi = (typeof InsightDataCheckKeyEnumApi)[keyof typeof InsightDataCheckKeyEnumApi]
+
+export const InsightDataCheckKeyEnumApi = {
+    InternalUsers: 'internal_users',
+    LocalDevelopment: 'local_development',
+    BotTraffic: 'bot_traffic',
+    DuplicateEvents: 'duplicate_events',
+} as const
+
+/**
+ * * `passed` - Passed
+ * * `warning` - Warning
+ * * `problem` - Problem
+ * * `skipped` - Not checked
+ */
+export type InsightDataCheckLevelEnumApi =
+    (typeof InsightDataCheckLevelEnumApi)[keyof typeof InsightDataCheckLevelEnumApi]
+
+export const InsightDataCheckLevelEnumApi = {
+    Passed: 'passed',
+    Warning: 'warning',
+    Problem: 'problem',
+    Skipped: 'skipped',
+} as const
+
+/**
+ * * `too_many_events` - The days checked hold too many events to count
+ * * `read_limit` - The check would read more data than it is allowed
+ * * `time_limit` - The check took longer than it is allowed
+ * * `memory_limit` - The check needed more memory than it is allowed
+ * * `too_few_sampled_events` - The sample has too few events to give a share
+ * * `filtered_by_traffic_type` - The insight already filters on traffic type
+ * * `hidden_property` - A property the check reads is hidden from you
+ * * `invalid_filter` - The project's internal and test users filter cannot run
+ */
+export type InsightDataCheckSkipReasonEnumApi =
+    (typeof InsightDataCheckSkipReasonEnumApi)[keyof typeof InsightDataCheckSkipReasonEnumApi]
+
+export const InsightDataCheckSkipReasonEnumApi = {
+    TooManyEvents: 'too_many_events',
+    ReadLimit: 'read_limit',
+    TimeLimit: 'time_limit',
+    MemoryLimit: 'memory_limit',
+    TooFewSampledEvents: 'too_few_sampled_events',
+    FilteredByTrafficType: 'filtered_by_traffic_type',
+    HiddenProperty: 'hidden_property',
+    InvalidFilter: 'invalid_filter',
+} as const
+
+/**
+ * * `counted` - Counted every event on the days checked
+ * * `sampled` - Checked a sample of the events on the days checked
+ */
+export type InsightDataCheckMethodEnumApi =
+    (typeof InsightDataCheckMethodEnumApi)[keyof typeof InsightDataCheckMethodEnumApi]
+
+export const InsightDataCheckMethodEnumApi = {
+    Counted: 'counted',
+    Sampled: 'sampled',
+} as const
+
+/**
+ * * `filter_internal_users` - Turn on the internal and test users filter for the insight
+ * * `open_filter_settings` - Change the project's internal and test users filter
+ */
+export type InsightDataCheckActionEnumApi =
+    (typeof InsightDataCheckActionEnumApi)[keyof typeof InsightDataCheckActionEnumApi]
+
+export const InsightDataCheckActionEnumApi = {
+    FilterInternalUsers: 'filter_internal_users',
+    OpenFilterSettings: 'open_filter_settings',
+} as const
+
+export interface InsightDataCheckApi {
+    /** Which check this is.
+     *
+     * * `internal_users` - Internal and test users
+     * * `local_development` - Local development events
+     * * `bot_traffic` - Bot and crawler traffic
+     * * `duplicate_events` - Events sent twice */
+    key: InsightDataCheckKeyEnumApi
+    /** `passed` when the check found nothing worth acting on, `warning` for a small share of the events, `problem` for a fifth of the events or more, and `skipped` when the check could not run.
+     *
+     * * `passed` - Passed
+     * * `warning` - Warning
+     * * `problem` - Problem
+     * * `skipped` - Not checked */
+    level: InsightDataCheckLevelEnumApi
+    /** Why the check did not run. Null unless `level` is `skipped`.
+     *
+     * * `too_many_events` - The days checked hold too many events to count
+     * * `read_limit` - The check would read more data than it is allowed
+     * * `time_limit` - The check took longer than it is allowed
+     * * `memory_limit` - The check needed more memory than it is allowed
+     * * `too_few_sampled_events` - The sample has too few events to give a share
+     * * `filtered_by_traffic_type` - The insight already filters on traffic type
+     * * `hidden_property` - A property the check reads is hidden from you
+     * * `invalid_filter` - The project's internal and test users filter cannot run */
+    skip_reason: InsightDataCheckSkipReasonEnumApi | null
+    /** `counted` when the check counted every event on the days checked, `sampled` when it read a sample. Null when the check did not run.
+     *
+     * * `counted` - Counted every event on the days checked
+     * * `sampled` - Checked a sample of the events on the days checked */
+    method: InsightDataCheckMethodEnumApi | null
+    /**
+     * How many events on the days checked the check found. Null when the check did not run.
+     * @nullable
+     */
+    events: number | null
+    /**
+     * `events` as a share of the events checked, from 0 to 1. Null when the check did not run, or when the sample is too small to give a share.
+     * @nullable
+     */
+    share: number | null
+    /** True when `events` is an estimate scaled up from a sample, rather than a count of every event. */
+    scaled: boolean
+    /** The change that fixes it. `filter_internal_users`: set `filterTestAccounts` to true on the insight's query. `open_filter_settings`: change the project's internal and test users filter. Null when there is no single change.
+     *
+     * * `filter_internal_users` - Turn on the internal and test users filter for the insight
+     * * `open_filter_settings` - Change the project's internal and test users filter */
+    action: InsightDataCheckActionEnumApi | null
+    /** The event names the check found most often, most affected first. */
+    top_events: string[]
+    /** For the local development check, the local hosts found most often, most affected first. */
+    top_hosts: string[]
+    /** For the bot traffic check, the bots and crawlers found most often, most affected first. */
+    top_bots: string[]
+}
+
+export interface InsightDataChecksSampleApi {
+    /** The share of the events on the days checked that the sample read, from 0 to 1. */
+    rate: number
+    /** How many events the sample read. */
+    events: number
+    /** How many distinct IDs sent the events the sample read. */
+    distinct_ids: number
+}
+
+export interface InsightDataChecksCoverageApi {
+    /** The first day of the insight's date range. */
+    date_from: string
+    /** The last day of the insight's date range. */
+    date_to: string
+    /** How many days the insight's date range holds. */
+    days_in_range: number
+    /** The first day the checks read. */
+    checked_date_from: string
+    /** The last day the checks read. */
+    checked_date_to: string
+    /** How many days the checks read. The checks read the newest days of the range, up to 7. */
+    days_checked: number
+    /** True when the insight filters out the project's internal and test users. */
+    filters_test_accounts: boolean
+    /**
+     * How many events the insight reads on the days checked. Counted exactly, or scaled up from the sample when the days hold too many events to count. Null when neither ran.
+     * @nullable
+     */
+    events_checked: number | null
+    /** The sample the bot and duplicate checks read. Null when the sample did not run. */
+    sample: InsightDataChecksSampleApi | null
+}
+
+export interface InsightDataChecksApi {
+    /** The worst result across the checks. `no_events` when no event matches the insight's events, filters and date range. `unsupported` when the insight has no event series to check, such as a SQL insight, and when a property the checks read is hidden from the caller. `inconclusive` when no check could run.
+     *
+     * * `passed` - No data issues found
+     * * `warning` - A check found a small issue
+     * * `problem` - A check found a large issue
+     * * `no_events` - No events to check
+     * * `unsupported` - This kind of insight cannot be checked
+     * * `inconclusive` - No check could run */
+    status: InsightDataChecksStatusEnumApi
+    /** Every check, in a fixed order, whatever its result. */
+    checks: InsightDataCheckApi[]
+    /** Which days and how many events the checks read. Null when the checks could not choose the days to read, such as for an `unsupported` insight. */
+    coverage: InsightDataChecksCoverageApi | null
+}
+
 export interface InsightBulkDeleteRequestApi {
     /**
      * Insight IDs to soft-delete (or restore). At most 1000 ids per request. Soft-deleted insights can be brought back via the bulk_restore endpoint.
@@ -9226,6 +9450,11 @@ export interface BulkUpdateTagsErrorApi {
 export interface BulkUpdateTagsResponseApi {
     updated: BulkUpdateTagsItemApi[]
     skipped: BulkUpdateTagsErrorApi[]
+}
+
+export interface InsightDataChecksRequestApi {
+    /** The insight query to check, in the shape an insight stores it: an `InsightVizNode` with its `source`. Pass the query of a saved insight, or one that is not saved yet. */
+    query: _InsightQuerySchemaApi
 }
 
 /**
@@ -9656,6 +9885,18 @@ export const InsightsActivityRetrieveFormat = {
     Json: 'json',
 } as const
 
+export type InsightsDataChecksRetrieveParams = {
+    format?: InsightsDataChecksRetrieveFormat
+}
+
+export type InsightsDataChecksRetrieveFormat =
+    (typeof InsightsDataChecksRetrieveFormat)[keyof typeof InsightsDataChecksRetrieveFormat]
+
+export const InsightsDataChecksRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
 export type InsightsAllActivityRetrieveParams = {
     format?: InsightsAllActivityRetrieveFormat
     /**
@@ -9731,6 +9972,18 @@ export type InsightsCancelCreateParams = {
 export type InsightsCancelCreateFormat = (typeof InsightsCancelCreateFormat)[keyof typeof InsightsCancelCreateFormat]
 
 export const InsightsCancelCreateFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsDataChecksCreateParams = {
+    format?: InsightsDataChecksCreateFormat
+}
+
+export type InsightsDataChecksCreateFormat =
+    (typeof InsightsDataChecksCreateFormat)[keyof typeof InsightsDataChecksCreateFormat]
+
+export const InsightsDataChecksCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

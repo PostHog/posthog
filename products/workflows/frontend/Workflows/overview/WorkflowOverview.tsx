@@ -128,7 +128,7 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                 </LemonBanner>
             ) : null}
 
-            <div className="grid grid-cols-1 gap-2 @md:grid-cols-2 @3xl:grid-cols-3 @6xl:grid-cols-5">
+            <div className="flex flex-wrap gap-2" data-attr="workflow-overview-metric-cards">
                 <WorkflowMetricCard
                     name="Started"
                     description="Workflow runs that started in this date range."
@@ -141,7 +141,6 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                     color={METRIC_COLORS['Workflows started']}
                     colorIfZero={getColorVar('muted')}
                     compact
-                    className="min-w-0"
                 />
                 {hasEmail || hasPush ? (
                     <WorkflowMetricCard
@@ -154,7 +153,6 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                         seriesColors={METRIC_COLORS}
                         colorIfZero={getColorVar('muted')}
                         compact
-                        className="min-w-0"
                     />
                 ) : null}
                 {hasEmail || hasPush ? (
@@ -169,7 +167,6 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                         colorIfZero={getColorVar('muted')}
                         footer={shareOf(total(opened), sentTotal, 'sent')}
                         compact
-                        className="min-w-0"
                     />
                 ) : null}
                 {hasEmail ? (
@@ -186,7 +183,6 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                         colorIfZero={getColorVar('muted')}
                         footer={shareOf(total(clicked), sentTotal, 'sent')}
                         compact
-                        className="min-w-0"
                     />
                 ) : null}
                 {hasConversionGoal ? (
@@ -227,7 +223,6 @@ export function WorkflowOverview({ id }: { id: string }): JSX.Element {
                             ) : null
                         }
                         compact
-                        className="min-w-0"
                     />
                 ) : null}
             </div>

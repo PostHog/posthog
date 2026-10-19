@@ -815,6 +815,7 @@ class TestNodeSuspension:
             "InvalidMessageFormat: Encapsulated IPC message format must begin with continuation bytes, received: 'b'",
             "This model has been suspended after 5 consecutive failed materializations. "
             "Error: InvalidMessageFormat: Arrow stream contains bytes that are not an IPC message: 'garbage'",
+            'TrinoQueryError(type=INSUFFICIENT_RESOURCES, name=CLUSTER_OUT_OF_MEMORY, message="Query killed because the cluster is out of memory. Please try again in a few minutes.", query_id=20261011_000000_00000_abcde)',
         ],
     )
     async def test_externally_aborted_failures_do_not_suspend(self, ateam, anode, asaved_query, adag, aborted_error):
@@ -1908,6 +1909,40 @@ class _EmptyArrowClient:
 
 
 class TestHogqlTableModifiers:
+    @pytest.mark.parametrize(
+        "clickhouse_type,expected_conversion",
+        [
+            ("Array(UUID)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(IPv4)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(IPv6)", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(DateTime)", "arrayMap(x -> toTimeZone(x, %(hogql_val_0)s), person_ids) AS person_ids"),
+            ("Array(Nullable(UUID))", "arrayMap(x -> toString(x), person_ids) AS person_ids"),
+            ("Array(String)", None),
+            ("Array(Tuple(uuid String))", None),
+            ("Array(Array(UUID))", None),
+        ],
+    )
+    async def test_applies_arrow_conversions_to_array_elements(
+        self, ateam: Team, clickhouse_type: str, expected_conversion: str | None
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("person_ids", pa.list_(pa.string()))]))
+        client.describe_body = f"person_ids\t{clickhouse_type}\n".encode()
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            _ = [batch async for batch in hogql_table("SELECT [] AS person_ids", ateam, LOGGER.bind())]
+
+        assert client.arrow_query is not None
+        if expected_conversion is None:
+            assert "arrayMap(" not in client.arrow_query
+        else:
+            assert expected_conversion in client.arrow_query
+
     @pytest.mark.parametrize(
         "query,team_modifiers,expected_sql,expected_sql_new_events_schema",
         [

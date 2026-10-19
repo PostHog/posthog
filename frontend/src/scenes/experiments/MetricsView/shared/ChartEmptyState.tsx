@@ -2,7 +2,6 @@ import { IconClock } from '@posthog/icons'
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { MetricErrorState } from '../new/MetricErrorState'
-import { ErrorChecklist } from './ErrorChecklist'
 
 interface ChartEmptyStateProps {
     height: number
@@ -51,19 +50,14 @@ export function ChartEmptyState({
             // eslint-disable-next-line react/forbid-dom-props
             style={error ? { minHeight: `${height}px` } : { height: `${height}px` }}
         >
-            {error.hasDiagnostics ? (
-                <ErrorChecklist error={error} metric={metric} />
-            ) : (
-                // Use rich error state for all other errors
-                <MetricErrorState
-                    error={error}
-                    metric={metric}
-                    query={query}
-                    onRetry={onRetry}
-                    retryDisabledReason={retryDisabledReason}
-                    height={height}
-                />
-            )}
+            <MetricErrorState
+                error={error}
+                metric={metric}
+                query={query}
+                onRetry={onRetry}
+                retryDisabledReason={retryDisabledReason}
+                height={height}
+            />
         </div>
     )
 }

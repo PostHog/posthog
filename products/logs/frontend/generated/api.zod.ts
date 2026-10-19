@@ -138,7 +138,9 @@ export const LogsAlertsCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsCreateBodyCooldownMinutesMin)
         .default(logsAlertsCreateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -260,7 +262,9 @@ export const LogsAlertsUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsUpdateBodyCooldownMinutesMin)
         .default(logsAlertsUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -382,7 +386,9 @@ export const LogsAlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsPartialUpdateBodyCooldownMinutesMin)
         .default(logsAlertsPartialUpdateBodyCooldownMinutesDefault)
-        .describe('Minimum minutes between repeated notifications after the alert fires. 0 means no cooldown.'),
+        .describe(
+            'Minimum minutes between notifications. The alert notifies once when it starts firing and once when it resolves. It does not notify again on each check while it stays firing. A fire or resolve notification inside the cooldown is skipped. Cooldown does not apply to PagerDuty incidents. 0 means no minimum.'
+        ),
     schedule_restriction: zod
         .union([
             zod.object({
@@ -540,7 +546,9 @@ export const LogsAlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(logsAlertsSimulateCreateBodyCooldownMinutesMin)
         .default(logsAlertsSimulateCreateBodyCooldownMinutesDefault)
-        .describe('Minutes to wait after firing before sending another notification.'),
+        .describe(
+            'Minimum minutes between notifications. A fire or resolve notification inside the cooldown is skipped. 0 means no minimum.'
+        ),
     date_from: zod.string().describe("Relative date string for how far back to simulate (e.g. '-24h', '-7d', '-30d')."),
 })
 

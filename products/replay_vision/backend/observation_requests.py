@@ -33,6 +33,7 @@ from products.cdp.backend.internal_events import (
 )
 from products.cdp.backend.workflow_step_resume import RESULT_BYTE_CAP, cap_value, emit_workflow_step_resume
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
+from products.replay_vision.backend.error_kinds import FailureKind, IneligibleSessionKind
 from products.replay_vision.backend.models.replay_observation import TERMINAL_STATUSES, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_request import (
     ObservationRequestSource,
@@ -621,11 +622,87 @@ def step_result(
     if observation is not None and not can_read_observation(access, team.id, observation):
         return _step_answer("failed", None, ["The workflow's owner can't read this scanner's answers."])
     output = (
-        (observation.scanner_result or {}).get("model_output")
+        _step_output((observation.scanner_result or {}).get("model_output"))
         if observation is not None and session.state == RequestSessionState.SUCCEEDED
         else None
     )
-    return _step_answer(session.state.value, output, [])
+    return _step_answer(session.state.value, output, _unanswered_reason(session))
+
+
+_SKIPPED_REASONS: dict[str, str] = {
+    "skipped_quota": "Your organization's Replay Vision credits for this period are used up, so the session wasn't scanned.",
+    "skipped_scanner_limit": "This scanner reached its own credit limit for this period, so the session wasn't scanned.",
+    "skipped_limit": "Too many Replay Vision scans were already running, so the session wasn't scanned.",
+}
+
+# Worded as the scanner UI words them.
+_INELIGIBLE_REASONS: dict[str, str] = {
+    IneligibleSessionKind.NO_RECORDING: "No recording was found for this session.",
+    IneligibleSessionKind.NO_SNAPSHOTS: "This recording has no screen data to play back, so there was no video to watch.",
+    IneligibleSessionKind.TOO_SHORT: "The session was too short to analyze.",
+    IneligibleSessionKind.TOO_INACTIVE: "The session had too little active interaction to analyze.",
+    IneligibleSessionKind.TOO_LONG: "The session was too long to analyze.",
+    IneligibleSessionKind.TOO_LARGE: "This recording is too large to render as a video, so there was nothing to watch.",
+    IneligibleSessionKind.NO_EVENTS: "The session had no events to analyze.",
+}
+
+# These kinds store a measured value worth passing on ("Only 3.2s long; min is 5s"); the others store raw error text.
+_INELIGIBLE_KINDS_WITH_DETAIL = frozenset(
+    {IneligibleSessionKind.TOO_SHORT, IneligibleSessionKind.TOO_INACTIVE, IneligibleSessionKind.TOO_LONG}
+)
+
+_FAILURE_REASONS: dict[str, str] = {
+    FailureKind.PROVIDER_TRANSIENT: "The AI provider stayed unreachable across every automatic retry.",
+    FailureKind.PROVIDER_REJECTED: "The AI provider wouldn't analyze this recording's video.",
+    FailureKind.RASTERIZATION_FAILED: "PostHog could not turn this recording into a video.",
+    FailureKind.VALIDATION_FAILED: "The AI could not answer in the requested format.",
+    FailureKind.INFRA_TRANSIENT: "A PostHog service was slow or unavailable while preparing this recording.",
+    FailureKind.INTERNAL_ERROR: "Something inside PostHog stopped this scan.",
+    FailureKind.ORPHANED: "The scan was interrupted before it finished.",
+    FailureKind.PII_DETECTED: "The AI's answer included personal data the scan didn't ask for, so it wasn't kept.",
+}
+
+
+def _unanswered_reason(session: RequestSession) -> list[str]:
+    """Why the step got no answer, so a workflow can tell a used-up limit from a session that can't be scanned."""
+    state = session.state
+    if state == RequestSessionState.SUCCEEDED:
+        return []
+    if state == RequestSessionState.SKIPPED:
+        return [_SKIPPED_REASONS.get(session.scan_outcome or "", "The session wasn't scanned.")]
+    if state == RequestSessionState.LOST:
+        return ["The scan ran out of time before it finished."]
+    # `error_reason` is `kind:message`.
+    kind, _, detail = (session.observation.error_reason if session.observation is not None else "").partition(":")
+    if state == RequestSessionState.INELIGIBLE:
+        reason = _INELIGIBLE_REASONS.get(kind, "Replay Vision can't scan this session.")
+        detail = detail.strip()
+        return [f"{reason} {detail}." if detail and kind in _INELIGIBLE_KINDS_WITH_DETAIL else reason]
+    if state == RequestSessionState.FAILED:
+        # No observation means the scan never started: it failed to launch, or the process starting it died.
+        if session.observation is None:
+            return ["The scan failed to start."]
+        return [_FAILURE_REASONS.get(kind, "The scan failed.")]
+    return []
+
+
+# The answer a workflow step gets, per scanner type. Internal fields (citation segments, idle periods,
+# notability) would push a long session's answer over the step result budget and cut the chapters.
+# Short fields come first: the size cap fills fields in order, so a long summary can't crowd them out.
+_STEP_OUTPUT_FIELDS: dict[str, tuple[str, ...]] = {
+    ScannerType.MONITOR: ("confidence", "verdict", "reasoning"),
+    ScannerType.CLASSIFIER: ("confidence", "tags", "reasoning"),
+    ScannerType.SCORER: ("confidence", "score", "reasoning"),
+    ScannerType.SUMMARIZER: ("confidence", "title", "summary", "chapters"),
+}
+
+
+def _step_output(model_output: Any) -> Any:
+    scanner_type = model_output.get("scanner_type") if isinstance(model_output, dict) else None
+    fields = _STEP_OUTPUT_FIELDS.get(scanner_type) if isinstance(scanner_type, str) else None
+    if fields is None:
+        return model_output
+    return {key: model_output[key] for key in fields if key in model_output}
 
 
 def _step_answer(state: str, output: Any, warnings: list[str]) -> dict[str, Any]:
