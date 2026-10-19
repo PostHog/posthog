@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import React from 'react'
 
 import { IconChevronDown, IconCode, IconFlask, IconSparkles, IconWrench } from '@posthog/icons'
@@ -16,6 +15,7 @@ import {
 } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
@@ -73,10 +73,19 @@ export function QuillNewFeatureFlagMenu({ disabledReason }: { disabledReason?: s
                                         return (
                                             <DropdownMenuItem
                                                 key={intentKey}
-                                                onClick={() =>
-                                                    router.actions.push(
-                                                        urls.featureFlagNew({ template, intent: intentKey })
-                                                    )
+                                                render={
+                                                    <Button
+                                                        size="row"
+                                                        left
+                                                        render={
+                                                            <LinkPrimitive
+                                                                to={urls.featureFlagNew({
+                                                                    template,
+                                                                    intent: intentKey,
+                                                                })}
+                                                            />
+                                                        }
+                                                    />
                                                 }
                                                 data-attr="new-feature-flag-menu-intent"
                                                 data-attr-intent={intentKey}
@@ -89,7 +98,13 @@ export function QuillNewFeatureFlagMenu({ disabledReason }: { disabledReason?: s
                                     })}
                                     <DropdownMenuSeparator />
                                     <DropdownMenuItem
-                                        onClick={() => router.actions.push(urls.featureFlagNew({ template }))}
+                                        render={
+                                            <Button
+                                                size="row"
+                                                left
+                                                render={<LinkPrimitive to={urls.featureFlagNew({ template })} />}
+                                            />
+                                        }
                                         data-attr="new-feature-flag-menu-skip-intent"
                                     >
                                         <span className="text-xs text-secondary">Skip — no evaluation warnings</span>
@@ -101,7 +116,13 @@ export function QuillNewFeatureFlagMenu({ disabledReason }: { disabledReason?: s
                     return (
                         <DropdownMenuItem
                             key={template}
-                            onClick={() => router.actions.push(urls.featureFlagNew({ template }))}
+                            render={
+                                <Button
+                                    size="row"
+                                    left
+                                    render={<LinkPrimitive to={urls.featureFlagNew({ template })} />}
+                                />
+                            }
                             data-attr="new-feature-flag-menu-item"
                             data-attr-template={template}
                             description={metadata.description}
@@ -113,7 +134,13 @@ export function QuillNewFeatureFlagMenu({ disabledReason }: { disabledReason?: s
                 })}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
-                    onClick={() => router.actions.push(urls.featureFlagNew({ type: 'remote_config' }))}
+                    render={
+                        <Button
+                            size="row"
+                            left
+                            render={<LinkPrimitive to={urls.featureFlagNew({ type: 'remote_config' })} />}
+                        />
+                    }
                     data-attr="new-feature-flag-menu-item"
                     data-attr-template="remote_config"
                     description="Deliver configuration values to your app"
@@ -126,8 +153,8 @@ export function QuillNewFeatureFlagMenu({ disabledReason }: { disabledReason?: s
                     data-attr="new-experiment-menu-item"
                     data-attr-flag-type="experiment"
                     description="Run A/B tests with statistical analysis"
+                    render={<Button size="row" left render={<LinkPrimitive to={urls.experiment('new')} />} />}
                     onClick={() => {
-                        router.actions.push(urls.experiment('new'))
                         void addProductIntentForCrossSell({
                             from: ProductKey.FEATURE_FLAGS,
                             to: ProductKey.EXPERIMENTS,
