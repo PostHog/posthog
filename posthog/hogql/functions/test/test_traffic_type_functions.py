@@ -1086,6 +1086,12 @@ class TestServerAndMobileSdkClassification(ClickhouseTestMixin, BaseTest):
     def test_a_server_or_mobile_event_with_no_user_agent_is_regular(self, _name: str, lib: str, properties: dict):
         assert self._classify({"$lib": lib, **properties}) == (False, "Regular", "regular", "", "", "")
 
+    def test_a_server_event_with_no_user_agent_is_regular_with_cookieless_on(self) -> None:
+        # The cloud default: the cookieless and SDK reasons are combined.
+        self.team.modifiers = {"cookielessTrafficIsRegular": True}
+        self.team.save()
+        assert self._classify({"$lib": "posthog-node"}) == (False, "Regular", "regular", "", "", "")
+
     @parameterized.expand([("web", {"$lib": "web"}), ("no_lib", {}), ("unknown_lib", {"$lib": "curl"})])
     def test_other_events_with_no_user_agent_are_still_automation(self, _name: str, properties: dict) -> None:
         assert self._classify(properties) == (True, "Automation", "no_user_agent", "", "", "no_user_agent")

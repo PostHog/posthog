@@ -1021,10 +1021,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
 
 
 # $lib values of SDKs that run on a server or in a native app. They send no user agent unless the app
-# forwards one, so on their events a missing user agent is not a sign of automation. Browser SDKs are
-# left out on purpose: posthog-js always sends a user agent, so a missing one there still counts.
+# forwards one, so on their events a missing user agent is not a sign of automation. Browser SDKs
+# ("web", "js") are left out on purpose. Keep in step with sdk_metrics in posthog/tasks/usage_report.py.
 SERVER_AND_MOBILE_SDK_LIBS: tuple[str, ...] = (
-    # Server
     "posthog-node",
     "posthog-node-mcp",
     "posthog-edge",
@@ -1041,7 +1040,7 @@ SERVER_AND_MOBILE_SDK_LIBS: tuple[str, ...] = (
     "posthog-aspnetcore",
     "posthog-elixir",
     "posthog-rs",
-    # Mobile and native apps
+    "posthog-roblox",
     "posthog-ios",
     "posthog-android",
     "posthog-react-native",

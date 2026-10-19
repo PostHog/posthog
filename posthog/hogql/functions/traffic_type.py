@@ -441,9 +441,9 @@ def is_bot(node: ast.Call, args: list[ast.Expr], modifiers: Optional["HogQLQuery
     HogQL function: isLikelyBot(user_agent[, ip])
 
     Returns true if the user agent matches bot/automation patterns, or (when given) the
-    client IP falls in a known bot IP range. NULL user agents are treated as bots
-    (empty UA is considered automation), except on events from server and mobile SDKs (and
-    cookieless events when that modifier is on), which send no user agent by design.
+    client IP falls in a known bot IP range. NULL or empty user agents count as automation,
+    except on events from server and mobile SDKs (and cookieless events when that modifier is
+    on), where a missing user agent is expected.
 
     Uses multiMatchAnyIndex for efficient single-pass matching (same as get_traffic_type etc.);
     the IP check is a handful of hash-set lookups and only evaluates for rows the UA check
