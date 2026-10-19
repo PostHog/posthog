@@ -736,6 +736,16 @@ describe('preserveGroupTargetingFilters', () => {
             restored: [{}, {}],
         },
         {
+            name: 'two other sets hold the moved value on different group types',
+            stored: [
+                { ...onGroupType0, value: 'enterprise' },
+                { ...onGroupType0, value: 'pro' },
+                { ...onGroupType1, value: 'pro' },
+            ],
+            values: ['pro', 'enterprise', 'pro'],
+            restored: [{}, onGroupType0, onGroupType1],
+        },
+        {
             name: 'the agent types both properties after the sets trade places',
             values: ['pro', 'enterprise'],
             typed: [onGroupType1, onGroupType0],
