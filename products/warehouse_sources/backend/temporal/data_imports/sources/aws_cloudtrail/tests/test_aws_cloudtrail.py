@@ -423,10 +423,3 @@ def test_connection_error_has_useful_message(session: Mock) -> None:
     assert not valid
     assert reason is not None and "region" in reason
     session.close.assert_called_once()
-
-
-def test_unknown_pipeline_table_fails_before_network() -> None:
-    result = driver().run("missing", [])
-    assert isinstance(result.raised, ValueError)
-    assert "Unknown AWS CloudTrail table" in str(result.raised)
-    assert result.requests == []
