@@ -980,11 +980,8 @@ fn a_chunked_plan_across_a_migration_is_safe_and_live() {
     .assert_properties();
 }
 
-/// The rejected planner: units that ignore the basis land after the freeze,
-/// which serves the old generation past the flip. The freeze's stray check
-/// stays on and does not catch it; the quiet start is off because this small
-/// config only reaches a mid-plan start without it (production reaches it when
-/// a plan's earlier unit finished before its later one lands).
+/// A planner that ignores the plan basis serves the old generation past the flip. The quiet
+/// start is off, since this small config reaches a mid-plan start only without it.
 #[test]
 fn an_unguarded_plan_across_a_migration_serves_the_old_generation() {
     let checker = HandoffModel {

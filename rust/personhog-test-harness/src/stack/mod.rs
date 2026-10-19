@@ -1248,9 +1248,7 @@ impl Stack {
         Ok(saga)
     }
 
-    /// Wait for the writer to drain every old generation and commit on the
-    /// live topic, then retire each generation. Proves the writer moved on
-    /// its own, without the retire as a nudge.
+    /// Wait for the writer to drain every old generation on its own, then retire each one.
     pub async fn retire_drained(&mut self) -> Result<()> {
         let pending = std::mem::take(&mut self.pending_retire);
         for (old_topic, saga_end) in pending {

@@ -161,11 +161,8 @@ pub struct Router {
     /// Partitions currently buffering leader-path requests (production:
     /// the `StashTable`'s open freezes).
     pub stashing: BTreeSet<Partition>,
-    /// Parked leader-path requests in arrival order (production: the
-    /// `StashTable`'s per-key queues, which carry their gRPC method so
-    /// writes and strong reads share one FIFO per key). A request's place
-    /// never depends on the partition count; a drain for `p` takes the
-    /// requests whose key maps to `p` under the router's count.
+    /// Parked leader-path requests in arrival order (production: the `StashTable`'s
+    /// per-key queues). A drain for `p` takes those whose key maps to `p` under the router's count.
     pub stash: Vec<StashedRequest>,
 }
 

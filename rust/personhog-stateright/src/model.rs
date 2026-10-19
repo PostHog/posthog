@@ -572,12 +572,8 @@ impl HandoffModel {
         }
     }
 
-    /// Whether the handoff's new owner has fixed the cutoff it will
-    /// serve with over `log`: a warm installed for *this* handoff, or a
-    /// mid-warm read already taken (a pending warm always belongs to the
-    /// current attempt — cancellation requires the target unregistered,
-    /// which wipes its process memory). An earlier-era warm does NOT
-    /// freeze the cutoff: the Acquiring convergence releases and rebuilds it.
+    /// Whether the handoff's new owner has fixed its serving cutoff over `log`: a warm
+    /// for this handoff, or a mid-warm read already taken. An earlier-era warm does not count.
     fn handoff_cutoff_frozen(
         &self,
         state: &SystemState,
@@ -592,10 +588,8 @@ impl HandoffModel {
         }
     }
 
-    /// Whether the assignment owner has fixed its serving cutoff over
-    /// `log` — the Serving convergence honors any installed warm (an
-    /// owner's warm cannot go stale while ownership is continuous), so
-    /// any warm or a taken mid-warm read freezes it.
+    /// Whether the assignment owner has fixed its serving cutoff over `log`: any warm,
+    /// or a mid-warm read already taken.
     fn owner_cutoff_frozen(
         &self,
         state: &SystemState,
@@ -610,10 +604,8 @@ impl HandoffModel {
         }
     }
 
-    /// Serve a strong read for `key` at pod `x`, if it can (running,
-    /// partition warmed, key homed here). Sets the staleness flag when
-    /// some log holds a record of the key beyond the pod's visible prefix
-    /// of it. Returns whether the read was served.
+    /// Serve a strong read for `key` at pod `x` if it can, flagging a stale read when a
+    /// log holds a newer record the pod cannot see. Returns whether it served.
     fn serve_read(
         &self,
         state: &mut SystemState,
@@ -659,11 +651,8 @@ impl HandoffModel {
         true
     }
 
-    /// Append one acked write to the pod's captured log, tracking the
-    /// loss flag: if the protocol has designated a *different* pod as the
-    /// (incoming or current) owner of the key's home and that pod's warm
-    /// cutoff over this log is already fixed, this write sits beyond the
-    /// cutoff and is invisible to it forever.
+    /// Append one acked write to the pod's log, flagging a lost write when another pod
+    /// that owns the key's home has already fixed its cutoff over this log.
     fn accept_write(&self, state: &mut SystemState, x: PodId, partition: Partition, key: Key) {
         let epoch = state.pods[&x].warmed[&partition].epoch;
         let log = (epoch, partition);
@@ -807,10 +796,8 @@ impl HandoffModel {
         taken
     }
 
-    /// Route one request through router `r` exactly as the raw proxy does:
-    /// park it if its key already has a parked request or its partition
-    /// is stashing, otherwise forward to the table entry and let the
-    /// leader's admission decide.
+    /// Route one request as the raw proxy does: park it behind its key or a stashing
+    /// partition, otherwise forward it and let the leader's admission decide.
     fn route(&self, state: &mut SystemState, r: RouterId, request: StashedRequest) -> bool {
         let router = &state.routers[&r];
         if !router.running {
@@ -1338,11 +1325,8 @@ impl HandoffModel {
                     Some(w) if pod.fenced.contains(&p) => {
                         let log = (w.epoch, p);
                         mutate(last, |state| {
-                            // `resume_partition`. The cancelled handoff's
-                            // target may have taken the broker fence from
-                            // this pod's producer; production re-acquires it
-                            // on the captured topic before re-admitting
-                            // writes, or every write would fail as fenced.
+                            // `resume_partition`: re-take the broker fence the cancelled
+                            // target may hold, or every write fails as fenced.
                             state.changelogs.get_mut(&log).unwrap().epoch_holder = Some(x);
                             state.pods.get_mut(&x).unwrap().fenced.remove(&p);
                         })
@@ -1461,9 +1445,7 @@ impl HandoffModel {
                 })
             }
             Some(h) => {
-                // Complete: cutover the table, then drain the requests
-                // for `p` under the router's count to the new owner in
-                // FIFO order.
+                // Complete: cut over the table, then drain `p`'s requests to the new owner.
                 let new_owner = h.new_owner;
                 if router.table.get(&p) == Some(&new_owner)
                     && !router.stashing.contains(&p)
