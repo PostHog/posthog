@@ -17,6 +17,7 @@ from rest_framework import serializers
 from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
 from posthog.models.integration import Integration
@@ -1422,10 +1423,11 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         help_text="Optional source label for the artifact, such as agent_output or user_attachment",
     )
     content = serializers.CharField(
+        trim_whitespace=False,
         help_text=(
             "Artifact contents encoded according to content_encoding. "
             f"Artifacts above {TASK_RUN_ARTIFACT_INLINE_MAX_SIZE_BYTES // (1024 * 1024)} MB must use prepare_upload instead."
-        )
+        ),
     )
     content_encoding = serializers.ChoiceField(
         choices=TASK_RUN_ARTIFACT_CONTENT_ENCODING_CHOICES,
@@ -1450,8 +1452,11 @@ class TaskRunArtifactUploadSerializer(serializers.Serializer):
         content_encoding = attrs.get("content_encoding", "utf-8")
 
         if content_encoding == "base64":
+            encoded = content.strip()
+            if not encoded:
+                raise serializers.ValidationError({"content": self.fields["content"].error_messages["blank"]})
             try:
-                attrs["content_bytes"] = base64.b64decode(content, validate=True)
+                attrs["content_bytes"] = base64.b64decode(encoded, validate=True)
             except (binascii.Error, ValueError) as exc:
                 raise serializers.ValidationError({"content": "Invalid base64 content"}) from exc
         else:
@@ -1570,6 +1575,7 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
     content = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=False,
         max_length=500000,
         help_text="Markdown or text content for the initial artifact version.",
     )
@@ -1680,6 +1686,7 @@ class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
     content = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=False,
         max_length=500000,
         help_text="Markdown or text content for the next version.",
     )
@@ -1841,6 +1848,14 @@ class TaskRunArtifactFinalizeUploadSerializer(serializers.Serializer):
         required=False,
         help_text="Skill bundle metadata, required when the artifact type is skill_bundle.",
     )
+    base_artifact_id = serializers.CharField(
+        max_length=255,
+        required=False,
+        help_text=(
+            "ID of the artifact in the same run that this file edits. An HTML edit can run scripts only when "
+            "its base artifact can."
+        ),
+    )
 
     def validate(self, attrs):
         return validate_task_run_artifact_metadata(attrs)
@@ -1996,6 +2011,16 @@ class TaskRunArtifactPresignRequestSerializer(serializers.Serializer):
 class TaskRunArtifactPresignResponseSerializer(serializers.Serializer):
     url = serializers.URLField(help_text="Presigned URL for downloading the artifact")
     expires_in = serializers.IntegerField(help_text="URL expiry in seconds")
+
+
+class TaskRunArtifactPreviewResponseSerializer(serializers.Serializer):
+    url = serializers.URLField(help_text="Short-lived URL for the isolated HTML preview")
+    scripts_available = serializers.BooleanField(
+        help_text=(
+            "Whether the caller can request a preview that runs scripts. False when whoever wrote this artifact "
+            "version had limited network access, or when the version has no record of it."
+        )
+    )
 
 
 class TaskRunArtifactsDismissRequestSerializer(serializers.Serializer):
@@ -2308,6 +2333,21 @@ class TaskSummarySerializer(DataclassSerializer):
         ]
 
 
+class TaskSourcesListField(RepeatedOrCommaSeparatedListField, JSONTolerantListField):
+    """Repeated keys, one comma-joined value (the generated frontend client) or one JSON array (the MCP client).
+
+    The base order matters: JSONTolerantListField reads a JSON array before
+    RepeatedOrCommaSeparatedListField splits on commas. Blank values are dropped, so an empty
+    value means no source filter, as an empty source list does in the desktop filter.
+    """
+
+    def get_value(self, dictionary: Any) -> Any:
+        value = super().get_value(dictionary)
+        if isinstance(value, list):
+            return [source for source in value if source != ""]
+        return value
+
+
 class TaskListQuerySerializer(serializers.Serializer):
     """Query parameters for listing tasks"""
 
@@ -2321,6 +2361,17 @@ class TaskListQuerySerializer(serializers.Serializer):
         required=False,
         choices=tasks_facade.TaskOriginProduct.choices,
         help_text="Exclude tasks with this origin product from the results",
+    )
+    sources = TaskSourcesListField(
+        required=False,
+        child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
+        help_text=(
+            "Only tasks from any of these sources. Repeat the parameter for each source, or send one "
+            "comma-joined value or a JSON array. 'posthog_desktop', 'posthog_mobile' and 'posthog_web' "
+            "match user-created tasks by the client that created them, and a user-created task from no "
+            "other known client counts as desktop. 'posthog_web' also matches PostHog AI tasks. "
+            "Any other value matches the task's origin product."
+        ),
     )
     stage = serializers.CharField(required=False, help_text="Filter by task run stage")
     organization = serializers.CharField(required=False, help_text="Filter by repository organization")
@@ -3112,6 +3163,16 @@ class TaskRepositoriesResponseSerializer(serializers.Serializer):
     repositories = serializers.ListField(
         child=serializers.CharField(),
         help_text="Distinct repositories in use by non-deleted, non-internal tasks for the current team.",
+    )
+
+
+class TaskSourcesResponseSerializer(serializers.Serializer):
+    sources = serializers.ListField(
+        child=serializers.ChoiceField(choices=tasks_facade.TaskListSource.choices),
+        help_text=(
+            "Distinct sources of the requester's own non-archived tasks, sorted, in the words of the task "
+            "list `sources` filter. Each value filters the task list back to at least one task."
+        ),
     )
 
 
@@ -4955,7 +5016,7 @@ class SlackThreadContextRunSerializer(serializers.Serializer):
         allow_null=True,
         help_text=(
             "Temporal workflow id of the Slack mention that dispatched this run "
-            "(`posthog-code-mention-<workspace>:<event_id_or_channel:ts>`). Null for runs "
+            "(`slack-app-mention-processing-<workspace>:<event_id_or_channel:ts>`). Null for runs "
             "created before this field was persisted."
         ),
     )

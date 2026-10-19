@@ -31,22 +31,15 @@ Django posts to `{WIZARD_GATEWAY_URL}/v1/tokens` with
 | `allowed_efforts` | Reasoning efforts this token may declare                           |
 | `system_prompt`   | The operator prompt text, sent only when the prompt flag is usable |
 
-The pins come from two remote-config flags in the PostHog internal project,
+The pins come from two flags in the PostHog internal project,
 read once per mint request after authentication.
 
-- `wizard-ai-gateway-system-prompt` must be a remote-config flag with an encrypted payload.
-  `/flags` returns an unencrypted payload to anyone with the public project token, so an unencrypted prompt is public.
-  `/flags` drops an encrypted flag, so Django reads this one from the `remote_config` endpoint with the SDK's host and
-  Django's `POSTHOG_PERSONAL_API_KEY`, the request the SDK's `get_remote_config_payload` makes.
-  The read makes one attempt with a 1 second connect and a 1 second read timeout, and no retry.
-  A timeout, a 429 or a 503 mints unpinned at once, because the SDK's own retries sleep for `Retry-After` on the mint worker.
-  That endpoint decrypts only for a personal API key with `feature_flag:read` on the project.
-  A project secret key gets the redacted marker back, and the mint treats it as out of contract.
+- `wizard-ai-gateway-system-prompt` is read from local evaluation only, so the read adds no network time to the mint.
+  The read sends `$feature_flag_called`.
   The payload is `{"text": "<prompt>"}`, plus an optional `"version"` that is the operator's own label and that nothing reads.
   The text is non-empty, at most 16384 bytes, valid UTF-8 without U+FFFD, and contains `[posthog:abort]`.
   It goes to the gateway as `system_prompt`, byte for byte.
 - `wizard-gateway-allowlist`: `{"models": [...], "efforts": [...], "programs": [...]}`.
-  The allowlist is not secret, and its payload must stay unencrypted, because Django reads it through `/flags`.
   All three lists are non-empty, and `efforts` come from the gateway's effort vocabulary.
   `models` holds at most 32 entries, and each one must still name a model after the mint strips the `openai/` prefix.
   The read carries the `email`, `organization_id` and `team_id` person properties the limit-override flag gets.
@@ -57,8 +50,7 @@ Nothing logs the prompt text, and no error returns it.
 A policy flag never refuses a mint:
 
 - A prompt flag that is missing, unreadable or out of contract mints an unpinned token. The mint body omits
-  `system_prompt`. The `remote_config` endpoint ignores the flag's on/off switch, so the operator kill switch is
-  clearing the payload or deleting the flag.
+  `system_prompt`. The operator kill switch is turning the flag off, clearing the payload, or deleting the flag.
 - An allowlist flag that is unreadable or out of contract falls back to `WIZARD_DEFAULT_MODELS`,
   `WIZARD_DEFAULT_EFFORTS` and `WIZARD_DEFAULT_PROGRAMS` in `wizard_gateway_token.py`.
 - Unreadable payloads, flags that return no payload, and out-of-contract payloads log a warning. The PostHog SDK

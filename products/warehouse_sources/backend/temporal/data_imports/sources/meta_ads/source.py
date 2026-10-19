@@ -47,6 +47,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
     META_AUTH_ERROR_MESSAGE,
     META_INVALID_CURSOR_ERROR_MESSAGE,
     META_RATE_LIMIT_ERROR_MESSAGE,
+    META_TOKEN_REFRESH_ERROR_MESSAGE,
     SHRINK_EXHAUSTED_ERROR_MESSAGE,
     MetaAdsAuthError,
     MetaAdsRateLimitError,
@@ -133,7 +134,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "Failed to refresh token for Meta Ads integration. Please re-authorize the integration.": None,
+            META_TOKEN_REFRESH_ERROR_MESSAGE: None,
             # The data warehouse source still references a `meta_ads_integration_id` whose
             # Integration row no longer exists for the team (the integration was deleted or
             # de-authorized). `get_integration` then raises Django's `Integration.DoesNotExist`
@@ -252,6 +253,14 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             ENTITY_PAGE_REFUSED_ERROR_MESSAGE: (
                 "Meta was too busy to return this table's data, so this sync run did not finish. "
                 "This usually clears on its own and the next sync runs on schedule."
+            ),
+            # Graph API code 100, subcode 2446211: Meta refuses to serve an Advantage+ creative
+            # ("degrees of freedom") ad whose asset feed disagrees with its object story spec. The
+            # raw 400 body lands in the stored error otherwise. Keyed on the subcode because Meta
+            # localizes the title and message to the connected user's language.
+            '"error_subcode":2446211': (
+                "Meta refused to return an Advantage+ creative ad whose asset variations don't match "
+                "its main creative. Fix that ad in Ads Manager; the next sync runs on schedule."
             ),
         }
 

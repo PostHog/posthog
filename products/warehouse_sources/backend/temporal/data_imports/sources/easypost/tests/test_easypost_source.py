@@ -28,7 +28,9 @@ class TestGetSchemas:
         assert [f["field"] for f in schema.incremental_fields] == ["created_at"]
         assert schema.supports_append is True
 
-    @parameterized.expand([("carrier_accounts",), ("carriers",)])
+    @parameterized.expand(
+        [("carrier_accounts",), ("carriers",), ("carrier_types",), ("child_users",), ("reports",), ("usps_claims",)]
+    )
     def test_lookup_schemas_are_full_refresh_only(self, endpoint: str) -> None:
         # These endpoints expose no cursor at all, so offering incremental or append would let a
         # user pick a sync type that silently re-reads the whole collection every run.
@@ -38,7 +40,9 @@ class TestGetSchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    @parameterized.expand([("carrier_accounts",), ("end_shippers",)])
+    @parameterized.expand(
+        [("carrier_accounts",), ("end_shippers",), ("carrier_types",), ("child_users",), ("reports",), ("usps_claims",)]
+    )
     def test_restricted_endpoints_are_not_selected_by_default(self, endpoint: str) -> None:
         # EasyPost gates both endpoints: /carrier_accounts rejects test keys, and the EndShipper
         # API is opened per account. Selecting either by default fails a table nobody asked for.

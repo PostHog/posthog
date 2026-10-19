@@ -23,6 +23,13 @@ export type SettingsLogicProps = {
 export const SettingLevelIds = ['environment', 'project', 'organization', 'user'] as const
 export type SettingLevelId = (typeof SettingLevelIds)[number]
 
+export const SettingLevelNames: Record<SettingLevelId, string> = {
+    environment: 'Environment',
+    project: 'Project',
+    organization: 'Organization',
+    user: 'User',
+} as const
+
 export type SettingSectionId =
     // Environment
     | 'environment-details'
@@ -96,7 +103,6 @@ export type SettingSectionId =
     | 'user-api-keys'
     | 'user-connected-apps'
     | 'user-customization'
-    | 'user-navigation'
     | 'user-feature-previews'
     | 'user-notifications'
     | 'user-personal-integrations'
@@ -198,7 +204,6 @@ export type SettingId =
     | 'heatmap-screenshot-cookie'
     | 'heatmaps-capture'
     | 'hedgehog-mode'
-    | 'homepage'
     | 'human-friendly-comparison-periods'
     | 'integration-error-tracking'
     | 'integration-github'
@@ -285,10 +290,6 @@ export type SettingId =
     | 'scim-configuration'
     | 'session-join-mode'
     | 'session-table-version'
-    | 'sidebar-auto-suggest'
-    | 'sidebar-items'
-    | 'sidebar-layout'
-    | 'sidebar-my-tools'
     | 'snippet'
     | 'snippet-v2'
     | 'surveys-default-appearance'
@@ -319,6 +320,7 @@ export type SettingId =
     | 'web-vitals-autocapture'
     | 'workflows-frequency-cap'
     | 'workflows-ai-task-limits'
+    | 'workflows-replay-vision-limits'
     | 'workflows-email-tracking-consent'
     | 'workflows-engagement-events'
     | 'xaa-configuration'

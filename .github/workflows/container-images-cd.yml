@@ -423,8 +423,6 @@ jobs:
                         - 'posthog/clickhouse/migrations/**'
 
                       tasksAgent:
-                        - 'posthog/temporal/ai/posthog_code_slack_*'
-                        - 'posthog/temporal/ai/slack_app/**'
                         - 'products/slack_app/backend/**'
                         - 'products/tasks/backend/**'
                         - 'products/wizard/backend/**'
@@ -440,9 +438,12 @@ jobs:
                       # check_general_purpose_coverage_added below.
                       generalPurpose:
                         - 'products/notebooks/backend/**'
-                        - 'products/exports/backend/temporal/subscriptions/**'
+                        - 'products/subscriptions/backend/temporal/**'
+                        - 'products/subscriptions/backend/facade/temporal.py'
                         - 'products/engineering_analytics/backend/**'
                         - 'products/canvas/backend/**'
+                        - 'products/today/backend/**'
+                        - 'products/product_analytics/backend/insight_series.py'
                         - 'posthog/llm/**'
                         - 'posthog/temporal/dlq_replay/**'
                         - 'posthog/temporal/session_recordings/**'
@@ -760,7 +761,7 @@ jobs:
                         },
                         "release": "posthog",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -781,7 +782,7 @@ jobs:
                         },
                         "release": "ingestion",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -802,7 +803,7 @@ jobs:
                         },
                         "release": "temporal-worker-batch-exports",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -823,7 +824,7 @@ jobs:
                         },
                         "release": "temporal-worker-max-ai",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -844,7 +845,7 @@ jobs:
                         },
                         "release": "temporal-worker-tasks-agent",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -894,7 +895,7 @@ jobs:
                       fi
                   }
 
-                  SUBS_RESULT=$(check_affected products.exports.backend.temporal.subscriptions)
+                  SUBS_RESULT=$(check_affected products.subscriptions.backend.facade.temporal)
                   ALERTS_RESULT=$(check_affected posthog.temporal.alerts)
                   EXPORTS_RESULT=$(check_affected posthog.temporal.exports)
                   if [ "$SUBS_RESULT" = "true" ] || [ "$ALERTS_RESULT" = "true" ] || [ "$EXPORTS_RESULT" = "true" ]; then
@@ -919,7 +920,7 @@ jobs:
                         },
                         "release": "temporal-worker-billing",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -940,7 +941,7 @@ jobs:
                         },
                         "release": "temporal-worker-video-export",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -961,7 +962,7 @@ jobs:
                         },
                         "release": "temporal-worker-self-driving",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -982,7 +983,7 @@ jobs:
                         },
                         "release": "temporal-worker-session-replay",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1003,7 +1004,7 @@ jobs:
                         },
                         "release": "temporal-worker-replay-vision",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1024,7 +1025,7 @@ jobs:
                         },
                         "release": "temporal-worker-web-analytics",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1045,7 +1046,7 @@ jobs:
                         },
                         "release": "temporal-worker-experiments-recalculation",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1066,7 +1067,7 @@ jobs:
                         },
                         "release": "temporal-worker-error-tracking",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1087,7 +1088,7 @@ jobs:
                         },
                         "release": "temporal-worker-weekly-digest",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1108,7 +1109,7 @@ jobs:
                         },
                         "release": "temporal-worker-analytics-platform",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1121,14 +1122,36 @@ jobs:
               env:
                   BEFORE: ${{ github.event.before }}
               run: |
-                  BASE="$BEFORE"
-                  if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git fetch --depth=1 --no-tags origin "$BASE"; then
-                      BASE="HEAD^"
+                  WORKFLOW=.github/workflows/container-images-cd.yml
+                  NO_COMMIT=0000000000000000000000000000000000000000
+
+                  BASE="HEAD^"
+                  if [ -n "$BEFORE" ] && [ "$BEFORE" != "$NO_COMMIT" ]; then
+                      if git fetch --depth=1 --no-tags origin "$BEFORE"; then
+                          BASE="$BEFORE"
+                      fi
                   fi
-                  if git diff "$BASE" HEAD -- .github/workflows/container-images-cd.yml | grep -qE '^\+.*products/exports/backend/temporal/subscriptions'; then
-                      echo "changed=true" >> $GITHUB_OUTPUT
+
+                  general_purpose_paths_at() {
+                      git show "$1:$WORKFLOW" | awk '
+                          /^ *generalPurpose:$/ { in_list = 1; next }
+                          in_list && /^ *- /    { print $2; next }
+                          in_list && /^ *(#|$)/ { next }
+                                                { in_list = 0 }
+                      ' | sort -u
+                  }
+
+                  paths_before=$(general_purpose_paths_at "$BASE")
+                  paths_after=$(general_purpose_paths_at HEAD)
+                  added_paths=$(comm -13 <(echo "$paths_before") <(echo "$paths_after"))
+
+                  if [ -n "$added_paths" ]; then
+                      echo "Paths added to the general purpose list:"
+                      echo "$added_paths"
+                      echo "changed=true" >> "$GITHUB_OUTPUT"
                   else
-                      echo "changed=false" >> $GITHUB_OUTPUT
+                      echo "No paths added to the general purpose list."
+                      echo "changed=false" >> "$GITHUB_OUTPUT"
                   fi
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
@@ -1147,7 +1170,7 @@ jobs:
                         },
                         "release": "temporal-worker-general-purpose",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1168,7 +1191,7 @@ jobs:
                         },
                         "release": "temporal-worker-signup-enrichment",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1214,7 +1237,7 @@ jobs:
                         },
                         "release": "temporal-worker-health-check",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1235,7 +1258,7 @@ jobs:
                         },
                         "release": "temporal-worker-llm-analytics-evals",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1259,7 +1282,7 @@ jobs:
                         },
                         "release": "temporal-worker-messaging",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1280,7 +1303,7 @@ jobs:
                         },
                         "release": "temporal-worker-mcp-analytics",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1301,7 +1324,7 @@ jobs:
                         },
                         "release": "temporal-worker-logs-alerting",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1322,7 +1345,7 @@ jobs:
                         },
                         "release": "temporal-worker-stamphog",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1343,7 +1366,7 @@ jobs:
                         },
                         "release": "temporal-worker-ducklake",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1364,7 +1387,7 @@ jobs:
                         },
                         "release": "temporal-worker-data-warehouse",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1385,7 +1408,7 @@ jobs:
                         },
                         "release": "warehouse-sources-load",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1406,7 +1429,7 @@ jobs:
                         },
                         "release": "temporal-worker-data-warehouse-cdp-producer",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1427,7 +1450,7 @@ jobs:
                         },
                         "release": "temporal-worker-data-modeling",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ steps.labels.outputs.labels }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1447,7 +1470,7 @@ jobs:
                         },
                         "release": "dagster-code-location",
                         "commit": ${{ toJson(github.event.head_commit) }},
-                        "repository": ${{ toJson(github.repository) }},
+                        "repository": "PostHog/posthog",
                         "labels": ${{ toJson(steps.labels.outputs.labels) }},
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
@@ -1455,8 +1478,8 @@ jobs:
     # Main image plus the inbox-ranking dependency group, for the inbox ranking training code
     # location. Nothing depends on this job, and continue-on-error keeps the run green, so a
     # failure here never blocks the main image publish or its deploy dispatches.
-    # The `ml-image-digest` output is the digest of posthog-dagster-ml:<sha>. A code location
-    # dispatch that runs this image reads it as needs.dagster_ml_build.outputs.ml-image-digest.
+    # The `ml-image-digest` output is the digest of posthog-dagster-ml:<sha>. The job dispatches
+    # that digest to PostHog/charts, which reloads the ML code location in Dagster+.
     dagster_ml_build:
         name: Build and push Dagster ML image
         needs: posthog_build
@@ -1543,6 +1566,49 @@ jobs:
               run: |
                   echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
                   echo "ML image digest: $DIGEST" >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Get deployer token
+              id: deployer
+              if: steps.image.outputs.digest != ''
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_CHARTS_DEPLOYER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_CHARTS_DEPLOYER_PRIVATE_KEY }}
+                  owner: PostHog
+                  repositories: charts
+
+            - name: get PR labels
+              id: labels
+              if: steps.deployer.outputs.token != ''
+              continue-on-error: true
+              uses: ./.github/actions/get-pr-labels
+              with:
+                  token: ${{ secrets.GITHUB_TOKEN }}
+
+            # Moves the ML code location in Dagster+ to this image. The payload carries the
+            # digest, never a tag, so the location runs exactly the image this job built.
+            - name: Trigger Dagster ML Code Location Reload
+              if: steps.deployer.outputs.token != ''
+              continue-on-error: true
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: restart_dagster_ml_code_location
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ steps.image.outputs.digest }}"
+                          }
+                        },
+                        "release": "dagster-ml-code-location",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ toJson(steps.labels.outputs.labels || '[]') }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
 
             - name: Warn when the ML image failed
               if: failure()

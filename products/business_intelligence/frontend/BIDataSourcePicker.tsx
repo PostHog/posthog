@@ -10,6 +10,7 @@ import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { biDataSourcePickerLogic } from 'products/business_intelligence/frontend/biDataSourcePickerLogic'
 import { biEditorLogic } from 'products/business_intelligence/frontend/biEditorLogic'
 import { getBIDataSourceKey } from 'products/business_intelligence/frontend/biEditorTypes'
+import { TableCertificationIcon } from 'products/data_warehouse/frontend/shared/components/TableCertificationBadge'
 
 export function BIDataSourcePicker(): JSX.Element {
     const biLogic = useMountedLogic(biEditorLogic)
@@ -57,16 +58,27 @@ export function BIDataSourcePicker(): JSX.Element {
                                 virtualizationScrollContainerRef={scrollRef}
                                 expandedItemIds={visibleExpandedIds}
                                 onSetExpandedItemIds={setExpandedIds}
+                                onFolderClick={(item, expanded) =>
+                                    item &&
+                                    setExpandedIds(
+                                        expanded
+                                            ? visibleExpandedIds.filter((id) => id !== item.id)
+                                            : [...visibleExpandedIds, item.id]
+                                    )
+                                }
                                 onItemClick={(item) => item && selectSource(item.id)}
                                 isItemActive={(item) =>
                                     !!config.source && item.id === getBIDataSourceKey(config.source)
                                 }
                                 renderItemIcon={(item) => (
-                                    <TreeNodeDisplayIcon
-                                        item={item}
-                                        expandedItemIds={visibleExpandedIds}
-                                        defaultNodeIcon={<IconDatabase />}
-                                    />
+                                    <span className="flex shrink-0 items-center gap-1">
+                                        <TreeNodeDisplayIcon
+                                            item={item}
+                                            expandedItemIds={visibleExpandedIds}
+                                            defaultNodeIcon={<IconDatabase />}
+                                        />
+                                        <TableCertificationIcon certification={item.record?.certification} />
+                                    </span>
                                 )}
                             />
                         </div>
