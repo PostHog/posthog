@@ -163,7 +163,8 @@ export const onboardingWelcomeLogic = kea<onboardingWelcomeLogicType>([
     }),
     listeners(({ actions, values }) => ({
         loadEmptyState: async ({ productKey }) => {
-            if (productKey in values.emptyStates) {
+            // `null` can be a failed download, so only a loaded setup screen skips the next attempt.
+            if (values.emptyStates[productKey]) {
                 return
             }
             const emptyState = isWelcomeProductKey(productKey)

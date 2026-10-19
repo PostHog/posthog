@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from './onboardingLogic'
+import { productSelectionLogic } from './productSelection/productSelectionLogic'
 import { INSTALL_DEDUP_KEYS } from './types'
 
 /**
@@ -708,9 +709,9 @@ describe('onboardingLogic — flow composition', () => {
         const currentPath = (): string => removeProjectIdIfPresent(router.values.location.pathname)
 
         it.each([
-            ['test arm', 'test', '/onboarding', false, '/onboarding/simple', 'simple'],
-            ['test arm with late flags', 'test', '/onboarding', true, '/onboarding/simple', 'simple'],
-            ['control arm', 'control', '/onboarding', false, '/onboarding', 'default'],
+            ['test arm', 'test', '/onboarding', false, '/onboarding/simple', 'simple', ['simple']],
+            ['test arm with late flags', 'test', '/onboarding', true, '/onboarding/simple', 'simple', ['simple']],
+            ['control arm', 'control', '/onboarding', false, '/onboarding', 'default', ['legacy']],
             [
                 'test arm on a product url',
                 'test',
@@ -718,24 +719,32 @@ describe('onboardingLogic — flow composition', () => {
                 true,
                 '/onboarding/product_analytics',
                 'default',
+                [],
             ],
-        ])('%s lands on the right flow', async (_, variant, entryPath, flagsLandLate, pathname, flowVariant) => {
-            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
-            if (!flagsLandLate) {
-                assignSimpleFlowArm(variant)
+        ])(
+            '%s lands on the right flow',
+            async (_, variant, entryPath, flagsLandLate, pathname, flowVariant, startedFlowVariants) => {
+                const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+                if (!flagsLandLate) {
+                    assignSimpleFlowArm(variant)
+                }
+                router.actions.push(entryPath)
+                // The page renders product selection while it sits on bare `/onboarding`.
+                const productSelection = currentPath() === '/onboarding' ? productSelectionLogic() : null
+                productSelection?.mount()
+                if (flagsLandLate) {
+                    assignSimpleFlowArm(variant)
+                }
+                await expectLogic(logic).toFinishAllListeners()
+                productSelection?.unmount()
+                expect(currentPath()).toBe(pathname)
+                expect(logic.values.flowVariant).toBe(flowVariant)
+                const startedVariants = capture.mock.calls
+                    .filter(([event]) => event === 'onboarding started')
+                    .map(([, properties]) => properties?.flow_variant)
+                expect(startedVariants).toEqual(startedFlowVariants)
             }
-            router.actions.push(entryPath)
-            if (flagsLandLate) {
-                assignSimpleFlowArm(variant)
-            }
-            await expectLogic(logic).toFinishAllListeners()
-            expect(currentPath()).toBe(pathname)
-            expect(logic.values.flowVariant).toBe(flowVariant)
-            const startedVariants = capture.mock.calls
-                .filter(([event]) => event === 'onboarding started')
-                .map(([, properties]) => properties?.flow_variant)
-            expect(startedVariants).toEqual(flowVariant === 'simple' ? ['simple'] : [])
-        })
+        )
 
         it('the simple flow is install, MCP, then invite, and advancing stays on its own URL', async () => {
             router.actions.push(urls.simpleOnboarding())
