@@ -86,6 +86,14 @@ class RepairPlan:
     config: FlagEvaluationsPersonIdRepairConfig
     blocking_run_check: BlockingRunCheck
 
+    @property
+    def window(self) -> dict[str, str]:
+        """The mutation's bounds, which cover the same days the build validated."""
+        return {
+            "window_start": f"{self.days[-1]:%Y-%m-%d} 00:00:00",
+            "window_end": f"{self.days[0] + timedelta(days=1):%Y-%m-%d} 00:00:00",
+        }
+
 
 @frozen
 class PersonIdRepairTable:
@@ -205,10 +213,12 @@ class PersonIdRepairDictionary(Dictionary):
     def update_command(self, *, filter_team_ids: bool) -> str:
         # The key includes the row's current person_id. A row matches only while it still holds the
         # stale id. A rerun therefore changes nothing. A row that a later squash moved stays where it is.
+        # The build checked only the rows inside the window, so the mutation stays inside it too.
         team_filter = _TEAM_FILTER if filter_team_ids else ""
         return (
             "UPDATE person_id = dictGet(%(name)s, 'person_id', (team_id, distinct_id, person_id)) "
-            f"WHERE {COPIED_ROW_FILTER} AND dictHas(%(name)s, (team_id, distinct_id, person_id)){team_filter}"
+            "WHERE timestamp >= %(window_start)s AND timestamp < %(window_end)s "
+            f"AND {COPIED_ROW_FILTER} AND dictHas(%(name)s, (team_id, distinct_id, person_id)){team_filter}"
         )
 
 
@@ -449,7 +459,7 @@ def run_repair_mutation(
     AlterTableMutationRunner(
         table=FLAG_EVALUATIONS_DATA_TABLE,
         commands={dictionary.update_command(filter_team_ids=bool(team_ids))},
-        parameters={"name": dictionary.qualified_name, "team_ids": tuple(team_ids or ())},
+        parameters={"name": dictionary.qualified_name, "team_ids": tuple(team_ids or ()), **plan.window},
     ).run_on_shards(cluster)
 
     if started := blocking_runs_started():

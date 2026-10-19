@@ -31,6 +31,7 @@ class FlagCall:
     stored_person_id: UUID
     events_person_id: UUID
     imported: bool = True
+    age: timedelta = timedelta(days=3)
 
     @property
     def uuid(self) -> UUID:
@@ -46,19 +47,31 @@ CALLS = (STALE, KAFKA_PATH, MOVED_BY_LATER_SQUASH)
 # A separate call gives the key (TEAM_ID, DISTINCT_ID, PERSON_A) a second events person_id without that risk.
 CONFLICTING_CALL = FlagCall(label="conflicting_call", stored_person_id=PERSON_A, events_person_id=PERSON_D)
 AGREEING_CALL = FlagCall(label="agreeing_call", stored_person_id=PERSON_A, events_person_id=PERSON_A)
+OUTSIDE_WINDOW = FlagCall(
+    label="outside_window", stored_person_id=PERSON_A, events_person_id=PERSON_C, age=timedelta(days=7)
+)
 
 
-def seed(cluster: ClickhouseCluster, timestamp: datetime, calls: Sequence[FlagCall]) -> None:
+def seed(cluster: ClickhouseCluster, now: datetime, calls: Sequence[FlagCall]) -> None:
     imported_rows = [
-        (TEAM_ID, DISTINCT_ID, call.stored_person_id, call.uuid, timestamp) for call in calls if call.imported
+        (TEAM_ID, DISTINCT_ID, call.stored_person_id, call.uuid, now - call.age) for call in calls if call.imported
     ]
     cluster.any_host(partial(insert_flag_evaluations, imported_rows)).result()
 
     # A row from Kafka arrives after its event, so its inserted_at is later than its timestamp.
     # Its offset is 1 because the imported-row filter treats offset 0 in partition 0 as an import.
-    kafka_time = timestamp + timedelta(seconds=1)
     kafka_rows = [
-        (TEAM_ID, DISTINCT_ID, call.stored_person_id, call.uuid, timestamp, kafka_time, kafka_time, 0, 1)
+        (
+            TEAM_ID,
+            DISTINCT_ID,
+            call.stored_person_id,
+            call.uuid,
+            now - call.age,
+            now - call.age + timedelta(seconds=1),
+            now - call.age + timedelta(seconds=1),
+            0,
+            1,
+        )
         for call in calls
         if not call.imported
     ]
@@ -86,7 +99,7 @@ def seed(cluster: ClickhouseCluster, timestamp: datetime, calls: Sequence[FlagCa
             "full",
             timestamp,
         )
-        for call in calls
+        for call, timestamp in ((call, now - call.age) for call in calls)
     ]
     cluster.any_host_by_role(
         Query(
@@ -118,6 +131,7 @@ def days_before(now: datetime, days: int) -> str:
         pytest.param(True, (), True, {}, id="dry_run"),
         pytest.param(False, (CONFLICTING_CALL,), False, {}, id="conflicting_events_copies"),
         pytest.param(False, (AGREEING_CALL,), False, {}, id="agreeing_events_copy"),
+        pytest.param(False, (OUTSIDE_WINDOW,), True, {STALE.label: PERSON_B}, id="outside_window"),
     ],
 )
 def test_repair_rewrites_only_imported_rows_that_still_hold_the_stale_id(
@@ -130,7 +144,7 @@ def test_repair_rewrites_only_imported_rows_that_still_hold_the_stale_id(
     # nosemgrep: test-datetime-now-without-freeze (the rows and both window bounds are offsets from this one reading, so passing UTC midnight changes no assertion)
     now = datetime.now(UTC)
     calls = (*CALLS, *extra_calls)
-    seed(cluster, now - timedelta(days=3), calls)
+    seed(cluster, now, calls)
     config = FlagEvaluationsPersonIdRepairConfig(
         start_date=days_before(now, 5), end_date=days_before(now, 1), dry_run=dry_run
     )
