@@ -1,8 +1,8 @@
 from collections.abc import AsyncIterator
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, ExitStack
 from datetime import UTC, datetime
-from typing import Any, Generic, TypeVar
-from uuid import uuid4
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
+from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import BaseTest
@@ -13,13 +13,19 @@ from django.apps import apps
 import pyarrow as pa
 import pyarrow.parquet as pq
 from asgiref.sync import async_to_sync
+from parameterized import parameterized
+
+from posthog.dataclasses import frozen
+from posthog.models import Team
 
 from products.customer_analytics.backend.logic import account_property_sync as aps
 from products.customer_analytics.backend.logic.account_property_runs import (
     AccountPropertySyncRunContext,
+    AccountPropertySyncSegmentIncompleteError,
     start_account_property_sync_runs,
 )
 from products.customer_analytics.backend.logic.account_property_sync import (
+    AccountPropertySourceRejectedError,
     AccountPropertySourceValueError,
     AccountPropertySyncPhase,
     AccountPropertySyncSegment,
@@ -33,36 +39,355 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     _source_values,
     _value_hash,
     _write_snapshot_hashes,
+    complete_account_property_sync_segment,
+    get_account_property_sync_source_ids,
     run_account_property_segment_sync,
+    run_account_property_source_sync,
 )
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
-from products.warehouse_sources.backend.facade.hooks import saved_query_binding
+from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding
 from products.warehouse_sources.backend.facade.temporal import (
+    account_property_completion_prefix,
     account_property_job_staged_prefix,
     account_property_snapshot_prefix,
 )
 
+if TYPE_CHECKING:
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery as SavedQueryModel
+
 _MODULE = "products.customer_analytics.backend.logic.account_property_sync"
 DataWarehouseSavedQuery = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+_ACCOUNT_IDS = {"acct-1": UUID("00000000-0000-4000-8000-0000000000a1")}
+_EMPTY_COUNTS = {"rows_read": 0, "changed": 0, "matched": 0, "written": 0, "source_errors": 0, "source_count": 0}
+
+
+@frozen
+class _RunState:
+    status: str
+    phase: str
+    rows_read: int
+    produced: int
+
+
+_STAGING = _RunState(status="running", phase="staging", rows_read=0, produced=0)
+_COMPLETED_ONE_ROW = _RunState(status="completed", phase="completed", rows_read=1, produced=1)
+_COMPLETED_NO_ROWS = _RunState(status="completed", phase="completed", rows_read=0, produced=0)
+
+
+@frozen
+class _ViewWithTwoSources:
+    binding: WarehouseBinding
+    plan_source: CustomPropertySource
+    tier_source: CustomPropertySource
+
+
+def _match_known_accounts(
+    team_id: int, segment: AccountPropertySyncSegment, external_ids: list[str]
+) -> dict[str, UUID]:
+    return {external_id: _ACCOUNT_IDS[external_id] for external_id in external_ids if external_id in _ACCOUNT_IDS}
+
+
+def _apply_all_values(
+    team_id: int,
+    source: CustomPropertySource,
+    account_ids: dict[str, UUID],
+    changed: dict[str, Any],
+    segment: AccountPropertySyncSegment,
+) -> AppliedSourceValues:
+    hashes = {external_id: _value_hash(changed[external_id]) for external_id in account_ids}
+    return AppliedSourceValues(written=len(hashes), hashes=hashes, failed=False)
 
 
 class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
-    def _create_source(self) -> CustomPropertySource:
-        saved_query = DataWarehouseSavedQuery.objects.create(
-            team=self.team,
-            name="accounts",
-            columns={"external_id": {}, "plan": {}},
-        )
-        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
-        return CustomPropertySource.objects.create(
-            team=self.team,
+    def _create_source(
+        self,
+        *,
+        saved_query: "SavedQueryModel | None" = None,
+        team: Team | None = None,
+        name: str = "Plan",
+        column: str = "plan",
+    ) -> CustomPropertySource:
+        team = team or self.team
+        if saved_query is None:
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=team,
+                name="accounts",
+                columns={"external_id": {}, "plan": {}, "tier": {}},
+            )
+        definition = create_custom_property_definition(team_id=team.id, name=name)
+        return CustomPropertySource.objects.unscoped().create(
+            team=team,
             definition=definition,
             saved_query=saved_query,
             key_column="external_id",
-            source_column="plan",
+            source_column=column,
         )
+
+    def _start_runs(self, source: CustomPropertySource) -> None:
+        start_account_property_sync_runs(
+            AccountPropertySyncRunContext(
+                team_id=source.team_id,
+                saved_query_id=str(source.saved_query_id),
+                job_id="job-1",
+            ),
+            workflow_id="stage-workflow-job-1",
+            workflow_run_id="00000000-0000-4000-8000-000000000001",
+        )
+
+    def _run_states(self, source: CustomPropertySource) -> dict[str, _RunState]:
+        states: dict[str, _RunState] = {}
+        for run in CustomPropertySyncRun.objects.for_team(source.team_id).filter(source=source, job_id="job-1"):
+            assert run.segment is not None
+            assert run.phase is not None
+            states[run.segment] = _RunState(
+                status=run.status, phase=run.phase, rows_read=run.rows_read, produced=run.produced
+            )
+        return states
+
+    def _create_view_with_two_sources(self, fake: "_FakeS3", plan: str = "enterprise") -> _ViewWithTwoSources:
+        plan_source = self._create_source()
+        tier_source = self._create_source(saved_query=plan_source.saved_query, name="Tier", column="tier")
+        self._start_runs(plan_source)
+        binding = saved_query_binding(str(plan_source.saved_query_id))
+        self._stage_rows(fake, binding, [{"external_id": "acct-1", "plan": plan, "tier": "gold"}])
+        return _ViewWithTwoSources(binding=binding, plan_source=plan_source, tier_source=tier_source)
+
+    def _stage_rows(self, fake: "_FakeS3", binding: WarehouseBinding, rows: list[dict[str, Any]]) -> None:
+        buffer = pa.BufferOutputStream()
+        pq.write_table(pa.Table.from_pylist(rows), buffer)
+        path = f"{account_property_job_staged_prefix(self.team.id, binding, 'job-1')}/chunk-0.parquet"
+        async_to_sync(fake._pipe_file)(path, buffer.getvalue().to_pybytes())
+
+    def _fanout_boundaries(self, fake: "_FakeS3") -> ExitStack:
+        stack = ExitStack()
+        stack.enter_context(_fake_s3_patch(fake))
+        stack.enter_context(patch(f"{_MODULE}._matching_account_ids", side_effect=_match_known_accounts))
+        stack.enter_context(patch(f"{_MODULE}._apply_source_values", side_effect=_apply_all_values))
+        return stack
+
+    def _run_source(
+        self,
+        fake: "_FakeS3",
+        binding: WarehouseBinding,
+        source_id: str,
+        *,
+        segment: AccountPropertySyncSegment = AccountPropertySyncSegment.TRACKED,
+        final_attempt: bool = False,
+    ) -> dict[str, int]:
+        with self._fanout_boundaries(fake):
+            return async_to_sync(run_account_property_source_sync)(
+                team_id=self.team.id,
+                binding=binding,
+                job_id="job-1",
+                segment=segment,
+                source_id=source_id,
+                final_attempt=final_attempt,
+            )
+
+    def _complete_segment(
+        self, fake: "_FakeS3", binding: WarehouseBinding, segment: AccountPropertySyncSegment
+    ) -> None:
+        with self._fanout_boundaries(fake):
+            async_to_sync(complete_account_property_sync_segment)(
+                team_id=self.team.id, binding=binding, job_id="job-1", segment=segment
+            )
+
+    def _snapshot(self, fake: "_FakeS3", binding: WarehouseBinding, source: CustomPropertySource) -> dict[str, str]:
+        with _fake_s3_patch(fake):
+            return async_to_sync(_read_snapshot_hashes)(
+                self.team.id, binding, str(source.id), AccountPropertySyncSegment.TRACKED
+            )
+
+    def _completion_markers(self, fake: "_FakeS3", binding: WarehouseBinding) -> set[str]:
+        prefix = f"{account_property_completion_prefix(self.team.id, binding, 'job-1')}/"
+        return {key.removeprefix(prefix) for key in fake.store if key.startswith(prefix)}
+
+    def _staged_files(self, fake: "_FakeS3", binding: WarehouseBinding) -> list[str]:
+        prefix = account_property_job_staged_prefix(self.team.id, binding, "job-1")
+        return [key for key in fake.store if key.startswith(prefix)]
+
+    def test_source_ids_are_this_views_eligible_sources_in_a_stable_order(self) -> None:
+        sources = [self._create_source()]
+        view = sources[0].saved_query
+        assert view is not None
+        sources.append(self._create_source(saved_query=view, name="Tier", column="tier"))
+        disabled = self._create_source(saved_query=view, name="Region", column="region")
+        disabled.is_enabled = False
+        disabled.save(update_fields=["is_enabled"])
+        other_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="other_accounts", columns={})
+        self._create_source(saved_query=other_view, name="Seats", column="seats")
+        other_team = Team.objects.create(organization=self.organization)
+        self._create_source(saved_query=view, team=other_team, name="Plan", column="plan")
+
+        source_ids = get_account_property_sync_source_ids(self.team.id, saved_query_binding(str(view.id)))
+
+        assert source_ids == sorted(str(source.id) for source in sources)
+
+    def test_source_sync_updates_only_its_own_source_and_segment(self) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+
+        counts = self._run_source(fake, view.binding, str(view.plan_source.id))
+
+        assert counts == {**_EMPTY_COUNTS, "rows_read": 1, "changed": 1, "matched": 1, "written": 1, "source_count": 1}
+        assert self._run_states(view.plan_source) == {
+            "tracked": _COMPLETED_ONE_ROW,
+            "ignored": _STAGING,
+        }
+        assert self._run_states(view.tier_source) == {
+            "tracked": _STAGING,
+            "ignored": _STAGING,
+        }
+        assert self._snapshot(fake, view.binding, view.plan_source) == {"acct-1": _value_hash("enterprise")}
+        assert self._snapshot(fake, view.binding, view.tier_source) == {}
+        assert self._completion_markers(fake, view.binding) == {f"sources/tracked/{view.plan_source.id}.done"}
+        assert len(self._staged_files(fake, view.binding)) == 1
+
+    def test_completed_source_is_not_repeated_on_retry(self) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+        first_counts = self._run_source(fake, view.binding, str(view.plan_source.id))
+        self._stage_rows(fake, view.binding, [{"external_id": "acct-1", "plan": "starter", "tier": "gold"}])
+
+        retry_counts = self._run_source(fake, view.binding, str(view.plan_source.id))
+
+        assert first_counts["written"] == 1
+        assert retry_counts == _EMPTY_COUNTS
+        assert self._run_states(view.plan_source)["tracked"] == _COMPLETED_ONE_ROW
+        assert self._snapshot(fake, view.binding, view.plan_source) == {"acct-1": _value_hash("enterprise")}
+
+    @parameterized.expand(
+        [
+            ("other_view", AccountPropertySourceRejectedError),
+            ("malformed_id", AccountPropertySourceRejectedError),
+            ("other_team", None),
+            ("deleted", None),
+        ]
+    )
+    def test_source_ids_outside_this_view_are_not_processed(
+        self, case: str, expected_error: type[Exception] | None
+    ) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+        other_view = DataWarehouseSavedQuery.objects.create(team=self.team, name="other_accounts", columns={})
+        other_view_source = self._create_source(saved_query=other_view, name="Seats", column="seats")
+        other_team_source = self._create_source(team=Team.objects.create(organization=self.organization))
+        for source in (other_view_source, other_team_source):
+            self._start_runs(source)
+        source_ids = {
+            "other_view": str(other_view_source.id),
+            "malformed_id": "not-a-source-id",
+            "other_team": str(other_team_source.id),
+            "deleted": str(uuid4()),
+        }
+
+        if expected_error is None:
+            assert self._run_source(fake, view.binding, source_ids[case], final_attempt=True) == _EMPTY_COUNTS
+        else:
+            with pytest.raises(expected_error):
+                self._run_source(fake, view.binding, source_ids[case], final_attempt=True)
+
+        running = {"tracked": _STAGING, "ignored": _STAGING}
+        for source in (view.plan_source, view.tier_source, other_view_source, other_team_source):
+            assert self._run_states(source) == running
+        assert self._completion_markers(fake, view.binding) == set()
+        assert [key for key in fake.store if "account_property_snapshot" in key] == []
+
+    @parameterized.expand([("disabled", "is_enabled", False), ("column_removed", "source_column", None)])
+    def test_ineligible_source_finishes_only_its_own_run_without_changes(
+        self, _case: str, field: str, value: object
+    ) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+        setattr(view.plan_source, field, value)
+        view.plan_source.save(update_fields=[field])
+
+        counts = self._run_source(fake, view.binding, str(view.plan_source.id))
+
+        assert counts == _EMPTY_COUNTS
+        assert self._run_states(view.plan_source) == {
+            "tracked": _COMPLETED_NO_ROWS,
+            "ignored": _STAGING,
+        }
+        assert self._run_states(view.tier_source)["tracked"] == _STAGING
+        assert self._snapshot(fake, view.binding, view.plan_source) == {}
+
+    @parameterized.expand([("retryable", False, "running"), ("final_attempt", True, "failed")])
+    def test_source_failure_keeps_completed_siblings_and_staged_rows(
+        self, _case: str, final_attempt: bool, expected_status: str
+    ) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+        pending_source = self._create_source(saved_query=view.plan_source.saved_query, name="Seats", column="seats")
+        self._start_runs(pending_source)
+        self._run_source(fake, view.binding, str(view.tier_source.id))
+
+        with (
+            patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=OSError("S3 unavailable")),
+            pytest.raises(OSError, match="S3 unavailable"),
+        ):
+            self._run_source(fake, view.binding, str(view.plan_source.id), final_attempt=final_attempt)
+
+        assert self._run_states(view.plan_source)["tracked"].status == expected_status
+        assert self._run_states(view.plan_source)["ignored"].status == "running"
+        assert self._run_states(view.tier_source)["tracked"] == _COMPLETED_ONE_ROW
+        assert self._run_states(pending_source)["tracked"] == _STAGING
+        assert self._completion_markers(fake, view.binding) == {f"sources/tracked/{view.tier_source.id}.done"}
+        assert len(self._staged_files(fake, view.binding)) == 1
+
+    @parameterized.expand([("disabled", "is_enabled", False), ("column_removed", "source_column", None)])
+    def test_segment_completion_closes_leftover_runs_and_cleans_up_after_both_segments(
+        self, _case: str, field: str, value: object
+    ) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+        setattr(view.tier_source, field, value)
+        view.tier_source.save(update_fields=[field])
+        for segment in AccountPropertySyncSegment:
+            self._run_source(fake, view.binding, str(view.plan_source.id), segment=segment)
+
+        self._complete_segment(fake, view.binding, AccountPropertySyncSegment.TRACKED)
+
+        assert "tracked.done" in self._completion_markers(fake, view.binding)
+        assert len(self._staged_files(fake, view.binding)) == 1
+
+        self._complete_segment(fake, view.binding, AccountPropertySyncSegment.IGNORED)
+
+        assert self._run_states(view.plan_source) == {"tracked": _COMPLETED_ONE_ROW, "ignored": _COMPLETED_ONE_ROW}
+        assert self._run_states(view.tier_source) == {"tracked": _COMPLETED_NO_ROWS, "ignored": _COMPLETED_NO_ROWS}
+        assert self._staged_files(fake, view.binding) == []
+
+    @parameterized.expand([("not_dispatched",), ("retryable_failure",), ("final_attempt",), ("missing_run",)])
+    def test_segment_completion_refuses_a_segment_with_an_incomplete_source(self, case: str) -> None:
+        fake = _FakeS3()
+        view = self._create_view_with_two_sources(fake)
+        for source in (view.plan_source, view.tier_source):
+            self._run_source(fake, view.binding, str(source.id), segment=AccountPropertySyncSegment.IGNORED)
+        self._complete_segment(fake, view.binding, AccountPropertySyncSegment.IGNORED)
+        self._run_source(fake, view.binding, str(view.tier_source.id))
+        if case in {"retryable_failure", "final_attempt"}:
+            with (
+                patch(f"{_MODULE}._iter_parquet_row_batches", side_effect=OSError("S3 unavailable")),
+                pytest.raises(OSError),
+            ):
+                self._run_source(fake, view.binding, str(view.plan_source.id), final_attempt=case == "final_attempt")
+        elif case == "missing_run":
+            CustomPropertySyncRun.objects.for_team(self.team.id).filter(
+                source=view.plan_source, job_id="job-1", segment="tracked"
+            ).delete()
+        source_runs_before = self._run_states(view.plan_source)
+
+        with pytest.raises(AccountPropertySyncSegmentIncompleteError):
+            self._complete_segment(fake, view.binding, AccountPropertySyncSegment.TRACKED)
+
+        markers = self._completion_markers(fake, view.binding)
+        assert "ignored.done" in markers
+        assert "tracked.done" not in markers
+        assert self._run_states(view.plan_source) == source_runs_before
+        assert self._run_states(view.tier_source)["tracked"] == _COMPLETED_ONE_ROW
+        assert len(self._staged_files(fake, view.binding)) == 1
 
     def test_segments_tracked_and_ignored_accounts_and_excludes_churned_accounts(self) -> None:
         tracked = create_account(team_id=self.team.id, external_id="tracked")
@@ -481,11 +806,11 @@ class _FakeS3:
         self.times[key] = self._clock
 
     async def _rm(self, paths: str | list[str], *, recursive: bool = False) -> None:
-        del recursive
         for path in [paths] if isinstance(paths, str) else paths:
             key = aps._s3_key(path)
-            self.store.pop(key, None)
-            self.times.pop(key, None)
+            for stored_key in [stored for stored in self.store if stored.startswith(key)] if recursive else [key]:
+                self.store.pop(stored_key, None)
+                self.times.pop(stored_key, None)
 
 
 def _fake_s3_patch(fake: _FakeS3) -> AbstractContextManager[object]:
