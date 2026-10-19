@@ -7,6 +7,13 @@ import { DashboardsByProduct } from './DashboardsByProduct'
 const meta: Meta<typeof DashboardsByProduct> = {
     title: 'Products/Dashboards/Dashboards by product',
     component: DashboardsByProduct,
+    decorators: [
+        (Story, { parameters }) => (
+            <div className="min-h-20" style={{ width: parameters.containerWidth ?? 1200 }}>
+                <Story />
+            </div>
+        ),
+    ],
     parameters: { featureFlags: [FEATURE_FLAGS.DASHBOARDS_BY_PRODUCT, FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB] },
 }
 
@@ -34,13 +41,7 @@ export const ProductAnalyticsControlVariant: Story = {
     },
 }
 export const Narrow: Story = {
-    decorators: [
-        (Story) => (
-            <div className="w-130">
-                <Story />
-            </div>
-        ),
-    ],
+    parameters: { containerWidth: 520 },
 }
 export const FlagOff: Story = {
     parameters: { featureFlags: [] },

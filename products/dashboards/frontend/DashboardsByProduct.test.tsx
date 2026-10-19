@@ -1,15 +1,19 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
+import { productEmptyStateGateActivation } from 'lib/components/ProductEmptyState/gateRender'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { Scene } from 'scenes/sceneTypes'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DashboardsByProduct } from './DashboardsByProduct'
+import { dashboardsEmptyState } from './emptyState/dashboardsEmptyState'
 
 function cardTitles(): (string | null)[] {
     return screen.getAllByRole('heading', { level: 3 }).map((heading) => heading.textContent)
@@ -29,6 +33,34 @@ describe('dashboards by product', () => {
             [FEATURE_FLAGS.PRODUCT_ANALYTICS_HOME_TAB]: 'test',
         })
         eventUsageLogic.mount()
+    })
+
+    it.each([
+        [undefined, 'on'],
+        [DashboardsTab.All, 'on'],
+        [DashboardsTab.Yours, 'on'],
+        [DashboardsTab.Pinned, 'on'],
+        [DashboardsTab.ByProduct, 'off'],
+        [DashboardsTab.CrossProject, 'off'],
+    ])('applies dashboard setup to tab %s: %s', (tab, expected) => {
+        expect(
+            productEmptyStateGateActivation({
+                emptyState: dashboardsEmptyState,
+                activeSceneId: Scene.Dashboards,
+                params: {},
+                searchParams: { tab },
+                featureFlags: featureFlagLogic.values.featureFlags,
+                receivedFeatureFlags: true,
+                forcedMode: null,
+            })
+        ).toBe(expected)
+    })
+
+    it('keeps product dashboards reachable from the setup screen', () => {
+        const SceneNav = dashboardsEmptyState.SceneNav!
+        render(<SceneNav />)
+        fireEvent.click(screen.getByText('By product'))
+        expect(dashboardsLogic.values.currentTab).toBe(DashboardsTab.ByProduct)
     })
 
     it('records one tab visit when cards render, without counting rerenders', () => {
