@@ -38,6 +38,7 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { emailCohortToastButton } from 'scenes/cohorts/cohortSavedToast'
 import {
     applyAllCriteriaGroup,
+    cohortBroadcastDisabledReason,
     applyAllNestedCriteria,
     cleanCriteria,
     createCohortDataNodeLogicKey,
@@ -1022,8 +1023,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
+                        // A cohort the broadcast launch would reject, such as one with event conditions, gets no button.
                         button:
-                            existingCohort.id === 'new'
+                            existingCohort.id === 'new' && !cohortBroadcastDisabledReason(cohort)
                                 ? emailCohortToastButton(
                                       { id: cohort.id as number, name: cohort.name },
                                       'cohort_created'

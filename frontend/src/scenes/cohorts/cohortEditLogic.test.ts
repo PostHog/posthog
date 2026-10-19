@@ -1117,6 +1117,55 @@ describe('cohortEditLogic', () => {
             setTimeoutSpy.mockRestore()
         })
 
+        it('offers no email button for a new cohort a broadcast cannot send to', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT?.resource_access_control,
+                    [AccessControlResourceType.Workflow]: AccessControlLevel.Editor,
+                },
+            } as AppContext
+            await initCohortLogic({ id: 'new' })
+            const behavioralFilters = {
+                properties: {
+                    ...mockCohort.filters.properties,
+                    values: [
+                        {
+                            id: '70427',
+                            type: FilterLogicalOperator.Or,
+                            values: [
+                                {
+                                    type: BehavioralFilterKey.Behavioral,
+                                    value: BehavioralEventType.PerformEvent,
+                                    event_type: TaxonomicFilterGroupType.Events,
+                                    time_value: 30,
+                                    time_interval: TimeUnitType.Day,
+                                    key: 'dashboard date range changed',
+                                },
+                            ],
+                        },
+                    ],
+                },
+            }
+            jest.spyOn(api.cohorts, 'create').mockResolvedValue({
+                ...mockCohort,
+                id: 3,
+                is_static: false,
+                filters: behavioralFilters,
+            })
+
+            await expectLogic(logic, async () => {
+                logic.actions.setCohort({ ...mockCohort, id: 'new', is_static: false, filters: behavioralFilters })
+                logic.actions.submitCohort()
+            }).toDispatchActions(['setCohort', 'submitCohort', 'submitCohortSuccess'])
+
+            expect(lemonToast.success).toHaveBeenCalledWith(
+                expect.stringContaining('Cohort saved'),
+                expect.objectContaining({ button: undefined })
+            )
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
         it('do not save static cohort with empty csv', async () => {
             await initCohortLogic({ id: 'new' })
             await expectLogic(logic, async () => {
