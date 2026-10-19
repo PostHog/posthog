@@ -679,12 +679,16 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 while (!values.completed) {
                     const step = requestedStep
                     const draft = step ? { ...values.draft, step } : values.draft
+                    if (!values.savedState?.draft && draft.step === 'signals') {
+                        return
+                    }
                     if (objectsEqual(draft, persistedDraft ?? values.savedState?.draft)) {
                         return
                     }
                     const state = await signalsOnboardingCreate(String(values.currentTeamId), draft)
                     persistedDraft = draft
                     actions.setSavedState(state)
+                    actions.reportInteraction()
                     if (step) {
                         actions.setEditedDraft({ ...values.draft, step })
                         requestedStep = undefined
@@ -723,7 +727,10 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
             },
             openSetup: () => {
                 actions.reportInteraction()
-                router.actions.push(urls.inbox(), { onboarding_step: values.draft.step })
+                router.actions.push(
+                    urls.inbox(),
+                    values.savedState?.draft ? { onboarding_step: values.draft.step } : {}
+                )
             },
             startSetup: () => {
                 actions.setError(null)
@@ -822,7 +829,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 }
             },
             reportInteraction: () => {
-                if (cache.startReported !== values.currentTeamId) {
+                if (values.savedState?.draft && cache.startReported !== values.currentTeamId) {
                     capture('self-driving onboarding started')
                     cache.startReported = values.currentTeamId
                 }
@@ -964,7 +971,10 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                             skipped: previousStep === 'scouts' && !values.draft.suggestions.length,
                         })
                     }
-                    router.actions.replace(urls.inbox(), { ...router.values.searchParams, onboarding_step: step })
+                    router.actions.replace(urls.inbox(), {
+                        ...router.values.searchParams,
+                        onboarding_step: values.savedState?.draft ? step : undefined,
+                    })
                 } catch (error) {
                     actions.setError(
                         error instanceof ApiError ? error.detail : 'Could not save your choices. Try again.',

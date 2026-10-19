@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { IntegrationAccessRequest } from 'scenes/integrations/components/IntegrationAccessRequest'
 import { urls } from 'scenes/urls'
@@ -15,15 +16,9 @@ import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalH
 
 export function InboxQuickSetupAction(): JSX.Element {
     const { startSetup, connectGithub, activateQuickSetup, resumeQuickSetup, retry } = useActions(inboxSetupLogic)
-    const {
-        hasGithubIntegration,
-        integrationsLoading,
-        quickSetupReady,
-        saving,
-        error,
-        shouldResumeQuickSetup,
-        failedOperation,
-    } = useValues(inboxSetupLogic)
+    const { hasGithubIntegration, quickSetupReady, saving, error, shouldResumeQuickSetup, failedOperation } =
+        useValues(inboxSetupLogic)
+    const { integrations, integrationsLoading } = useValues(integrationsLogic)
     const scoutDisabledReason = useScoutCreateDisabledReason()
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -39,9 +34,7 @@ export function InboxQuickSetupAction(): JSX.Element {
 
     return (
         <div className="flex w-full flex-col items-start gap-3">
-            {integrationsLoading ? (
-                <Spinner />
-            ) : hasGithubIntegration ? (
+            {hasGithubIntegration ? (
                 <LemonButton
                     type="primary"
                     status="alt"
@@ -63,7 +56,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                     next={combineUrl(urls.inbox(), { onboarding_step: 'quick' }).url}
                     connectSurface="inbox_welcome"
                     onAuthorize={connectGithub}
-                    authorizing={saving}
+                    authorizing={saving || (integrationsLoading && integrations === null)}
                     connectText="Connect GitHub"
                     emphasizeConnect
                     showPersonalConnectionHelp={false}
