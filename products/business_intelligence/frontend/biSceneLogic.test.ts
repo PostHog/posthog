@@ -364,6 +364,12 @@ describe('biSceneLogic', () => {
             if (outcome === 'failed') {
                 expect(logic.values.loadError).toBeTruthy()
                 expect(logic.values.lastRunQuery).toBeNull()
+                await expectLogic(logic, () =>
+                    router.actions.push(urls.businessIntelligenceNew(), {}, { q: '' })
+                ).toFinishAllListeners()
+                expect(logic.values.loadError).toBeNull()
+                expect(logic.values.worksheet.config.source).toBeNull()
+                expect(logic.values.worksheet.config.querySnapshot).toBeUndefined()
             } else if (outcome === 'left') {
                 expect(router.values.location.pathname).toBe('/project/997/bi')
                 expect(router.values.hashParams).toEqual({})

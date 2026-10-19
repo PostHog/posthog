@@ -564,6 +564,7 @@ export const biSceneLogic: LogicWrapper<biSceneLogicType> = kea<biSceneLogicType
         loadError: [
             null as string | null,
             {
+                openWorksheet: () => null,
                 loadInsight: () => null,
                 loadInsightFailure: (_, { error }) => error,
                 loadInsightSuccess: () => null,
