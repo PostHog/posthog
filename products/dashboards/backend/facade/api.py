@@ -274,22 +274,33 @@ def insights_with_dashboard_edit_access(
     insight_ids: Collection[int], *, user_access_control: UserAccessControl, project_id: int
 ) -> set[int]:
     tiles = list(
-        DashboardTile.objects.filter(insight_id__in=insight_ids, dashboard__team__project_id=project_id).select_related(
-            "dashboard"
-        )
+        DashboardTile.objects_including_soft_deleted.filter(
+            insight_id__in=insight_ids, dashboard__team__project_id=project_id, dashboard__deleted=False
+        ).select_related("dashboard")
     )
     access_by_team = _dashboard_edit_access_by_team([tile.dashboard for tile in tiles], user_access_control)
-    editable = set(insight_ids) - {tile.insight_id for tile in tiles}
+    editable: set[int] = set()
+    linked: set[int] = set()
+    limited_dashboards: dict[int, bool] = {}
     editable_dashboards: dict[int, bool] = {}
     for tile in tiles:
+        if tile.insight_id is None:
+            continue
+        access = access_by_team[tile.dashboard.team_id]
+        if tile.dashboard_id not in limited_dashboards:
+            limited_dashboards[tile.dashboard_id] = access.has_object_access_limit("dashboard", str(tile.dashboard_id))
+        limited = limited_dashboards[tile.dashboard_id]
+        # Hidden restricted tiles retain their policy; removed unrestricted tiles cannot grant access.
+        if tile.deleted and not limited:
+            continue
+        linked.add(tile.insight_id)
         if tile.dashboard_id not in editable_dashboards:
-            access = access_by_team[tile.dashboard.team_id]
-            editable_dashboards[tile.dashboard_id] = not access.has_object_access_limit(
-                "dashboard", str(tile.dashboard_id)
-            ) or access.check_access_level_for_object(tile.dashboard, "editor")
-        if tile.insight_id is not None and editable_dashboards[tile.dashboard_id]:
+            editable_dashboards[tile.dashboard_id] = not limited or access.check_access_level_for_object(
+                tile.dashboard, "editor"
+            )
+        if editable_dashboards[tile.dashboard_id]:
             editable.add(tile.insight_id)
-    return editable
+    return editable | (set(insight_ids) - linked)
 
 
 def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_control: UserAccessControl) -> None:

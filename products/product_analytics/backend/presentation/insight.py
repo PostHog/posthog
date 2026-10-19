@@ -2651,10 +2651,15 @@ When set, the specified dashboard's filters and date range override will be appl
             return insights, skipped
 
         self.user_access_control.preload_object_access_controls(cast(list, insights))
-        dashboard_editable_ids = insights_with_dashboard_edit_access(
-            [insight.id for insight in insights],
-            user_access_control=self.user_access_control,
-            project_id=self.team.project_id,
+        # Deletion hides the tiles used by normal edit checks. Tile restoration checks each dashboard separately.
+        dashboard_editable_ids = (
+            {insight.id for insight in insights}
+            if deleted
+            else insights_with_dashboard_edit_access(
+                [insight.id for insight in insights],
+                user_access_control=self.user_access_control,
+                project_id=self.team.project_id,
+            )
         )
         editable: list[Insight] = []
         for insight in insights:

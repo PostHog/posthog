@@ -357,7 +357,7 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.team, name="restricted", created_by=self.user)
         self._set_legacy_restriction(dashboard, member, 21)
         insight = Insight.objects.create(team=self.team, name="chart", created_by=member)
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        restricted_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
         open_dashboard = Dashboard.objects.create(team=self.team, name="open", created_by=self.user)
         removed_tile = DashboardTile.objects.create(dashboard=open_dashboard, insight=insight, deleted=True)
         self._run_migration()
@@ -403,6 +403,45 @@ class TestMigrateDashboardCollaborators(APIBaseTest):
         assert (
             self.client.patch(
                 f"/api/projects/{request_team.id}/insights/{insight.id}/", {"name": "changed"}
+            ).status_code
+            == 200
+        )
+
+        response = self.client.post(
+            f"/api/projects/{request_team.id}/insights/bulk_delete/", {"ids": [insight.id]}, format="json"
+        )
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()["deleted"]] == [insight.id]
+        response = self.client.post(
+            f"/api/projects/{request_team.id}/insights/bulk_restore/", {"ids": [insight.id]}, format="json"
+        )
+        assert response.status_code == 200
+        assert [item["id"] for item in response.json()["restored"]] == [insight.id]
+        restricted_tile.refresh_from_db()
+        removed_tile.refresh_from_db()
+        assert restricted_tile.deleted is True
+        assert removed_tile.deleted is False
+
+        response = self.client.patch(
+            f"/api/projects/{request_team.id}/insights/{insight.id}/", {"dashboards": []}, format="json"
+        )
+        assert response.status_code == 200
+        assert not DashboardTile.objects.filter(insight=insight).exists()
+        assert (
+            self.client.patch(
+                f"/api/projects/{request_team.id}/insights/{insight.id}/", {"name": "unauthorized"}
+            ).status_code
+            == 403
+        )
+        response = self.client.post(
+            f"/api/projects/{request_team.id}/insights/bulk_delete/", {"ids": [insight.id]}, format="json"
+        )
+        assert response.status_code == 200
+        assert response.json()["deleted"] == []
+        self.client.force_login(self.user)
+        assert (
+            self.client.patch(
+                f"/api/projects/{request_team.id}/insights/{insight.id}/", {"name": "authorized"}
             ).status_code
             == 200
         )
