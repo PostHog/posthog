@@ -65,19 +65,24 @@ class ScheduledExperimentRecalculationWorkflow(PostHogWorkflow):
         wait_for_runs = temporalio.workflow.patched(WAIT_FOR_RUNS_PATCH)
         deferred = 0
 
-        async def _process(experiment_id: int) -> bool:
+        def _past_start_window() -> bool:
             nonlocal deferred
+            if wait_for_runs and temporalio.workflow.now() - started_at > RUN_START_WINDOW:
+                deferred += 1
+                return True
+            return False
+
+        async def _process(experiment_id: int) -> bool:
             async with semaphore:
+                if _past_start_window():
+                    return False
                 has_exposures = await temporalio.workflow.execute_activity(
                     check_experiment_exposures,
                     args=[experiment_id, hour],
                     start_to_close_timeout=timedelta(minutes=10),
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
-                if not has_exposures:
-                    return False
-                if wait_for_runs and temporalio.workflow.now() - started_at > RUN_START_WINDOW:
-                    deferred += 1
+                if not has_exposures or _past_start_window():
                     return False
                 result = await temporalio.workflow.execute_activity(
                     start_scheduled_recalculation,

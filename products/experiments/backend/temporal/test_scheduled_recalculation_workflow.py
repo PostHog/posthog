@@ -152,7 +152,12 @@ def _clock_advancing_by(step: timedelta) -> Callable[[], datetime]:
 
 @pytest.mark.asyncio
 async def test_experiments_left_after_the_start_window_are_deferred():
+    checked: list[int] = []
     started: list[int] = []
+
+    def exposures(experiment_id: int) -> bool:
+        checked.append(experiment_id)
+        return True
 
     def start(experiment_id: int) -> ScheduledRecalculationStartResult:
         started.append(experiment_id)
@@ -160,10 +165,11 @@ async def test_experiments_left_after_the_start_window_are_deferred():
 
     with (
         patch(f"{WORKFLOW_MODULE}.MAX_CONCURRENT_EXPERIMENTS", 1),
-        patch(f"{WORKFLOW_MODULE}.temporalio.workflow.now", _clock_advancing_by(RUN_START_WINDOW * 0.6)),
+        patch(f"{WORKFLOW_MODULE}.temporalio.workflow.now", _clock_advancing_by(RUN_START_WINDOW * 0.4)),
     ):
-        result = await _run(lambda hour: _candidates(1, 2, 3), lambda eid: True, start)
+        result = await _run(lambda hour: _candidates(1, 2, 3), exposures, start)
 
+    assert checked == [1]
     assert started == [1]
     assert result == {"hour": 2, "candidates": 3, "started": 1, "skipped": 2, "deferred": 2}
 
