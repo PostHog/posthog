@@ -3744,6 +3744,7 @@ export interface CredentialApi {
  * * `Creem` - Creem
  * * `Leantime` - Leantime
  * * `Testomatio` - Testomatio
+ * * `GoogleAdMob` - GoogleAdMob
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -5140,6 +5141,7 @@ export const ExternalDataSourceTypeEnumApi = {
     Creem: 'Creem',
     Leantime: 'Leantime',
     Testomatio: 'Testomatio',
+    GoogleAdMob: 'GoogleAdMob',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
