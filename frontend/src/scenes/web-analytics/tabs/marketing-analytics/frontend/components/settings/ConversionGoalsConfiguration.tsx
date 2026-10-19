@@ -69,16 +69,26 @@ export function ConversionGoalsConfiguration({
     const { addOrUpdateConversionGoal, removeConversionGoal } = useActions(marketingAnalyticsSettingsLogic)
     const { currentTeamId } = useValues(teamLogic)
     const formLogic = conversionGoalFormLogic({ projectId: currentTeamId ?? -1 })
-    const { filter, name, recommendation, isFormValid, isSaving, currentTeamLoading, saveError } = useValues(formLogic)
-    const { setName, setFilter, saveGoal, clearDraft } = useActions(formLogic)
+    const {
+        filter,
+        name,
+        recommendation,
+        editingGoalId: reviewingGoalId,
+        duplicateGoal,
+        isFormValid,
+        isSaving,
+        currentTeamLoading,
+        saveError,
+    } = useValues(formLogic)
+    const { setName, setFilter, saveGoal, clearDraft, reviewGoal } = useActions(formLogic)
     const formRef = useRef<HTMLDivElement>(null)
     const nameInputRef = useRef<HTMLInputElement>(null)
     useEffect(() => {
-        if (recommendation) {
+        if (recommendation || reviewingGoalId) {
             formRef.current?.scrollIntoView({ block: 'nearest' })
             nameInputRef.current?.focus({ preventScroll: true })
         }
-    }, [recommendation])
+    }, [recommendation, reviewingGoalId])
     const [editingGoalId, setEditingGoalId] = useState<string | null>(null)
     const [editingGoal, setEditingGoal] = useState<ConversionGoalFilter | null>(null)
     const restrictedReason = useRestrictedArea({
@@ -124,16 +134,32 @@ export function ConversionGoalsConfiguration({
 
             {/* Add New Conversion Goal Form */}
             <div ref={formRef} className="border rounded p-4 space-y-4" data-attr="marketing-conversion-goal-form">
-                <h4 className="font-medium">Add new conversion goal</h4>
+                <h4 className="font-medium">
+                    {reviewingGoalId ? 'Review conversion goal' : 'Add new conversion goal'}
+                </h4>
 
                 {!!recommendation?.questions.length && (
                     <LemonBanner type="info">
-                        Review these questions before adding the suggested goal:
+                        Review these questions before saving the goal:
                         <ul className="pl-5 mb-0 mt-2 space-y-1">
                             {recommendation.questions.map((question, index) => (
                                 <li key={index}>{question}</li>
                             ))}
                         </ul>
+                    </LemonBanner>
+                )}
+                {duplicateGoal && (
+                    <LemonBanner
+                        type="info"
+                        action={{
+                            children: 'Review goal',
+                            onClick: () => reviewGoal(duplicateGoal.conversion_goal_id),
+                            disabledReason:
+                                formDisabledReason ||
+                                (currentTeamLoading ? 'Wait for the project settings to finish saving.' : undefined),
+                        }}
+                    >
+                        <span>{`Already configured as "${duplicateGoal.conversion_goal_name}". Review the existing goal.`}</span>
                     </LemonBanner>
                 )}
                 {saveError && <LemonBanner type="error">{saveError}</LemonBanner>}
@@ -166,10 +192,13 @@ export function ConversionGoalsConfiguration({
                             loading={isSaving}
                             disabled={!isFormValid || currentTeamLoading}
                             size="small"
-                            icon={<IconPlusSmall />}
-                            disabledReason={formDisabledReason}
+                            icon={reviewingGoalId ? <IconCheck /> : <IconPlusSmall />}
+                            disabledReason={
+                                formDisabledReason ||
+                                (duplicateGoal ? 'Review the existing goal instead of adding a duplicate.' : undefined)
+                            }
                         >
-                            Add conversion goal
+                            {reviewingGoalId ? 'Save changes' : 'Add conversion goal'}
                         </LemonButton>
 
                         <LemonButton onClick={clearDraft} disabledReason={formDisabledReason}>

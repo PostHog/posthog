@@ -5,10 +5,12 @@ import type { ConversionRecommendationApi } from '../generated/api.schemas'
 export function ConversionRecommendationCard({
     recommendation,
     onUseSuggestion,
+    alreadyConfigured = false,
     disabledReason,
 }: {
     recommendation: ConversionRecommendationApi
     onUseSuggestion: () => void
+    alreadyConfigured?: boolean
     disabledReason?: string | null
 }): JSX.Element {
     return (
@@ -22,6 +24,7 @@ export function ConversionRecommendationCard({
                           ? 'Potential customer goal'
                           : 'Potential conversion goal'}
                 </LemonTag>
+                {alreadyConfigured && <LemonTag type="success">Already configured</LemonTag>}
             </div>
             <p className="mb-0 break-words">{recommendation.reason}</p>
             <p className="mb-0 text-secondary break-words">
@@ -50,7 +53,7 @@ export function ConversionRecommendationCard({
                 disabledReason={disabledReason}
                 data-attr="marketing-conversion-use-suggestion"
             >
-                Use suggestion
+                {alreadyConfigured ? 'Review goal' : 'Use suggestion'}
             </LemonButton>
         </LemonCard>
     )
