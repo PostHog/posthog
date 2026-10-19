@@ -403,7 +403,10 @@ export const onboardingLogic = kea<onboardingLogicType>([
         ],
     })),
     selectors({
-        isOnSimpleFlowArm: [(s) => [s.featureFlags], isOnSimpleOnboardingArm],
+        isOnSimpleFlowArm: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => isOnSimpleOnboardingArm(featureFlags),
+        ],
         canInviteTeammates: [
             (s) => [s.currentOrganization, s.user],
             (
