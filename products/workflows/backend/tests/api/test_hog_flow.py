@@ -6135,6 +6135,25 @@ class TestHogFlowSendOnceVerified(APIBaseTest):
             assert events["hog_flow_activated"]["activated_by"] == "user"
             assert events["hog_flow_activated"]["seconds_waiting"] == 0
 
+    def test_the_detail_lists_unverified_senders_until_they_verify(self):
+        sender = self._sender(verified=False)
+        created = self._create(self._email_flow(sender))
+        assert created.status_code == 201, created.json()
+        flow_id = created.json()["id"]
+        detail_url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+
+        assert created.json()["unverified_email_senders"] == [{"id": sender.id, "domain": "example.com"}]
+        assert self.client.get(detail_url).json()["unverified_email_senders"] == [
+            {"id": sender.id, "domain": "example.com"}
+        ]
+        listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows").json()["results"]
+        assert "unverified_email_senders" not in listed[0]
+
+        sender.config = {**sender.config, "verified": True}
+        sender.save()
+
+        assert self.client.get(detail_url).json()["unverified_email_senders"] == []
+
     def test_create_as_active_with_an_unverified_sender_waits(self):
         with self._flag(True):
             response = self._create(self._email_flow(self._sender(verified=False), flow_status="active"))

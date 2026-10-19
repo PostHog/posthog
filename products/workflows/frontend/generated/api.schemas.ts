@@ -657,6 +657,13 @@ export interface HogFlowScheduleApi {
     readonly updated_at: string
 }
 
+export interface HogFlowUnverifiedEmailSenderApi {
+    /** The email sender's integration id. */
+    readonly id: number
+    /** The sender's domain, which is not verified yet. */
+    readonly domain: string
+}
+
 /**
  * Mixin for serializers to add user access control fields
  */
@@ -755,6 +762,8 @@ export interface HogFlowApi {
      * @nullable
      */
     readonly went_live_at: string | null
+    /** The email senders of this workflow whose domain is not verified yet. Enabling the workflow while this list is not empty makes it wait for those domains. Not returned by the list endpoint. */
+    readonly unverified_email_senders: readonly HogFlowUnverifiedEmailSenderApi[]
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
 }
@@ -868,6 +877,8 @@ export interface HogFlowUpdateApi {
      * @nullable
      */
     readonly went_live_at: string | null
+    /** The email senders of this workflow whose domain is not verified yet. Enabling the workflow while this list is not empty makes it wait for those domains. Not returned by the list endpoint. */
+    readonly unverified_email_senders: readonly HogFlowUnverifiedEmailSenderApi[]
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run: HogFlowLastRunApi | null
 }
@@ -981,6 +992,8 @@ export interface PatchedHogFlowUpdateApi {
      * @nullable
      */
     readonly went_live_at?: string | null
+    /** The email senders of this workflow whose domain is not verified yet. Enabling the workflow while this list is not empty makes it wait for those domains. Not returned by the list endpoint. */
+    readonly unverified_email_senders?: readonly HogFlowUnverifiedEmailSenderApi[]
     /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
     readonly last_run?: HogFlowLastRunApi | null
 }

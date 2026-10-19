@@ -15,6 +15,7 @@ from django.db.models.functions import Coalesce
 from django_filters import BooleanFilter, FilterSet
 
 from products.workflows.backend.facade.contracts import (
+    UnverifiedEmailSender,
     Workflow,
     WorkflowAccessDenied,
     WorkflowArchived,
@@ -33,6 +34,7 @@ from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.services.batch_jobs import hog_flow_ids_with_broadcast_status
 from products.workflows.backend.services.hog_flow_schedules import list_schedules_oldest_first
 from products.workflows.backend.services.hog_flow_secrets import TemplateCache, mask_workflow_fields
+from products.workflows.backend.services.integration_usage import email_senders_of, unverified_sender_domains
 from products.workflows.backend.services.publish_impact import build_publish_impact
 
 if TYPE_CHECKING:
@@ -50,7 +52,7 @@ def get_workflow(
     it is below `required_level`. Pass None for both access arguments to skip the check, as a
     service credential does."""
     flow = _checked_flow(team_id, workflow_id, user_access_control, required_level, created_by=True)
-    return _to_workflow(flow, user_access_control, template_cache={}, with_schedules=True)
+    return _to_workflow(flow, user_access_control, template_cache={}, single=True)
 
 
 def get_workflow_ref(
@@ -139,7 +141,7 @@ def to_edit_state(flow: HogFlow) -> WorkflowEditState:
 def workflow_from_fields(*, fields: Mapping[str, object], user_access_control: "UserAccessControl | None") -> Workflow:
     """The workflow a write left behind, built from the field values the write returned rather than
     read again, so a write another request commits afterwards does not show in this response."""
-    return _to_workflow(HogFlow(**fields), user_access_control, template_cache={}, with_schedules=True)
+    return _to_workflow(HogFlow(**fields), user_access_control, template_cache={}, single=True)
 
 
 def workflow_publish_impact(
@@ -225,7 +227,7 @@ def list_workflows(
     template_cache: TemplateCache = {}
     return WorkflowPage(
         count=count,
-        results=[_to_workflow(flow, user_access_control, template_cache, with_schedules=False) for flow in flows],
+        results=[_to_workflow(flow, user_access_control, template_cache, single=False) for flow in flows],
     )
 
 
@@ -331,8 +333,9 @@ def _to_workflow(
     user_access_control: "UserAccessControl | None",
     template_cache: TemplateCache,
     *,
-    with_schedules: bool,
+    single: bool,
 ) -> Workflow:
+    """``single`` reads what only a single-workflow response carries: the schedules and the unverified senders."""
     masked: dict[str, object] = {"actions": flow.actions, "trigger": flow.trigger, "draft": flow.draft}
     mask_workflow_fields(
         masked,
@@ -366,9 +369,7 @@ def _to_workflow(
         abort_action=flow.abort_action,
         variables=flow.variables,
         billable_action_types=flow.billable_action_types,
-        schedules=tuple(list_schedules_oldest_first(team_id=flow.team_id, hog_flow_id=flow.id))
-        if with_schedules
-        else (),
+        schedules=tuple(list_schedules_oldest_first(team_id=flow.team_id, hog_flow_id=flow.id)) if single else (),
         draft=cast("dict | None", masked["draft"]),
         draft_updated_at=flow.draft_updated_at,
         action_redirects=flow.action_redirects,
@@ -381,7 +382,16 @@ def _to_workflow(
         user_access_level=access_level,
         pending_suggestions=getattr(flow, "pending_suggestions", None),
         suggestions_enabled=getattr(flow, "suggestions_enabled", None),
+        unverified_email_senders=_unverified_email_senders(flow) if single else (),
     )
+
+
+def _unverified_email_senders(flow: HogFlow) -> tuple[UnverifiedEmailSender, ...]:
+    # Transactional email workflows refuse an unverified sender on their own, so they never wait for one.
+    if flow.origin_product == HogFlow.OriginProduct.TRANSACTIONAL_EMAILS:
+        return ()
+    domains = unverified_sender_domains(team_id=flow.team_id, sender_ids=email_senders_of(flow))
+    return tuple(UnverifiedEmailSender(id=sender_id, domain=domain) for sender_id, domain in sorted(domains.items()))
 
 
 # A workflow's type is what owns it, else what it does. `loop` and `broadcast` name the surfaces that

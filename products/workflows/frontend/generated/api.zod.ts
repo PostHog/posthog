@@ -2483,6 +2483,16 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     "When the workflow last went live. Earlier than enable_requested_at, or null, while the workflow waits for its email sender's domain."
                 ),
+            unverified_email_senders: zod
+                .array(
+                    zod.object({
+                        id: zod.number().describe("The email sender's integration id."),
+                        domain: zod.string().describe("The sender's domain, which is not verified yet."),
+                    })
+                )
+                .describe(
+                    'The email senders of this workflow whose domain is not verified yet. Enabling the workflow while this list is not empty makes it wait for those domains. Not returned by the list endpoint.'
+                ),
             last_run: zod
                 .union([
                     zod.object({

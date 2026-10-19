@@ -100,10 +100,23 @@ def email_senders_of(flow: HogFlow) -> frozenset[int]:
 def unverified_senders(*, team_id: int, sender_ids: frozenset[int]) -> frozenset[int]:
     """The senders among ``sender_ids`` that exist and are not verified yet. A sender that no longer exists
     can never verify, so it does not hold a workflow back."""
+    return frozenset(unverified_sender_domains(team_id=team_id, sender_ids=sender_ids))
+
+
+def unverified_sender_domains(*, team_id: int, sender_ids: frozenset[int]) -> dict[int, str]:
+    """The domain of each sender that ``unverified_senders`` returns, keyed by sender id."""
     if not sender_ids:
-        return frozenset()
+        return {}
     senders = Integration.objects.filter(team_id=team_id, kind="email", id__in=sender_ids).only("id", "config")
-    return frozenset(sender.id for sender in senders if not (sender.config or {}).get("verified"))
+    return {
+        sender.id: _sender_domain(sender.config or {})
+        for sender in senders
+        if not (sender.config or {}).get("verified")
+    }
+
+
+def _sender_domain(config: dict) -> str:
+    return config.get("domain") or str(config.get("email") or "").rpartition("@")[2]
 
 
 def waiting_flows_using(*, team_id: int, sender_ids: frozenset[int]) -> list[UUID]:

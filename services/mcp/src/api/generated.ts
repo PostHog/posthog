@@ -55789,6 +55789,13 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
+    export interface HogFlowUnverifiedEmailSender {
+      /** The email sender's integration id. */
+      readonly id: number;
+      /** The sender's domain, which is not verified yet. */
+      readonly domain: string;
+    }
+
     export interface HogFlowLastRun {
       /** The task this run belongs to. */
       readonly task_id: string;
@@ -55896,6 +55903,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly went_live_at: string | null;
+      /** The email senders of this workflow whose domain is not verified yet. Enabling the workflow while this list is not empty makes it wait for those domains. Not returned by the list endpoint. */
+      readonly unverified_email_senders: readonly HogFlowUnverifiedEmailSender[];
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
     }
@@ -56485,6 +56494,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly went_live_at: string | null;
+      /** The email senders of this workflow whose domain is not verified yet. Enabling the workflow while this list is not empty makes it wait for those domains. Not returned by the list endpoint. */
+      readonly unverified_email_senders: readonly HogFlowUnverifiedEmailSender[];
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
     }
@@ -82438,6 +82449,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly went_live_at?: string | null;
+      /** The email senders of this workflow whose domain is not verified yet. Enabling the workflow while this list is not empty makes it wait for those domains. Not returned by the list endpoint. */
+      readonly unverified_email_senders?: readonly HogFlowUnverifiedEmailSender[];
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run?: HogFlowLastRun | null;
     }

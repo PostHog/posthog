@@ -434,6 +434,14 @@ class WorkflowHasNoDraft(Exception):
 
 
 @frozen
+class UnverifiedEmailSender:
+    """An email sender of a workflow whose domain is not verified yet."""
+
+    id: int
+    domain: str
+
+
+@frozen
 class Workflow:
     """A workflow as the API reads it.
 
@@ -481,6 +489,8 @@ class Workflow:
     # Read on the list only. A single-workflow read leaves both None and ``schedules`` filled.
     pending_suggestions: int | None = None
     suggestions_enabled: bool | None = None
+    # Read for a single workflow only. The list leaves it empty.
+    unverified_email_senders: tuple[UnverifiedEmailSender, ...] = ()
 
 
 @frozen
