@@ -6,8 +6,6 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -31,9 +29,7 @@ export const scene: SceneExport = {
 
 export function NotebooksScene(): JSX.Element {
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const reusableWidgetsEnabled = !!featureFlags[FEATURE_FLAGS.NOTEBOOK_GENERATED_WIDGETS]
-    const activeTab = reusableWidgetsEnabled && searchParams.tab === 'widgets' ? 'widgets' : 'notebooks'
+    const activeTab = searchParams.tab === 'widgets' ? 'widgets' : 'notebooks'
 
     return (
         <SceneContent>
@@ -67,28 +63,24 @@ export function NotebooksScene(): JSX.Element {
                     </AccessControlAction>
                 }
             />
-            {reusableWidgetsEnabled ? (
-                <LemonTabs
-                    activeKey={activeTab}
-                    sceneInset
-                    tabs={[
-                        {
-                            key: 'notebooks',
-                            label: 'Notebooks',
-                            link: urls.notebooks(),
-                            content: <NotebooksTable />,
-                        },
-                        {
-                            key: 'widgets',
-                            label: 'Reusable widgets',
-                            link: `${urls.notebooks()}?tab=widgets`,
-                            content: <ReusableWidgetCatalog />,
-                        },
-                    ]}
-                />
-            ) : (
-                <NotebooksTable />
-            )}
+            <LemonTabs
+                activeKey={activeTab}
+                sceneInset
+                tabs={[
+                    {
+                        key: 'notebooks',
+                        label: 'Notebooks',
+                        link: urls.notebooks(),
+                        content: <NotebooksTable />,
+                    },
+                    {
+                        key: 'widgets',
+                        label: 'Reusable widgets',
+                        link: `${urls.notebooks()}?tab=widgets`,
+                        content: <ReusableWidgetCatalog />,
+                    },
+                ]}
+            />
         </SceneContent>
     )
 }
