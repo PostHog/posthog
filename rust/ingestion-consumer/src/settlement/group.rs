@@ -422,7 +422,7 @@ mod integration_tests {
         TopicPartition::new("events", 0)
     }
 
-    fn budgeted_hourly_settlement_of_10_events_resuming_at_8() -> GroupSettlement {
+    fn budgeted_hourly_settlement_of_10_events_resuming_under_8() -> GroupSettlement {
         GroupSettlement::new(
             Arc::new(TopicOffsetLedger::new()),
             HOUR,
@@ -447,7 +447,7 @@ mod integration_tests {
 
     #[test]
     fn a_take_the_interval_holds_counts_toward_the_pause() {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_under_8();
         charge(&settlement, &p0(), 10, 6);
         settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
 
@@ -463,7 +463,7 @@ mod integration_tests {
     #[case::due_after_the_interval(HandOut::DueAfterTheInterval)]
     #[case::all(HandOut::All)]
     fn a_paused_partition_resumes_only_when_its_frontier_is_handed_out(#[case] hand_out: HandOut) {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_under_8();
         let now = Instant::now();
         charge(&settlement, &p0(), 9, 1);
         settlement.settle_run(&p0(), 0, &[Offset(9)]).unwrap();
@@ -487,7 +487,7 @@ mod integration_tests {
 
     #[test]
     fn a_held_prefix_keeps_its_partition_paused_and_another_is_not_resumed() {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_under_8();
         let p1 = TopicPartition::new("events", 1);
         charge(&settlement, &p0(), 10, 5);
         assert_eq!(charge(&settlement, &p0(), 11, 5), Some(Pause));
@@ -511,7 +511,7 @@ mod integration_tests {
 
     #[test]
     fn a_revoked_paused_partition_is_never_resumed() {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
+        let settlement = budgeted_hourly_settlement_of_10_events_resuming_under_8();
         assert_eq!(charge(&settlement, &p0(), 10, 10), Some(Pause));
         settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
 

@@ -14,11 +14,6 @@ impl Threshold {
             || self.bytes.is_some_and(|limit| charge.bytes >= limit)
     }
 
-    fn within(&self, charge: Charge) -> bool {
-        self.events.is_none_or(|limit| charge.events <= limit)
-            && self.bytes.is_none_or(|limit| charge.bytes <= limit)
-    }
-
     fn scaled(&self, fraction: f64) -> Self {
         let scale = |limit: u64| (limit as f64 * fraction) as u64;
         Self {
@@ -81,7 +76,7 @@ impl BudgetLimits {
 
     pub(crate) fn resumes(&self, uncommitted: Charge) -> bool {
         self.limits
-            .is_none_or(|limits| limits.resume_at.within(uncommitted))
+            .is_none_or(|limits| !limits.resume_at.reached(uncommitted))
     }
 }
 
@@ -122,13 +117,23 @@ mod tests {
 
     #[rstest]
     #[case::between_the_watermark_and_the_limit(Observed { uncommitted: charge(9, 0), expected: false })]
-    #[case::one_axis_still_above_the_watermark(Observed { uncommitted: charge(8, 801), expected: false })]
-    #[case::under_the_watermark_on_both_axes(Observed { uncommitted: charge(8, 800), expected: true })]
+    #[case::at_the_watermark(Observed { uncommitted: charge(8, 0), expected: false })]
+    #[case::one_axis_still_at_the_watermark(Observed { uncommitted: charge(7, 800), expected: false })]
+    #[case::under_the_watermark_on_both_axes(Observed { uncommitted: charge(7, 799), expected: true })]
     fn a_partition_resumes_under_the_watermark_on_every_axis(#[case] observed: Observed) {
         assert_eq!(
             limits(10, 1000, 0.8).resumes(observed.uncommitted),
             observed.expected
         );
+    }
+
+    #[test]
+    fn a_full_watermark_resumes_only_below_the_limit() {
+        let limits = limits(10, 0, 1.0);
+
+        assert!(limits.pauses(charge(10, 0)));
+        assert!(!limits.resumes(charge(10, 0)));
+        assert!(limits.resumes(charge(9, 0)));
     }
 
     #[test]

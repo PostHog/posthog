@@ -92,7 +92,7 @@ mod tests {
         Charge { events, bytes: 0 }
     }
 
-    fn budget_of_10_events_resuming_at_8() -> PartitionBudget {
+    fn budget_of_10_events_resuming_under_8() -> PartitionBudget {
         PartitionBudget::new(
             BudgetLimits::new(NonZeroU64::new(10), None, 0.8).expect("valid limits"),
         )
@@ -106,14 +106,14 @@ mod tests {
         #[case] expected: Option<Pause>,
     ) {
         assert_eq!(
-            budget_of_10_events_resuming_at_8().charged(&p0(), events(uncommitted)),
+            budget_of_10_events_resuming_under_8().charged(&p0(), events(uncommitted)),
             expected
         );
     }
 
     #[test]
     fn a_paused_partition_pauses_once() {
-        let budget = budget_of_10_events_resuming_at_8();
+        let budget = budget_of_10_events_resuming_under_8();
         assert_eq!(budget.charged(&p0(), events(10)), Some(Pause));
 
         assert_eq!(budget.charged(&p0(), events(12)), None);
@@ -122,12 +122,13 @@ mod tests {
 
     #[rstest::rstest]
     #[case::above_the_watermark(9, None)]
-    #[case::at_the_watermark(8, Some(Resume))]
-    fn a_hand_out_resumes_a_paused_partition_at_the_watermark(
+    #[case::at_the_watermark(8, None)]
+    #[case::under_the_watermark(7, Some(Resume))]
+    fn a_hand_out_resumes_a_paused_partition_under_the_watermark(
         #[case] uncommitted: u64,
         #[case] expected: Option<Resume>,
     ) {
-        let budget = budget_of_10_events_resuming_at_8();
+        let budget = budget_of_10_events_resuming_under_8();
         budget.charged(&p0(), events(10));
 
         let resumed = expected.is_some();
@@ -137,14 +138,14 @@ mod tests {
 
     #[test]
     fn a_hand_out_never_resumes_a_partition_that_is_not_paused() {
-        let budget = budget_of_10_events_resuming_at_8();
+        let budget = budget_of_10_events_resuming_under_8();
 
         assert_eq!(budget.handed_out(&p0(), events(0)), None);
     }
 
     #[test]
     fn a_resumed_partition_pauses_again_at_its_limit() {
-        let budget = budget_of_10_events_resuming_at_8();
+        let budget = budget_of_10_events_resuming_under_8();
         budget.charged(&p0(), events(10));
         budget.handed_out(&p0(), events(0));
 
@@ -153,7 +154,7 @@ mod tests {
 
     #[test]
     fn a_forgotten_partition_starts_unpaused() {
-        let budget = budget_of_10_events_resuming_at_8();
+        let budget = budget_of_10_events_resuming_under_8();
         budget.charged(&p0(), events(10));
 
         budget.forget_partitions(&[p0()]);
