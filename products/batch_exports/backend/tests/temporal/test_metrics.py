@@ -5,7 +5,7 @@ import pytest
 
 from structlog.testing import capture_logs
 
-from products.batch_exports.backend.temporal.metrics import SLAWaiter, get_interval_from_bounds
+from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder, SLAWaiter, get_interval_from_bounds
 
 pytestmark = [pytest.mark.asyncio]
 
@@ -44,3 +44,19 @@ async def test_sla_waiter():
             assert detector.is_over_sla() is False
 
     assert not cap_logs
+
+
+async def test_execution_time_recorder_only_logs_outside_temporal(settings):
+    """Warehouse source writers run ParquetStreamTransformer outside Temporal, where a metric meter is not
+    available. With DEBUG and TEST set, get_metric_meter returns a no-op meter, so they are unset here to check
+    that the recorder does not raise.
+    """
+    settings.DEBUG = False
+    settings.TEST = False
+
+    with capture_logs() as cap_logs:
+        with ExecutionTimeRecorder("test_duration"):
+            pass
+
+    assert len(cap_logs) == 1
+    assert "test_duration" in cap_logs[0]["event"]

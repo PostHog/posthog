@@ -2,12 +2,14 @@ import io
 import csv
 import json
 import typing
+import hashlib
 import datetime as dt
 import functools
 
 import pytest
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from products.batch_exports.backend.temporal.pipeline.table import (
     Field,
@@ -18,6 +20,7 @@ from products.batch_exports.backend.temporal.pipeline.table import (
 from products.batch_exports.backend.temporal.pipeline.transformer import (
     CSVStreamTransformer,
     JSONLStreamTransformer,
+    ParquetStreamTransformer,
     PipelineTransformer,
     SchemaTransformer,
     _ensure_curly_brackets_array,
@@ -147,6 +150,57 @@ async def test_csv_stream_transformer_writes_record_batches():
         assert "_inserted_at" not in row
         expected_row = [str(v) for k, v in TEST_RECORDS[index].items() if k != "_inserted_at"]
         assert row == expected_row
+
+
+@pytest.mark.parametrize(
+    "max_file_size_bytes,compression",
+    [(0, None), (256 * 1024, None), (256 * 1024, "zstd")],
+)
+@pytest.mark.asyncio
+async def test_parquet_stream_transformer_writes_small_record_batches_as_large_row_groups(
+    max_file_size_bytes, compression
+):
+    records = [
+        {
+            "uuid": f"uuid-{index}",
+            "properties": json.dumps(
+                {
+                    "index": index,
+                    "padding": "".join(hashlib.sha256(f"{index}-{n}".encode()).hexdigest() for n in range(16)),
+                }
+            ),
+        }
+        for index in range(1000)
+    ]
+    record_batches = pa.Table.from_pylist(records).to_batches(max_chunksize=10)
+
+    transformer = ParquetStreamTransformer(
+        compression=compression, max_file_size_bytes=max_file_size_bytes, target_row_group_size_bytes=64 * 1024
+    )
+
+    async def iter_record_batches():
+        for record_batch in record_batches:
+            yield record_batch
+
+    files: list[bytes] = []
+    current_file = b""
+    async for chunk in transformer.iter(iter_record_batches()):
+        current_file += chunk.data
+        if chunk.is_eof:
+            files.append(current_file)
+            current_file = b""
+
+    parquet_files = [pq.ParquetFile(io.BytesIO(file)) for file in files]
+    assert all(parquet_file.metadata.num_rows > 0 for parquet_file in parquet_files)
+    # Writing each record batch as its own row group would give one row group per batch. The exact count
+    # depends on where files split and on the learned compression ratio, so only check that batches are combined.
+    assert sum(parquet_file.metadata.num_row_groups for parquet_file in parquet_files) < len(record_batches) / 2
+    assert [row for parquet_file in parquet_files for row in parquet_file.read().to_pylist()] == records
+    # A file closes when less than 5% of its max size is left, and can go over by the error in the compression
+    # ratio, so full files land near the max but not on it. The last file holds the remaining rows, so it can be small.
+    if max_file_size_bytes:
+        assert len(files) > 1
+        assert all(0.9 * max_file_size_bytes <= len(file) <= 1.1 * max_file_size_bytes for file in files[:-1])
 
 
 class FakeField(Field):
