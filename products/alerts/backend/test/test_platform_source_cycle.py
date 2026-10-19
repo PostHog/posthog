@@ -18,7 +18,7 @@ from posthog.schema_enums import AlertCalculationInterval
 from posthog.tasks.alerts.utils import AlertEvaluationResult
 
 from products.alerts.backend.evaluation.contract import AlertExtractionError
-from products.alerts.backend.evaluation.dispatcher import SeriesEvaluation
+from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.alerts.backend.platform_source_cycle import (
@@ -74,16 +74,22 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
 
     def _evaluate_per_series(
-        self, configuration: PlatformConfigurationSnapshot, values: dict[str, float]
+        self, configuration: PlatformConfigurationSnapshot, values: dict[str, float], *, truncated: bool = False
     ) -> PlatformAlertOutcome:
         slot = slot_of(configuration.next_check_at, CUTOFF)
         expires_at = time.time() + 3600
         assert plan_insight_batch(self.team.id, slot, CUTOFF, expires_at=expires_at) == (str(configuration.id),)
-        evaluated = tuple(
-            SeriesEvaluation(
-                label=label, result=AlertEvaluationResult(value=value, breaches=["above 100"] if value > 100 else [])
-            )
-            for label, value in values.items()
+        # One label for every series, so a key taken from the label instead of the identity merges them.
+        evaluated = PerSeriesEvaluation(
+            series=tuple(
+                SeriesEvaluation(
+                    identity=identity,
+                    label="browser",
+                    result=AlertEvaluationResult(value=value, breaches=["above 100"] if value > 100 else []),
+                )
+                for identity, value in values.items()
+            ),
+            truncated=truncated,
         )
         with patch(f"{_MODULE}.check_alert_per_series", return_value=evaluated):
             evaluation = evaluate_insight_check(
@@ -93,7 +99,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         (outcome,) = evaluation.outcomes
         return outcome
 
-    def test_each_breakdown_value_fires_and_resolves_on_its_own(self) -> None:
+    @parameterized.expand([("complete", False, "not_firing"), ("past_the_breakdown_limit", True, None)])
+    def test_each_breakdown_value_fires_and_resolves_on_its_own(
+        self, _name: str, truncated: bool, missing_state: str | None
+    ) -> None:
         grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
         configuration = self._copy(self._alert(), grouping=grouping.to_stored())
 
@@ -106,12 +115,22 @@ class TestPlatformInsightEvaluation(APIBaseTest):
 
         with team_scope(self.team.id):
             platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
-        resolved = self._evaluate_per_series(configuration, {"Chrome": 150.0})
+        resolved = self._evaluate_per_series(configuration, {"Chrome": 150.0}, truncated=truncated)
 
-        assert {group.grouping_key: group.new_state for group in resolved.groups} == {
-            "Chrome": "firing",
-            "Firefox": "not_firing",
-        }
+        expected = {"Chrome": "firing"} | ({"Firefox": missing_state} if missing_state else {})
+        assert {group.grouping_key: group.new_state for group in resolved.groups} == expected
+
+    def test_a_muted_breakdown_value_tracks_its_firing_without_announcing_it(self) -> None:
+        grouping = Grouping(mode=GroupingMode.BY_RESULT_LABELS, keys=("breakdown",))
+        configuration = self._copy(
+            self._alert(), grouping=grouping.to_stored(), snooze_until=CUTOFF + timedelta(hours=1)
+        )
+
+        outcome = self._evaluate_per_series(configuration, {"Chrome": 150.0})
+
+        assert [(group.kind, group.new_state, group.muted_notification) for group in outcome.groups] == [
+            (AlertEventKind.CHECK, "firing", "fire")
+        ]
 
     def _evaluate(
         self, configuration: PlatformConfigurationSnapshot, *, result: Any = None

@@ -337,6 +337,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -366,6 +369,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -466,6 +474,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -495,6 +506,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -599,6 +615,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -628,6 +647,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {
@@ -728,6 +752,9 @@ export interface hogFlowEditorTestLogicMeta {
                 | ({
                       config:
                           | {
+                                type: 'api'
+                            }
+                          | {
                                 type: 'schedule'
                             }
                           | {
@@ -757,6 +784,11 @@ export interface hogFlowEditorTestLogicMeta {
                                     source: 'internal-events'
                                 }
                                 type: 'internal-event'
+                            }
+                          | {
+                                cohort_id: number | null
+                                transition: 'entered' | 'left'
+                                type: 'cohort'
                             }
                           | {
                                 filters: {

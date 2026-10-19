@@ -1,6 +1,8 @@
 import json
 from typing import ClassVar
 
+from unittest.mock import patch
+
 from django.test import TestCase
 
 from parameterized import parameterized
@@ -300,6 +302,33 @@ class TestTaskListFilterMatrix(TestCase):
         )
 
         assert self._list(sources=sources) == self._ids(*expected)
+
+    @parameterized.expand(
+        [
+            ("own_tasks_without_archived", "me", [], ["posthog_mobile"]),
+            ("posthog_ai_counts_as_web", "adam", [], ["posthog_desktop", "posthog_web", "signals_scout"]),
+            ("tasks_another_product_hides", "adam", ["adam_mention_peter"], ["posthog_desktop", "signals_scout"]),
+        ]
+    )
+    def test_sources_endpoint_lists_the_users_task_sources(
+        self, _name: str, user: str, hidden: list[str], expected: list[str]
+    ) -> None:
+        Task.objects.filter(id=self.tasks["mine_peter_commented"].id).update(client_provenance="posthog_mobile")
+        Task.objects.filter(id=self.tasks["adam_mention_peter"].id).update(origin_product=Task.OriginProduct.POSTHOG_AI)
+        hidden_ids = [self.tasks[key].id for key in hidden]
+        requester = getattr(self, user)
+        self.client.force_login(requester)
+
+        with patch.dict(
+            "products.tasks.backend.facade.task_run_signals._task_read_exclusions",
+            {"test": lambda _team_id, _user_id: hidden_ids},
+        ):
+            response = self.client.get("/api/projects/@current/tasks/sources/")
+
+        assert response.status_code == http_status.HTTP_200_OK, response.content
+        assert response.json() == {"sources": expected}
+        for source in expected:
+            assert self._list(sources=source, created_by=requester.id), source
 
     @parameterized.expand(
         [

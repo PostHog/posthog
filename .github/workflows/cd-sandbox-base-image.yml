@@ -42,7 +42,7 @@ jobs:
         if: |
             github.repository_owner == 'PostHog' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read
@@ -64,7 +64,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -210,7 +210,7 @@ jobs:
         name: Wait for the pinned agent to be published
         if: |
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -255,7 +255,7 @@ jobs:
         name: Build agent skills from source
         if: |
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') &&
             (github.event_name != 'pull_request' || needs.changes.outputs.skills_source == 'true') && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
@@ -467,7 +467,7 @@ jobs:
         if: |
             github.repository_owner == 'PostHog' &&
             github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.event.pull_request.head.repo.full_name == 'PostHog/posthog' &&
             needs.changes.outputs.skills_source != 'true' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -519,7 +519,7 @@ jobs:
         if: |
             !cancelled() &&
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') &&
             (needs.build_skills.result == 'success' || needs.fetch_skills.result == 'success') &&
             needs.wait_for_agent.result == 'success' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
@@ -676,7 +676,7 @@ jobs:
         if: |
             !cancelled() &&
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog') &&
             needs.sandbox_base_build.result == 'success' &&
             (github.ref != 'refs/heads/master' || needs.sandbox_base_build.outputs.promoted == 'success') && (
                 needs.changes.outputs.sandbox_image == 'true' ||

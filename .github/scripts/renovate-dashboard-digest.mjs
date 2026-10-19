@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
 import {
@@ -16,12 +17,19 @@ const ECOSYSTEMS = { npm: 'npm', pep621: 'python', cargo: 'rust', gomod: 'go', '
 const UPDATE_TYPES = ['major', 'minor', 'patch']
 const COLUMNS = [...UPDATE_TYPES, 'other', 'total']
 
-export function summarize(report) {
-    const repository = Object.values(report.repositories ?? {})[0]
+export function summarize(reportsByManager) {
+    const packageFilesByManager = Object.entries(reportsByManager).flatMap(([manager, report]) => {
+        const packageFiles = Object.entries(Object.values(report.repositories ?? {})[0]?.packageFiles ?? {})
+        // Renovate exits 0 when a lookup aborts, leaving no package files.
+        if (packageFiles.length === 0) {
+            throw new Error(`The Renovate lookup for ${manager} did not complete`)
+        }
+        return packageFiles
+    })
     const branches = new Map()
     const deprecated = new Set()
     const lookupWarnings = new Set()
-    for (const [manager, packageFiles] of Object.entries(repository?.packageFiles ?? {})) {
+    for (const [manager, packageFiles] of packageFilesByManager) {
         for (const dep of packageFiles.flatMap((packageFile) => packageFile.deps)) {
             const depKey = `${manager}:${dep.depName}`
             if (dep.deprecationMessage) {
@@ -44,10 +52,6 @@ export function summarize(report) {
         pending[manager][type] += 1
         pending[manager].total += 1
     }
-    // Renovate exits 0 when a lookup aborts.
-    if (branches.size === 0) {
-        throw new Error('The Renovate report lists no pending updates, so the lookup did not complete')
-    }
     return { pending, deprecated: deprecated.size, lookupWarnings: lookupWarnings.size }
 }
 
@@ -56,7 +60,10 @@ export function buildBlocks({ pending, deprecated, lookupWarnings }, day) {
     const totals = Object.fromEntries(
         COLUMNS.map((column) => [column, managers.reduce((sum, manager) => sum + pending[manager][column], 0)])
     )
-    const row = (label, counts) => [cell(label), ...COLUMNS.map((column) => cell(counts[column].toLocaleString('en-US')))]
+    const row = (label, counts) => [
+        cell(label),
+        ...COLUMNS.map((column) => cell(counts[column].toLocaleString('en-US'))),
+    ]
     const repoUrl = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}`
     const footer = [
         `${deprecated} deprecated`,
@@ -85,7 +92,14 @@ export function buildBlocks({ pending, deprecated, lookupWarnings }, day) {
 }
 
 async function main() {
-    const summary = summarize(JSON.parse(readFileSync(process.env.RENOVATE_REPORT_PATH, 'utf8')))
+    const reportsDir = process.env.RENOVATE_REPORTS_DIR
+    const reportsByManager = Object.fromEntries(
+        readdirSync(reportsDir).map((artifact) => [
+            artifact.replace(/^renovate-report-/, ''),
+            JSON.parse(readFileSync(join(reportsDir, artifact, 'renovate-report.json'), 'utf8')),
+        ])
+    )
+    const summary = summarize(reportsByManager)
     const blocks = buildBlocks(summary, new Date().toISOString().slice(0, 10))
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))

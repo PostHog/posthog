@@ -41,12 +41,12 @@ import asyncio
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.temporal.ai.slack_app.activities import classifiers
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.slack_app.backend.temporal.activities import classifiers
 from products.slack_app.evals.scorers import PROJECT_ROUTE_KEY, NoUnaskedProjectSwitch, ProjectRouteMatch
 
 SUITE_KIND = SuiteKind.ONE_SHOT

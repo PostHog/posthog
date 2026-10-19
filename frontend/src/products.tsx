@@ -381,6 +381,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/broadcasts/opt-outs': ['Broadcasts', 'broadcasts'],
     '/broadcasts/suppression': ['Broadcasts', 'broadcasts'],
     '/broadcasts/reputation': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/settings': ['Broadcasts', 'broadcasts'],
+    '/broadcasts/calendar': ['Broadcasts', 'broadcasts'],
     '/broadcasts/new': ['Broadcast', 'broadcast'],
     '/broadcasts/:id': ['Broadcast', 'broadcast'],
 }
@@ -1976,7 +1978,7 @@ export const productUrls = {
     workflowsLibraryTemplate: (id?: string): string => `/workflows/library/templates/${id}`,
     workflowsLibraryTemplateNew: (): string => '/workflows/library/templates/new',
     workflowsLibraryTemplateFromMessage: (id?: string): string => `/workflows/library/templates/new?messageId=${id}`,
-    broadcasts: (tab?: MessagingNavTabKey): string => `/broadcasts${tab ? `/${tab}` : ''}`,
+    broadcasts: (tab?: MessagingNavTabKey | 'calendar'): string => `/broadcasts${tab ? `/${tab}` : ''}`,
     broadcast: (id: string): string => `/broadcasts/${id}`,
     broadcastNew: (): string => '/broadcasts/new',
 }
@@ -3174,8 +3176,11 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         href: urls.skills(),
         searchKeywords: ['agent instructions', 'playbooks'],
         searchTabs: [
-            { name: 'Scouts', href: urls.skillsCategoryTab('scouts') },
-            { name: 'Community', href: urls.communitySkills(), flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS },
+            {
+                name: 'Community skills',
+                href: urls.communitySkills(),
+                flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
+            },
         ],
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill', 'CommunitySkills'],
@@ -3349,6 +3354,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
             { name: 'Opt-outs', href: urls.workflows('opt-outs') },
             { name: 'Suppression list', href: urls.workflows('suppression') },
             { name: 'Reputation', href: urls.workflows('reputation') },
+            { name: 'Settings', href: urls.workflows('settings') },
         ],
         type: 'workflows',
         category: ProductItemCategory.MESSAGING,

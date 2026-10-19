@@ -1,3 +1,4 @@
+from contextlib import suppress
 from datetime import timedelta
 from decimal import Decimal
 
@@ -31,6 +32,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
     sweep_implementation_dispatches as sweep_implementation_dispatches,
 )
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
+from products.signals.backend.inbox_summary import sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
     SignalReportPullRequest,
@@ -78,6 +80,22 @@ logger = structlog.get_logger(__name__)
 
 
 @shared_task(
+    name="products.signals.backend.tasks.refresh_pull_request_participants",
+    ignore_result=True,
+    bind=True,
+    autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError),
+    retry_backoff=True,
+    max_retries=5,
+)
+@with_team_scope()
+def refresh_pull_request_participants(self, team_id: int, repository: str, pr_number: int) -> None:
+    try:
+        sync_pull_request_participants(team_id=team_id, repository=repository, pr_number=pr_number)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+
+
+@shared_task(
     name="products.signals.backend.tasks.refresh_pull_request_review_decision",
     ignore_result=True,
     autoretry_for=(GitHubEgressBudgetExhausted, GitHubIntegrationError, GitHubRateLimitError),
@@ -93,6 +111,10 @@ def refresh_pull_request_review_decision(team_id: int, repository: str, pr_numbe
     )
     if pr is None:
         return
+    if pr.state == SignalReportPullRequest.State.MERGED:
+        from products.signals.backend.pull_requests import schedule_participant_refresh
+
+        schedule_participant_refresh(pr)
 
     github = GitHubIntegration.first_for_team_repository(
         team_id,
@@ -1017,6 +1039,49 @@ def rebuild_signal_repository_activity(team_id: int, repository: str, force: boo
         capture_exception(exc, {"team_id": team_id, "repository": repository})
     finally:
         cache.delete(lock_key)
+
+
+# Long enough to collapse a burst of reads into one queued build, short enough that a failed
+# build is retried by the next read a few minutes later.
+_PROFILE_BUILD_DEDUPE_SECONDS = 5 * 60
+
+
+def enqueue_project_profile_build(team_id: int, *, dedupe: bool = True) -> None:
+    """Queue one `build_signal_project_profile` per team per dedupe window.
+
+    `dedupe=False` queues the build even inside the window. A read calls this after it has its
+    profile, so a cache or broker failure is reported and does not fail the read. A failed
+    enqueue releases the window, so the next read can queue the build again.
+    """
+    key = f"signals_project_profile_build/{team_id}"
+    claimed = False
+    try:
+        claimed = cache.add(key, "1", timeout=_PROFILE_BUILD_DEDUPE_SECONDS)
+        if claimed or not dedupe:
+            build_signal_project_profile.delay(team_id)
+    except Exception as exc:
+        capture_exception(exc, {"team_id": team_id})
+        if claimed:
+            with suppress(Exception):
+                cache.delete(key)
+
+
+@shared_task(
+    name="products.signals.backend.tasks.build_signal_project_profile",
+    ignore_result=True,
+    max_retries=0,
+)
+@with_team_scope()
+def build_signal_project_profile(team_id: int) -> None:
+    """Run the surface queries off the request path, and build the profile if the team has none.
+
+    A read caller that found no profile queues this, and so does a read whose profile has no
+    current surface entries.
+    """
+    # The `tools` package imports this module through `slack_delivery_queue`.
+    from products.signals.backend.scout_harness.tools.profile import refresh_project_profile_surfaces  # noqa: PLC0415
+
+    refresh_project_profile_surfaces(team_id=team_id)
 
 
 @shared_task(
