@@ -88,6 +88,18 @@ class TestIncrementalEligibility(SimpleTestCase):
     @parameterized.expand(
         [
             (
+                "unique_key_is_empty",
+                "SELECT timestamp FROM events",
+                IncrementalConfig(incremental_key="timestamp", unique_key=()),
+                "at least one unique key column",
+            ),
+            (
+                "unique_key_includes_an_aggregate",
+                GROUPED,
+                IncrementalConfig(incremental_key="day", unique_key=("day", "c")),
+                "is an aggregate",
+            ),
+            (
                 "unique_key_misses_a_grouping_column",
                 "SELECT toStartOfDay(timestamp) AS day, event, count() AS c FROM events GROUP BY day, event",
                 DAY_KEY,
@@ -540,6 +552,27 @@ class TestProposeIncrementalConfig(SimpleTestCase):
                 "group_by_all_with_a_mixed_aggregate",
                 "SELECT toStartOfDay(timestamp) AS day, concat(event, toString(count())) AS c FROM events GROUP BY ALL",
                 {"day": "DateTime", "c": "String"},
+                None,
+            ),
+            (
+                "moving_window_from_a_clock_alias",
+                GROUPED.replace(" GROUP BY", " WHERE timestamp >= current_date() - INTERVAL 7 DAY GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "moving_window_from_a_scalar_subquery",
+                GROUPED.replace(
+                    " GROUP BY", " WHERE timestamp >= (SELECT max(timestamp) FROM events) - INTERVAL 7 DAY GROUP BY"
+                ),
+                {"day": "DateTime", "c": "UInt64"},
+                None,
+            ),
+            (
+                "moving_window_from_a_column_cte",
+                "WITH (SELECT max(timestamp) FROM events) AS latest "
+                + GROUPED.replace(" GROUP BY", " WHERE timestamp >= latest - INTERVAL 7 DAY GROUP BY"),
+                {"day": "DateTime", "c": "UInt64"},
                 None,
             ),
             (

@@ -102,7 +102,9 @@ class MaterializationRefusedError(Exception):
 
 
 class IncrementalConfigRefusedError(MaterializationRefusedError):
-    pass
+    def __init__(self, message: str, refused_keys: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.refused_keys = refused_keys
 
 
 class MaterializationForbiddenError(Exception):

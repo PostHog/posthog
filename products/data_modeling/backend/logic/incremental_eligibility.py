@@ -34,6 +34,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.functions.clickhouse.datetime import DATE_GENERATOR_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import has_aggregation
 from posthog.hogql.resolver import resolve_types
@@ -49,10 +50,9 @@ from products.data_modeling.backend.logic.incremental_filter import find_key_exp
 # so a re-run silently rewrites rows. Warned rather than blocked, because a `now()` in a filter is
 # common and usually harmless, and blocking it would refuse a lot of reasonable models.
 NON_DETERMINISTIC_FUNCTIONS = {
-    "now",
+    *(name.lower() for name in DATE_GENERATOR_FUNCTIONS),
+    "nowinblock",
     "now64",
-    "today",
-    "yesterday",
     "rand",
     "rand32",
     "rand64",
@@ -65,6 +65,9 @@ _LOW_CARDINALITY_WRAPPER = ("lowcardinality(",)
 _CLICKHOUSE_TYPE_WRAPPERS = ("nullable(", *_LOW_CARDINALITY_WRAPPER)
 
 SET_OPERATORS_BLOCKING_INCREMENTAL = {"EXCEPT", "INTERSECT"}
+
+INCREMENTAL_KEY_FIELD = "incremental_key"
+UNIQUE_KEY_FIELD = "unique_key"
 
 _CONSTANT_TYPE_LABELS: dict[type, str] = {
     ast.DateTimeType: "datetime",
@@ -119,6 +122,7 @@ class EligibilityResult:
     # Coarse type per candidate, for the picker's type tags. Missing entry: type unknown.
     key_candidate_types: dict[str, str] = field(default_factory=dict)
     blockers: list[str] = field(default_factory=list)
+    blocked_keys: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -177,12 +181,15 @@ def check_incremental_eligibility(
             warnings=_unique(warnings),
         )
 
+    key_blockers: list[str] = []
+    unique_key_blockers: list[str] = []
     for select in selects:
-        _check_key(select, config, blockers, warnings)
-        _check_unique_key(select, config, blockers)
+        _check_key(select, config, key_blockers, warnings)
+        _check_unique_key(select, config, unique_key_blockers)
 
-    _check_nullable_unique_key(config, column_types, blockers)
+    _check_nullable_unique_key(config, column_types, unique_key_blockers)
     _check_determinism(node, warnings)
+    blockers.extend([*key_blockers, *unique_key_blockers])
 
     return EligibilityResult(
         eligible=not blockers,
@@ -190,6 +197,11 @@ def check_incremental_eligibility(
         unique_key_candidates=unique_key_candidates,
         key_candidate_types=key_candidate_types,
         blockers=_unique(blockers),
+        blocked_keys=[
+            name
+            for name, key_blocked in ((INCREMENTAL_KEY_FIELD, key_blockers), (UNIQUE_KEY_FIELD, unique_key_blockers))
+            if key_blocked
+        ],
         warnings=_unique(warnings),
     )
 
@@ -202,9 +214,12 @@ def propose_incremental_config(
         node = parse_select(query)
     except (ExposedHogQLError, ValueError):
         return None
-    if not isinstance(node, ast.SelectQuery) or _is_nondeterministic(node):
+    if not isinstance(node, ast.SelectQuery):
         return None
-    if any(_is_nondeterministic(select) for select in _resolved_selects(node, database) or []):
+    if any(
+        _is_nondeterministic(select) or _reads_a_subquery_value(select)
+        for select in (node, *(_resolved_selects(node, database) or []))
+    ):
         return None
     grouped_names = _grouped_output_names(node)
     if grouped_names is None:
@@ -222,6 +237,27 @@ def _is_nondeterministic(node: ast.SelectQuery) -> bool:
     warnings: list[str] = []
     _check_determinism(node, warnings)
     return bool(warnings)
+
+
+def _reads_a_subquery_value(select: ast.SelectQuery) -> bool:
+    finder = _SubqueryValueFinder()
+    for expression in _value_expressions(select):
+        finder.visit(expression)
+    return finder.found or any(
+        _reads_a_subquery_value(leaf) for source in _source_nodes(select) for leaf in _leaf_selects(source)
+    )
+
+
+def _value_expressions(select: ast.SelectQuery) -> list[ast.Expr]:
+    column_ctes = [cte.expr for cte in (select.ctes or {}).values() if cte.cte_type != "subquery"]
+    join_constraints = []
+    join: Optional[ast.JoinExpr] = select.select_from
+    while join is not None:
+        if join.constraint is not None:
+            join_constraints.append(join.constraint.expr)
+        join = join.next_join
+    filters = [expression for expression in (select.where, select.prewhere, select.having) if expression is not None]
+    return [*select.select, *(select.group_by or []), *filters, *column_ctes, *join_constraints]
 
 
 def _grouped_output_names(select: ast.SelectQuery) -> Optional[list[str]]:
@@ -529,6 +565,9 @@ def _check_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: lis
 
 
 def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blockers: list[str]) -> None:
+    if not config.unique_key:
+        blockers.append("Choose at least one unique key column, so each refresh can update the rows it recomputes.")
+        return
     outputs = _output_names(select)
     # An unexpanded star (no database to resolve against) passes every source column through, so a
     # name that is not spelled out can still be in the output. The runtime upsert fails loudly if
@@ -539,6 +578,19 @@ def _check_unique_key(select: ast.SelectQuery, config: IncrementalConfig, blocke
         blockers.append(
             f"Unique key {'columns' if len(missing) > 1 else 'column'} "
             f"{', '.join(sorted(missing))} {'are' if len(missing) > 1 else 'is'} not in the query's output."
+        )
+        return
+
+    aggregates = sorted(
+        column
+        for column in config.unique_key
+        if (expression := find_key_expression(select, column)) is not None and has_aggregation(expression)
+    )
+    if aggregates:
+        blockers.append(
+            f"Unique key {'columns' if len(aggregates) > 1 else 'column'} {', '.join(aggregates)} "
+            f"{'are aggregates' if len(aggregates) > 1 else 'is an aggregate'}. Its value changes as rows arrive, so "
+            "a refresh adds a new row instead of updating the stored one. Use the columns the query groups by."
         )
         return
 
@@ -705,3 +757,15 @@ def _check_determinism(node: ast.Expr, warnings: list[str]) -> None:
             f"{names} makes each run depend on when it happened, so re-running a window can change "
             "rows it already wrote."
         )
+
+
+class _SubqueryValueFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_select_query(self, node: ast.SelectQuery) -> None:
+        self.found = True
+
+    def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+        self.found = True

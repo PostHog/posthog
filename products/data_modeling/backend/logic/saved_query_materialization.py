@@ -194,7 +194,7 @@ def _refuse_an_incremental_config_the_query_forbids(
         database=Database.create_for(team_id=saved_query.team_id, user=user),
     )
     if not result.eligible:
-        raise IncrementalConfigRefusedError(" ".join(result.blockers))
+        raise IncrementalConfigRefusedError(" ".join(result.blockers), tuple(result.blocked_keys))
 
 
 def _stored_incremental_config(incremental_config: IncrementalConfig) -> dict[str, Any]:
