@@ -50,6 +50,12 @@ const expectSendingDomainPage: EntryExpectation = (pagePath) => {
     expect(screen.queryByText(LEGACY_MODAL_TITLE)).not.toBeInTheDocument()
 }
 
+const expectWizardModalForSender: EntryExpectation = (pagePath) => {
+    expect(screen.getByText('Verify your sending domain')).toBeInTheDocument()
+    expect(router.values.location.pathname).toMatch(/\/workflows\/channels$/)
+    expect(screen.getByText('Open full page').closest('a')).toHaveAttribute('href', expect.stringContaining(pagePath))
+}
+
 const expectOldBroadcastModal = (): void => {
     expect(screen.getByText(LEGACY_MODAL_TITLE)).toBeInTheDocument()
 }
@@ -84,9 +90,9 @@ describe('email domain setup entry points', () => {
     })
 
     describe.each([
-        ['off', false, expectOldModal, expectOldBroadcastModal],
-        ['on', true, expectSendingDomainPage, expectWizardInBroadcastModal],
-    ])('with the wizard flag %s', (_, wizardEnabled, expectEntry, expectBroadcastModal) => {
+        ['off', false, expectOldModal, expectOldModal, expectOldBroadcastModal],
+        ['on', true, expectSendingDomainPage, expectWizardModalForSender, expectWizardInBroadcastModal],
+    ])('with the wizard flag %s', (_, wizardEnabled, expectEntry, expectConfigure, expectBroadcastModal) => {
         beforeEach(() => setWizardFlag(wizardEnabled))
 
         it('starts from the email card in the channel catalog', async () => {
@@ -104,7 +110,16 @@ describe('email domain setup entry points', () => {
             expect(screen.getByText('Unverified')).toBeInTheDocument()
             fireEvent.click(screen.getByText('Configure'))
             await flush()
-            expectEntry(urls.workflowsEmailDomain(SENDER_ID))
+            expectConfigure(urls.workflowsEmailDomain(SENDER_ID))
+        })
+
+        it('keeps the sender settings for configure on a verified sender', async () => {
+            backend.addSender({ email: `hello@${DOMAIN}`, verified: true })
+            await renderInApp(<MessageChannels />)
+            fireEvent.click(screen.getByText(DOMAIN))
+            fireEvent.click(screen.getByText('Configure'))
+            await flush()
+            expectOldModal('')
         })
 
         it('starts from the broadcast sender modal', async () => {
@@ -115,26 +130,29 @@ describe('email domain setup entry points', () => {
         })
     })
 
-    it('reports the new sender to the broadcast right after creating it and stays open for the settings', async () => {
-        setWizardFlag(true)
-        const onComplete = jest.fn()
-        const onClose = jest.fn()
-        await renderInApp(<EmailSetupModal entry="broadcast" onClose={onClose} onComplete={onComplete} />)
+    it.each([['broadcast' as const], [undefined]])(
+        'stays open for the settings after creating a sender, and reports it when closed (entry %s)',
+        async (entry) => {
+            setWizardFlag(true)
+            const onComplete = jest.fn()
+            const onClose = jest.fn()
+            await renderInApp(<EmailSetupModal entry={entry} onClose={onClose} onComplete={onComplete} />)
 
-        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
-            target: { value: 'acme.com' },
-        })
-        fireEvent.click(element('email-domain-use-custom-domain'))
-        fireEvent.click(element('email-domain-continue'))
-        await flush()
+            fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+                target: { value: 'acme.com' },
+            })
+            fireEvent.click(element('email-domain-use-custom-domain'))
+            fireEvent.click(element('email-domain-continue'))
+            await flush()
 
-        expect(onComplete).toHaveBeenCalledWith(SENDER_ID)
-        expect(onClose).not.toHaveBeenCalled()
-        expect(screen.getByText('Verify your sending domain')).toBeInTheDocument()
-        expect(screen.getByText('Add 8 settings at Cloudflare')).toBeInTheDocument()
-        expect(screen.getByText('Open full page').closest('a')).toHaveAttribute(
-            'href',
-            expect.stringContaining(urls.workflowsEmailDomain(SENDER_ID))
-        )
-    })
+            expect(onComplete).not.toHaveBeenCalled()
+            expect(screen.getByText('Verify your sending domain')).toBeInTheDocument()
+            expect(screen.getByText('Add 8 settings at Cloudflare')).toBeInTheDocument()
+
+            fireEvent.click(screen.getByLabelText('close'))
+            await flush()
+            expect(onComplete).toHaveBeenCalledWith(SENDER_ID)
+            expect(onClose).not.toHaveBeenCalled()
+        }
+    )
 })

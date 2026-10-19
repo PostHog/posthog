@@ -20,7 +20,7 @@ import { VerifyingStep } from './steps/VerifyingStep'
 
 export interface EmailDomainSetupModalProps {
     integration?: IntegrationType | null
-    entry: 'channels' | 'broadcast'
+    entry: 'channels' | 'broadcast' | 'configure'
     onComplete: (integrationId?: number) => void
     onClose: (savedIntegrationId?: number) => void
 }
@@ -77,19 +77,13 @@ export function EmailDomainSetupModal({
         <LemonModal
             title={integrationId ? 'Verify your sending domain' : 'Set up a sending domain'}
             width={720}
-            onClose={() => onClose(integrationId ?? undefined)}
+            onClose={() => (integrationId ? onComplete(integrationId) : onClose())}
         >
             {integrationId ? (
                 <ModalSettings integrationId={integrationId} />
             ) : (
                 <div className="@container">
-                    <DomainStep
-                        logicKey="modal"
-                        onCreated={(created) => {
-                            setIntegrationId(created.id)
-                            onComplete(created.id)
-                        }}
-                    />
+                    <DomainStep logicKey="modal" onCreated={(created) => setIntegrationId(created.id)} />
                 </div>
             )}
         </LemonModal>
