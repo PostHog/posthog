@@ -18,14 +18,13 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.team import Team
-from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     AI_EVENT_TYPES,
     MAX_TRACE_EVENTS_LIMIT,
     MAX_TRACE_PROPERTIES_SIZE,
 )
 from posthog.temporal.ai_observability.trace_summarization.models import BatchSummarizationInputs, SampledItem
-from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse
+from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse, on_worker_thread
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -260,7 +259,7 @@ async def sample_items_in_window_activity(inputs: BatchSummarizationInputs) -> l
             ]
 
     async with Heartbeater():
-        items = await database_sync_to_async(_sample_items, thread_sensitive=False)(
+        items = await on_worker_thread(_sample_items)(
             inputs.team_id,
             inputs.window_start,
             inputs.window_end,

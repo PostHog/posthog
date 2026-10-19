@@ -13,7 +13,6 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.redis import get_async_client
-from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.trace_summarization.constants import MAX_RAW_TRACE_SIZE
 from posthog.temporal.ai_observability.trace_summarization.models import (
     FetchAndFormatInput,
@@ -22,7 +21,7 @@ from posthog.temporal.ai_observability.trace_summarization.models import (
 )
 from posthog.temporal.ai_observability.trace_summarization.queries import fetch_trace, fetch_trace_size
 from posthog.temporal.ai_observability.trace_summarization.state import generate_redis_key, store_text_repr
-from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse
+from posthog.temporal.ai_observability.trace_summarization.utils import format_datetime_for_clickhouse, on_worker_thread
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.ai_observability.backend.text_repr.formatters import (
@@ -335,7 +334,7 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
         t0 = time.monotonic()
 
         if input.generation_id:
-            result = await database_sync_to_async(_fetch_and_format_generation, thread_sensitive=False)(
+            result = await on_worker_thread(_fetch_and_format_generation)(
                 input.generation_id,
                 input.trace_id,
                 input.team_id,
@@ -344,7 +343,7 @@ async def fetch_and_format_activity(input: FetchAndFormatInput) -> FetchAndForma
                 input.max_length,
             )
         else:
-            result = await database_sync_to_async(_fetch_and_format_trace, thread_sensitive=False)(
+            result = await on_worker_thread(_fetch_and_format_trace)(
                 input.trace_id, input.team_id, input.window_start, input.window_end, input.max_length
             )
 
