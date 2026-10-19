@@ -269,6 +269,26 @@ def _dashboard_edit_access_by_team(
     return user_access_control.for_team_ids({dashboard.team_id for dashboard in dashboards})
 
 
+def insights_with_dashboard_edit_access(
+    insight_ids: Collection[int], *, user_access_control: UserAccessControl, project_id: int
+) -> set[int]:
+    tiles = list(
+        DashboardTile.objects_including_soft_deleted.filter(
+            insight_id__in=insight_ids, dashboard__team__project_id=project_id, dashboard__deleted=False
+        ).select_related("dashboard")
+    )
+    access_by_team = _dashboard_edit_access_by_team([tile.dashboard for tile in tiles], user_access_control)
+    editable = set(insight_ids) - {tile.insight_id for tile in tiles}
+    for tile in tiles:
+        access = access_by_team[tile.dashboard.team_id]
+        if tile.insight_id is not None and (
+            not access.has_object_access_limit(tile.dashboard)
+            or access.check_access_level_for_object(tile.dashboard, "editor")
+        ):
+            editable.add(tile.insight_id)
+    return editable
+
+
 def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_control: UserAccessControl) -> None:
     """Re-activate soft-deleted tiles of these insights, on live dashboards the requester may edit.
 

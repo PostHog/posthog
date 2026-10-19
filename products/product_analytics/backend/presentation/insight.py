@@ -1,4 +1,5 @@
 import json
+import builtins
 from collections.abc import Sequence
 from datetime import datetime, timedelta
 from functools import lru_cache
@@ -157,6 +158,7 @@ from products.dashboards.backend.facade.api import (
     hide_tiles_for_insights,
     insight_has_listed_tile,
     insight_ids_on_dashboard,
+    insights_with_dashboard_edit_access,
     plan_insight_tile_placement,
     restore_tiles_for_insights,
     tile_for_insight_on_dashboard,
@@ -192,6 +194,7 @@ from products.product_analytics.backend.presentation.insight_metadata import (
     InsightMetadataTimeoutError,
     generate_insight_metadata,
 )
+from products.product_analytics.backend.presentation.insight_permissions import CanEditInsightDashboards
 from products.product_analytics.backend.presentation.insight_write_validation import validate_insight_write
 from products.product_analytics.backend.presentation.query_concurrency import query_concurrency_slots
 from products.subscriptions.backend.facade.api import delete_insight_subscriptions
@@ -1948,6 +1951,7 @@ class InsightViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "insight"
+    permission_classes = [CanEditInsightDashboards]
     # Record a tags change per insight when bulk_update_tags mutates it, matching the single-object path.
     bulk_tag_activity_scope = "Insight"
     serializer_class = InsightSerializer
@@ -2601,6 +2605,16 @@ When set, the specified dashboard's filters and date range override will be appl
             member_emails=holds("organization_member:read"), verified_domains=holds("organization:read")
         )
 
+    def validate_bulk_tag_changes(self, objects: Sequence[Insight], tag_action: str, tags: builtins.list[str]) -> None:
+        editable_ids = insights_with_dashboard_edit_access(
+            [insight.id for insight in objects],
+            user_access_control=self.user_access_control,
+            project_id=self.team.project_id,
+        )
+        if any(insight.id not in editable_ids for insight in objects):
+            raise PermissionDenied(CanEditInsightDashboards.message)
+        super().validate_bulk_tag_changes(objects, tag_action, tags)
+
     # `Sequence` rather than `list` here: this viewset defines a `list` method that shadows the builtin `list`
     # in the class namespace, so `list[...]` in this signature breaks both at class-definition time and for mypy.
     def _bulk_filter_editable_insights(
@@ -2624,10 +2638,19 @@ When set, the specified dashboard's filters and date range override will be appl
             return insights, skipped
 
         self.user_access_control.preload_object_access_controls(cast(list, insights))
+        dashboard_editable_ids = insights_with_dashboard_edit_access(
+            [insight.id for insight in insights],
+            user_access_control=self.user_access_control,
+            project_id=self.team.project_id,
+        )
         editable: list[Insight] = []
         for insight in insights:
             user_access_level = self.user_access_control.get_user_access_level(insight)
-            if user_access_level and access_level_satisfied_for_resource("insight", user_access_level, "editor"):
+            if (
+                insight.id in dashboard_editable_ids
+                and user_access_level
+                and access_level_satisfied_for_resource("insight", user_access_level, "editor")
+            ):
                 editable.append(insight)
             else:
                 skipped.append({"id": insight.id, "reason": "You don't have permission to edit this insight"})

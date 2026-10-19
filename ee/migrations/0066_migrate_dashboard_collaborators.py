@@ -4,8 +4,10 @@ from posthog.rbac.migrations.rbac_dashboard_migration import rbac_dashboard_acce
 
 
 class Migration(migrations.Migration):
+    atomic = False
+
     dependencies = [
-        ("ee", "0064_split_identity_provider_config_scopes"),
+        ("ee", "0065_accesscontrol_limit_resource_access"),
     ]
 
     operations = [

@@ -22,6 +22,7 @@ class AccessControl(UUIDTModel):
 
     # Configuration of what we are accessing
     access_level: models.CharField = models.CharField(max_length=32)
+    limit_resource_access = models.BooleanField(default=False, db_default=False)
     resource: models.CharField = models.CharField(max_length=32)
     resource_id: models.CharField = models.CharField(max_length=36, null=True)
 

@@ -862,6 +862,15 @@ class UserAccessControl:
         # If there are access controls we pick the highest level the user has
         return self._highest_access_from_rows(resource, access_controls).access_level
 
+    def has_object_access_limit(self, obj: Model) -> bool:
+        resource = model_to_resource(obj)
+        if resource is None:
+            return False
+        return any(
+            row.limit_resource_access
+            for row in self._get_access_controls(self._access_controls_filters_for_object(resource, str(obj.pk)))
+        )
+
     def check_access_level_for_object(self, obj: Model, required_level: AccessControlLevel, explicit=False) -> bool:
         """
         Entry point for all permissions around a specific object.
@@ -1655,6 +1664,21 @@ class UserAccessControl:
         if self.has_access_levels_for_resource(resource):
             access_for_resource = self.access_level_for_resource(resource)
             if access_for_resource:
+                # Migrated object limits must not be widened by a broader resource grant.
+                if (
+                    object_access_controls
+                    and object_row.limit_resource_access
+                    and access_level_satisfied_for_resource(
+                        resource, access_for_resource.access_level, object_row.access_level
+                    )
+                ):
+                    return ResolvedAccess(
+                        access_level=object_row.access_level,
+                        source="object",
+                        source_subject="default",
+                        source_resource=resource,
+                        source_resource_id=object_row.resource_id,
+                    )
                 return access_for_resource
 
         if parent and self.has_access_levels_for_resource(parent):
@@ -1754,6 +1778,14 @@ class UserAccessControl:
         return access.access_level if access else None
 
     def get_user_access_level(self, obj: Model, explicit=False) -> Optional[AccessControlLevel]:
+        team_id = getattr(obj, "team_id", None)
+        if (
+            self._team is not None
+            and model_to_resource(obj) == "dashboard"
+            and isinstance(team_id, int)
+            and team_id != self._team.id
+        ):
+            return self.for_team_ids([team_id])[team_id].get_user_access_level(obj, explicit=explicit)
         target = self._target_for_object(obj)
         if target is None:
             return None
@@ -1948,6 +1980,12 @@ class UserAccessControl:
 
         row = self._most_specific_rows_decision(resource, object_rows)
         if row:
+            if row.limit_resource_access and self.has_access_levels_for_resource(resource):
+                broader_access = self.resolve_most_specific_resource_access(resource)
+                if broader_access and not access_level_satisfied_for_resource(
+                    resource, broader_access.access_level, row.access_level
+                ):
+                    return broader_access
             return ResolvedAccess(
                 access_level=row.access_level,
                 source="object",
