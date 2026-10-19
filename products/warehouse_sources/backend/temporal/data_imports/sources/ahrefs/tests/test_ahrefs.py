@@ -16,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.ahrefs.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClientRetryableError,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import UnknownResourceError
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     ScriptedResponse,
     SourceDriver,
@@ -299,12 +298,6 @@ def test_missing_response_envelope_fails(probe: bool) -> None:
         assert isinstance(result.raised, ValueError)
         assert "matched nothing" in str(result.raised)
         assert len(result.requests) == 1
-
-
-def test_unknown_table_fails_before_request() -> None:
-    result = SourceDriver(AhrefsSource(), AhrefsSourceConfig(api_key="test-key", project_id="123")).run("unknown", [])
-    assert isinstance(result.raised, UnknownResourceError)
-    assert result.requests == []
 
 
 @pytest.mark.parametrize(

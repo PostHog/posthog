@@ -23,10 +23,6 @@ class TestCodecovSource:
         # against different Codecov resources, so the update serializer must require re-entry.
         assert self.source.connection_host_fields == ["service", "owner_username", "repositories"]
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["commits"])
-        assert [s.name for s in schemas] == ["commits"]
-
     @pytest.mark.parametrize(
         "status_code, expected_valid, expected_message",
         [

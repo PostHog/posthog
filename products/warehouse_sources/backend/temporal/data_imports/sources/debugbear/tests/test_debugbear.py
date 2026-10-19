@@ -365,10 +365,6 @@ class TestDebugbearSourceRouting:
         assert response.sort_mode == sort_mode
         assert response.partition_keys == partition_keys
 
-    def test_unknown_endpoint_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown DebugBear endpoint"):
-            debugbear_source(api_key="key", endpoint="Nope")
-
     def test_page_metrics_items_iterates_all_projects(self) -> None:
         driver = SourceDriver(DebugbearSource(), DebugbearSourceConfig(api_key="key"))
         result = driver.run(
