@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.kalshi.settings import (
     KALSHI_ENDPOINTS,
+    WEATHER_INDEX_CITIES,
     KalshiEndpointConfig,
 )
 
@@ -31,6 +32,11 @@ _CANDLESTICK_PERIOD_SECONDS = CANDLESTICK_PERIOD_MINUTES * 60
 # per request, with no pagination, so a batch that could exceed the cap is split before it is sent.
 _MAX_TICKERS_PER_REQUEST = 100
 _MAX_CANDLESTICKS_PER_REQUEST = 10_000
+
+# `from=0` reads as unset and falls back to the trailing 24 hours, so a full read starts at 1 ms.
+_WEATHER_INDEX_EARLIEST_MS = 1
+# Re-read the last hour so a minute published after the previous run's watermark is not skipped.
+_WEATHER_INDEX_OVERLAP_MS = 60 * 60 * 1000
 
 
 @frozen
@@ -192,6 +198,58 @@ def _candlestick_source(
     )
 
 
+def _weather_index_rows(
+    client: RESTClient,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+    from_ms: int,
+    to_ms: int,
+) -> Iterator[list[dict[str, Any]]]:
+    cities = list(WEATHER_INDEX_CITIES)
+    if resumable_source_manager.can_resume():
+        resume = resumable_source_manager.load_state()
+        if resume is not None and resume.cursor in cities:
+            cities = cities[cities.index(resume.cursor) :]
+
+    for position, city in enumerate(cities):
+        rows: list[dict[str, Any]] = []
+        for page in client.paginate(
+            path=f"/live_data/weather/{city}",
+            params={"from": from_ms, "to": to_ms},
+            paginator=SinglePagePaginator(),
+            data_selector="timeseries",
+            data_selector_required=True,
+        ):
+            rows.extend({"city": city, **point} for point in page)
+        if position + 1 < len(cities):
+            # The cursor names the next city to read, so a resume skips the cities already yielded.
+            resumable_source_manager.save_state(KalshiResumeConfig(cursor=cities[position + 1]))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
+def _weather_index_source(
+    config: KalshiEndpointConfig,
+    resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
+    last_value: Optional[Any],
+) -> SourceResponse:
+    client = RESTClient(base_url=KALSHI_BASE_URL, headers={"Accept": "application/json"})
+    from_ms = _WEATHER_INDEX_EARLIEST_MS
+    if last_value is not None:
+        from_ms = max(int(last_value) - _WEATHER_INDEX_OVERLAP_MS, _WEATHER_INDEX_EARLIEST_MS)
+    to_ms = int(datetime.now(UTC).timestamp() * 1000)
+
+    return SourceResponse(
+        name=config.name,
+        items=lambda: _weather_index_rows(client, resumable_source_manager, from_ms, to_ms),
+        primary_keys=config.primary_keys,
+        # Rows arrive grouped by city, not by time, so the watermark can only advance once the
+        # walk completes.
+        sort_mode="desc",
+    )
+
+
 def _build_endpoint(config: KalshiEndpointConfig, should_use_incremental_field: bool) -> Endpoint:
     endpoint: Endpoint = {
         "path": config.path,
@@ -231,6 +289,9 @@ def kalshi_source(
 
     if config.market_fan_out:
         return _candlestick_source(config, resumable_source_manager, last_value)
+
+    if config.city_fan_out:
+        return _weather_index_source(config, resumable_source_manager, last_value)
 
     # Kalshi's market-data endpoints are public and take no credential, so no `auth` is configured.
     rest_config: RESTAPIConfig = {

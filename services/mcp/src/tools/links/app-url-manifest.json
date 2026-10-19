@@ -214,6 +214,31 @@
         "params": [],
         "scope": "project"
     },
+    "analytics": {
+        "template": "/analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsList": {
+        "template": "/analytics/all",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsMine": {
+        "template": "/analytics/mine",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsProductHome": {
+        "template": "/analytics/product-analytics",
+        "params": [],
+        "scope": "project"
+    },
+    "analyticsSpaces": {
+        "template": "/analytics/spaces",
+        "params": [],
+        "scope": "project"
+    },
     "annotation": {
         "template": "/data-management/annotations/{id}",
         "params": ["id"],
@@ -1836,16 +1861,6 @@
     },
     "verifyEmail": {
         "template": "/verify_email",
-        "params": [],
-        "scope": "project"
-    },
-    "views": {
-        "template": "/views",
-        "params": [],
-        "scope": "project"
-    },
-    "viewsNew": {
-        "template": "/views/new",
         "params": [],
         "scope": "project"
     },

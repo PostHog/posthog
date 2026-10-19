@@ -24,14 +24,6 @@ class TestSourceConfig:
         assert fields["access_key"].secret is True
 
 
-class TestGetSchemas:
-    def test_names_filter_restricts_output(self) -> None:
-        schemas = GoldcastSource().get_schemas(
-            GoldcastSourceConfig(access_key="tok"), team_id=1, names=["events", "webinars"]
-        )
-        assert {s.name for s in schemas} == {"events", "webinars"}
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [

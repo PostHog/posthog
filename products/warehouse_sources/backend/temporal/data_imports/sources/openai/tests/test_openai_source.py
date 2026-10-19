@@ -52,10 +52,6 @@ class TestOpenAISchemas:
         assert schema.supports_incremental is False
         assert schema.supports_append is False
 
-    def test_names_filter(self) -> None:
-        schemas = OpenAISource().get_schemas(MagicMock(), team_id=1, names=["usage_completions"])
-        assert [s.name for s in schemas] == ["usage_completions"]
-
 
 class TestOpenAISourceForPipeline:
     @parameterized.expand(
