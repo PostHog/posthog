@@ -57,6 +57,7 @@ UNREADABLE_CLIENT_ASSERTION_MESSAGE = (
 # is ever lost, and bounds how far ahead a client may pre-mint.
 MAX_ASSERTION_LIFETIME_SECONDS = 300
 ASSERTION_CLOCK_SKEW_SECONDS = 30
+MAX_LOGGED_AUDIENCE_LENGTH = 256
 
 JWKS_CACHE_PREFIX = "oauth_client_jwks:"
 JWKS_CACHE_TTL_SECONDS = 3600
@@ -121,7 +122,7 @@ def resolve_client_assertion(assertion: str, assertion_type: str, client_id: str
     return ResolvedClientAssertion(client_assertion=assertion, client_id=resolved_client_id)
 
 
-def _unverified_claims(assertion: str) -> dict:
+def _unverified_claims(assertion: str) -> dict[str, object]:
     """Read the claims without verifying them, only to locate a client or to log diagnostics.
 
     Never trusted for authentication.
@@ -329,7 +330,7 @@ def verify_client_assertion(app: OAuthApplication, assertion: str, *, audiences:
             app_id=str(app.id),
             error=str(e),
             error_type=type(e).__name__,
-            unverified_audience=_unverified_claims(assertion).get("aud"),
+            unverified_audience=str(_unverified_claims(assertion).get("aud"))[:MAX_LOGGED_AUDIENCE_LENGTH],
         )
         raise ClientAssertionError("Client assertion is invalid") from e
 
