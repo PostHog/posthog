@@ -5238,6 +5238,7 @@ class HogFlowViewSet(
         # the indistinct "changed" and miss the describer's per-field rendering).
         self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
         self._emit_resource_edited(instance)
+        self._report_workflow_events(result.events, instance)
         self._report_workflow_action(
             "hog_flow_graph_updated",
             instance,
@@ -5304,6 +5305,7 @@ class HogFlowViewSet(
 
         self._log_activity(instance.id, instance.name, "updated", previous=result.previous, current=result.current)
         self._emit_resource_edited(instance)
+        self._report_workflow_events(result.events, instance)
         self._report_workflow_action(
             "hog_flow_action_email_updated",
             instance,
@@ -5459,6 +5461,7 @@ class HogFlowViewSet(
         self._report_schedules_paused(result, locked)
         self._log_activity(locked.id, locked.name, "published", previous=result.previous, current=result.current)
         self._emit_resource_edited(locked)
+        self._report_workflow_events(result.events, locked)
         self._report_workflow_action("hog_flow_draft_published", locked)
 
         return Response(

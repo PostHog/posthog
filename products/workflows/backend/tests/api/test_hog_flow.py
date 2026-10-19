@@ -6279,6 +6279,38 @@ class TestHogFlowSendOnceVerified(APIBaseTest):
             assert body["went_live_at"] is None
             assert events == {}
 
+    def test_a_graph_edit_to_a_verified_sender_takes_a_waiting_workflow_live(self):
+        flow_id = self._waiting_flow()
+        verified_inputs = self._email_flow(self._sender(verified=True))["actions"][1]["config"]["inputs"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/graph",
+            {
+                "operations": [
+                    {"op": "update_action", "id": "email_node", "patch": {"config": {"inputs": verified_inputs}}}
+                ]
+            },
+            format="json",
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "active"
+        assert self._events()["hog_flow_activated"]["activated_by"] == "user"
+
+    @parameterized.expand([("a_string", "not an email object"), ("a_list", ["to", "from"])])
+    def test_a_malformed_email_step_reads_as_having_no_sender(self, _name, malformed_value):
+        flow_id = self._create_draft(self._sender(verified=False))
+        flow = HogFlow.objects.get(pk=flow_id)
+        actions = deepcopy(flow.actions)
+        actions[1]["config"]["inputs"]["email"]["value"] = malformed_value
+        HogFlow.objects.filter(pk=flow_id).update(actions=actions)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{flow_id}")
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["unverified_email_senders"] == []
+
     def test_an_edit_that_would_fail_activation_is_refused_on_a_waiting_workflow(self):
         flow_id = self._waiting_flow()
         edited = self._email_flow(self._sender(verified=True))

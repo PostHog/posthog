@@ -1,4 +1,5 @@
 from collections.abc import Callable, Mapping
+from copy import copy
 from datetime import datetime
 from typing import Any, Literal, Optional
 from uuid import UUID
@@ -31,7 +32,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
 )
 from products.workflows.backend.services.integration_usage import (
     email_senders_of,
-    unverified_senders,
+    lock_unverified_senders,
     waiting_flows_using,
 )
 from products.workflows.backend.services.timing_reschedule import (
@@ -78,7 +79,7 @@ def _unverified_senders_of(flow: HogFlow, user_id: Optional[int]) -> frozenset[i
     senders = email_senders_of(flow)
     if not senders or not _sender_check_rolled_out(flow.team_id, user_id):
         return frozenset()
-    return unverified_senders(team_id=flow.team_id, sender_ids=senders)
+    return lock_unverified_senders(team_id=flow.team_id, sender_ids=senders)
 
 
 def _seconds_waiting(flow: HogFlow, now: datetime) -> int:
@@ -138,7 +139,7 @@ def _activated_event(flow: HogFlow, *, activated_by: ActivatedBy, now: datetime)
 def _go_live_once_senders_verified(flow: HogFlow, *, activated_by: ActivatedBy) -> Optional[StatusChange]:
     """Take a waiting workflow live when none of its email senders is unverified. Ignores the flag, because
     the sender check already ran when the person enabled it. The caller saves the row."""
-    if unverified_senders(team_id=flow.team_id, sender_ids=email_senders_of(flow)):
+    if lock_unverified_senders(team_id=flow.team_id, sender_ids=email_senders_of(flow)):
         return None
     now = timezone.now()
     flow.status = HogFlowState.ACTIVE
@@ -221,10 +222,12 @@ def enable_waiting(*, team_id: int, sender_ids: frozenset[int]) -> tuple[StatusC
             )
             if locked is None:
                 continue
+            before = copy(locked)
             change = _go_live_once_senders_verified(locked, activated_by="domain_verified")
             if change is None:
                 continue
             locked.save()
+        _reschedule_timing_edits(team_id, before, locked)
         changes.append(change)
     return tuple(changes)
 
@@ -629,9 +632,11 @@ def edit_workflow_content(
         validated_data = edit(to_edit_state(locked), base_actions, base_edges)
 
         before_update = HogFlow.objects.get(pk=hog_flow_id, team_id=team_id)
+        events: tuple[WorkflowEvent, ...] = ()
         if route_to_draft:
             _write_draft(locked, locked, validated_data)
         else:
+            validated_data, events = _go_live_after_waiting_edit(locked, before_update, validated_data)
             # An email edit can't delete steps or change timing config, so only graph edits refresh redirects.
             if changes_graph:
                 _refresh_action_redirects(locked, before_update, validated_data.get("actions"))
@@ -641,7 +646,8 @@ def edit_workflow_content(
                 _append_revisions(team_id, user_id, locked, before_update)
 
     paused = 0
-    if changes_graph and not route_to_draft:
+    went_live = locked.status != before_update.status
+    if (changes_graph or went_live) and not route_to_draft:
         _reschedule_timing_edits(team_id, before_update, locked)
         paused = _pause_schedules_on_audience_change(before_update, locked)
     return WorkflowWriteResult(
@@ -649,6 +655,7 @@ def edit_workflow_content(
         current=field_values(locked),
         routed_to_draft=route_to_draft,
         schedules_paused=paused,
+        events=events,
     )
 
 
@@ -673,6 +680,7 @@ def publish_draft(
         # The draft goes back through the normal serializer so publish revalidates strictly and
         # recompiles bytecode - a stored blob is never trusted to be execution-ready.
         validated_data = validate(to_edit_state(locked), dict(locked.draft))
+        validated_data, events = _go_live_after_waiting_edit(locked, before_update, validated_data)
         _refresh_action_redirects(locked, before_update, validated_data.get("actions"))
         bump = _stage_revision_bump(locked, before_update, validated_data)
         # Validation recovered the draft's secrets (from the merged live+draft encrypted maps), and
@@ -690,7 +698,7 @@ def publish_draft(
     _reschedule_timing_edits(team_id, before_update, locked)
     paused = _pause_schedules_on_audience_change(before_update, locked)
     return WorkflowWriteResult(
-        previous=field_values(before_update), current=field_values(locked), schedules_paused=paused
+        previous=field_values(before_update), current=field_values(locked), schedules_paused=paused, events=events
     )
 
 

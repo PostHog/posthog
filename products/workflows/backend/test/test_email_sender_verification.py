@@ -15,6 +15,7 @@ import dns.resolver
 from botocore.exceptions import ClientError, EndpointConnectionError
 from parameterized import param, parameterized
 from prometheus_client import REGISTRY
+from redis.exceptions import RedisError
 from structlog.testing import capture_logs
 
 from posthog.models.integration import EmailIntegration, Integration
@@ -461,16 +462,14 @@ class TestVerifiedSenderTakesWaitingWorkflowsLive(APIBaseTest):
         assert datetime.fromisoformat(properties["enable_requested_at"]) == enabled_at
         assert "source" not in properties
 
-    def test_task_logs_and_counts_a_go_live_that_fails_after_its_last_retry(self) -> None:
+    @parameterized.expand([("database", OperationalError("connection lost")), ("redis", RedisError("publish failed"))])
+    def test_task_logs_and_counts_a_go_live_that_fails_after_its_last_retry(self, _name, error: Exception) -> None:
         sender = self._sender("example.com", verified=True)
         flow_id = self._waiting_flow(sender)
         failures_before = REGISTRY.get_sample_value("workflows_enable_waiting_failed_total") or 0
 
         with (
-            patch(
-                "products.workflows.backend.services.hog_flow_writes.enable_waiting",
-                side_effect=OperationalError("connection lost"),
-            ),
+            patch("products.workflows.backend.services.hog_flow_writes.enable_waiting", side_effect=error),
             capture_logs() as logs,
         ):
             enable_waiting_workflows_task.apply(kwargs={"team_id": self.team.id, "sender_ids": [sender.id]}, retries=5)

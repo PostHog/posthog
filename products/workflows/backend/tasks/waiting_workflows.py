@@ -4,6 +4,7 @@ from django.db import DatabaseError
 
 from celery import shared_task
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 from structlog import get_logger
 
 from posthog.event_usage import groups
@@ -30,7 +31,7 @@ enable_waiting_failed_total = Counter(
     ignore_result=True,
     queue=CeleryQueue.DEFAULT.value,
     max_retries=ENABLE_WAITING_MAX_RETRIES,
-    autoretry_for=(DatabaseError,),
+    autoretry_for=(DatabaseError, RedisError),
     retry_backoff=True,
 )
 @skip_team_scope_audit
@@ -40,7 +41,7 @@ def enable_waiting_workflows_task(self, team_id: int, sender_ids: list[int]) -> 
 
     try:
         changes = enable_waiting(team_id=team_id, sender_ids=frozenset(sender_ids))
-    except DatabaseError:
+    except (DatabaseError, RedisError):
         if self.request.retries < ENABLE_WAITING_MAX_RETRIES:
             raise
         logger.exception("workflows.enable_waiting.failed", team_id=team_id, sender_ids=sender_ids)
