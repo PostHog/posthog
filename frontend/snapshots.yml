@@ -2460,14 +2460,6 @@ snapshots:
         hash: v1.k794b7964.b8df680b75a655d45a2371155e529b7a46417b8c9bee1c04ee2c9ff2debf7d80.oRFx2ui1Bf2MbcCJ396mUxfFdU4meehkiuB1ZmLb2W4
     components-product-empty-state--web-scripts-needs-setup--light:
         hash: v1.k794b7964.53ae8b817b628a5101666f63ba745219c5d831089dcd7e532556e639a3bf2238.Jmt0-_sydTWapTG886EmYwmxolgFCoeDO6fjCQqgl7o
-    components-product-empty-state--web-vitals-needs-setup--dark:
-        hash: v1.k794b7964.b784295383b3d02b6816c036a31e20f01161089593b5e61900c745a69a088937.5qpqtCMo70LD8okFHA8c8VSwG_VhGjvQXPp-rWXNv3Q
-    components-product-empty-state--web-vitals-needs-setup--light:
-        hash: v1.k794b7964.49a529ec7d92790937b44848d8530112575c9b1f8c560fb40690a7b0cf8d04b6.Fp3h_z0fEkQD0vt29L9i-xxRrCLKp6m9Kzw6Sf1XFs8
-    components-product-empty-state--web-vitals-waiting-for-data--dark:
-        hash: v1.k794b7964.9260f32f4917df15eba149ac8740825ac59bc581c8197377cfe916835ed68a6e.l1BAO1rzCVplug_xQNzdkF0ZVHRMtoUZtCeRLgJFTCc
-    components-product-empty-state--web-vitals-waiting-for-data--light:
-        hash: v1.k794b7964.68143ec0b4e11838e50d77e1153ace37ea97095a2744c7bb21056fc823ec8c61.k3H3_be9rW05TYUGjusSxRuP3-Hb0skCExHyumjxet0
     components-product-empty-state--workflows-needs-setup--dark:
         hash: v1.k794b7964.d8329786e1fc56b0655b07f2f37d494b9a078f28a014972f394d031a01f32def.5F0XKwQ0YoQVh-iZOyO-498LFhBV0R2m5tnr0a04Oss
     components-product-empty-state--workflows-needs-setup--light:

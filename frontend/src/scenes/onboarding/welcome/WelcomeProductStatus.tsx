@@ -1,11 +1,13 @@
+import { useValues } from 'kea'
+
 import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
+import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
+import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 
 import type { OnboardingProduct } from '~/types'
 
 import { toSentenceCase } from '../shared/utils'
-import { useWelcomeProductStatus } from './useWelcomeProductStatus'
 import { WelcomeCelebration } from './WelcomeCelebration'
-import type { WelcomeEmptyState } from './welcomeEmptyState'
 import { WelcomeLoading } from './WelcomeLoading'
 import { WelcomeProductDetection } from './WelcomeProductDetection'
 import { WelcomeProductReady } from './WelcomeProductReady'
@@ -18,15 +20,15 @@ export function WelcomeProductStatus({
     emptyState,
     product,
 }: {
-    emptyState: WelcomeEmptyState
+    emptyState: SceneProductEmptyState
     product: OnboardingProduct
 }): JSX.Element {
     const productKey = emptyState.config.productKey
-    const status = useWelcomeProductStatus(productKey)
+    const { status } = useValues(productSetupStatusLogic({ productKey }))
 
     return (
         <>
-            {emptyState.statusLogic ? <WelcomeProductDetection statusLogic={emptyState.statusLogic} /> : null}
+            <WelcomeProductDetection statusLogic={emptyState.statusLogic} />
             {status === 'loading' ? (
                 <WelcomeLoading />
             ) : status === 'has-data' ? (

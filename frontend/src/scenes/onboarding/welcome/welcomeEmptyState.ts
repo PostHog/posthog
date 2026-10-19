@@ -1,37 +1,56 @@
-import type { LogicWrapper } from 'kea'
-
 import { productEmptyStateGateActivation } from 'lib/components/ProductEmptyState/gateRender'
-import type { ProductEmptyStateConfig } from 'lib/components/ProductEmptyState/types'
+import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { retryImport } from 'lib/utils/retryImport'
-import { appScenes } from 'scenes/appScenes'
-import type { Scene, SceneExport } from 'scenes/sceneTypes'
+import type { Scene } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
+import type { AvailableOnboardingProducts } from '~/types'
 
-export interface WelcomeEmptyState {
-    config: ProductEmptyStateConfig
-    /**
-     * The product's detection logic, which pushes its status into `productSetupStatusLogic`. Null
-     * when the welcome page detects the status itself, because the product's shared status means
-     * something else (web analytics' belongs to the web vitals tab).
-     */
-    statusLogic: LogicWrapper | null
+// Each product's setup screen on its own, so picking a product does not download its whole scene.
+const EMPTY_STATE_IMPORTS: Record<keyof AvailableOnboardingProducts, () => Promise<SceneProductEmptyState>> = {
+    [ProductKey.PRODUCT_ANALYTICS]: async () =>
+        (await import('products/product_analytics/frontend/emptyState/productAnalyticsEmptyState'))
+            .productAnalyticsEmptyState,
+    [ProductKey.WEB_ANALYTICS]: async () =>
+        (await import('products/web_analytics/frontend/emptyState/webAnalyticsEmptyState')).webAnalyticsEmptyState,
+    [ProductKey.SESSION_REPLAY]: async () =>
+        (await import('products/replay/frontend/emptyState/sessionReplayEmptyState')).sessionReplayEmptyState,
+    [ProductKey.AI_OBSERVABILITY]: async () =>
+        (await import('products/ai_observability/frontend/emptyState/aiObservabilityEmptyState'))
+            .aiObservabilityEmptyState,
+    [ProductKey.DATA_WAREHOUSE]: async () =>
+        (await import('products/data_warehouse/frontend/emptyState/dataWarehouseEmptyState')).dataWarehouseEmptyState,
+    [ProductKey.FEATURE_FLAGS]: async () =>
+        (await import('products/feature_flags/frontend/emptyState/featureFlagsEmptyState')).featureFlagsEmptyState,
+    [ProductKey.EXPERIMENTS]: async () =>
+        (await import('products/experiments/frontend/emptyState/experimentsEmptyState')).experimentsEmptyState,
+    [ProductKey.ERROR_TRACKING]: async () =>
+        (await import('products/error_tracking/frontend/emptyState/errorTrackingEmptyState')).errorTrackingEmptyState,
+    [ProductKey.SURVEYS]: async () =>
+        (await import('products/surveys/frontend/emptyState/surveysEmptyState')).surveysEmptyState,
+    [ProductKey.WORKFLOWS]: async () =>
+        (await import('products/workflows/frontend/emptyState/workflowsEmptyState')).workflowsEmptyState,
+    [ProductKey.LOGS]: async () => (await import('products/logs/frontend/emptyState/logsEmptyState')).logsEmptyState,
+    [ProductKey.METRICS]: async () =>
+        (await import('products/metrics/frontend/emptyState/metricsEmptyState')).metricsEmptyState,
+    [ProductKey.MCP_ANALYTICS]: async () =>
+        (await import('products/mcp_analytics/frontend/emptyState/mcpAnalyticsEmptyState')).mcpAnalyticsEmptyState,
+    [ProductKey.CONVERSATIONS]: async () =>
+        (await import('products/conversations/frontend/emptyState/supportEmptyState')).supportEmptyState,
 }
 
 /**
- * The setup screen a product's landing scene would show, or null when that scene shows none for
- * this product. A scene can declare an empty state for a different product or for one of its other
- * tabs (web analytics declares the web vitals one), and the welcome page must not show those.
+ * The setup screen the product's landing scene would show, or null when that scene would not show it
+ * (a feature flag or a scene restriction turns it off).
  */
 export function pickWelcomeEmptyState(
-    sceneExport: SceneExport | undefined,
+    emptyState: SceneProductEmptyState,
     productKey: ProductKey,
     sceneId: Scene,
     featureFlags: FeatureFlagsSet
-): WelcomeEmptyState | null {
-    const emptyState = sceneExport?.emptyState
-    if (!emptyState || emptyState.config.productKey !== productKey) {
+): SceneProductEmptyState | null {
+    if (emptyState.config.productKey !== productKey) {
         return null
     }
     const activation = productEmptyStateGateActivation({
@@ -42,26 +61,17 @@ export function pickWelcomeEmptyState(
         receivedFeatureFlags: true,
         forcedMode: null,
     })
-    return activation === 'on' ? { config: emptyState.config, statusLogic: emptyState.statusLogic } : null
+    return activation === 'on' ? emptyState : null
 }
 
 export async function loadWelcomeEmptyState(
-    productKey: ProductKey,
+    productKey: keyof AvailableOnboardingProducts,
     sceneId: Scene,
     featureFlags: FeatureFlagsSet
-): Promise<WelcomeEmptyState | null> {
+): Promise<SceneProductEmptyState | null> {
     try {
-        if (productKey === ProductKey.WEB_ANALYTICS) {
-            const { webAnalyticsEmptyStateConfig } =
-                await import('products/web_analytics/frontend/emptyState/webAnalyticsEmptyState')
-            return { config: webAnalyticsEmptyStateConfig, statusLogic: null }
-        }
-        const importScene = appScenes[sceneId]
-        if (!importScene) {
-            return null
-        }
-        const sceneModule = await retryImport(() => importScene())
-        return pickWelcomeEmptyState(sceneModule.scene, productKey, sceneId, featureFlags)
+        const emptyState = await retryImport(EMPTY_STATE_IMPORTS[productKey])
+        return pickWelcomeEmptyState(emptyState, productKey, sceneId, featureFlags)
     } catch {
         return null
     }
