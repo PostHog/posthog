@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
-use common_kafka_consumer::{Offset, Rejection, TopicOffsetLedger, TopicPartition};
+use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
 use metrics::counter;
 use tracing::warn;
 
 use super::{ChargedSlice, Settlement};
 use crate::commit_pacer::CommitPacer;
-use crate::ledger_rejection::{warn_rejection, RejectedSlice};
+use crate::ledger_rejection::{report_rejection, RejectedSlice};
 
 pub(crate) struct PollSettlement {
     ledger: Arc<TopicOffsetLedger>,
@@ -25,23 +25,30 @@ impl PollSettlement {
 }
 
 impl Settlement for PollSettlement {
-    fn settle_run(&self, _topic_partition: &TopicPartition, _generation: u64, _offsets: &[Offset]) {
+    fn settle_run(
+        &self,
+        _topic_partition: &TopicPartition,
+        _generation: u64,
+        _offsets: &[Offset],
+    ) -> anyhow::Result<()> {
+        Ok(())
     }
 
-    fn settle_poll(&self, slices: &[ChargedSlice<'_>]) {
+    fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()> {
         if slices.is_empty() {
             // Unreachable: a batch always holds a message. Counted so that "no
             // empty commits" is measured, not assumed.
             counter!("ingestion_consumer_commit_violations_total", "kind" => "empty").increment(1);
             warn!("Poll settled with no partitions");
-            return;
+            return Ok(());
         }
 
-        if let Err(no_frontier) = settle_slices(&self.ledger, &self.pacer, slices) {
+        if let Some(no_frontier) = settle_slices(&self.ledger, &self.pacer, slices)? {
             let reason = no_frontier.reason();
             counter!("ingestion_consumer_commits_skipped_total", "reason" => reason).increment(1);
             warn!(reason, "Poll handed over no frontier; nothing to commit");
         }
+        Ok(())
     }
 
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
@@ -75,12 +82,25 @@ fn settle_slices(
     ledger: &TopicOffsetLedger,
     pacer: &CommitPacer,
     slices: &[ChargedSlice<'_>],
-) -> Result<(), NoFrontier> {
+) -> anyhow::Result<Option<NoFrontier>> {
     let mut settled = false;
     let mut handed_over = false;
     for slice in slices {
-        let Ok(frontier) = settle(ledger, slice) else {
-            continue;
+        let frontier = match ledger.settle(
+            slice.topic_partition,
+            slice.generation,
+            slice.charges.iter().map(|(offset, _)| *offset),
+        ) {
+            Ok(frontier) => frontier,
+            Err(rejection) => {
+                report_rejection(
+                    "settle",
+                    slice.topic_partition,
+                    rejection,
+                    RejectedSlice::settled(&slice.span),
+                )?;
+                continue;
+            }
         };
         settled = true;
         if frontier.is_none() {
@@ -91,33 +111,11 @@ fn settle_slices(
             handed_over = true;
         }
     }
-    match (handed_over, settled) {
-        (true, _) => Ok(()),
-        (false, true) => Err(NoFrontier::BehindAnEarlierPoll),
-        (false, false) => Err(NoFrontier::EveryPartitionRejected),
-    }
-}
-
-/// `Err` when the ledger rejected the slice, which it has already counted
-/// and this logs.
-fn settle(
-    ledger: &TopicOffsetLedger,
-    slice: &ChargedSlice<'_>,
-) -> Result<Option<Offset>, Rejection> {
-    ledger
-        .settle(
-            slice.topic_partition,
-            slice.generation,
-            slice.charges.iter().map(|(offset, _)| *offset),
-        )
-        .inspect_err(|rejection| {
-            warn_rejection(
-                "settle",
-                slice.topic_partition,
-                *rejection,
-                RejectedSlice::settled(&slice.span),
-            )
-        })
+    Ok(match (handed_over, settled) {
+        (true, _) => None,
+        (false, true) => Some(NoFrontier::BehindAnEarlierPoll),
+        (false, false) => Some(NoFrontier::EveryPartitionRejected),
+    })
 }
 
 #[cfg(test)]
@@ -174,7 +172,7 @@ mod tests {
         let p0 = charged(&ledger, 0, 10, 11);
         let p1 = charged(&ledger, 1, 20, 21);
 
-        settlement.settle_poll(&[p0.slice(), p1.slice()]);
+        settlement.settle_poll(&[p0.slice(), p1.slice()]).unwrap();
 
         assert_eq!(
             settlement.take_due(Instant::now()),
@@ -191,10 +189,10 @@ mod tests {
         let older = charged(&ledger, 0, 10, 11);
         let newer = charged(&ledger, 0, 12, 13);
 
-        settlement.settle_poll(&[newer.slice()]);
+        settlement.settle_poll(&[newer.slice()]).unwrap();
         assert!(settlement.take_due(Instant::now()).is_none());
 
-        settlement.settle_poll(&[older.slice()]);
+        settlement.settle_poll(&[older.slice()]).unwrap();
         assert_eq!(
             settlement.take_due(Instant::now()),
             Some(HashMap::from([(older.topic_partition, Offset(14))]))
@@ -208,7 +206,7 @@ mod tests {
         // The partition left and came back while the poll was in flight.
         ledger.forget_partitions([("test", 0)]);
 
-        settlement.settle_poll(&[poll.slice()]);
+        settlement.settle_poll(&[poll.slice()]).unwrap();
 
         assert!(settlement.take_due(Instant::now()).is_none());
     }
@@ -218,14 +216,16 @@ mod tests {
         let (ledger, settlement) = settlement();
         let poll = charged(&ledger, 0, 10, 11);
 
-        settlement.settle_run(
-            &poll.topic_partition,
-            poll.generation,
-            &[Offset(10), Offset(11)],
-        );
+        settlement
+            .settle_run(
+                &poll.topic_partition,
+                poll.generation,
+                &[Offset(10), Offset(11)],
+            )
+            .unwrap();
         assert!(settlement.take_due(Instant::now()).is_none());
 
-        settlement.settle_poll(&[poll.slice()]);
+        settlement.settle_poll(&[poll.slice()]).unwrap();
         assert_eq!(
             settlement.take_due(Instant::now()),
             Some(HashMap::from([(poll.topic_partition, Offset(12))]))

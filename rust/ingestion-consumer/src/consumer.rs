@@ -21,7 +21,7 @@ use crate::debug_recorder::{
 };
 use crate::discovery::DiscoveryMode;
 use crate::grpc_transport::GrpcTransport;
-use crate::ledger_rejection::{warn_rejection, RejectedSlice};
+use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
 use crate::rebalance::{PartitionHook, RebalanceContext};
 use crate::settlement::{self, ChargedSlice, Settlement};
@@ -354,8 +354,8 @@ fn strip_revoked_partitions(
 fn apply_completion(
     in_flight: &mut VecDeque<InFlightPoll>,
     completion: &GroupCompletion,
-    mut settle: impl FnMut(&TopicPartition, u64, &[Offset]),
-) {
+    mut settle: impl FnMut(&TopicPartition, u64, &[Offset]) -> anyhow::Result<()>,
+) -> anyhow::Result<()> {
     let fully_accepted = completion.accepted as usize == completion.offsets.len();
     let mut accepted = completion.accepted;
     let mut unmatched: u64 = 0;
@@ -386,7 +386,7 @@ fn apply_completion(
                 deliveries.accepted += run_accepted;
                 let settleable = deliveries.credit_run(run);
                 if fully_accepted && !settleable.is_empty() {
-                    settle(topic_partition, deliveries.generation, &settleable);
+                    settle(topic_partition, deliveries.generation, &settleable)?;
                 }
                 remaining = rest;
                 continue 'runs;
@@ -404,6 +404,7 @@ fn apply_completion(
             "Discarding completion offsets that match no in-flight poll"
         );
     }
+    Ok(())
 }
 
 /// Pops the front poll for its commit. A complete poll commits only when
@@ -807,7 +808,8 @@ impl IngestionConsumer {
                     Some(completion) => {
                         apply_completion(in_flight_polls, &completion, |tp, generation, run| {
                             self.settlement.settle_run(tp, generation, run)
-                        });
+                        })
+                        .map_err(Failure::Batch)?;
                         self.commit_due().map_err(Failure::Commit)?;
                     }
                     None => return Err(Failure::Batch(anyhow::anyhow!(
@@ -829,7 +831,9 @@ impl IngestionConsumer {
 
         let poll = pop_committable(in_flight_polls).map_err(Failure::Batch)?;
 
-        self.settlement.settle_poll(&poll.charged_slices());
+        self.settlement
+            .settle_poll(&poll.charged_slices())
+            .map_err(Failure::Batch)?;
         self.commit_due().map_err(Failure::Commit)?;
         emit_latest_processed_timestamp_metrics(&poll.partitions, &self.group_id);
         record_if(&self.debug_recorder, || DebugEventKind::PollCompleted {
@@ -1051,12 +1055,12 @@ impl IngestionConsumer {
                 partition.generation,
                 partition.charges.iter().copied(),
             ) {
-                warn_rejection(
+                report_rejection(
                     "charge",
                     topic_partition,
                     rejection,
                     RejectedSlice::charged(&partition.charges),
-                );
+                )?;
             }
         }
 
@@ -1256,7 +1260,7 @@ mod tests {
     }
 
     fn credit(in_flight: &mut VecDeque<InFlightPoll>, completion: GroupCompletion) {
-        apply_completion(in_flight, &completion, |_, _, _| {});
+        apply_completion(in_flight, &completion, |_, _, _| Ok(())).unwrap();
     }
 
     #[test]
@@ -1270,7 +1274,9 @@ mod tests {
         let on_assign = assign_hook(Arc::clone(&ledger), Arc::clone(&settlement), epoch.clone());
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, ledger.generation(&p0), &[10]);
-        settlement.settle_run(&p0, ledger.generation(&p0), &[MessageOffset(10)]);
+        settlement
+            .settle_run(&p0, ledger.generation(&p0), &[MessageOffset(10)])
+            .unwrap();
 
         on_assign(std::slice::from_ref(&p0));
 
@@ -1305,8 +1311,10 @@ mod tests {
             &completion(1, 0, &[2, 3, 4, 5], 4),
             |topic_partition, generation, offsets| {
                 runs.push((topic_partition.partition, generation, offsets.to_vec()));
+                Ok(())
             },
-        );
+        )
+        .unwrap();
 
         assert_eq!(
             runs,
@@ -1324,8 +1332,10 @@ mod tests {
         let mut runs = 0;
 
         apply_completion(&mut in_flight, &completion(1, 0, &[0, 1], 1), |_, _, _| {
-            runs += 1
-        });
+            runs += 1;
+            Ok(())
+        })
+        .unwrap();
 
         assert_eq!(runs, 0, "the ledger must not commit past a dropped message");
         assert_eq!(in_flight[0].covered, 2);
@@ -1339,14 +1349,16 @@ mod tests {
         let mut runs = Vec::new();
         let mut settle = |_: &TopicPartition, generation: u64, offsets: &[Offset]| {
             runs.push((generation, offsets.to_vec()));
+            Ok(())
         };
 
         apply_completion(
             &mut in_flight,
             &completion(1, 0, &[8, 9, 10], 3),
             &mut settle,
-        );
-        apply_completion(&mut in_flight, &completion(1, 0, &[8], 1), &mut settle);
+        )
+        .unwrap();
+        apply_completion(&mut in_flight, &completion(1, 0, &[8], 1), &mut settle).unwrap();
 
         assert_eq!(
             runs,
@@ -1632,7 +1644,7 @@ mod tests {
         let mut in_flight = VecDeque::from([old, replay]);
         let event = completion(3, 0, &[0, 1], 2);
 
-        apply_completion(&mut in_flight, &event, &mut settle);
+        apply_completion(&mut in_flight, &event, &mut settle).unwrap();
         assert_eq!(in_flight[0].poll_id, "old");
         assert!(in_flight[0].is_complete());
         assert!(
@@ -1641,7 +1653,7 @@ mod tests {
         );
         in_flight.pop_front();
 
-        apply_completion(&mut in_flight, &event, &mut settle);
+        apply_completion(&mut in_flight, &event, &mut settle).unwrap();
         assert_eq!(in_flight[0].poll_id, "replay");
         assert!(in_flight[0].is_complete());
         assert_eq!(

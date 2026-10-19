@@ -6,7 +6,7 @@ use common_kafka_consumer::{Offset, TopicOffsetLedger, TopicPartition};
 
 use super::{ChargedSlice, Settlement};
 use crate::commit_pacer::CommitPacer;
-use crate::ledger_rejection::{warn_rejection, RejectedSlice};
+use crate::ledger_rejection::{report_rejection, RejectedSlice};
 use crate::order_sentinel::OffsetSpan;
 
 pub(crate) struct GroupSettlement {
@@ -24,7 +24,12 @@ impl GroupSettlement {
 }
 
 impl Settlement for GroupSettlement {
-    fn settle_run(&self, topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]) {
+    fn settle_run(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        offsets: &[Offset],
+    ) -> anyhow::Result<()> {
         match self
             .ledger
             .settle(topic_partition, generation, offsets.iter().copied())
@@ -35,7 +40,7 @@ impl Settlement for GroupSettlement {
                 }
             }
             Ok(None) => {}
-            Err(rejection) => warn_rejection(
+            Err(rejection) => report_rejection(
                 "settle",
                 topic_partition,
                 rejection,
@@ -43,11 +48,14 @@ impl Settlement for GroupSettlement {
                     first: offsets[0].0,
                     last: offsets[offsets.len() - 1].0,
                 }),
-            ),
+            )?,
         }
+        Ok(())
     }
 
-    fn settle_poll(&self, _slices: &[ChargedSlice<'_>]) {}
+    fn settle_poll(&self, _slices: &[ChargedSlice<'_>]) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>> {
         self.pacer.take_due(now)
@@ -79,13 +87,15 @@ mod tests {
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10, 11, 12]);
 
-        settlement.settle_run(&p0, 0, &[Offset(12)]);
+        settlement.settle_run(&p0, 0, &[Offset(12)]).unwrap();
         assert!(
             settlement.take_due(Instant::now()).is_none(),
             "the window base is still incomplete"
         );
 
-        settlement.settle_run(&p0, 0, &[Offset(10), Offset(11)]);
+        settlement
+            .settle_run(&p0, 0, &[Offset(10), Offset(11)])
+            .unwrap();
         assert_eq!(
             settlement.take_due(Instant::now()),
             Some(HashMap::from([(p0, Offset(13))])),
@@ -101,13 +111,31 @@ mod tests {
         charge_offsets(&ledger, &p0, 0, &[10, 11]);
         charge_offsets(&ledger, &p1, 0, &[20, 21]);
 
-        settlement.settle_run(&p0, 0, &[Offset(10), Offset(11)]);
-        settlement.settle_run(&p1, 0, &[Offset(21)]);
+        settlement
+            .settle_run(&p0, 0, &[Offset(10), Offset(11)])
+            .unwrap();
+        settlement.settle_run(&p1, 0, &[Offset(21)]).unwrap();
 
         assert_eq!(
             settlement.take_due(Instant::now()),
             Some(HashMap::from([(p0, Offset(12))])),
             "partition 1 waits for offset 20"
+        );
+    }
+
+    #[test]
+    fn a_run_settled_twice_fails_and_keeps_the_frontier_taken_before_it() {
+        let (ledger, settlement) = settlement();
+        let p0 = TopicPartition::new("events", 0);
+        charge_offsets(&ledger, &p0, 0, &[10, 11]);
+        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
+
+        assert!(settlement.settle_run(&p0, 0, &[Offset(10)]).is_err());
+
+        assert_eq!(
+            settlement.take_all(),
+            Some(HashMap::from([(p0, Offset(11))])),
+            "offset 10 completed before the violation"
         );
     }
 
@@ -120,7 +148,7 @@ mod tests {
         ledger.forget_partitions([("events", 0)]);
         charge_offsets(&ledger, &p0, 1, &[10]);
 
-        settlement.settle_run(&p0, 0, &[Offset(10)]);
+        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
 
         assert!(settlement.take_due(Instant::now()).is_none());
         assert_eq!(
@@ -138,13 +166,13 @@ mod tests {
         charge_offsets(&ledger, &p0, 0, &[10, 11]);
         let now = Instant::now();
 
-        settlement.settle_run(&p0, 0, &[Offset(10)]);
+        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
         assert_eq!(
             settlement.take_due(now),
             Some(HashMap::from([(p0.clone(), Offset(11))]))
         );
 
-        settlement.settle_run(&p0, 0, &[Offset(11)]);
+        settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
         assert!(settlement.take_due(now).is_none());
         assert_eq!(
             settlement.take_all(),
@@ -158,11 +186,11 @@ mod tests {
         let settlement = GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600));
         let p0 = TopicPartition::new("events", 0);
         charge_offsets(&ledger, &p0, 0, &[10]);
-        settlement.settle_run(&p0, 0, &[Offset(10)]);
+        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
         assert!(settlement.take_due(Instant::now()).is_some());
 
         charge_offsets(&ledger, &p0, 0, &[11]);
-        settlement.settle_run(&p0, 0, &[Offset(11)]);
+        settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
         settlement.forget_partitions(&[p0]);
 
         assert!(settlement.take_all().is_none());
@@ -175,15 +203,17 @@ mod tests {
         charge_offsets(&ledger, &p0, 0, &[10]);
         let charges = [(Offset(10), common_kafka_consumer::Charge::ZERO)];
 
-        settlement.settle_poll(&[ChargedSlice {
-            topic_partition: &p0,
-            generation: 0,
-            span: OffsetSpan {
-                first: 10,
-                last: 10,
-            },
-            charges: &charges,
-        }]);
+        settlement
+            .settle_poll(&[ChargedSlice {
+                topic_partition: &p0,
+                generation: 0,
+                span: OffsetSpan {
+                    first: 10,
+                    last: 10,
+                },
+                charges: &charges,
+            }])
+            .unwrap();
 
         assert!(settlement.take_due(Instant::now()).is_none());
         assert_eq!(ledger.held(&p0).offsets, 1);

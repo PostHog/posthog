@@ -24,10 +24,15 @@ pub(crate) struct ChargedSlice<'a> {
 
 pub(crate) trait Settlement: Send + Sync {
     /// Accepted offsets from one poll's slice of a partition, charged under `generation`.
-    fn settle_run(&self, topic_partition: &TopicPartition, generation: u64, offsets: &[Offset]);
+    fn settle_run(
+        &self,
+        topic_partition: &TopicPartition,
+        generation: u64,
+        offsets: &[Offset],
+    ) -> anyhow::Result<()>;
 
     /// The oldest poll retired with every message accepted.
-    fn settle_poll(&self, slices: &[ChargedSlice<'_>]);
+    fn settle_poll(&self, slices: &[ChargedSlice<'_>]) -> anyhow::Result<()>;
 
     fn take_due(&self, now: Instant) -> Option<HashMap<TopicPartition, Offset>>;
 

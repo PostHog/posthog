@@ -800,3 +800,4 @@ What the graph permits:
 
 - The keyless lane: today an unkeyed message gets a synthetic per-message key and its own group. A separate keyless lane per partition can remove that overhead.
 - Partition affinity as a packing hint (open question 6). Measure frontier coupling first.
+- Recover from a ledger violation without a restart. For now a violation stops the consumer, and the restart replays from the last commit. A seek back to the partition's last commit would keep the pod running, but it needs the revoke path for one partition (purge its queued messages, strip its in-flight slices, drop its pending frontier) and the offset of its last submitted commit, which nothing tracks yet. Worth it only if violations show up in practice.
