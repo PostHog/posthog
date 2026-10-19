@@ -109,7 +109,6 @@
 1 products/data_modeling/backend/logic/schedule_reconcile.py
 1 products/data_modeling/backend/logic/tier_membership.py
 1 products/data_modeling/backend/models/datawarehouse_managed_viewset.py
-1 products/data_modeling/backend/models/modeling.py
 1 products/data_warehouse/backend/logic/data_load/create_table.py
 1 products/data_warehouse/backend/logic/webhook_consumer/config.py
 1 products/demo/backend/logic/products/hedgebox/matrix.py
@@ -1416,7 +1415,6 @@
 3 products/batch_exports/backend/temporal/pipeline/internal_stage.py
 3 products/conversations/backend/temporal/zendesk_import/workflows.py
 3 products/data_modeling/backend/logic/gitsync/config_parser.py
-3 products/data_modeling/backend/management/commands/consolidate_dags.py
 3 products/data_warehouse/backend/logic/external_data_source/webhooks.py
 3 products/experiments/stats/shared/statistics.py
 3 products/marketing_analytics/backend/services/data_source_health.py
