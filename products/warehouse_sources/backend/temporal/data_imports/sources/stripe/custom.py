@@ -7,6 +7,8 @@ import stripe as stripe_lib
 from stripe import CreditNote, CreditNoteLineItem, Invoice, InvoiceLineItem, ListObject, StripeClient
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import (
     RequestPacer,
     submit_with_context,
@@ -27,6 +29,8 @@ _LineT = TypeVar("_LineT", InvoiceLineItem, CreditNoteLineItem)
 # Receives the Retry-After seconds from a 429, or None when Stripe sent none.
 RateLimitCallback = Callable[[Optional[float]], None]
 ClientFactory = Callable[[RateLimitCallback], StripeClient]
+# Gets the pool's rate-limit callback and its pacer turn, which the client takes before every request.
+PacedClientFactory = Callable[[RateLimitCallback, Callable[[], None]], StripeClient]
 
 
 class _ListWithAllLines(Generic[_ParentT, _LineT]):
@@ -154,3 +158,76 @@ class CreditNoteListWithAllLines(_ListWithAllLines[CreditNote, CreditNoteLineIte
 
     def _attach_lines(self, obj: CreditNote, lines: list[CreditNoteLineItem]) -> None:
         obj.lines.data = lines
+
+
+@frozen
+class WebhookRefetch:
+    """How to complete one object type whose webhook payload can leave out data the list sync includes."""
+
+    is_incomplete: Callable[[dict[str, Any]], bool]
+    # Gets the event payload, so a step can keep the event's fields and add only what is missing.
+    complete: Callable[[StripeClient, dict[str, Any]], dict[str, Any]]
+
+
+class WebhookObjectRefetcher:
+    """Completes incomplete webhook objects with reads from the API.
+
+    Stripe never expands an event payload, so an event object can be missing data the list sync
+    fetches: an invoice carries only its first 10 lines, a tiered price has no tiers. Upserting that
+    object would overwrite the complete row. Only incomplete objects cost API calls. The reads use a
+    pool with per-thread clients, as the invoice line fan-out does, and objects keep their order. The
+    client takes a pacer turn before every request, so line pages and retries count against the rate.
+    """
+
+    def __init__(
+        self,
+        refetch: WebhookRefetch,
+        logger: FilteringBoundLogger,
+        client_factory_provider: Callable[[], PacedClientFactory],
+        concurrency: int = LINE_FETCH_CONCURRENCY,
+        requests_per_second: float = LINE_REQUESTS_PER_SECOND,
+    ) -> None:
+        self._refetch = refetch
+        self._logger = logger
+        self._client_factory_provider = client_factory_provider
+        self._concurrency = concurrency
+        self._pacer = RequestPacer(requests_per_second)
+
+    def complete(self, objects: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not any(self._refetch.is_incomplete(obj) for obj in objects):
+            return objects
+
+        # Resolved once per batch, so a long webhook drain picks up a refreshed OAuth token.
+        client_factory = self._client_factory_provider()
+        thread_clients = threading.local()
+        pool = ThreadPoolExecutor(max_workers=self._concurrency, thread_name_prefix="stripe-webhook-refetch")
+        try:
+            futures = [
+                submit_with_context(pool, self._complete_one, obj, client_factory, thread_clients)
+                if self._refetch.is_incomplete(obj)
+                else None
+                for obj in objects
+            ]
+            completed = [obj if future is None else future.result() for obj, future in zip(objects, futures)]
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
+        self._logger.debug(f"Stripe: completed {sum(f is not None for f in futures)} incomplete webhook objects")
+        return completed
+
+    def _complete_one(
+        self, obj: dict[str, Any], client_factory: PacedClientFactory, thread_clients: threading.local
+    ) -> dict[str, Any]:
+        client: Optional[StripeClient] = getattr(thread_clients, "client", None)
+        if client is None:
+            client = client_factory(self._pacer.throttled, self._pacer.wait_turn)
+            thread_clients.client = client
+        try:
+            return self._refetch.complete(client, obj)
+        except stripe_lib.InvalidRequestError as e:
+            # A rejection of this one object fails the same way on every retry, and a raise would
+            # fail the whole batch and replay it on every sync. Auth, rate-limit and server errors
+            # are not InvalidRequestError, so they still fail the batch.
+            log = self._logger.debug if getattr(e, "code", None) == "resource_missing" else self._logger.warning
+            log(f"Stripe: kept the webhook payload of {obj.get('object')} {obj['id']}: {e.user_message}")
+            return obj

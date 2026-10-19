@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+from django.db import close_old_connections, connection
+
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 
@@ -483,6 +485,15 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             raise ValueError("Stripe access token not found")
         return integration.access_token
 
+    def _get_api_key_closing_connection(self, config: StripeSourceConfig, team_id: int) -> str:
+        # Runs in a long-lived executor thread outside Django's request cycle, so close the
+        # connection an OAuth lookup opens instead of leaving it idle on that thread.
+        close_old_connections()
+        try:
+            return self._get_api_key(config, team_id)
+        finally:
+            connection.close()
+
     def get_schemas(
         self,
         config: StripeSourceConfig,
@@ -720,6 +731,7 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             # conversion that declares a parent without threading these silently keeps polling
             # the parent API while the fan-out telemetry reports otherwise.
             use_warehouse_parent=inputs.fanout_warehouse_reuse,
+            api_key_provider=lambda: self._get_api_key_closing_connection(config, inputs.team_id),
             include_zero_balance_customers=bool(
                 config.balance_history_all_customers and config.balance_history_all_customers.enabled
             ),

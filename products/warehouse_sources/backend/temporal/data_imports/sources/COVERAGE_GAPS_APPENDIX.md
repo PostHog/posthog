@@ -1203,10 +1203,10 @@ Today (3): `detectors`, `findings`, `members`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/guardduty/2017-11-28/service-2.json>
 
-- [ ] `Runtime Monitoring coverage (ListCoverage, POST /detector/{DetectorId}/coverage)` — identifies protected and unprotected resources, which threat findings alone cannot reveal (high)
-- [ ] `Detector malware scans (DescribeMalwareScans, POST /detector/{DetectorId}/malware-scans)` — tracks EC2 malware scan outcomes, failures, duration, and scanned data volume, including scans without findings (medium)
+- [x] `Runtime Monitoring coverage (ListCoverage, POST /detector/{DetectorId}/coverage)` — identifies protected and unprotected resources, which threat findings alone cannot reveal (high)
+- [x] `Detector malware scans (DescribeMalwareScans, POST /detector/{DetectorId}/malware-scans)` — tracks EC2 malware scan outcomes, failures, duration, and scanned data volume, including scans without findings (medium)
 - [ ] `Malware scans (ListMalwareScans, POST /malware-scan)` — tracks scan status and results through the separate resource-oriented malware scan API (medium)
-- [ ] `Usage statistics (GetUsageStatistics, POST /detector/{DetectorId}/usage/statistics)` — reports detector usage and estimated costs by account, resource, or data source (medium)
+- [x] `Usage statistics (GetUsageStatistics, POST /detector/{DetectorId}/usage/statistics)` — reports detector usage and estimated costs by account, resource, or data source (medium)
 - [ ] `Investigations (ListInvestigations, POST /detector/{DetectorId}/investigation/list)` — tracks investigation status and links related threat findings into cases (low)
 
 Note: Compared the official botocore operation model with the static endpoint map and detector traversal code. Findings already call GetFindings; detector malware history and the separate malware-scan API remain absent. Scan details require GetMalwareScan hydration; investigations require GetInvestigation hydration and are a regional preview. Detector resources require traversal; filters, threat lists, publishing destinations, and other setup endpoints were excluded.
@@ -2127,10 +2127,10 @@ Diffed against: <https://stoplight.io/api/v1/projects/cHJqOjY4NTM/table-of-conte
 - [x] `List Routing Form Submissions (/routing_form_submissions)` — submissions for the routing_forms we already sync, including questions/answers, tracking, and which event type they routed to (high)
 - [x] `List Contacts (/contacts)` — the person lookup table Calendly resolves invitee emails against (high)
 - [x] `List Event Type Hosts (/event_type_memberships)` — membership table joining the event_types we sync to their hosting users (high)
-- [ ] `List Group Relationships (/group_relationships)` — lookup joining the groups we already sync to users and event types (medium)
-- [ ] `List activity log entries (/activity_log_entries)` — state/transition history for org and user changes; the audit trail for who changed what (medium)
-- [ ] `List Recaps and Get Transcript (Notetaker)` — meeting recaps and transcripts tied to scheduled events, for content analysis of calls (medium)
-- [ ] `List outgoing communications (/outgoing_communications)` — SMS and email sent per event — reminder/notification delivery data (medium)
+- [x] `List Group Relationships (/group_relationships)` — lookup joining the groups we already sync to users and event types (medium)
+- [x] `List activity log entries (/activity_log_entries)` — state/transition history for org and user changes; the audit trail for who changed what (medium)
+- [x] `List Recaps and Get Transcript (Notetaker)` — meeting recaps and transcripts tied to scheduled events, for content analysis of calls (medium)
+- [x] `List outgoing communications (/outgoing_communications)` — SMS and email sent per event — reminder/notification delivery data (medium)
 - [ ] `List User Availability Schedules (/user_availability_schedules)` — availability rules per user, needed to compute utilization against bookable hours (medium)
 - [ ] `Get Invitee No Show (/invitee_no_shows)` — no-show records; a headline meeting-quality metric (also surfaced on the invitee object) (medium)
 - [ ] `List Organization Invitations (/organizations/{uuid}/invitations)` — seat onboarding funnel — who was invited, when, and whether they accepted (low)
@@ -2642,8 +2642,8 @@ Diffed against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc
 - [x] `Dataset versions (ListDatasetVersions, GET /v2/users/{user_id}/apps/{app_id}/datasets/{dataset_id}/versions)` — track dataset snapshots and connect evaluation outcomes with training data changes (medium)
 - [x] `Workflow versions (ListWorkflowVersions, GET /v2/users/{user_id}/apps/{app_id}/workflows/{workflow_id}/versions)` — compare workflow revisions and their model dependencies over time (medium)
 - [x] `Concept relations (ListConceptRelations, GET /v2/users/{user_id}/apps/{app_id}/concepts/{concept_id}/relations)` — analyze concept hierarchies and aggregate labels through parent relationships (medium)
-- [ ] `Tasks (ListTasks, GET /v2/users/{user_id}/apps/{app_id}/tasks)` — measure labeling work, task progress, and annotation workload (medium)
-- [ ] `Collaborators (ListCollaborators, GET /v2/users/{user_id}/apps/{app_id}/collaborators)` — analyze app memberships and collaborator access (medium)
+- [x] `Tasks (ListTasks, GET /v2/users/{user_id}/apps/{app_id}/tasks)` — measure labeling work, task progress, and annotation workload (medium)
+- [x] `Collaborators (ListCollaborators, GET /v2/users/{user_id}/apps/{app_id}/collaborators)` — analyze app memberships and collaborator access (medium)
 
 Note: Vendor Swagger and documentation hosts failed DNS resolution, so the official Python SDK provided the reference. Decoded its service descriptor to read list operations and HTTP GET bindings, then checked the official Go SDK descriptions. Placeholder names are simplified from descriptor field names; nested collections require parent IDs, and models currently include only their latest version. Deprecated evaluation routes, authentication, uploads, and prediction writes are excluded.
 
@@ -7170,9 +7170,9 @@ Diffed against: <https://app.launchdarkly.com/api/v2/openapi.json>
 - [x] `GET /api/v2/segments/{projectKey}/{environmentKey}` — segments referenced by the flag targeting rules already synced - without them rule targets are unresolvable ids (high)
 - [x] `GET /api/v2/flag-statuses/{projectKey}/{environmentKey}` — per-flag status and last-requested timestamp, the basis for stale-flag and adoption reporting (high)
 - [x] `GET /api/v2/projects/{projectKey}/environments/{environmentKey}/holdouts` — holdout groups tied to experiment measurement (medium)
-- [ ] `GET /api/v2/projects/{projectKey}/metric-groups` — lookup grouping the metrics already synced, and what experiments actually attach to (medium)
-- [ ] `GET /api/v2/teams (+ /teams/{teamKey}/maintainers, /teams/{teamKey}/roles)` — team membership and maintainer mapping for the members table already synced (medium)
-- [ ] `GET /api/v2/code-refs/statistics/{projectKey} and /api/v2/code-refs/repositories` — flag code-reference counts per repo - how you prove a flag is safe to remove (medium)
+- [x] `GET /api/v2/projects/{projectKey}/metric-groups` — lookup grouping the metrics already synced, and what experiments actually attach to (medium)
+- [x] `GET /api/v2/teams (+ /teams/{teamKey}/maintainers, /teams/{teamKey}/roles)` — team membership and maintainer mapping for the members table already synced (medium)
+- [x] `GET /api/v2/code-refs/statistics/{projectKey} and /api/v2/code-refs/repositories` — flag code-reference counts per repo - how you prove a flag is safe to remove (medium)
 - [ ] `GET /api/v2/engineering-insights/flag-events` — flag change event stream, a real transition history to complement the audit log (medium)
 - [ ] `GET /api/v2/engineering-insights/deployments` — deployment records used for lead-time and release-frequency analysis (medium)
 - [ ] `GET /api/v2/approval-requests` — approval request lifecycle for flag changes - governance and change-velocity reporting (medium)
@@ -7899,9 +7899,9 @@ Today (13): `audit_logs`, `billable_metrics`, `contracts`, `customers`, `invoice
 
 Diffed against: <https://docs.metronome.com/openapi.json>
 
-- [ ] `Rate schedules (POST /v1/contract-pricing/rate-cards/getRateSchedule; POST /v1/contracts/getContractRateSchedule)` — resolve rate card IDs into prices and customer overrides to explain billed amounts (high)
-- [ ] `List balances (POST /v1/contracts/customerBalances/list)` — measure remaining commitments and credits, including balances and transaction ledgers across contracts (high)
-- [ ] `List invoice breakdowns (GET /v1/customers/{customer_id}/invoices/breakdowns)` — reconcile daily or hourly billed costs with usage, beyond invoice totals and unpriced usage aggregates (high)
+- [x] `Rate schedules (POST /v1/contract-pricing/rate-cards/getRateSchedule; POST /v1/contracts/getContractRateSchedule)` — resolve rate card IDs into prices and customer overrides to explain billed amounts (high)
+- [x] `List balances (POST /v1/contracts/customerBalances/list)` — measure remaining commitments and credits, including balances and transaction ledgers across contracts (high)
+- [x] `List invoice breakdowns (GET /v1/customers/{customer_id}/invoices/breakdowns)` — reconcile daily or hourly billed costs with usage, beyond invoice totals and unpriced usage aggregates (high)
 - [ ] `List historical balances (POST /v1/contracts/historicalBalances/list)` — analyze retired commitments, credit consumption, and historical ledger transactions (medium)
 - [ ] `Get subscription quantity history (POST /v1/contracts/getSubscriptionQuantityHistory)` — measure changes in recurring quantities and prices for seat-based revenue analysis (medium)
 - [ ] `Get subscription seats history (POST /v1/contracts/getSubscriptionSeatsHistory)` — track seat assignments and quantities over time for each subscription (medium)
@@ -9062,6 +9062,16 @@ Diffed against: <https://packagist.org/apidoc>
 No material gaps found.
 
 Note: Packagist's public API is small and read-only. The source takes a user-supplied package/vendor list and already covers every per-package read endpoint: packages/{vendor}/{package}.json, the p2 metadata, stats.json, and /api/security-advisories. The only unexposed read endpoints are registry-wide rather than per-package: /explore/popular.json (top packages by weekly downloads), /statistics.json (global download total), /search.json, and /metadata/changes.json (a sync change feed, not warehouse data). None of these justify a table for a user tracking their own packages.
+
+## Paddle — gaps
+
+Today (8): `adjustments`, `customers`, `discounts`, `explore_metrics`, `prices`, `products`, `subscriptions`, `transactions`
+
+Diffed against: <https://developer.paddle.com/api-reference/metrics/run-explore-metrics-query>
+
+- [x] `Explore metrics (POST /metrics/explore, catalog from GET /metrics/explore/entities)` — daily revenue, transactions, refunds, chargebacks, and checkout conversion, plus monthly MRR and MRR growth, computed by Paddle (high)
+
+Note: Added from the Explore metrics changelog (API version 1, 2026-08-27). The table holds account totals with no breakdown dimension. Querying it needs the `metrics.read` permission.
 
 ## PagerDuty — gaps
 

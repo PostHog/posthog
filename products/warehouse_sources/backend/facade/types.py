@@ -1180,6 +1180,7 @@ class ExternalDataSourceType(LabeledStrEnum):
     LOOPRETURNS = "LoopReturns", "LoopReturns"
     MASTODON = "Mastodon", "Mastodon"
     MEETUP = "Meetup", "Meetup"
+    MEGAPHONE = "Megaphone", "Megaphone"
     MEMBERFUL = "Memberful", "Memberful"
     MERCADOPAGO = "MercadoPago", "MercadoPago"
     METEOSTAT = "Meteostat", "Meteostat"
