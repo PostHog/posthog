@@ -91,12 +91,12 @@ from products.logs.backend.alert_check_query import (
     fetch_live_logs_checkpoint,
     is_projection_eligible,
     resolve_alert_date_to,
-    rolling_check_lookback_minutes,
 )
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EventKind
 from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_evaluation_key import WINDOW_MARKER
 from products.logs.backend.alert_group_columns import GROUP_COLUMNS
+from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
 

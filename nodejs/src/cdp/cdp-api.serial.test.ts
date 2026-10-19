@@ -1271,6 +1271,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1319,6 +1320,51 @@ describe('CDP API', () => {
             }
         })
 
+        it.each([
+            ['a deadline', { id: 7, team_id: 1, wait_until: '2026-10-17T10:00:00Z' }, 200, '2026-10-17T10:00:00.000Z'],
+            ['no deadline', { id: 7, team_id: 1 }, 200, undefined],
+            ['an unreadable deadline', { id: 7, team_id: 1, wait_until: 'tomorrow-ish' }, 400, undefined],
+            ['a non-string deadline', { id: 7, team_id: 1, wait_until: 1234 }, 400, undefined],
+        ])(
+            'parks a realtime cohort resolver only on a valid deadline: %s',
+            async (_desc, cohort, status, parkedUntil) => {
+                const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+                api['batchResolverProducer'] = {
+                    createJob: createJobMock,
+                    countInFlightJobs: jest.fn(),
+                    rescheduleParkedJobs: jest.fn(),
+                    cancelJobs: jest.fn(),
+                    resumeParkedSteps: jest.fn(),
+                    resumeParkedBatchResolver: jest.fn(),
+                    disconnect: jest.fn().mockResolvedValue(undefined),
+                }
+
+                try {
+                    const res = await supertest(app)
+                        .post(
+                            `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-793`
+                        )
+                        .send({ realtime_cohort: cohort })
+
+                    expect(res.status).toEqual(status)
+                    if (status !== 200) {
+                        expect(createJobMock).not.toHaveBeenCalled()
+                        return
+                    }
+                    const arg = createJobMock.mock.calls[0][0]
+                    expect(arg.scheduled?.toISOString()).toEqual(parkedUntil)
+                    const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, any>
+                    expect(state.realtimeCohort).toEqual({
+                        id: 7,
+                        teamId: 1,
+                        ...(parkedUntil ? { waitUntil: parkedUntil } : {}),
+                    })
+                } finally {
+                    api['batchResolverProducer'] = null
+                }
+            }
+        )
+
         it('resolves the audience from the posted snapshot, not the live trigger filters', async () => {
             // The snapshot was validated at confirm time - re-reading the trigger here would let an
             // edit racing the dispatch widen the send past what was previewed.
@@ -1331,6 +1377,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1383,6 +1430,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1443,6 +1491,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1507,6 +1556,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1681,6 +1731,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1775,6 +1826,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: mockRescheduleParkedJobs,
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
 
             rescheduleHogFlow = await insertHogFlow({
@@ -1951,6 +2003,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: jest.fn(),
                 resumeParkedSteps: mockResumeParkedSteps,
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 
@@ -2161,6 +2214,74 @@ describe('CDP API', () => {
         })
     })
 
+    describe('hogflow batch job resume', () => {
+        let mockResume: jest.Mock
+        const batchJobId = new UUIDT().toString().toLowerCase()
+        const flowId = new UUIDT().toString().toLowerCase()
+
+        // Raw audience literal and Python claim names: the wire contract with Django's
+        // WORKFLOWS_RESUME_BATCH_JWT_PURPOSE.
+        const mintBatchResumeToken = (
+            claims: Record<string, unknown>,
+            { secret = 'local-dev-workflows-step-resume-jwt', audience = 'posthog:workflows:resume_batch' } = {}
+        ) => jwt.sign(claims, secret, { audience, expiresIn: '2m' })
+        const resumeAuth = (teamId: number, claims: Record<string, unknown> = {}) => ({
+            Authorization: `Bearer ${mintBatchResumeToken({
+                team_id: teamId,
+                hog_flow_id: flowId,
+                batch_job_id: batchJobId,
+                ...claims,
+            })}`,
+        })
+
+        beforeEach(() => {
+            mockResume = jest.fn()
+            api['batchResolverProducer'] = {
+                createJob: jest.fn(),
+                disconnect: jest.fn(),
+                countInFlightJobs: jest.fn(),
+                rescheduleParkedJobs: jest.fn(),
+                cancelJobs: jest.fn(),
+                resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: mockResume,
+            }
+        })
+
+        afterEach(() => {
+            api['batchResolverProducer'] = null
+        })
+
+        it.each([
+            ['resumed', 200],
+            ['already_resumed', 200],
+            ['job_running', 409],
+            ['job_completed', 200],
+            ['job_failed', 200],
+            ['job_missing', 200],
+        ])('answers %s with %s, so only a running resolver is retried', async (outcome, status) => {
+            mockResume.mockResolvedValue(outcome)
+
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/batch_jobs/${batchJobId}/resume`)
+                .set(resumeAuth(team.id))
+                .send({})
+
+            expect(res.status).toEqual(status)
+            expect(res.body).toEqual({ outcome })
+            expect(mockResume).toHaveBeenCalledWith({ teamId: team.id, functionId: flowId, batchJobId })
+        })
+
+        it("rejects another run's token", async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flowId}/batch_jobs/${batchJobId}/resume`)
+                .set(resumeAuth(team.id, { batch_job_id: new UUIDT().toString() }))
+                .send({})
+
+            expect(res.status).toEqual(401)
+            expect(mockResume).not.toHaveBeenCalled()
+        })
+    })
+
     describe('hogflow cancel invocations auth', () => {
         let mockCancelJobs: jest.Mock
 
@@ -2188,6 +2309,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 
@@ -2324,6 +2446,7 @@ describe('CDP API', () => {
                 rescheduleParkedJobs: jest.fn(),
                 cancelJobs: mockCancelJobs,
                 resumeParkedSteps: jest.fn(),
+                resumeParkedBatchResolver: jest.fn(),
             }
         })
 

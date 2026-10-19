@@ -16,10 +16,6 @@ class TestNoCRMSource:
         # Changing the subdomain retargets where the API key is sent, so it must force key re-entry.
         assert "subdomain" in self.source.connection_host_fields
 
-    def test_get_schemas_filters_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["leads", "users"])
-        assert {s.name for s in schemas} == {"leads", "users"}
-
     def test_validate_credentials_success(self) -> None:
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.nocrm.source.validate_nocrm_credentials",

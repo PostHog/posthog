@@ -205,7 +205,7 @@ def _validate_select_columns_are_named(parsed: ast.SelectQuery | ast.SelectSetQu
 
 def validate_hogql_query_for_batch_export(
     hogql_query: str, team: "Team", *, user: "User", modifiers: HogQLQueryModifiers | None = None
-) -> None:
+) -> ast.SelectQuery | ast.SelectSetQuery:
     """Validate a HogQL query can power a batch export for the given team.
 
     Parses the query, checks output columns are named, and compiles it with the user's
@@ -218,6 +218,9 @@ def validate_hogql_query_for_batch_export(
     Raises:
         UnsupportedHogQLQueryError: If the query cannot power a batch export.
         InternalHogQLError: Left to propagate, as in `parse_hogql_select_for_batch_export`.
+
+    Returns:
+        The valid, parsed AST for a select query.
     """
     validate_hogql_batch_export_user(team, user)
     parsed = parse_hogql_select_for_batch_export(hogql_query)
@@ -234,6 +237,8 @@ def validate_hogql_query_for_batch_export(
         print_prepared_ast(prepared, context=context, dialect="clickhouse", stack=[])
     except ExposedHogQLError as e:
         raise UnsupportedHogQLQueryError(f"Invalid HogQL query: {e}") from e
+
+    return prepared
 
 
 def drop_unknown_hogql_modifiers(stored: dict[str, typing.Any]) -> dict[str, typing.Any]:

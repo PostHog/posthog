@@ -1109,20 +1109,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             # queries: the runner passes its already-loaded team, so the check skips the Team
             # lookup, and with the feature unavailable no PropertyAccessControl rows are read.
 
-            with self.assertNumQueries(baseline + 11):
+            with self.assertNumQueries(baseline + 10):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
-            # baseline + 11 + 9 once at least one insight materializes
+            # baseline + 10 + 7 once at least one insight materializes. Three of the 7 read the
+            # revenue, marketing and customer analytics configs that go into the query cache key.
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 9):
+            with self.assertNumQueries(baseline + 10 + 7):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-        with self.assertNumQueries(baseline + 11 + 9):
+        with self.assertNumQueries(baseline + 10 + 7):
             self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     def test_insight_alerts_do_not_nplus1_dashboard_gets(self) -> None:

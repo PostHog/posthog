@@ -557,6 +557,7 @@ class AssistantTool(StrEnum):
     DRAFT_REPLAY_VISION_SCANNER_PROMPT = "draft_replay_vision_scanner_prompt"
     SEARCH_REPLAY_VISION_OBSERVATIONS = "search_replay_vision_observations"
     SCAN_REPLAY_VISION_SESSIONS = "scan_replay_vision_sessions"
+    GET_REPLAY_VISION_SCAN_RESULTS = "get_replay_vision_scan_results"
     RETRY_REPLAY_VISION_OBSERVATION = "retry_replay_vision_observation"
     GET_REPLAY_VISION_QUOTA = "get_replay_vision_quota"
     CREATE_REPLAY_VISION_SCANNER = "create_replay_vision_scanner"
@@ -1524,6 +1525,7 @@ class Tag(StrEnum):
 class FileSystemIconType(StrEnum):
     DEFAULT_ICON_TYPE = "default_icon_type"
     DASHBOARD = "dashboard"
+    CANVAS = "canvas"
     LLM_ANALYTICS = "llm_analytics"
     PRODUCT_ANALYTICS = "product_analytics"
     REVENUE_ANALYTICS = "revenue_analytics"
@@ -2226,6 +2228,13 @@ class MetricsAxisScale(StrEnum):
     LOG = "log"
 
 
+class MetricsDashboardVariableSource(StrEnum):
+    CUSTOM = "custom"
+    PROMQL = "promql"
+    SQL = "sql"
+    TEXTBOX = "textbox"
+
+
 class MetricsDisplayType(StrEnum):
     LINE = "line"
     AREA = "area"
@@ -2779,6 +2788,7 @@ class PropertyOperator(StrEnum):
     IN_ = "in"
     NOT_IN = "not_in"
     IS_CLEANED_PATH_EXACT = "is_cleaned_path_exact"
+    IS_CLEANED_PATH_NOT_EXACT = "is_cleaned_path_not_exact"
     FLAG_EVALUATES_TO = "flag_evaluates_to"
     SEMVER_EQ = "semver_eq"
     SEMVER_NEQ = "semver_neq"

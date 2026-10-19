@@ -1,7 +1,7 @@
 import { TodayProjectMenu } from './TodayProjectMenu'
+import { TodayTopBarPanelTabs } from './TodayTopBarPanelTabs'
 import { TodayTopBarQuickStartButton } from './TodayTopBarQuickStartButton'
 import { TodayTopBarSearch } from './TodayTopBarSearch'
-import { TodayTopBarSidePanelButton } from './TodayTopBarSidePanelButton'
 
 /** The equal outer columns keep the search centered. */
 export function TodayTopBar(): JSX.Element {
@@ -17,7 +17,7 @@ export function TodayTopBar(): JSX.Element {
             <div className="flex min-w-0 items-center gap-2">
                 <TodayTopBarQuickStartButton />
                 <div className="ms-auto">
-                    <TodayTopBarSidePanelButton />
+                    <TodayTopBarPanelTabs />
                 </div>
             </div>
         </header>

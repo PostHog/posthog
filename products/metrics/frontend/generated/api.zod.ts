@@ -761,3 +761,93 @@ export const MetricsValuesCreateBody = /* @__PURE__ */ zod.object({
         .max(metricsValuesCreateBodyNamesMax)
         .describe('Exact metric names to load as a batch. Overrides value and limit.'),
 })
+
+/**
+ * The options of one dashboard variable, for the variable selects on dashboards.
+ */
+export const metricsVariableOptionsCreateBodyQueryMax = 10000
+
+export const metricsVariableOptionsCreateBodyCustomValuesItemMax = 1024
+
+export const metricsVariableOptionsCreateBodyCustomValuesMax = 1000
+
+export const metricsVariableOptionsCreateBodyRegexMax = 1024
+
+export const metricsVariableOptionsCreateBodyVariablesItemNameMax = 128
+
+export const metricsVariableOptionsCreateBodyVariablesItemNameRegExp = new RegExp('^[A-Za-z_][A-Za-z0-9_]\*$')
+export const metricsVariableOptionsCreateBodyVariablesItemValuesItemMax = 1024
+
+export const metricsVariableOptionsCreateBodyVariablesItemValuesMax = 1000
+
+export const metricsVariableOptionsCreateBodyVariablesItemAllDefault = false
+export const metricsVariableOptionsCreateBodyVariablesItemAllValueMax = 1024
+
+export const metricsVariableOptionsCreateBodyDateFromMax = 64
+
+export const metricsVariableOptionsCreateBodyDateToMax = 64
+
+export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
+    source: zod
+        .enum(['custom', 'promql', 'sql', 'textbox'])
+        .describe('\* `custom` - custom\n\* `promql` - promql\n\* `sql` - sql\n\* `textbox` - textbox')
+        .describe(
+            'Where the options come from: a static list, a PromQL query, a SQL query, or free text.\n\n\* `custom` - custom\n\* `promql` - promql\n\* `sql` - sql\n\* `textbox` - textbox'
+        ),
+    query: zod
+        .string()
+        .max(metricsVariableOptionsCreateBodyQueryMax)
+        .nullish()
+        .describe(
+            'The options query when `source` is `promql` or `sql`. It can refer to other variables as `$name`. PromQL supports label_values(label), label_values(selector, label), label_names(), metrics(regex) and query_result(expr). SQL returns the options in its first column.'
+        ),
+    customValues: zod
+        .array(zod.string().max(metricsVariableOptionsCreateBodyCustomValuesItemMax))
+        .max(metricsVariableOptionsCreateBodyCustomValuesMax)
+        .nullish()
+        .describe('The options when `source` is `custom`.'),
+    regex: zod
+        .string()
+        .max(metricsVariableOptionsCreateBodyRegexMax)
+        .nullish()
+        .describe(
+            'A regex that filters the options of a query, as `pattern` or `\/pattern\/flags`. With a capture group, each option is its first group. An invalid regex is rejected before any query runs.'
+        ),
+    variables: zod
+        .array(
+            zod.object({
+                name: zod
+                    .string()
+                    .max(metricsVariableOptionsCreateBodyVariablesItemNameMax)
+                    .regex(metricsVariableOptionsCreateBodyVariablesItemNameRegExp)
+                    .describe('Variable name. Queries refer to it as `$name`.'),
+                values: zod
+                    .array(zod.string().max(metricsVariableOptionsCreateBodyVariablesItemValuesItemMax))
+                    .max(metricsVariableOptionsCreateBodyVariablesItemValuesMax)
+                    .describe('The selected values. When `all` is true, the options that All stands for.'),
+                all: zod
+                    .boolean()
+                    .default(metricsVariableOptionsCreateBodyVariablesItemAllDefault)
+                    .describe('True when the variable is set to All.'),
+                allValue: zod
+                    .string()
+                    .max(metricsVariableOptionsCreateBodyVariablesItemAllValueMax)
+                    .nullish()
+                    .describe('The text that All puts in a PromQL query. `.\*` when it is empty.'),
+            })
+        )
+        .optional()
+        .describe('The current selection of the other dashboard variables that the query can refer to.'),
+    dateFrom: zod
+        .string()
+        .max(metricsVariableOptionsCreateBodyDateFromMax)
+        .nullish()
+        .describe(
+            "Start of the window that options come from, as in a dashboard date filter: ISO 8601 or a relative date such as '-7d'. Defaults to 24 hours ago."
+        ),
+    dateTo: zod
+        .string()
+        .max(metricsVariableOptionsCreateBodyDateToMax)
+        .nullish()
+        .describe('End of the window that options come from, in the same format as dateFrom. Defaults to now.'),
+})

@@ -1,3 +1,4 @@
+import time
 import datetime as dt
 from collections.abc import Iterable
 from typing import Any, Optional, cast
@@ -37,9 +38,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     DocusignSourceConfig,
 )
 
-_SESSION_FACTORY = (
-    "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign.make_tracked_session"
-)
+_DOCUSIGN_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.docusign.docusign"
+_SESSION_FACTORY = f"{_DOCUSIGN_MODULE}.make_tracked_session"
 
 USERINFO_PAYLOAD: dict[str, Any] = {
     "sub": "user-guid",
@@ -262,6 +262,131 @@ class TestDocusignTransport:
         assert result.items == []
         assert [state.start_position for state in result.saved_states] == [PAGE_SIZE]
         assert result.params("start_position")[-2:] == ["0", "100"]
+
+    @pytest.mark.parametrize(
+        "endpoint_name,sub_resource,sub_body,empty_body,expected_rows",
+        [
+            (
+                "envelope_audit_events",
+                "audit_events",
+                {
+                    "auditEvents": [
+                        {"eventFields": [{"name": "logTime", "value": "t0"}, {"name": "Action", "value": "Sent"}]},
+                        {"eventFields": [{"name": "logTime", "value": "t1"}, {"name": "Action", "value": "Signed"}]},
+                    ]
+                },
+                {"auditEvents": []},
+                [
+                    {"envelopeId": "env-0", "logTime": "t0", "Action": "Sent", "eventIndex": 0},
+                    {"envelopeId": "env-0", "logTime": "t1", "Action": "Signed", "eventIndex": 1},
+                ],
+            ),
+            (
+                "envelope_templates",
+                "templates",
+                {
+                    "templates": [
+                        {"templateId": "tpl-1", "name": "NDA", "documentId": "1"},
+                        {"templateId": "tpl-1", "name": "NDA", "documentId": "2"},
+                        {"templateId": "tpl-2", "name": "Order form", "documentId": "3"},
+                    ]
+                },
+                {},
+                [
+                    {"envelopeId": "env-0", "templateId": "tpl-1", "name": "NDA", "documentId": "1"},
+                    {"envelopeId": "env-0", "templateId": "tpl-2", "name": "Order form", "documentId": "3"},
+                ],
+            ),
+            (
+                "envelope_form_data",
+                "form_data",
+                {"envelopeId": "env-0", "status": "completed", "formData": [{"name": "Company", "value": "Acme"}]},
+                {"envelopeId": "env-1", "status": "sent", "formData": []},
+                [
+                    {"envelopeId": "env-0", "status": "completed", "formData": [{"name": "Company", "value": "Acme"}]},
+                    {"envelopeId": "env-1", "status": "sent", "formData": []},
+                ],
+            ),
+        ],
+    )
+    def test_envelope_sub_resources_are_fetched_per_envelope(
+        self,
+        endpoint_name: str,
+        sub_resource: str,
+        sub_body: dict[str, Any],
+        empty_body: dict[str, Any],
+        expected_rows: list[dict[str, Any]],
+        logger: FilteringBoundLogger,
+    ) -> None:
+        result = driver().run(
+            endpoint_name,
+            [
+                *auth_responses(),
+                ScriptedResponse(json=envelope_page(2)),
+                ScriptedResponse(json=sub_body),
+                ScriptedResponse(json=empty_body),
+            ],
+            logger=logger,
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {
+                **row,
+                "envelopeCreatedDateTime": "2024-01-01T00:00:00.0000000Z",
+                "envelopeStatusChangedDateTime": "2024-02-01T00:00:00.0000000Z",
+            }
+            for row in expected_rows
+        ]
+        assert [path.rsplit("/", 2)[-2:] for path in result.paths[-2:]] == [
+            ["env-0", sub_resource],
+            ["env-1", sub_resource],
+        ]
+        # Form data is only released to the sender, so received envelopes must not be listed.
+        assert result.requests[-3].param("user_filter") == ("sender" if sub_resource == "form_data" else None)
+        assert result.final_state is None
+
+    @pytest.mark.parametrize("remaining,expect_pause", [("500", False), ("50", True)])
+    def test_per_envelope_requests_pause_when_the_hourly_quota_runs_low(
+        self, remaining: str, expect_pause: bool, logger: FilteringBoundLogger
+    ) -> None:
+        quota_headers = {
+            "X-RateLimit-Limit": "1000",
+            "X-RateLimit-Remaining": remaining,
+            "X-RateLimit-Reset": str(int(time.time()) + 600),
+        }
+        with mock.patch(f"{_DOCUSIGN_MODULE}.interruptible_wait") as wait:
+            result = driver().run(
+                "envelope_audit_events",
+                [
+                    *auth_responses(),
+                    ScriptedResponse(json=envelope_page(1), headers=quota_headers),
+                    ScriptedResponse(json={"auditEvents": []}),
+                ],
+                logger=logger,
+            )
+
+        assert result.raised is None
+        waits = [call.args[0] for call in wait.call_args_list]
+        if expect_pause:
+            assert len(waits) == 1 and 500 < waits[0] <= 600
+        else:
+            assert waits == []
+
+    def test_bulk_send_batches_always_send_from_date(self, logger: FilteringBoundLogger) -> None:
+        result = driver().run(
+            "bulk_send_batches",
+            [
+                *auth_responses(),
+                ScriptedResponse(json={"bulkBatchSummaries": [{"batchId": "b-1", "submittedDate": "2024-01-01"}]}),
+            ],
+            logger=logger,
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"batchId": "b-1", "submittedDate": "2024-01-01"}]
+        # Without from_date DocuSign answers with an account-wide summary that has no batch list.
+        assert result.requests[-1].param("from_date") is not None
 
     @pytest.mark.parametrize(
         "value,expected",

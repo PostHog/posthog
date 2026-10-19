@@ -16,7 +16,7 @@ from posthog.dataclasses import frozen
 from posthog.models import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import ActionabilityChoice, priority_from_judgment
+from products.signals.backend.artefact_schemas import ActionabilityChoice
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     implementation_pr_report_filter,
@@ -28,6 +28,7 @@ from products.signals.backend.report_content_gates import team_report_monitoring
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
 from products.signals.backend.report_metrics import ReportMetricSnapshot, saved_metric_snapshots
+from products.signals.backend.report_priority import latest_report_priorities
 from products.signals.backend.suggested_reviewer_index import report_ids_naming_reviewers
 
 _OPEN_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
@@ -67,31 +68,6 @@ class BriefingReportDetails:
     # Only metrics with a saved snapshot, so the briefing shows a figure before the live query answers.
     metrics: list[ReportMetricSnapshot]
     charts: list[ReportChartSnapshot]
-
-
-def _latest_artefacts(team_id: int, report_ids: Sequence[str], artefact_type: str) -> dict[str, str]:
-    """The newest artefact content of one type per report, by report id."""
-    # Pick the newest id per report first, so Postgres reads `content` once per report, not once per row.
-    latest_ids = (
-        SignalReportArtefact.objects.filter(team_id=team_id, report_id__in=report_ids, type=artefact_type)
-        .order_by("report_id", "-created_at")
-        .distinct("report_id")
-        .values("id")
-    )
-    rows = SignalReportArtefact.objects.filter(team_id=team_id, id__in=latest_ids).values_list("report_id", "content")
-    return {str(report_id): content for report_id, content in rows}
-
-
-def _priorities(team_id: int, report_ids: Sequence[str]) -> dict[str, str]:
-    """Latest priority judgment per report, read the same way the inbox serializer reads it."""
-    latest: dict[str, str] = {}
-    for report_id, content in _latest_artefacts(
-        team_id, report_ids, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT
-    ).items():
-        priority = priority_from_judgment(content)
-        if priority is not None:
-            latest[report_id] = priority
-    return latest
 
 
 def _json_object_content() -> Q:
@@ -285,7 +261,7 @@ def report_details(
         )
     )
     found_ids = [str(report.id) for report in reports]
-    priorities = _priorities(team_id, found_ids)
+    priorities = latest_report_priorities(team_id, found_ids)
     pull_requests = fetch_implementation_pr_state_for_reports(found_ids, team_id=team_id)
     monitoring_enabled = (
         team_report_monitoring_enabled(team_id)

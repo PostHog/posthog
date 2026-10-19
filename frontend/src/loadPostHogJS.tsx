@@ -4,7 +4,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
+import {
+    dropHandledAuthGateExceptions,
+    dropInjectedScriptReferenceErrors,
+    dropScopeNotFoundExceptions,
+    dropUnactionableNetworkExceptions,
+} from 'lib/utils/exceptionFilters'
 import { getAppContext, isHobbyDeployment } from 'lib/utils/getAppContext'
+import { redactMetricVariableUrls } from 'lib/utils/metricVariableUrlRedaction'
 import { identifyInstanceInPostHog, identifyUserInPostHog } from 'lib/utils/posthogIdentity'
 
 import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
@@ -118,9 +125,17 @@ export function loadPostHogJS(): void {
                 __capturePostHogExceptions: true,
             },
             metrics: { network: true, serviceName: 'posthog-app' },
-            // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
-            // `register` would persist the property in storage the main window shares, so it is stamped per event.
-            before_send: [dropWebMCPToolErrors, ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : [])],
+            before_send: [
+                dropScopeNotFoundExceptions,
+                dropHandledAuthGateExceptions,
+                dropUnactionableNetworkExceptions,
+                dropInjectedScriptReferenceErrors,
+                dropWebMCPToolErrors,
+                redactMetricVariableUrls,
+                // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
+                // `register` would persist the property in storage the main window shares, so it is stamped per event.
+                ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),
+            ],
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true
