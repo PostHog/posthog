@@ -35,7 +35,8 @@ pub struct Config {
     /// Defaults to the grace. Zero turns the warmup off, for a fixture
     /// whose readers start before any traffic.
     pub parity_warmup_seconds: Option<u64>,
-    /// An entry costs about half a kilobyte.
+    /// Retained rows and merges across both feeds; each costs about half a
+    /// kilobyte.
     #[envconfig(default = "1000000")]
     pub parity_max_entries: usize,
     /// Empty means every team. Set it to the merge events allowlist when

@@ -520,15 +520,18 @@ impl Join {
         }
     }
 
-    /// Trims to nine tenths of the cap, one pass per tenth rather than one
-    /// per sweep, and finds the age threshold before cloning any key.
+    /// Bounds retained rows and merges, not keys: a key that keeps receiving
+    /// versions grows behind one entry. Trims to nine tenths of the cap, one
+    /// pass per tenth rather than one per sweep, by key age; every key holds
+    /// at least one row, so evicting as many keys as the excess suffices.
     fn enforce_cap(&mut self, report: &mut SweepReport) {
-        let total = self.mappings.len() + self.merges.len();
+        let total = self.node.row_count() + self.personhog.row_count() + self.merges.len();
         if total <= self.config.max_entries {
             return;
         }
         let target = self.config.max_entries - self.config.max_entries / 10;
-        let excess = total - target;
+        let keys = self.mappings.len() + self.merges.len();
+        let excess = (total - target).min(keys);
         let mut ages: Vec<i64> = self
             .mappings
             .values()
@@ -819,7 +822,7 @@ mod tests {
     #[test]
     fn the_cap_evicts_the_oldest_entries_without_settling_them() {
         let t0 = Instant::now();
-        let mut join = join(2, None);
+        let mut join = join(3, None);
         join.observe(row(Side::Node, 0, 3_000, "newest", 1), t0);
         join.observe(row(Side::Node, 0, 1_000, "oldest", 2), t0);
         join.observe(merge(Side::Node, 0, 2_000, 7, 8), t0);
@@ -834,6 +837,32 @@ mod tests {
             .mappings
             .contains_key(&DistinctIdKey::new(TEAM, "newest")));
         assert_eq!(join.node.mapping_count(), 1);
+
+        // A key's history counts: three versions of one key weigh three rows.
+        let mut hot = Join::new(
+            JoinConfig {
+                grace: GRACE,
+                idle_partition: IDLE,
+                max_entries: 4,
+                teams: None,
+                mapping_lag: MAPPING_LAG,
+                warmup: Duration::ZERO,
+            },
+            SampleRing::new(10),
+        );
+        for (version, person) in [(0, 1), (1, 2), (2, 3)] {
+            let at = 1_000 + version * 100;
+            hot.observe(
+                row_of_team(TEAM, Side::Node, 0, at, "a", person, version),
+                t0,
+            );
+        }
+        hot.observe(row(Side::Personhog, 0, 1_000, "a", 3), t0);
+        hot.observe(row(Side::Node, 0, 5_000, "b", 4), t0);
+        let report = hot.settle(t0);
+        assert_eq!(report.overflow_evictions, 1);
+        assert!(hot.mappings.contains_key(&DistinctIdKey::new(TEAM, "b")));
+        assert_eq!(hot.node.row_count(), 1);
     }
 
     // The lag keeps the rows a merge's verdict reads when they are older

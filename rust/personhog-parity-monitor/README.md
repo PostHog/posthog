@@ -16,7 +16,7 @@ Per merged person only the survivor at the end of its merge chain counts.
 - Entries older than the first watermark plus `PARITY_WARMUP_SECONDS` (the grace by default) are dropped unjudged and counted as `warmup_evictions_total`: the readers start at the end of the log at different moments, so a row's counterpart may have been produced before its reader started. A fixture whose readers start before any traffic sets it to `0`.
 - Merges settle first and mappings `PARITY_MAPPING_LAG_MS` later, so a settling merge still sees the rows that named its persons and can tell a stub from a missing merge event.
 - A merge agrees when both feeds name the same direct target; what became of that target is the target's own verdict. Different direct targets are followed to their survivors, because one feed may reach the same person through a stub the other never made.
-- Settled entries are evicted from both feeds. Above `PARITY_MAX_ENTRIES` the oldest entries are evicted down to nine tenths of the cap without a verdict and counted as overflow. An entry costs about half a kilobyte.
+- Settled entries are evicted from both feeds. `PARITY_MAX_ENTRIES` bounds the rows and merges retained across both feeds, history included, so a key that keeps receiving versions cannot grow past it behind one entry. Above the cap the oldest entries are evicted down to nine tenths of it without a verdict and counted as overflow. A row or merge costs about half a kilobyte.
 - Distinct id rows carry null keys on both sides, so their partitions are random and only the partition counts are compared. Merge events are keyed `"{team_id}:{old_person_uuid}"`; each one is checked against `murmur2(key) % partitions` of its own topic, and a merge present on both feeds is checked for landing on the same partition number while both merge topics have the same count.
 
 ## Metrics
@@ -50,7 +50,7 @@ All names start with `personhog_parity_`. Labels carry outcomes only, never a te
 | `PARITY_IDLE_PARTITION_SECONDS` | `30` | When a quiet partition stops holding the watermark |
 | `PARITY_MAPPING_LAG_MS` | `2000` | How much longer than merges the mappings wait |
 | `PARITY_WARMUP_SECONDS` | the grace | How long after the first watermark entries are dropped unjudged; `0` for a fixture whose readers start before any traffic |
-| `PARITY_MAX_ENTRIES` | `1000000` | The entry cap, about half a gigabyte |
+| `PARITY_MAX_ENTRIES` | `1000000` | The cap on retained rows and merges across both feeds, about half a gigabyte |
 | `PARITY_TEAMS` | empty, every team | Comma separated team ids; set it to the merge events allowlist when that is a subset |
 | `PARITY_SAMPLE_RING_SIZE` | `500` | Disagreements kept for `/debug/mismatches` |
 | `PARITY_SWEEP_INTERVAL_MS` | `1000` | How often entries are settled |
