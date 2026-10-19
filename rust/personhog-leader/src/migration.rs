@@ -7,7 +7,7 @@ use std::time::Duration;
 use assignment_coordination::store::parse_watch_value;
 
 use metrics::counter;
-use personhog_coordination::protocol::{seal_overdue, seal_targets};
+use personhog_coordination::protocol::migration::{seal_overdue, seal_targets};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::types::{MigrationPhase, MigrationState, SealAck};
 use tokio::sync::Semaphore;

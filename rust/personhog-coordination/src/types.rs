@@ -399,7 +399,7 @@ impl MigrationPhase {
 }
 
 /// A request to migrate: the control plane writes it, and the coordinator
-/// starts the saga from it only once the fleet is quiet (`protocol::fleet_quiet`).
+/// starts the saga from it only once the fleet is quiet (`protocol::migration::fleet_quiet`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MigrationRequest {
     pub id: String,

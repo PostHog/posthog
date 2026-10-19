@@ -16,9 +16,10 @@ use k8s_awareness::{classify_departure, ClusterIntent, DepartureReason, K8sAware
 
 use crate::error::{Error, Result};
 use crate::migration;
+use crate::protocol::migration::planner_may_place;
 use crate::protocol::{
     drain_satisfied, freeze_quorum_met, missing_freeze_ackers, past_phase_deadline,
-    plan_partial_rebalance, planner_may_place, warm_satisfied,
+    plan_partial_rebalance, warm_satisfied,
 };
 use crate::store::{self, PersonhogStore};
 use crate::strategy::{AssignmentStrategy, Member, PlacementPolicy};

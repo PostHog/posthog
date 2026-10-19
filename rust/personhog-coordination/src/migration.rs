@@ -6,8 +6,9 @@ use std::time::Duration;
 use metrics::{counter, gauge};
 
 use crate::error::Result;
-use crate::protocol::{
-    drain_satisfied, fleet_quiet, migration_unsealed, migration_unsettled, plan_freeze, plan_resume,
+use crate::protocol::drain_satisfied;
+use crate::protocol::migration::{
+    fleet_quiet, migration_unsealed, migration_unsettled, plan_freeze, plan_resume,
 };
 use crate::store::PersonhogStore;
 use crate::strategy::{AssignmentStrategy, Member, PlacementPolicy};
