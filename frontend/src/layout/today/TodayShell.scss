@@ -415,7 +415,9 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 .TodayAiLauncherButton {
     display: block;
     padding: 0;
-    cursor: pointer;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
     background: none;
     border: 0;
     border-radius: 9999px;
@@ -435,6 +437,10 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 
     &:active .TodayAiLauncher {
         transform: scale(0.96);
+    }
+
+    &[data-dragging] {
+        cursor: grabbing;
     }
 }
 
@@ -590,9 +596,6 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
 
 .TodayAiLauncher {
     --launcher-ease: cubic-bezier(0.23, 1, 0.32, 1);
-    --launcher-lift: 0 4px 6px -1px rgb(0 0 0 / 10%), 0 2px 4px -2px rgb(0 0 0 / 10%);
-    --launcher-surface: var(--foreground);
-    --launcher-ink: var(--background);
     --launcher-look-x: 0px;
     --launcher-look-y: 0px;
     --launcher-near: 0;
@@ -602,20 +605,27 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
     flex-shrink: 0;
     width: 4rem;
     height: 2rem;
-    color: var(--launcher-ink);
-    background-color: var(--launcher-surface);
+    color: var(--background);
+    background-color: var(--foreground);
     border: 1px solid transparent;
     border-radius: 9999px;
-    box-shadow: var(--launcher-lift);
+    box-shadow:
+        0 4px 6px -1px rgb(0 0 0 / 10%),
+        0 2px 4px -2px rgb(0 0 0 / 10%);
     transition: transform 160ms var(--launcher-ease);
+    transform-origin: 50% 20%;
+    rotate: var(--launcher-tilt, 0deg);
+    scale: var(--launcher-sx, 1) var(--launcher-sy, 1);
 
-    &[data-variant='peek'] {
-        --launcher-surface: color-mix(in oklab, var(--muted) 35%, var(--background));
-        --launcher-ink: var(--foreground);
-
-        box-shadow:
-            inset 0 0 0 1px color-mix(in oklab, var(--foreground) 12%, transparent),
-            var(--launcher-lift);
+    &::before {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        content: '';
+        border-radius: inherit;
+        box-shadow: 0 16px 24px -8px rgb(0 0 0 / 35%);
+        opacity: 0;
+        transition: opacity 200ms var(--launcher-ease);
     }
 
     .TodayAiLauncher__art {
@@ -639,6 +649,11 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
             opacity 120ms var(--launcher-ease);
     }
 
+    .TodayAiLauncher__lid {
+        transform: scaleY(calc(0.14 + 0.86 * var(--launcher-near)));
+        transition: transform 260ms var(--launcher-ease);
+    }
+
     .TodayAiLauncher__smile {
         fill: none;
         stroke: currentcolor;
@@ -650,102 +665,73 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
             opacity 120ms var(--launcher-ease),
             transform 220ms var(--launcher-ease);
     }
-
-    &[data-variant='pupils'] {
-        .TodayAiLauncher__eyes {
-            transform: translate(calc(var(--launcher-look-x) * 0.35), calc(var(--launcher-look-y) * 0.35));
-        }
-
-        .TodayAiLauncher__pupil {
-            fill: var(--launcher-surface);
-            transform: translate(calc(var(--launcher-look-x) * 0.6), calc(var(--launcher-look-y) * 0.8));
-            transition: transform 220ms var(--launcher-ease);
-        }
-
-        .TodayAiLauncher__blush {
-            fill: var(--brand-red);
-            opacity: 0;
-            transition: opacity 160ms var(--launcher-ease);
-        }
-    }
-
-    &[data-variant='sleepy'] .TodayAiLauncher__lid {
-        transform: scaleY(calc(0.14 + 0.86 * var(--launcher-near)));
-        transition: transform 260ms var(--launcher-ease);
-    }
-
-    &[data-variant='glasses'] {
-        .TodayAiLauncher__frames {
-            fill: none;
-            stroke: currentcolor;
-            stroke-linecap: round;
-            stroke-width: 1.5;
-            transform: translate(calc(var(--launcher-look-x) * 0.25), calc(var(--launcher-look-y) * 0.25));
-            transition: transform 220ms var(--launcher-ease);
-        }
-
-        .TodayAiLauncher__smile {
-            stroke-width: 2.2;
-        }
-    }
-
-    &[data-variant='peek'] {
-        .TodayAiLauncher__head {
-            transform: translateX(calc(var(--launcher-look-x) * 0.5));
-            transform-origin: 50% 100%;
-            transition: transform 260ms var(--launcher-ease);
-        }
-
-        .TodayAiLauncher__skin {
-            fill: var(--foreground);
-        }
-
-        .TodayAiLauncher__eyes {
-            fill: var(--background);
-        }
-
-        .TodayAiLauncher__smile {
-            stroke: var(--background);
-            stroke-width: 2;
-        }
-    }
 }
 
-.TodayAiLauncherButton:is(:hover, :focus-visible) .TodayAiLauncher {
+.TodayAiLauncherButton:is(:hover, :focus-visible):not([data-dragging]) .TodayAiLauncher {
     .TodayAiLauncher__eyes {
         opacity: 0;
     }
 
-    .TodayAiLauncher__smile,
-    .TodayAiLauncher__blush {
+    .TodayAiLauncher__smile {
         opacity: 1;
         transform: none;
     }
+}
 
-    &[data-variant='peek'] .TodayAiLauncher__head {
-        transform: translateY(-2px);
+.TodayAiLauncherButton[data-dragging] .TodayAiLauncher {
+    transform: scale(1.08);
+
+    &::before {
+        opacity: 1;
+    }
+
+    .TodayAiLauncher__eyes {
+        transform: translate(var(--launcher-drag-look-x, 0px), var(--launcher-drag-look-y, 0px));
+    }
+
+    .TodayAiLauncher__lid {
+        transform: scaleY(1.2);
+        transition-duration: 120ms;
     }
 }
 
-@keyframes TodayAiLauncher__blink {
-    0%,
-    93%,
-    100% {
-        transform: scaleY(1);
+@keyframes TodayAiLauncher__land {
+    0% {
+        scale: 1.18 0.78;
     }
 
-    96% {
+    35% {
+        scale: 0.94 1.08;
+    }
+
+    65% {
+        scale: 1.03 0.98;
+    }
+
+    100% {
+        scale: 1 1;
+    }
+}
+
+@keyframes TodayAiLauncher__squeeze {
+    0%,
+    45% {
         transform: scaleY(0.12);
+    }
+
+    100% {
+        transform: scaleY(1);
     }
 }
 
 @media (prefers-reduced-motion: no-preference) {
-    .TodayAiLauncher__blink {
-        animation: TodayAiLauncher__blink 4.8s infinite;
-    }
+    .TodayAiLauncherButton[data-landing] .TodayAiLauncher {
+        transform-origin: 50% 100%;
+        animation: TodayAiLauncher__land 460ms cubic-bezier(0.2, 0.7, 0.3, 1);
 
-    .TodayAiLauncher__blink + .TodayAiLauncher__blink {
-        animation-delay: 30ms;
+        .TodayAiLauncher__lid {
+            animation: TodayAiLauncher__squeeze 520ms var(--launcher-ease);
+        }
     }
 }
 
@@ -755,7 +741,7 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
         transition: none;
     }
 
-    .TodayAiLauncher[data-variant='sleepy'] .TodayAiLauncher__lid {
+    .TodayAiLauncher .TodayAiLauncher__lid {
         transform: none;
     }
 }

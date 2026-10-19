@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSparkles } from '@posthog/icons'
 import {
@@ -16,6 +16,7 @@ import {
 import { SidePanelTab } from '~/types'
 
 import { TodayAiLauncher } from './TodayAiLauncher'
+import { startLauncherDrag } from './todayAiLauncherDrag'
 import { TodayContextPanelCard } from './TodayContextPanelCard'
 import { TODAY_CONTEXT_PANEL_DOCK_EDGE, todayContextPanelLogic } from './todayContextPanelLogic'
 
@@ -23,11 +24,35 @@ import { TODAY_CONTEXT_PANEL_DOCK_EDGE, todayContextPanelLogic } from './todayCo
 const NOT_A_DRAG_HANDLE = 'button, a, input, [role="menuitem"]'
 
 export function TodayContextPanelFloating(): JSX.Element {
-    const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint, panelTabs, aiLauncher } =
+    const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint, panelTabs, aiIsland, launcherX } =
         useValues(todayContextPanelLogic)
-    const { setFloatingOpen, setFloatingTab, setFloatingOffset, setDockHint, dock } = useActions(todayContextPanelLogic)
+    const { setFloatingOpen, setFloatingTab, setFloatingOffset, setDockHint, dock, setLauncherX } =
+        useActions(todayContextPanelLogic)
     const cardRef = useRef<HTMLDivElement>(null)
+    const launcherRef = useRef<HTMLButtonElement>(null)
+    const launcherDragged = useRef(false)
+    const [launcherDragging, setLauncherDragging] = useState(false)
     const launcherHidden = docked || !panelTabs.includes(SidePanelTab.Max)
+
+    useLayoutEffect(() => {
+        if (launcherRef.current) {
+            launcherRef.current.style.translate = `${launcherX}px 0px`
+        }
+    }, [launcherX, aiIsland])
+
+    const startDragLauncher = (event: React.PointerEvent<HTMLButtonElement>): void =>
+        startLauncherDrag(event, {
+            origin: launcherX,
+            onDragStart: () => {
+                launcherDragged.current = true
+                setLauncherDragging(true)
+            },
+            onDrop: (x) => {
+                setLauncherX(x)
+                setLauncherDragging(false)
+                window.setTimeout(() => (launcherDragged.current = false), 0)
+            },
+        })
 
     const startDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
         if (event.button !== 0 || (event.target as HTMLElement).closest(NOT_A_DRAG_HANDLE)) {
@@ -76,6 +101,9 @@ export function TodayContextPanelFloating(): JSX.Element {
             <Popover
                 open={floatingOpen}
                 onOpenChange={(open, details) => {
+                    if (open && launcherDragged.current) {
+                        return
+                    }
                     // The panel stays up while the user works on the page around it.
                     if (!open && (details.reason === 'outside-press' || details.reason === 'focus-out')) {
                         return
@@ -97,22 +125,24 @@ export function TodayContextPanelFloating(): JSX.Element {
                     data-quill
                     className="TodayContextPanelButton pointer-events-none absolute inset-x-0 bottom-4 z-[var(--z-main-nav)] flex justify-center"
                     data-hidden={launcherHidden || undefined}
-                    data-island={aiLauncher ? true : undefined}
+                    data-island={aiIsland || undefined}
                     {...(launcherHidden ? { inert: '' } : {})}
                 >
-                    {aiLauncher ? (
-                        <Tooltip disabled={floatingOpen}>
+                    {aiIsland ? (
+                        <Tooltip disabled={floatingOpen || launcherDragging}>
                             <TooltipTrigger
                                 delay={600}
                                 render={
                                     <PopoverTrigger
+                                        ref={launcherRef}
                                         aria-label="Ask PostHog AI"
                                         className="TodayAiLauncherButton pointer-events-auto"
                                         data-attr="today-ai-chat-button"
+                                        onPointerDown={startDragLauncher}
                                     />
                                 }
                             >
-                                <TodayAiLauncher variant={aiLauncher} followPointer />
+                                <TodayAiLauncher followPointer />
                             </TooltipTrigger>
                             <TooltipContent side="top">Ask PostHog AI</TooltipContent>
                         </Tooltip>
@@ -145,13 +175,13 @@ export function TodayContextPanelFloating(): JSX.Element {
                 </div>
                 <PopoverContent
                     side="top"
-                    sideOffset={aiLauncher ? ({ anchor }) => -anchor.height : 8}
+                    sideOffset={aiIsland ? ({ anchor }) => -anchor.height : 8}
                     initialFocus={() =>
                         cardRef.current?.querySelector<HTMLElement>('textarea, [contenteditable="true"]') ?? true
                     }
                     className={cn(
                         'w-auto gap-0 border-0 bg-transparent p-0 shadow-none',
-                        aiLauncher && 'TodayContextPanelMorph'
+                        aiIsland && 'TodayContextPanelMorph'
                     )}
                     data-docked={docked || undefined}
                     // The drag offset changes on every pointer move, which a class can't express.
@@ -170,11 +200,11 @@ export function TodayContextPanelFloating(): JSX.Element {
                         docked={false}
                         tab={floatingActiveTab}
                         onDragStart={startDrag}
-                        className={cn('h-[min(40rem,calc(100vh-10rem))] w-85', !aiLauncher && 'shadow-lg')}
+                        className={cn('h-[min(40rem,calc(100vh-10rem))] w-85', !aiIsland && 'shadow-lg')}
                     />
-                    {aiLauncher && (
+                    {aiIsland && (
                         <span aria-hidden className="TodayContextPanelMorph__face">
-                            <TodayAiLauncher variant={aiLauncher} />
+                            <TodayAiLauncher />
                         </span>
                     )}
                 </PopoverContent>
