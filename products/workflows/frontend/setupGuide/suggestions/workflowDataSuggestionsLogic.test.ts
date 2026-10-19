@@ -8,7 +8,6 @@ import { initKeaTests } from '~/test/init'
 import { loadEntrySource } from '../../Broadcasts/broadcastUsage'
 import {
     hogFlowsCreate,
-    workflowDataSuggestionsAccept,
     workflowDataSuggestionsBuild,
     workflowDataSuggestionsCurrent,
     workflowDataSuggestionsGenerate,
@@ -19,7 +18,6 @@ import { workflowDataSuggestionsLogic } from './workflowDataSuggestionsLogic'
 
 jest.mock('../../generated/api', () => ({
     hogFlowsCreate: jest.fn(),
-    workflowDataSuggestionsAccept: jest.fn(() => Promise.resolve()),
     workflowDataSuggestionsBuild: jest.fn(),
     workflowDataSuggestionsCurrent: jest.fn(),
     workflowDataSuggestionsGenerate: jest.fn(),
@@ -100,7 +98,7 @@ describe('workflowDataSuggestionsLogic', () => {
                 status: 'ready',
                 workflow: { name: 'Welcome new users' },
                 uses_saved_template: false,
-                workflow_id: null,
+                workflow_id: premade ? 'workflow-1' : null,
                 missing_inputs: [],
             })
             jest.mocked(hogFlowsCreate).mockResolvedValue({ id: 'workflow-1' } as any)
@@ -112,13 +110,13 @@ describe('workflowDataSuggestionsLogic', () => {
 
             await logic.asyncActions.startSuggestion({ ...card, premade })
 
-            expect(hogFlowsCreate).toHaveBeenCalledWith(
-                expect.any(String),
-                expect.objectContaining({ name: 'Welcome new users', status: 'draft' }),
-                expect.objectContaining({ signal: expect.anything() })
-            )
-            expect(jest.mocked(workflowDataSuggestionsAccept).mock.calls.map(([, body]) => body)).toEqual(
-                premade ? [{ suggestion_id: 'suggestion-1', hog_flow_id: 'workflow-1' }] : []
+            expect(jest.mocked(workflowDataSuggestionsBuild).mock.calls.map(([, body]) => body)).toEqual([
+                premade
+                    ? { suggestion_id: 'suggestion-1', save_draft: true }
+                    : { suggestion_id: 'suggestion-1', retry: true },
+            ])
+            expect(jest.mocked(hogFlowsCreate).mock.calls.map(([, body]) => body)).toEqual(
+                premade ? [] : [expect.objectContaining({ name: 'Welcome new users', status: 'draft' })]
             )
             expect(router.values.location.pathname).toContain('workflow-1')
             expect(loadEntrySource('workflow-1')).toBe('data_suggestion')

@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 from html import escape
 
 from posthog.dataclasses import frozen
@@ -26,24 +27,33 @@ class RenderedEmail:
 _VARIABLE = re.compile(r"\[\[\s*([A-Za-z_][A-Za-z0-9_]*)\s*(?:\|([^\[\]|]*))?\]\]")
 
 
-def with_variables(text: str, variables: frozenset[str]) -> str:
+def with_variables(text: str, variables: frozenset[str], escape_text: Callable[[str], str] = str) -> str:
     """Turns [[name|fallback]] into a Liquid variable on the trigger event. An unknown name keeps only its fallback,
     so the model can never reach person data or other events."""
 
     def replace(match: re.Match[str]) -> str:
         name = match.group(1)
-        fallback = re.sub(r"['{}%]", "", match.group(2) or "").strip()
+        # Stripped before escaping: the send decodes entities inside a Liquid tag, so an escaped quote would end the
+        # default early.
+        fallback = escape_text(re.sub(r"['{}%]", "", match.group(2) or "").strip())
         if name not in variables:
             return fallback
         return f"{{{{ event.properties.{name} | default: '{fallback}' }}}}"
 
-    return _VARIABLE.sub(replace, text).replace("[[", "").replace("]]", "")
+    parts: list[str] = []
+    end = 0
+    for match in _VARIABLE.finditer(text):
+        parts.append(escape_text(text[end : match.start()]))
+        parts.append(replace(match))
+        end = match.end()
+    parts.append(escape_text(text[end:]))
+    return "".join(parts).replace("[[", "").replace("]]", "")
 
 
 def render_email(copy: EmailCopy) -> RenderedEmail:
     paragraphs = "".join(
         f'<p style="margin:0 0 16px;font-size:16px;line-height:24px;color:#3b3d45">'
-        f"{with_variables(escape(paragraph), copy.variables)}</p>"
+        f"{with_variables(paragraph, copy.variables, escape)}</p>"
         for paragraph in copy.paragraphs
     )
     html = (
@@ -53,7 +63,7 @@ def render_email(copy: EmailCopy) -> RenderedEmail:
         'style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:8px">'
         '<tr><td style="padding:32px">'
         f'<h1 style="margin:0 0 16px;font-size:24px;line-height:32px;color:#1d1f27">'
-        f"{with_variables(escape(copy.heading), copy.variables)}</h1>"
+        f"{with_variables(copy.heading, copy.variables, escape)}</h1>"
         f"{paragraphs}"
         "</td></tr>"
         '<tr><td style="padding:16px 32px 32px;font-size:12px;color:#6b6e76">'

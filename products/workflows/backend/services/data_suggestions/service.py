@@ -15,6 +15,7 @@ import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
+from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.llm.system_one_client import system_one_configured
@@ -55,6 +56,7 @@ from products.workflows.backend.services.data_suggestions.premade import (
     accept_premade_idea,
     lock_premade_idea,
     premade_build,
+    premade_card,
     premade_suggestions,
     store_premade_ideas,
 )
@@ -219,7 +221,13 @@ def run_data_suggestions(*, team_id: int, user_id: int, lock_token: str) -> None
 
 
 def start_build(
-    *, team: Team, suggestion_id: str, caller: str, retry: bool, enqueue: Callable[[str], None]
+    *,
+    team: Team,
+    suggestion_id: str,
+    caller: str,
+    retry: bool,
+    enqueue: Callable[[str], None],
+    validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
 ) -> BuiltSuggestion:
     """The built draft, or a background build through `enqueue`. Ask again while the status is building.
 
@@ -229,6 +237,9 @@ def start_build(
     """
     premade = premade_build(team, suggestion_id)
     if premade is not None and premade.workflow is not None:
+        # The idea was checked with the editor's rules when it was prepared, and an API caller's rules are stricter.
+        if validate_draft(team, premade.workflow) is None:
+            return _BUILD_FAILED
         return dataclasses.replace(premade, missing_inputs=_missing_inputs(team, premade.workflow))
     if team.organization.is_ai_data_processing_approved is not True or _cached_suggestion(team, suggestion_id) is None:
         raise DataSuggestionNotFound()
@@ -256,6 +267,7 @@ def save_premade_draft(
     team: Team,
     user: User,
     idea_id: str,
+    caller: str,
     validate_draft: Callable[[Team, dict[str, Any]], dict[str, Any] | None],
     save_draft: Callable[[Team, User, dict[str, Any]], str],
 ) -> BuiltSuggestion | None:
@@ -263,7 +275,7 @@ def save_premade_draft(
     premade idea. The idea row stays locked until both writes commit, so a second call cannot save a second draft."""
     with transaction.atomic():
         try:
-            lock_premade_idea(team.id, idea_id)
+            row = lock_premade_idea(team.id, idea_id)
         except WorkflowIdeaNotFound:
             return None
         built = premade_build(team, idea_id)
@@ -274,7 +286,11 @@ def save_premade_draft(
             return _BUILD_FAILED
         workflow_id = save_draft(team, user, validated)
         accept_premade_idea(team=team, idea_id=idea_id, hog_flow_id=workflow_id, user=user, access=None)
-    return dataclasses.replace(built, workflow_id=workflow_id, missing_inputs=_missing_inputs(team, built.workflow))
+    result = dataclasses.replace(built, workflow_id=workflow_id, missing_inputs=_missing_inputs(team, built.workflow))
+    # The web page sends this event itself, with the surface the card was on.
+    if not caller.startswith(f"{EventSource.WEB.value}:"):
+        _capture_saved_build(user=user, suggestion=premade_card(row), result=result, caller=caller)
+    return result
 
 
 def build_caller(event_source: str, *, save: bool, user_id: int) -> str:

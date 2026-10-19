@@ -280,11 +280,16 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         suggestion_id = self._list()["suggestions"][0]["id"]
         cache.set(_build_key(self.team.id, suggestion_id, "web"), {"status": "failed"}, 60)
 
-        retry = start_build(
-            team=self.team, suggestion_id=suggestion_id, caller="web", retry=True, enqueue=lambda _token: None
-        )
-        poll = start_build(
-            team=self.team, suggestion_id=suggestion_id, caller="web", retry=False, enqueue=lambda _token: None
+        retry, poll = (
+            start_build(
+                team=self.team,
+                suggestion_id=suggestion_id,
+                caller="web",
+                retry=retry_build,
+                enqueue=lambda _token: None,
+                validate_draft=lambda _team, workflow: workflow,
+            )
+            for retry_build in (True, False)
         )
 
         assert retry.status == poll.status == "building"
@@ -662,15 +667,25 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         }
         plan_steps.assert_not_called()
 
+    @parameterized.expand([("generated", False), ("premade", True)])
+    @patch(f"{SERVICE}.ph_scoped_capture")
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")
     def test_an_api_key_only_gets_drafts_its_own_create_call_accepts(
-        self, suggest_ideas: MagicMock, plan_steps: MagicMock, _flag
+        self,
+        _name: str,
+        premade: bool,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+        scoped_capture: MagicMock,
+        _flag,
     ) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
         plan_steps.return_value = PlannedWorkflow(
             first_step="notify", steps=[_step("notify", "function", template_id="template-webhook")]
         )
+        if premade:
+            self._prepare("--team-ids", str(self.team.id))
         suggestion_id = self._list()["suggestions"][0]["id"]
         build_url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build/"
         key = generate_random_token_personal()
@@ -694,6 +709,11 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert draft.status == "draft"
         notify = next(action["id"] for action in draft.actions if action["type"] == "function")
         assert notify in {item["step_id"] for item in saved.json()["missing_inputs"]}
+        capture = scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "workflows data suggestion built"
+        assert capture.call_args.kwargs["properties"]["workflow_id"] == str(draft.id)
+        assert capture.call_args.kwargs["properties"]["source"] == EventSource.API.value
 
     @patch(f"{SERVICE}.plan_steps")
     @patch(f"{SERVICE}.suggest_ideas")

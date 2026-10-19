@@ -41,7 +41,7 @@ def _waiting(team_id: int):
 def premade_suggestions(team: Team) -> tuple[DataSuggestion, ...]:
     # A stored workflow can be large, and the cards only need the metadata.
     rows = _waiting(team.id).defer("definition").order_by("created_at")
-    return tuple(_card(row) for row in rows)
+    return tuple(premade_card(row) for row in rows)
 
 
 def waiting_premade_count(team_id: int) -> int:
@@ -161,7 +161,7 @@ def _idea_key(trigger_event: str) -> str:
     return _KEY_PREFIX + hashlib.sha256(trigger_event.encode()).hexdigest()[:32]
 
 
-def _card(row: WorkflowIdea) -> DataSuggestion:
+def premade_card(row: WorkflowIdea) -> DataSuggestion:
     evidence = row.evidence or {}
     return DataSuggestion(
         id=str(row.id),

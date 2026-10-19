@@ -309,7 +309,10 @@ class TestDataSuggestions(SimpleTestCase):
     def test_build_workflow_shows_trigger_event_properties_through_liquid(self) -> None:
         planned = step(
             email_subject="You left [[product_name|something]] behind",
-            email_paragraphs=["Your [[product_name|items]] cost [[price|less than you think]]."],
+            email_paragraphs=[
+                "Your [[product_name|items]] cost [[price|less than you think]].",
+                "Pick [[product_name|your team's choice]] or [[price|Tom's deal]].",
+            ],
         )
 
         built = build_workflow(IDEA, plan(planned), context(event_properties=frozenset({"product_name"})))
@@ -321,6 +324,10 @@ class TestDataSuggestions(SimpleTestCase):
         )
         assert (
             "Your {{ event.properties.product_name | default: 'items' }} cost less than you think."
+            in (email["config"]["inputs"]["email"]["value"]["html"])
+        )
+        assert (
+            "Pick {{ event.properties.product_name | default: 'your teams choice' }} or Toms deal."
             in (email["config"]["inputs"]["email"]["value"]["html"])
         )
         assert email["name"] == "You left something behind"

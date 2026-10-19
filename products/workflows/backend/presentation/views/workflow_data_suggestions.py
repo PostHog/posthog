@@ -253,13 +253,17 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         user = self._user_with_feature(request)
         payload = DataSuggestionBuildRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        if payload.validated_data["save_draft"]:
+        event_source = get_event_source(request)
+        save = payload.validated_data["save_draft"]
+        rules = EventSource.WEB if save else event_source
+        if save:
             try:
                 saved = save_premade_draft(
                     team=self.team,
                     user=user,
                     idea_id=payload.validated_data["suggestion_id"],
-                    validate_draft=lambda team, workflow: validated_draft(team, workflow, EventSource.WEB),
+                    caller=build_caller(event_source.value, save=True, user_id=user.id),
+                    validate_draft=lambda team, workflow: validated_draft(team, workflow, rules),
                     save_draft=save_draft,
                 )
             except WorkflowIdeaAlreadyResolved:
@@ -272,8 +276,9 @@ class WorkflowDataSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 user=user,
                 suggestion_id=payload.validated_data["suggestion_id"],
                 retry=payload.validated_data["retry"],
-                save=payload.validated_data["save_draft"],
-                event_source=get_event_source(request),
+                save=save,
+                event_source=event_source,
+                validate_draft=lambda team, workflow: validated_draft(team, workflow, rules),
             )
         except DataSuggestionNotFound:
             raise NotFound("This suggestion has expired. Refresh the page to get new ones.")

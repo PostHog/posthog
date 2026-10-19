@@ -3,11 +3,10 @@
 import re
 from typing import Any
 
-from django.db.models import Q
-
 from posthog.models import EventProperty, Team
 from posthog.models.integration import Integration
 
+from products.event_definitions.backend.models import effective_project_id_expr
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
@@ -110,8 +109,8 @@ def email_templates(team: Team) -> tuple[EmailTemplateSummary, ...]:
 def event_property_names(team: Team, event: str) -> tuple[str, ...]:
     """The properties the project sends on `event`, except PostHog's own `$` properties."""
     names = (
-        EventProperty.objects.filter(Q(project_id=team.project_id) | Q(project_id__isnull=True, team_id=team.id))
-        .filter(event=event)
+        EventProperty.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(effective_project_id=team.project_id, event=event)
         .exclude(property__startswith="$")
         .order_by("property")
         .values_list("property", flat=True)[:100]
