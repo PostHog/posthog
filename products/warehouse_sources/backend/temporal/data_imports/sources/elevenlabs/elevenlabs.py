@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
+    PageNumberPaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
@@ -179,6 +180,8 @@ class ElevenLabsCursorPaginator(BasePaginator):
 
 
 def _paginator(config: ElevenLabsEndpointConfig) -> BasePaginator:
+    if config.page_number_param is not None:
+        return PageNumberPaginator(base_page=1, page_param=config.page_number_param)
     if config.cursor_param is None or config.cursor_response_key is None:
         return SinglePagePaginator()
     return ElevenLabsCursorPaginator(config.cursor_param, config.cursor_response_key)

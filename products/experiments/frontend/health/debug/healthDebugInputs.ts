@@ -5,9 +5,7 @@ import { getExperimentStatus } from '../../experimentStatus'
 import type {
     ExperimentHealthInputsApi,
     ExperimentHealthInputsExposuresApi,
-    ExperimentHealthInputsSplitHistoryApi,
     ExperimentHealthInputsTrafficStatusEnumApi,
-    ExperimentHealthInputsVariantApi,
     HealthExposureInputsStatusEnumApi,
 } from '../../generated/api.schemas'
 import type { SetupFact } from '../../setupInspector/SetupFactsTable'
@@ -29,8 +27,10 @@ export interface HealthDebugReleaseCondition {
     people: number | null
 }
 
-export interface HealthDebugSplitChange {
+export interface HealthDebugFlagChange {
     changedAt: string
+    /** What changed: the split, or a setting that decides the variant draw. */
+    changed: string
     before: string
     after: string
     counted: boolean
@@ -49,16 +49,6 @@ function serverValue(state: HealthInputsState, read: (inputs: ExperimentHealthIn
         return 'Loading…'
     }
     return state.error ? `Not loaded: ${state.error}` : 'Not loaded'
-}
-
-function percentage(value: number | null): string {
-    return value === null ? 'unset' : `${value}%`
-}
-
-export function describeSplit(variants: ExperimentHealthInputsVariantApi[]): string {
-    return variants.length
-        ? variants.map((variant) => `${variant.key ?? 'no key'} ${percentage(variant.rollout_percentage)}`).join(', ')
-        : 'none'
 }
 
 function yesNoUnknown(value: boolean | null): string {
@@ -88,7 +78,7 @@ export function buildExperimentFacts(
         {
             label: 'State the checks read',
             value: serverValue(state, describeState),
-            help: 'The flag-state, split-change and forced-variant checks only fire for some of these states.',
+            help: 'The flag-state, flag-change and forced-variant checks only fire for some of these states.',
         },
         { label: 'Start date', value: formatTimestamp(experiment.start_date) },
         {
@@ -114,7 +104,7 @@ export function buildExperimentFacts(
                 ({ reader_access }) =>
                     `Flag history: ${formatYesNo(reader_access.can_read_flag_history).toLowerCase()}. Event queries: ${formatYesNo(reader_access.can_query_events).toLowerCase()}. Denied event properties: ${reader_access.denied_event_properties.join(', ') || 'none'}.`
             ),
-            help: 'The split-change and forced-variant checks read only what the person loading the page may read. A customer without this access gets other findings than you.',
+            help: 'The flag-change and forced-variant checks read only what the person loading the page may read. A customer without this access gets other findings than you.',
         },
     ]
 }
@@ -132,7 +122,7 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
         },
         {
             label: 'Variants',
-            value: serverValue(state, ({ flag }) => (flag ? describeSplit(flag.variants) : 'No flag')),
+            value: serverValue(state, ({ flag }) => (flag ? flag.split_text : 'No flag')),
         },
     ]
 }
@@ -150,16 +140,17 @@ export function buildReleaseConditions(inputs: ExperimentHealthInputsApi | null)
     }))
 }
 
-function describeSplitHistoryStatus(inputs: ExperimentHealthInputsApi): string {
-    const history = inputs.split_history
+function describeFlagHistoryStatus(inputs: ExperimentHealthInputsApi): string {
+    const history = inputs.flag_history
     if (history) {
         if (!history.checked) {
             return `Not compared: ${history.not_checked_reason}`
         }
-        const total = history.changes.length
-        const counted = history.changes.filter((change) => change.counted).length
+        const changes = history.changes
+        const total = changes.length
+        const counted = changes.filter((change) => change.counted).length
         if (total === 0) {
-            return 'No split changes since launch'
+            return 'No changes since launch'
         }
         if (total === 1) {
             return counted
@@ -182,14 +173,14 @@ function describeSplitHistoryStatus(inputs: ExperimentHealthInputsApi): string {
     return 'Not read: the read failed'
 }
 
-export function buildSplitHistoryFacts(state: HealthInputsState): SetupFact[] {
-    const history: ExperimentHealthInputsSplitHistoryApi | null = state.inputs?.split_history ?? null
-    const hasCountedChange = !!history?.changes.some((change) => change.counted)
+export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
+    const history = state.inputs?.flag_history ?? null
+    const hasCountedChange = !!history && history.changes.some((change) => change.counted)
     return [
         {
             label: 'Status',
-            value: serverValue(state, describeSplitHistoryStatus),
-            help: 'The split-change check compares the changes with the exposures only for an exposure event without property filters.',
+            value: serverValue(state, describeFlagHistoryStatus),
+            help: 'The flag-change checks compare the changes with the exposures only for an exposure event without property filters. Every change counts from the first one, of any kind, with an exposure before it.',
         },
         ...(history
             ? [{ label: 'Launched at', value: `${formatTimestamp(history.launched_at)} (${history.team_timezone})` }]
@@ -200,21 +191,22 @@ export function buildSplitHistoryFacts(state: HealthInputsState): SetupFact[] {
                       label: 'Exposed before the first counted change',
                       value: yesNoUnknown(history.exposed_before_first),
                   },
-                  {
-                      label: 'Exposed between the first and last change',
-                      value: yesNoUnknown(history.exposed_between),
-                      help: 'Asked only when the last change sets the split back to what it was before the first.',
-                  },
+                  ...history.exposed_between.map(({ question, exposed }) => ({
+                      label: question,
+                      value: yesNoUnknown(exposed),
+                      help: 'Asked only when the last counted change of this kind sets back what the first changed.',
+                  })),
               ]
             : []),
     ]
 }
 
-export function buildSplitChanges(inputs: ExperimentHealthInputsApi | null): HealthDebugSplitChange[] {
-    return (inputs?.split_history?.changes ?? []).map((change) => ({
+export function buildFlagChanges(inputs: ExperimentHealthInputsApi | null): HealthDebugFlagChange[] {
+    return (inputs?.flag_history?.changes ?? []).map((change) => ({
         changedAt: formatTimestamp(change.changed_at),
-        before: describeSplit(change.before),
-        after: describeSplit(change.after),
+        changed: change.changed,
+        before: change.before,
+        after: change.after,
         counted: change.counted,
     }))
 }

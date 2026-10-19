@@ -81,6 +81,14 @@ def _make(cls, **attrs):
 
 
 _HEALTH_PAUSED = ("flag_off_while_running", "running_but_flag_disabled")
+_REBALANCED = {
+    "filters": {
+        "groups": [{"properties": [], "rollout_percentage": 100}],
+        "multivariate": {
+            "variants": [{"key": "control", "rollout_percentage": 80}, {"key": "test", "rollout_percentage": 20}]
+        },
+    }
+}
 _HEALTH_TRAFFIC = ConditionSetTraffic(
     since=datetime(2026, 10, 12, tzinfo=UTC),
     team_timezone="UTC",
@@ -736,9 +744,22 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 {"metrics": [_HEALTH_METRIC]},
                 None,
                 [_HEALTH_PAUSED, ("split_changed_mid_run", "rebalanced")],
-                timedelta(days=1),
+                (timedelta(days=1), _REBALANCED),
             ),
-            ("split_edited_before_launch", {"metrics": [_HEALTH_METRIC]}, None, [_HEALTH_PAUSED], -timedelta(days=1)),
+            (
+                "split_edited_before_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED],
+                (-timedelta(days=1), _REBALANCED),
+            ),
+            (
+                "key_renamed_after_launch",
+                {"metrics": [_HEALTH_METRIC]},
+                None,
+                [_HEALTH_PAUSED, ("bucketing_changed_mid_run", "key_changed")],
+                (timedelta(days=1), {"key": "health-findings-renamed"}),
+            ),
         ]
     )
     def test_health_reports_findings(
@@ -747,7 +768,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         experiment_fields: dict[str, Any],
         shared_metric_link: dict[str, Any] | None,
         expected: list[tuple[str, str | None]],
-        split_edit_from_launch: timedelta | None = None,
+        flag_edit: tuple[timedelta, dict[str, Any]] | None = None,
     ) -> None:
         start_date = timezone.now() - timedelta(days=3)
         flag = FeatureFlag.objects.create(
@@ -791,8 +812,9 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
                 format="json",
             )
             self.assertEqual(link_response.status_code, status.HTTP_200_OK, link_response.json())
-        if split_edit_from_launch is not None:
-            self._rebalance_split_at(flag, start_date + split_edit_from_launch)
+        if flag_edit is not None:
+            from_launch, fields = flag_edit
+            self._edit_flag_at(flag, start_date + from_launch, fields)
 
         with patch("products.experiments.backend.health.exposure_gate.query_any_exposure", return_value=True):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/health/")
@@ -852,7 +874,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         experiment = Experiment.objects.create(
             team=self.team, name="health-split-access", feature_flag=flag, start_date=start_date
         )
-        self._rebalance_split_at(flag, start_date + timedelta(days=1))
+        self._edit_flag_at(flag, start_date + timedelta(days=1), _REBALANCED)
         headers: dict[str, str] = {}
         if restrict_flag:
             self._enable_access_control()
@@ -1046,7 +1068,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             team=self.team, name="health-inputs-split", feature_flag=flag, start_date=start_date
         )
         if rebalance:
-            self._rebalance_split_at(flag, start_date + timedelta(days=1))
+            self._edit_flag_at(flag, start_date + timedelta(days=1), _REBALANCED)
         headers: dict[str, str] = {}
         if token_scopes is not None:
             token = generate_random_token_personal()
@@ -1062,10 +1084,18 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
-        history = response.json()["split_history"]
+        history = response.json()["flag_history"]
         self.assertEqual(
-            (history["checked"], history["not_checked_reason"], [change["counted"] for change in history["changes"]]),
+            (
+                history["checked"],
+                history["not_checked_reason"],
+                [change["counted"] for change in history["changes"]],
+            ),
             expected,
+        )
+        self.assertEqual(
+            [(change["kind"], change["changed"], change["before"], change["after"]) for change in history["changes"]],
+            [("split", "Split", "control 50%, test 50%", "control 80%, test 20%")] if rebalance else [],
         )
 
     def _deny_event_property(self, name: str) -> None:
@@ -1118,17 +1148,10 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             metrics=[_HEALTH_METRIC],
         )
 
-    def _rebalance_split_at(self, flag: FeatureFlag, at: datetime) -> None:
+    def _edit_flag_at(self, flag: FeatureFlag, at: datetime, fields: dict[str, Any]) -> None:
         with time_machine.travel(at), self.captureOnCommitCallbacks(execute=True):
-            flag.filters = {
-                **flag.filters,
-                "multivariate": {
-                    "variants": [
-                        {"key": "control", "rollout_percentage": 80},
-                        {"key": "test", "rollout_percentage": 20},
-                    ]
-                },
-            }
+            for field, value in fields.items():
+                setattr(flag, field, value)
             flag.save()
 
     @parameterized.expand(
