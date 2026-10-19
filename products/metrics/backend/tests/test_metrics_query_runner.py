@@ -194,30 +194,19 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert self._runner(query).validate_query_runner_access(self.user) is True
 
-    def test_validate_query_runner_access_denied_without_feature_flag(self) -> None:
+    def test_validate_query_runner_access_granted_without_feature_flag(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
 
         with patch("posthoganalytics.feature_enabled", return_value=False):
-            with pytest.raises(UserAccessControlError):
-                self._runner(query).validate_query_runner_access(self.user)
+            assert self._runner(query).validate_query_runner_access(self.user) is True
 
-    def test_calculate_denied_for_shared_link_viewer_without_feature_flag(self) -> None:
-        # Shared-link renders execute with an anonymous SharedLinkUser, which skips
-        # validate_query_runner_access — the flag gate must also hold at calculation time.
+    def test_calculate_allowed_for_shared_link_viewer_without_feature_flag(self) -> None:
         sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
         runner = MetricsQueryRunner(query=query, team=self.team, user=cast(User, SharedLinkUser(sharing_config)))
 
         with patch("posthoganalytics.feature_enabled", return_value=False):
-            with pytest.raises(UserAccessControlError):
-                runner.calculate()
-
-    def test_calculate_allowed_for_shared_link_viewer_with_feature_flag(self) -> None:
-        sharing_config = SharingConfiguration.objects.create(team=self.team, enabled=True)
-        query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
-        runner = MetricsQueryRunner(query=query, team=self.team, user=cast(User, SharedLinkUser(sharing_config)))
-
-        assert runner.calculate().results is not None
+            assert runner.calculate().results is not None
 
     def test_validate_query_runner_access_denied_without_resource_access(self) -> None:
         AccessControl.objects.create(team=self.team, resource="metrics", access_level="none")
