@@ -511,6 +511,32 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 table_name
             )
 
+    def test_columnless_warehouse_table_does_not_shadow_saved_query_view(self):
+        # A failed materialization can leave a DataWarehouseTable row with no introspected
+        # columns behind. Registered as-is it shadows the same-name saved query view:
+        # warehouse tables are added before views and name conflicts are ignored, so every
+        # field of the view fails resolution with "Unable to resolve field".
+        credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
+        DataWarehouseTable.objects.create(
+            name="my_model",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={},
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": "SELECT id FROM events"},
+            columns={"id": "String"},
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+        )
+
+        database = Database.create_for(team=self.team, user=self.user)
+        table = database.get_table("my_model")
+        assert "id" in table.fields, f"saved query view was shadowed: {sorted(table.fields)}"
+
     def test_serialize_database_include_only_returns_same_fields_as_full_serialization(self):
         credential = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(

@@ -2614,6 +2614,15 @@ class Database(BaseModel):
                     ):
                         continue
 
+                    # A table with no introspected columns is an artifact of a failed
+                    # materialization/import: the row exists, but its schema was never
+                    # resolved. Registering it under `table.name` would shadow a same-name
+                    # saved query view: warehouse tables are added before views and name
+                    # conflicts are ignored, so the view's real columns become unresolvable
+                    # ("Unable to resolve field") for every query that targets the view.
+                    if not table.columns:
+                        continue
+
                     with timings.measure(f"table_{table.name}"):
                         s3_table = table.hogql_definition(modifiers)
                         if isinstance(s3_table, S3Table):
