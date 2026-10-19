@@ -1,10 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { HogFlowAction } from './hogflows/types'
+import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
+import type { HogFlow, HogFlowAction } from './hogflows/types'
 import { workflowEditorVisitLogic } from './workflowEditorVisitLogic'
 import { NEW_WORKFLOW, TriggerAction, WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
@@ -17,6 +21,28 @@ const delayStep = (id: string, config: Record<string, unknown>): HogFlowAction =
         created_at: 0,
         updated_at: 0,
         config,
+    }) as HogFlowAction
+
+const branchStep = (id: string): HogFlowAction =>
+    ({
+        id,
+        type: 'conditional_branch',
+        name: 'Split',
+        description: '',
+        created_at: 0,
+        updated_at: 0,
+        config: { conditions: [{ filters: {} }] },
+    }) as HogFlowAction
+
+const slackStep = (id: string): HogFlowAction =>
+    ({
+        id,
+        type: 'function',
+        name: 'Slack',
+        description: '',
+        created_at: 0,
+        updated_at: 0,
+        config: { template_id: 'template-slack', inputs: {} },
     }) as HogFlowAction
 
 const SAVED_ID = 'wf-visit-1'
@@ -69,7 +95,14 @@ describe('workflowEditorVisitLogic', () => {
         const visit = await openEditor(props)
 
         expect(captured('workflow editor opened')).toEqual([
-            { start_path: 'blank', template_id: null, entry_source: null, workflow_id: null, status: 'draft' },
+            {
+                start_path: 'blank',
+                template_id: null,
+                entry_source: null,
+                workflow_id: null,
+                status: 'draft',
+                editor_layout: 'graph',
+            },
         ])
 
         workflowLogic(props).actions.setWorkflowActionConfig('trigger_node', PAGEVIEW_TRIGGER)
@@ -91,7 +124,12 @@ describe('workflowEditorVisitLogic', () => {
                 step_count: 2,
                 invalid_step_count: 1,
                 invalid_step_types: ['delay'],
+                step_types: { delay: 2 },
+                branch_count: 0,
+                editor_layout: 'graph',
+                layout_switch_count: 0,
                 last_edit: 'step_added',
+                last_added_step_type: 'delay',
                 enable_attempted: false,
                 seconds_open: 90,
             },
@@ -159,6 +197,52 @@ describe('workflowEditorVisitLogic', () => {
         visit.unmount()
 
         expect(captured('workflow editor left')).toEqual([expect.objectContaining({ last_edit: 'step_edited' })])
+    })
+
+    it('reports the layout a person lands in and each switch they make', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW], {
+            [FEATURE_FLAGS.WORKFLOWS_LINEAR_VIEW]: true,
+        })
+        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: { ...NEW_WORKFLOW, id: SAVED_ID } } })
+        const props = { id: SAVED_ID }
+        const visit = await openEditor(props)
+
+        hogFlowEditorLogic(props).actions.switchEditorLayout('advanced')
+        hogFlowEditorLogic(props).actions.switchEditorLayout('simple')
+        visit.unmount()
+
+        expect(captured('workflow editor opened')).toEqual([expect.objectContaining({ editor_layout: 'list' })])
+        expect(captured('workflow editor left')).toEqual([
+            expect.objectContaining({ editor_layout: 'list', layout_switch_count: 2 }),
+        ])
+    })
+
+    it('reports which kinds of steps the workflow holds and where it branches', async () => {
+        const branched = {
+            ...NEW_WORKFLOW,
+            id: SAVED_ID,
+            actions: [...NEW_WORKFLOW.actions, branchStep('split'), delayStep('wait_valid', { delay_duration: '10m' })],
+            edges: [
+                { from: 'trigger_node', to: 'split', type: 'continue' },
+                { from: 'split', to: 'wait_valid', type: 'branch', index: 0 },
+                { from: 'split', to: 'exit_node', type: 'continue' },
+                { from: 'wait_valid', to: 'exit_node', type: 'continue' },
+            ],
+        } as HogFlow
+        useMocks({ get: { [`/api/environments/:team_id/hog_flows/${SAVED_ID}/`]: branched } })
+        const props = { id: SAVED_ID }
+        const visit = await openEditor(props)
+
+        addStep(props, slackStep('notify'))
+        visit.unmount()
+
+        expect(captured('workflow editor left')).toEqual([
+            expect.objectContaining({
+                step_types: { conditional_branch: 1, delay: 1, 'function:template-slack': 1 },
+                branch_count: 1,
+                last_added_step_type: 'function:template-slack',
+            }),
+        ])
     })
 
     it('reports which steps block a draft from going live', async () => {
