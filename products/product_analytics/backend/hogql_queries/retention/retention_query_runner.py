@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from functools import cached_property
 from math import ceil
 from typing import Any, Literal, Optional, cast
 
@@ -46,7 +47,6 @@ from posthog.hogql_queries.utils.sampling import correct_result_for_sampling
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action

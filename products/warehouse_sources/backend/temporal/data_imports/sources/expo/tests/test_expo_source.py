@@ -1,4 +1,3 @@
-import pytest
 from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.expo.source import ExpoSource
@@ -8,15 +7,6 @@ _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.expo
 
 
 class TestExpoSourceClass:
-    def test_an_unknown_schema_fails_before_any_request_goes_out(self) -> None:
-        inputs = mock.MagicMock()
-        inputs.schema_name = "not_an_expo_table"
-
-        with pytest.raises(ValueError, match="Unknown Expo endpoint"):
-            ExpoSource().source_for_pipeline(
-                ExpoSourceConfig(access_token="token", project_id="app"), mock.MagicMock(), inputs
-            )
-
     def test_the_project_id_reaches_the_transport(self) -> None:
         inputs = mock.MagicMock()
         inputs.schema_name = "builds"

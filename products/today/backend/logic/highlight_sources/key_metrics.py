@@ -5,7 +5,7 @@ from products.customer_analytics.backend.facade.api import get_key_metrics
 from products.customer_analytics.backend.facade.contracts import KeyMetric
 
 from ...facade import contracts
-from ...facade.enums import HighlightLabel, HighlightUnit
+from ...facade.enums import HighlightLabel, HighlightMetricReason, HighlightUnit
 from ..highlight_rules import exact
 from ..highlight_trends import detect
 from ..highlight_types import Candidate, Context, DailyValueNotReady, Found, Source
@@ -37,6 +37,8 @@ def _tile(metric: KeyMetric) -> contracts.HighlightMetric:
         change_pct=round((metric.this_week / metric.last_week - 1) * 100, 1) if metric.last_week else None,
         series=[v for _, v in metric.daily[-PULSE_DAYS:]],
         url=_url(metric),
+        reason=HighlightMetricReason.KEY_METRIC,
+        previous_value=metric.last_week,
     )
 
 

@@ -1,0 +1,21 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "action": {
+            "description": "The action to run. Use a value from the actions list.\n\n* `get_it_merged` - Get it merged\n* `suggested_prompt` - Suggested prompt",
+            "enum": ["get_it_merged", "suggested_prompt"],
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this signal report.",
+            "type": "string"
+        },
+        "suggested_prompt_index": {
+            "description": "Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.",
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["id", "action"],
+    "type": "object"
+}

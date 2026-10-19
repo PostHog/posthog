@@ -661,7 +661,7 @@ export const SignalReportBillingExemptReasonEnumApi = {
 } as const
 
 /**
- * Outcome head name to its calibrated probability. Empty when the served model skipped the report.
+ * Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users.
  */
 export type ReportRankingApiScores = { [key: string]: number }
 
@@ -671,17 +671,17 @@ export type ReportRankingApiScores = { [key: string]: number }
 export type ReportRankingApiLifts = { [key: string]: number }
 
 export interface ReportRankingApi {
-    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. */
+    /** Key of the served model in the scoring pass, as `<model_name>@<model_version>`. Empty for non-staff users. */
     served_key: string
-    /** Feature family of the served model. */
+    /** Feature family of the served model. Empty for non-staff users. */
     model_name: string
-    /** Training partition of the served model, as `YYYY-MM-DD`. */
+    /** Training partition of the served model, as `YYYY-MM-DD`. Empty for non-staff users. */
     model_version: string
-    /** Version of the serving manifest that chose the model. */
+    /** Version of the serving manifest that chose the model. Empty for non-staff users. */
     manifest_version: string
     /** When the scoring sweep scored the report. */
     scored_at: string
-    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report. */
+    /** Outcome head name to its calibrated probability. Empty when the served model skipped the report, and always empty for non-staff users. */
     scores: ReportRankingApiScores
     /** Outcome head name to its probability divided by the head's training base rate, e.g. 2.7 means 2.7x as likely as the average report. A head without a saved base rate has no entry. */
     lifts: ReportRankingApiLifts
@@ -812,7 +812,7 @@ export interface SignalReportListApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
     /**
      * Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended only. Lower keys rank first. It is the score decile of the ranker's head (open, action or fixed), then the priority as a tiebreak. The priority ranker uses the priority only. Reports without a usable score sort after scored ones. Null for every other sort.
@@ -1056,7 +1056,7 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly channel_id: string | null
-    /** The served model's score from the latest ranking score artefact. Staff only: null for other users, and null when the report has no score. */
+    /** The served model's score from the latest ranking score artefact. Null for users who are neither staff nor in the inbox model sort rollout, and null when the report has no score. */
     readonly ranking: ReportRankingApi | null
 }
 
@@ -1105,6 +1105,88 @@ export interface SignalReportDeletionStatusApi {
     status: SignalReportDeletionStatusStatusEnumApi
     /** Report being deleted. */
     report_id: string
+}
+
+/**
+ * * `get_it_merged` - Get it merged
+ * * `suggested_prompt` - Suggested prompt
+ */
+export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[keyof typeof ReportTaskActionKindEnumApi]
+
+export const ReportTaskActionKindEnumApi = {
+    GetItMerged: 'get_it_merged',
+    SuggestedPrompt: 'suggested_prompt',
+} as const
+
+/**
+ * One report action that starts an agent run, with whether the report offers it now.
+ */
+export interface SignalReportTaskActionApi {
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `suggested_prompt` sends one of the prompts the report suggests.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /** Whether a run of this action can start now. */
+    available: boolean
+    /**
+     * Why the action cannot start now. Null when `available` is true.
+     * @nullable
+     */
+    disabled_reason: string | null
+    /**
+     * Position of the prompt in the report's suggested prompts. Null for other actions.
+     * @nullable
+     */
+    suggested_prompt_index: number | null
+    /** The message the run gets as its first request. */
+    text: string
+}
+
+export interface SignalReportTaskActionListResponseApi {
+    /** Every action the report has, available or not, in a stable order. */
+    results: SignalReportTaskActionApi[]
+}
+
+export interface SignalReportTaskActionRunRequestApi {
+    /** The action to run. Use a value from the actions list.
+     *
+     * * `get_it_merged` - Get it merged
+     * * `suggested_prompt` - Suggested prompt */
+    action: ReportTaskActionKindEnumApi
+    /**
+     * Required for `suggested_prompt`: the `suggested_prompt_index` from the actions list.
+     * @minimum 0
+     */
+    suggested_prompt_index?: number
+}
+
+export interface SignalReportTaskActionRunResponseApi {
+    /** The task the action created. It is linked to the report. */
+    task_id: string
+    /**
+     * The background run that started, if one did.
+     * @nullable
+     */
+    run_id: string | null
+    /** Link to the task in PostHog. */
+    task_url: string
+    /**
+     * Why the run did not start. Null when it started. The task exists either way.
+     * @nullable
+     */
+    run_error: string | null
+}
+
+export interface SignalReportTaskActionErrorApi {
+    /** Machine-readable error code. */
+    code: string
+    /** Human-readable error message. */
+    detail: string
+    /** For `report_action_run_active`: the task of the run that is still working. */
+    task_id?: string
+    /** For `report_action_run_active`: the run that is still working. */
+    run_id?: string
 }
 
 export interface SignalReportClaimApi {
@@ -7894,7 +7976,7 @@ export type SignalsReportsListParams = {
      */
     offset?: number
     /**
-     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They are staff only: other users get a 400.
+     * Comma-separated ordering clauses. Each clause is a field name optionally prefixed with '-' for descending. Allowed fields: status, is_suggested_reviewer, signal_count, total_weight, priority, created_at, updated_at, id, ranking_pr_merged, ranking_pr_created, ranking_action, ranking_open, ranking_fixed, ranking_discuss, ranking_thumbs_up, ranking_reviewer_fix, ranking_refund, ranking_dismiss_wrong, ranking_dismiss_lowvalue. Defaults to '-is_suggested_reviewer,status,-updated_at'. The ranking_* fields sort by the served ranking model's probability for that outcome head, with unscored reports last in either direction. They need staff or the inbox model sort rollout: other users get a 400.
      */
     ordering?: string
     /**

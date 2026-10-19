@@ -2,7 +2,7 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -157,7 +157,12 @@ from posthog.clickhouse.client.limit import (
     get_app_dashboard_queries_rate_limiter,
     get_materialized_endpoints_rate_limiter,
 )
-from posthog.clickhouse.query_tagging import get_query_tag_value, is_api_key_access_method, tag_queries
+from posthog.clickhouse.query_tagging import (
+    get_query_tag_value,
+    is_api_key_access_method,
+    is_known_product_tag,
+    tag_queries,
+)
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.errors import QueryErrorCategory, classify_query_error, clickhouse_error_type
@@ -1847,6 +1852,25 @@ def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
     return getattr(query, "modifiers", None)
 
 
+def team_configs_for_cache_key(team: Team) -> dict[str, dict | str]:
+    # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
+    # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
+    # marker instead of 500-ing the whole query. Failures then share one cache namespace,
+    # separate from the successfully-loaded key.
+    def read(name: str) -> dict | str:
+        try:
+            return getattr(team, name).to_cache_key_dict()
+        except OperationalError:
+            logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
+            return "unavailable"
+
+    return {
+        "revenue_analytics": read("revenue_analytics_config"),
+        "marketing_analytics": read("marketing_analytics_config"),
+        "customer_analytics": read("customer_analytics_config"),
+    }
+
+
 class QueryRunner(ABC, Generic[Q, R, CR]):
     query: Q
     response: R
@@ -2405,7 +2429,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.productKey:
                     product_key = tags.productKey
                     posthoganalytics.tag("product_key", product_key)
-                    tag_queries(product=tags.productKey)
+                    # Client-supplied: an unknown product must not fail the query.
+                    if is_known_product_tag(product_key):
+                        tag_queries(product=product_key)
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
@@ -3129,22 +3155,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         )
 
     def _products_modifiers_for_cache(self) -> dict:
-        # The team-extension configs are loaded lazily and can hit the DB. Under connection-pool
-        # saturation these reads can time out (OperationalError); degrade to a stable "unavailable"
-        # marker instead of 500-ing the whole query. Failures then share one cache namespace,
-        # separate from the successfully-loaded key.
-        def read(name: str, fn: Callable[[], Any]) -> dict | str:
-            try:
-                return fn().to_cache_key_dict()
-            except OperationalError:
-                logger.warning("Failed to read %s for cache key, degrading gracefully", name, exc_info=True)
-                return "unavailable"
-
-        return {
-            "revenue_analytics": read("revenue_analytics_config", lambda: self.team.revenue_analytics_config),
-            "marketing_analytics": read("marketing_analytics_config", lambda: self.team.marketing_analytics_config),
-            "customer_analytics": read("customer_analytics_config", lambda: self.team.customer_analytics_config),
-        }
+        return team_configs_for_cache_key(self.team)
 
     def _get_property_access_restrictions(self) -> list[dict[str, str | int | None]] | None:
         """Returns sorted restricted property metadata for the current user, or None if unrestricted.

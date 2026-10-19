@@ -16,10 +16,15 @@ from pydantic import BaseModel
 from posthog.egress.limiter.policies import Priority
 from posthog.enums import LabeledStrEnum
 from posthog.llm.gateway_client import GatewayNotConfiguredError, ensure_scout_trial_capture_ready
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.user import User
-from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
+from posthog.models.user_integration import (
+    NEEDS_REAUTHORIZATION_Q,
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+    UserIntegration,
+)
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_installations_for_sandbox
@@ -465,7 +470,8 @@ MCP_TOKEN_REFRESH_INTERVAL_SECONDS = TOKEN_EXPIRATION_SECONDS / 2  # 3 hours
 
 
 def sandbox_identity_scope(run_id: str, state: dict[str, Any] | None) -> str:
-    """Cache scope for marks describing a run's live sandbox.
+    """Cache scope for the MCP-session mark, whose readers reach the agent server over HTTP
+    and hold no sandbox handle to key on. The GitHub mark takes a sandbox id directly.
 
     Keyed on the sandbox id so a replacement sandbox (fresh provision,
     snapshot restore, workflow retry) starts unmarked — nothing ever needs
@@ -501,24 +507,28 @@ def get_sandbox_mcp_session_user(scope: str) -> int | None:
     return _get_sandbox_identity_user("mcp-session", scope)
 
 
-def mark_sandbox_github_identity(scope: str, user_id: int) -> None:
+def mark_sandbox_github_identity(sandbox_id: str, user_id: int) -> None:
     """Record which actor the sandbox's in-place GitHub credentials reflect.
 
     The value is the actor whose token was applied, or who was logged out (no usable
     access) — either way the sandbox no longer carries a *different* actor's identity,
-    which is what owner-scoped refreshes check before re-applying the owner's token.
+    which is what every other writer checks before applying a token of its own.
+
+    Takes the sandbox's own id rather than a scope derived from run state: a reader that
+    resolved the id from a snapshot taken before the sandbox existed would look under a key
+    nobody writes and read every sandbox as unmarked.
 
     Self-expires after MCP_TOKEN_REFRESH_INTERVAL_SECONDS; an absent entry reads as
     "must re-establish", which is always safe because re-establishing re-applies or
     clears rather than trusting stale creds.
     """
-    _mark_sandbox_identity("github-identity", scope, user_id)
+    _mark_sandbox_identity("github-identity", sandbox_id, user_id)
 
 
-def get_sandbox_github_identity_user(scope: str) -> int | None:
+def get_sandbox_github_identity_user(sandbox_id: str) -> int | None:
     """Actor id the sandbox's GitHub credentials were last bound to (or logged
     out for) within the freshness window, or None when unknown."""
-    return _get_sandbox_identity_user("github-identity", scope)
+    return _get_sandbox_identity_user("github-identity", sandbox_id)
 
 
 @dataclass(frozen=True)
@@ -895,6 +905,7 @@ def get_sandbox_ph_mcp_configs(
 # GitHub installation tokens expire after 1 hour and sandboxes refresh theirs every 20 minutes, so a
 # token cached for 30 minutes still outlives the next refresh.
 SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS = 30 * 60
+PUBLIC_GITHUB_REPOSITORY_CACHE_TTL_SECONDS = 5 * 60
 
 
 def _private_repositories(repositories: Sequence[str]) -> list[str]:
@@ -928,6 +939,49 @@ def _sandbox_repositories(state: dict[str, Any] | None, repository: str | None) 
     return [repository] if repository else []
 
 
+def _resolve_installation_repository_names(
+    github_integration: GitHubIntegrationBase, names: Sequence[str]
+) -> list[str]:
+    owner = github_integration.organization().lower()
+    installed: dict[int, str] = {}
+    for repository in github_integration.sync_repository_cache():
+        repository_id = repository.get("id")
+        full_name = repository.get("full_name")
+        if isinstance(repository_id, int) and isinstance(full_name, str):
+            repository_owner, _, name = full_name.lower().rpartition("/")
+            if repository_owner == owner and name:
+                installed[repository_id] = name
+
+    installed_names = set(installed.values())
+    resolved: set[str] = set()
+    unavailable: list[str] = []
+    for name in names:
+        if name in installed_names:
+            resolved.add(name)
+            continue
+        full_name = f"{owner}/{name}"
+        response = github_integration.api_request("GET", f"/repos/{full_name}", endpoint="/repos/{owner}/{repo}")
+        if response.status_code == 404:
+            unavailable.append(full_name)
+            continue
+        if response.status_code != 200:
+            raise GitHubIntegrationError("Failed to check GitHub repository access", status_code=response.status_code)
+        repository = response.json()
+        repository_id = repository.get("id")
+        if isinstance(repository_id, int) and repository_id in installed:
+            resolved.add(installed[repository_id])
+        elif repository.get("private") is not False or repository.get("visibility") == "internal":
+            unavailable.append(full_name)
+
+    if unavailable:
+        raise CredentialUnavailableError(
+            f"Cannot access GitHub repositories: {', '.join(unavailable)}. "
+            "Check that they exist and grant the GitHub App access in your installation settings, then retry.",
+            {"repositories": unavailable},
+        )
+    return sorted(resolved)
+
+
 def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, repositories: Sequence[str]) -> str | None:
     names = _installation_repository_names(github_integration, repositories)
     if not names:
@@ -935,9 +989,18 @@ def _mint_repository_scoped_token(github_integration: GitHubIntegrationBase, rep
     cache_key = f"task-sandbox-github-token:{github_integration.github_installation_id}:{','.join(names)}"
     cache = get_tasks_cache()
     cached = cache.get(cache_key)
-    if isinstance(cached, str) and cached:
-        return cached
-    token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    if isinstance(cached, str):
+        return cached or None
+    try:
+        token = github_integration.mint_scoped_installation_token(None, repositories=names)
+    except GitHubIntegrationError as error:
+        if error.status_code != 422:
+            raise
+        resolved_names = _resolve_installation_repository_names(github_integration, names)
+        if not resolved_names:
+            cache.set(cache_key, "", timeout=PUBLIC_GITHUB_REPOSITORY_CACHE_TTL_SECONDS)
+            return None
+        token = github_integration.mint_scoped_installation_token(None, repositories=resolved_names)
     cache.set(cache_key, token, timeout=SCOPED_GITHUB_TOKEN_CACHE_TTL_SECONDS)
     return token
 
@@ -1091,7 +1154,9 @@ def get_user_github_integration(
         return None
 
     normalized_repository = _normalize_repository(repository)
-    integrations = UserIntegration.objects.filter(user=user, kind="github").order_by("created_at")
+    integrations = (
+        UserIntegration.objects.filter(user=user, kind="github").exclude(NEEDS_REAUTHORIZATION_Q).order_by("created_at")
+    )
     if github_user_integration_id:
         integrations = integrations.filter(id=github_user_integration_id)
 
@@ -1140,6 +1205,7 @@ def resolve_user_github_integration_for_task(
                 kind="github",
                 integration_id=team_installation_id,
             )
+            .exclude(NEEDS_REAUTHORIZATION_Q)
             .order_by("created_at")
             .first()
         )

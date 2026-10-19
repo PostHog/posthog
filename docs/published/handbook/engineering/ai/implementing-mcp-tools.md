@@ -427,6 +427,8 @@ Register your new reference in [`products/posthog_ai/skills/querying-posthog-dat
 
 ## Code generation pipeline
 
+Generated handlers URL-encode path parameters. `ApiClient.request` also rejects empty path segments and paths that URL parsing would normalize. Keep generated calls on this client so the requested resource stays within the handler's endpoint.
+
 The pipeline turns Django serializers into MCP tool handlers via OpenAPI.
 Run the full pipeline with:
 
