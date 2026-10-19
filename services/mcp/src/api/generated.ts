@@ -45311,10 +45311,12 @@ export namespace Schemas {
       release_conditions: ExperimentHealthInputsReleaseCondition[];
       /** The flag's variants and their split. */
       variants: ExperimentHealthInputsVariant[];
+      /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
+      split_text: string;
     }
 
     export interface ExperimentHealthInputsFlagChange {
-      /** The kind of change: 'split', or 'bucketing' for a setting that decides the variant draw.
+      /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
        *
        * * `split` - Split
        * * `bucketing` - Bucketing */
@@ -45332,7 +45334,7 @@ export namespace Schemas {
     }
 
     export interface ExperimentHealthInputsExposedBetween {
-      /** The kind of change: 'split', or 'bucketing' for a setting that decides the variant draw.
+      /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
        *
        * * `split` - Split
        * * `bucketing` - Bucketing */

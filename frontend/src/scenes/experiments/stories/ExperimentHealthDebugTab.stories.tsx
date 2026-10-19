@@ -59,6 +59,7 @@ const HEALTH_INPUTS: ExperimentHealthInputsApi = {
             { number: 2, rollout_percentage: 100, property_count: 0, reachable: true, pinned_variant: null },
         ],
         variants: SPLIT_AFTER,
+        split_text: 'control 34%, test-1 33%, test-2 33%',
     },
     flag_history: {
         checked: true,

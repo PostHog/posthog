@@ -3149,6 +3149,9 @@ class ExperimentHealthInputsFlagSerializer(serializers.Serializer):
         many=True, help_text="The flag's release conditions, in evaluation order."
     )
     variants = ExperimentHealthInputsVariantSerializer(many=True, help_text="The flag's variants and their split.")
+    split_text = serializers.CharField(
+        help_text="The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'."
+    )
 
 
 _COUNTED_HELP = (
@@ -3157,7 +3160,9 @@ _COUNTED_HELP = (
 )
 
 
-_FLAG_CHANGE_KIND_HELP = "The kind of change: 'split', or 'bucketing' for a setting that decides the variant draw."
+_FLAG_CHANGE_KIND_HELP = (
+    "The kind of change. A bucketing change is a change of a setting that decides the variant draw."
+)
 
 
 class ExperimentHealthInputsFlagChangeSerializer(serializers.Serializer):

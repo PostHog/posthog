@@ -6,7 +6,6 @@ import type {
     ExperimentHealthInputsApi,
     ExperimentHealthInputsExposuresApi,
     ExperimentHealthInputsTrafficStatusEnumApi,
-    ExperimentHealthInputsVariantApi,
     HealthExposureInputsStatusEnumApi,
 } from '../../generated/api.schemas'
 import type { SetupFact } from '../../setupInspector/SetupFactsTable'
@@ -50,16 +49,6 @@ function serverValue(state: HealthInputsState, read: (inputs: ExperimentHealthIn
         return 'Loading…'
     }
     return state.error ? `Not loaded: ${state.error}` : 'Not loaded'
-}
-
-function percentage(value: number | null): string {
-    return value === null ? 'unset' : `${value}%`
-}
-
-export function describeSplit(variants: ExperimentHealthInputsVariantApi[]): string {
-    return variants.length
-        ? variants.map((variant) => `${variant.key ?? 'no key'} ${percentage(variant.rollout_percentage)}`).join(', ')
-        : 'none'
 }
 
 function yesNoUnknown(value: boolean | null): string {
@@ -133,7 +122,7 @@ export function buildFlagFacts(experiment: Experiment, state: HealthInputsState)
         },
         {
             label: 'Variants',
-            value: serverValue(state, ({ flag }) => (flag ? describeSplit(flag.variants) : 'No flag')),
+            value: serverValue(state, ({ flag }) => (flag ? flag.split_text : 'No flag')),
         },
     ]
 }

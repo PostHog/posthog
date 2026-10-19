@@ -3059,6 +3059,8 @@ export interface ExperimentHealthInputsFlagApi {
     release_conditions: ExperimentHealthInputsReleaseConditionApi[]
     /** The flag's variants and their split. */
     variants: ExperimentHealthInputsVariantApi[]
+    /** The split as text, in the form of a change's before and after, such as 'control 50%, test 50%'. */
+    split_text: string
 }
 
 /**
@@ -3074,7 +3076,7 @@ export const ExperimentHealthFlagChangeKindEnumApi = {
 } as const
 
 export interface ExperimentHealthInputsFlagChangeApi {
-    /** The kind of change: 'split', or 'bucketing' for a setting that decides the variant draw.
+    /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
      *
      * * `split` - Split
      * * `bucketing` - Bucketing */
@@ -3092,7 +3094,7 @@ export interface ExperimentHealthInputsFlagChangeApi {
 }
 
 export interface ExperimentHealthInputsExposedBetweenApi {
-    /** The kind of change: 'split', or 'bucketing' for a setting that decides the variant draw.
+    /** The kind of change. A bucketing change is a change of a setting that decides the variant draw.
      *
      * * `split` - Split
      * * `bucketing` - Bucketing */

@@ -28,6 +28,22 @@ def _health_inputs_split(split: Split) -> list[dict[str, Any]]:
     return [{"key": variant.key, "rollout_percentage": variant.rollout_percentage} for variant in split]
 
 
+def _health_inputs_percentage(value: float | None) -> str:
+    # Written as the page writes a number, so 50.0 reads "50%".
+    if value is None:
+        return "unset"
+    return f"{int(value) if value.is_integer() else value}%"
+
+
+def _health_inputs_split_text(split: Split) -> str:
+    if not split:
+        return "none"
+    return ", ".join(
+        f"{variant.key if variant.key is not None else 'no key'} {_health_inputs_percentage(variant.rollout_percentage)}"
+        for variant in split
+    )
+
+
 def _health_inputs_flag(flag: FlagState) -> dict[str, Any]:
     reachable = {condition.number: condition for condition in flag.reachable_conditions}
     return {
@@ -44,6 +60,7 @@ def _health_inputs_flag(flag: FlagState) -> dict[str, Any]:
             for number, group in enumerate(flag.release_groups, start=1)
         ],
         "variants": _health_inputs_split(flag.variants),
+        "split_text": _health_inputs_split_text(flag.variants),
     }
 
 
@@ -53,26 +70,6 @@ _SETTING_LABELS = {
     BucketingSetting.BUCKETING_IDENTIFIER: "Bucketing identifier",
     BucketingSetting.EXPERIENCE_CONTINUITY: "Persist across authentication",
 }
-_KIND_NAMES = {
-    ExperimentHealthFlagChangeKind.SPLIT: "split",
-    ExperimentHealthFlagChangeKind.BUCKETING: "bucketing",
-}
-
-
-def _health_inputs_percentage(value: float | None) -> str:
-    # Written as the page writes a number, so 50.0 reads "50%".
-    if value is None:
-        return "unset"
-    return f"{int(value) if value.is_integer() else value}%"
-
-
-def _health_inputs_split_text(split: Split) -> str:
-    if not split:
-        return "none"
-    return ", ".join(
-        f"{variant.key if variant.key is not None else 'no key'} {_health_inputs_percentage(variant.rollout_percentage)}"
-        for variant in split
-    )
 
 
 def _health_inputs_bucketing_value(value: str | int | bool | None) -> str:
@@ -128,7 +125,7 @@ def _health_inputs_flag_history(history: FlagHistory | FlagHistoryNotChecked) ->
         "exposed_between": [
             {
                 "kind": kind,
-                "question": f"Exposed between the first and last {_KIND_NAMES[kind]} change",
+                "question": f"Exposed between the first and last {kind.label.lower()} change",
                 "exposed": exposed_between.get(kind),
             }
             for kind in ExperimentHealthFlagChangeKind
