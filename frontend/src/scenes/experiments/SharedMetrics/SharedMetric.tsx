@@ -37,6 +37,7 @@ import type { ExperimentSavedMetricLinkedExperimentApi } from 'products/experime
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { isLegacyExperimentQuery } from '../utils'
 import { openDeleteSharedMetricDialog } from './deleteSharedMetricDialog'
+import { QuillSharedMetricActions } from './QuillSharedMetricActions'
 import { SharedMetricLinkedExperiments } from './SharedMetricLinkedExperiments'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
@@ -91,6 +92,7 @@ function openSaveWithRunningExperimentsDialog(
 export function SharedMetric(): JSX.Element {
     const { sharedMetric, action, metricSaving } = useValues(sharedMetricLogic)
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { setSharedMetric, createSharedMetric, updateSharedMetric, deleteSharedMetric } =
         useActions(sharedMetricLogic)
 
@@ -233,46 +235,58 @@ export function SharedMetric(): JSX.Element {
                     key: ExperimentsTabs.SharedMetrics,
                 }}
                 actions={
-                    <>
-                        {action === 'update' && (
-                            <More
-                                overlay={
-                                    <AccessControlAction
-                                        resourceType={AccessControlResourceType.ExperimentSavedMetric}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        userAccessLevel={sharedMetric.user_access_level}
-                                    >
-                                        <LemonButton
-                                            fullWidth
-                                            size="small"
-                                            icon={<IconTrash />}
-                                            status="danger"
-                                            data-attr="shared-metric-delete"
-                                            loading={deleteCheckLoading}
-                                            onClick={() => void handleDelete()}
-                                        >
-                                            Delete
-                                        </LemonButton>
-                                    </AccessControlAction>
-                                }
-                            />
-                        )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
-                            minAccessLevel={AccessControlLevel.Editor}
+                    todayRailNav ? (
+                        <QuillSharedMetricActions
+                            showDelete={action === 'update'}
                             userAccessLevel={sharedMetric.user_access_level}
-                        >
-                            <LemonButton
-                                disabledReason={saveDisabledReason}
-                                loading={metricSaving}
-                                size="small"
-                                type="primary"
-                                onClick={handleSave}
+                            deleteLoading={deleteCheckLoading}
+                            onDelete={() => void handleDelete()}
+                            saveDisabledReason={saveDisabledReason}
+                            saving={metricSaving}
+                            onSave={handleSave}
+                        />
+                    ) : (
+                        <>
+                            {action === 'update' && (
+                                <More
+                                    overlay={
+                                        <AccessControlAction
+                                            resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                                            minAccessLevel={AccessControlLevel.Editor}
+                                            userAccessLevel={sharedMetric.user_access_level}
+                                        >
+                                            <LemonButton
+                                                fullWidth
+                                                size="small"
+                                                icon={<IconTrash />}
+                                                status="danger"
+                                                data-attr="shared-metric-delete"
+                                                loading={deleteCheckLoading}
+                                                onClick={() => void handleDelete()}
+                                            >
+                                                Delete
+                                            </LemonButton>
+                                        </AccessControlAction>
+                                    }
+                                />
+                            )}
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.ExperimentSavedMetric}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={sharedMetric.user_access_level}
                             >
-                                Save
-                            </LemonButton>
-                        </AccessControlAction>
-                    </>
+                                <LemonButton
+                                    disabledReason={saveDisabledReason}
+                                    loading={metricSaving}
+                                    size="small"
+                                    type="primary"
+                                    onClick={handleSave}
+                                >
+                                    Save
+                                </LemonButton>
+                            </AccessControlAction>
+                        </>
+                    )
                 }
             />
 
