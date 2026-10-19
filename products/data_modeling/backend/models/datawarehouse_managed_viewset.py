@@ -140,7 +140,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         orphaned_views_to_revert: list[DataWarehouseSavedQuery] = []
 
         # Keep this transaction short: persist DB changes only. The post-commit work
-        # (schedule_materialization → Temporal RPCs + DataWarehouseModelPath updates,
+        # (schedule_materialization → Temporal RPCs,
         # and orphan revert_materialization) runs outside the atomic block so row
         # locks on posthog_datawarehousesavedquery aren't held across synchronous
         # Temporal RPCs.

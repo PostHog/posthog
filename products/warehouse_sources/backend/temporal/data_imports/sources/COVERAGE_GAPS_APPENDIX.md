@@ -1016,11 +1016,11 @@ Note: Automox publishes six separate Scalar specs at /api/docs/specs/\*.json (co
 
 ## Autumn — adequate
 
-Today (8): `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Plans`
+Today (9): `Coupons`, `Customers`, `Entities`, `Events`, `FeatureGrants`, `Features`, `Invoices`, `Licenses`, `Plans`
 
 Diffed against: <https://docs.useautumn.com/llms.txt>
 
-No material gaps found.
+- [x] `Licenses (POST /v1/licenses.list)` — per-customer license pools with granted, assigned, and remaining seats (medium)
 
 Note: Every list endpoint in the API reference is already synced: listCustomers, listEntities, listEvents, listFeatures, listInvoices, listPlans, and listRewards (which is the source of both the Coupons and FeatureGrants tables). Remaining endpoints are single-object gets, mutations (attach/track/check/balance ops), preview calculators, key minting, webhook payload docs, and the multi-tenant platform endpoints (list-orgs/list-users) that only apply to platform master orgs. aggregateEvents is a computed rollup over the Events table we already have.
 
@@ -1217,9 +1217,9 @@ Today (3): `analyzers`, `archive_rules`, `findings`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/accessanalyzer/2019-11-01/service-2.json>
 
-- [ ] `Analyzed resources (ListAnalyzedResources, POST /analyzed-resource)` — resolves resource ARNs in findings and identifies analyzed resources without findings (high)
-- [ ] `Finding access details (GetFindingV2, GET /findingv2/{id})` — provides principals, actions, and unused permission records that finding summaries omit (high)
-- [ ] `Finding recommendations (GetFindingRecommendation, GET /recommendation/{id})` — provides remediation steps for unused permissions so findings can be assessed against recommended actions (medium)
+- [x] `Analyzed resources (ListAnalyzedResources, POST /analyzed-resource)` — resolves resource ARNs in findings and identifies analyzed resources without findings (high)
+- [x] `Finding access details (GetFindingV2, GET /findingv2/{id})` — provides principals, actions, and unused permission records that finding summaries omit (high)
+- [x] `Finding recommendations (GetFindingRecommendation, GET /recommendation/{id})` — provides remediation steps for unused permissions so findings can be assessed against recommended actions (medium)
 
 Note: Compared the official botocore operation model with the static endpoint map and extraction code. Findings currently use ListFindingsV2 summaries; GetFindingV2 supplies separate, paginated access details. Analyzed resources need analyzer traversal; GetAnalyzedResource hydration applies only to external analyzers. Recommendation reads need existing generated results; policy generation and preview plumbing were excluded.
 
@@ -1252,14 +1252,14 @@ Note: Compared the official Macie V2 botocore operation model with the static en
 
 ## AWS Organizations — gaps
 
-Today (6): `accounts`, `organization`, `organizational_units`, `policies`, `resource_tags`, `roots`
+Today (10): `account_parents`, `accounts`, `delegated_administrators`, `delegated_services`, `organization`, `organizational_units`, `policies`, `policy_targets`, `resource_tags`, `roots`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/organizations/2016-11-28/service-2.json>
 
-- [ ] `Account parents (ListParents, POST /)` — connects synced accounts to organizational units and roots for cost allocation by organizational structure (high)
-- [ ] `Policy targets (ListTargetsForPolicy, POST /)` — connects synced policies to accounts, organizational units, and roots for governance analysis (high)
-- [ ] `Delegated administrators (ListDelegatedAdministrators, POST /)` — identifies accounts responsible for administering organization services (medium)
-- [ ] `Delegated services for account (ListDelegatedServicesForAccount, POST /)` — connects delegated administrator accounts to the services they manage (medium)
+- [x] `Account parents (ListParents, POST /)` — connects synced accounts to organizational units and roots for cost allocation by organizational structure (high)
+- [x] `Policy targets (ListTargetsForPolicy, POST /)` — connects synced policies to accounts, organizational units, and roots for governance analysis (high)
+- [x] `Delegated administrators (ListDelegatedAdministrators, POST /)` — identifies accounts responsible for administering organization services (medium)
+- [x] `Delegated services for account (ListDelegatedServicesForAccount, POST /)` — connects delegated administrator accounts to the services they manage (medium)
 
 Note: Compared the official botocore operation model with the static endpoint map and extraction code. Organizational units already include parent IDs; account rows do not include their parent organizational unit. Account parents, policy targets, and delegated services require traversal; JSON RPC reads use POST /. Tags are already synced; policy content, service setup, and account creation plumbing were excluded.
 
@@ -1298,7 +1298,7 @@ Note: The Savings Plans SDK model was compared with the static table map. The of
 
 ## AWS Security Hub — gaps
 
-Today (8): `enabled_standards`, `findings`, `insights`, `members`, `products`, `security_control_definitions`, `standards`, `standards_controls`
+Today (12): `enabled_standards`, `finding_history`, `findings`, `findings_v2`, `insight_results`, `insights`, `members`, `products`, `resources_v2`, `security_control_definitions`, `standards`, `standards_controls`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/securityhub/2018-10-26/service-2.json>
 
@@ -1306,10 +1306,10 @@ Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocor
 - [x] `Standards controls (GET /standards/controls/{StandardsSubscriptionArn+})` — connect enabled standards to individual controls, enablement status, severity, and disablement reasons (high)
 - [x] `Products (GET /products)` — resolve ProductArn in findings to vendor names and product descriptions (high)
 - [x] `Member accounts (GET /members)` — resolve finding account IDs to member account details and analyze security coverage across accounts (high)
-- [ ] `Finding history (POST /findingHistory/get)` — measure remediation progress and changes in severity, compliance, and workflow status (high)
-- [ ] `Security Hub V2 findings (GetFindingsV2, POST /findingsv2)` — analyze findings from the newer Security Hub surface that legacy CSPM GetFindings does not provide (high)
-- [ ] `Security Hub V2 resources (GetResourcesV2, POST /resourcesv2)` — analyze resource risk and connect newer findings to a separate resource inventory (medium)
-- [ ] `Insight results (GET /insights/results/{InsightArn+})` — import grouped finding counts for insights instead of only their filter definitions (medium)
+- [x] `Finding history (POST /findingHistory/get)` — measure remediation progress and changes in severity, compliance, and workflow status (high)
+- [x] `Security Hub V2 findings (GetFindingsV2, POST /findingsv2)` — analyze findings from the newer Security Hub surface that legacy CSPM GetFindings does not provide (high)
+- [x] `Security Hub V2 resources (GetResourcesV2, POST /resourcesv2)` — analyze resource risk and connect newer findings to a separate resource inventory (medium)
+- [x] `Insight results (GET /insights/results/{InsightArn+})` — import grouped finding counts for insights instead of only their filter definitions (medium)
 - [x] `Remediations (GetRemediationsV2, POST /GetRemediationsV2)` — prioritize the resource changes that resolve or reduce exposure findings (high)
 - [x] `Exposures by remediation (ListExposuresByRemediationV2, POST /ListExposuresByRemediationV2)` — connect each remediation target to the exposure findings it resolves or reduces (medium)
 
@@ -1321,29 +1321,29 @@ Today (3): `execution_history`, `executions`, `state_machines`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/stepfunctions/2016-11-23/service-2.json>
 
-- [ ] `State machine versions (ListStateMachineVersions, POST /)` — resolve stateMachineVersionArn on executions and compare outcomes across deployed versions (high)
-- [ ] `State machine aliases (ListStateMachineAliases and DescribeStateMachineAlias, POST /)` — resolve stateMachineAliasArn on executions and compare results across deployment aliases (high)
-- [ ] `Activities (ListActivities, POST /)` — resolve activity resource ARNs in execution history to worker activity names (high)
-- [ ] `Map Runs and child executions (ListMapRuns, DescribeMapRun and ListExecutions with mapRunArn, POST /)` — measure distributed processing progress, failed items, child execution outcomes, and redrive results (high)
+- [x] `State machine versions (ListStateMachineVersions, POST /)` — resolve stateMachineVersionArn on executions and compare outcomes across deployed versions (high)
+- [x] `State machine aliases (ListStateMachineAliases and DescribeStateMachineAlias, POST /)` — resolve stateMachineAliasArn on executions and compare results across deployment aliases (high)
+- [x] `Activities (ListActivities, POST /)` — resolve activity resource ARNs in execution history to worker activity names (high)
+- [x] `Map Runs and child executions (ListMapRuns, DescribeMapRun and ListExecutions with mapRunArn, POST /)` — measure distributed processing progress, failed items, child execution outcomes, and redrive results (high)
 
 Note: The official SDK model was compared with ListStateMachines, ListExecutions, and GetExecutionHistory in the source. Version and alias ARNs already appear in execution rows; activity resource ARNs appear in history events. Map Runs require requests for each parent execution, then describe and child execution calls. Standalone Express execution history is unavailable through these operations; task polling, writes, and existing object enrichment are excluded.
 
 ## AWS Systems Manager — **thin**
 
-Today (10): `association_execution_targets`, `association_executions`, `associations`, `compliance_items`, `documents`, `inventory`, `inventory_entries`, `managed_instances`, `patch_baselines`, `resource_compliance_summaries`
+Today (15): `association_execution_targets`, `association_executions`, `associations`, `compliance_items`, `documents`, `instance_patch_states`, `instance_patches`, `inventory`, `inventory_entries`, `managed_instances`, `ops_item_events`, `ops_items`, `patch_baselines`, `resource_compliance_summaries`, `sessions`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/ssm/2014-11-06/service-2.json>
 
 - [x] `Documents (ListDocuments, POST /)` — resolve association document names to document types, owners, versions, and supported platforms (high)
 - [x] `Inventory entries (ListInventoryEntries, POST /)` — analyze installed applications, services, and other inventory beyond the imported AWS:InstanceInformation records (high)
 - [x] `Compliance items (ListComplianceItems, POST /)` — identify individual noncompliant patches or associations behind resource compliance totals (high)
-- [ ] `Instance patch states (DescribeInstancePatchStates, POST /)` — measure missing patches, failed patches, and patch scan times for each managed node (high)
-- [ ] `Instance patches (DescribeInstancePatches, POST /)` — analyze installed and missing patches by classification, severity, installation date, and node (high)
+- [x] `Instance patch states (DescribeInstancePatchStates, POST /)` — measure missing patches, failed patches, and patch scan times for each managed node (high)
+- [x] `Instance patches (DescribeInstancePatches, POST /)` — analyze installed and missing patches by classification, severity, installation date, and node (high)
 - [x] `Association executions and targets (DescribeAssociationExecutions and DescribeAssociationExecutionTargets, POST /)` — measure association execution success and identify failed target nodes over time (high)
 - [ ] `Commands and command invocations (ListCommands and ListCommandInvocations, POST /)` — analyze remote command duration, failures, and results for each target node (medium)
 - [ ] `Automation executions and steps (DescribeAutomationExecutions and DescribeAutomationStepExecutions, POST /)` — measure automation outcomes and locate slow or failed runbook steps (medium)
-- [ ] `OpsItems and events (DescribeOpsItems and ListOpsItemEvents, POST /)` — track operational issues, priority, resolution times, and changes throughout their lifecycle (medium)
-- [ ] `Sessions (DescribeSessions, POST /)` — audit session activity, operators, target nodes, duration, and termination status (medium)
+- [x] `OpsItems and events (DescribeOpsItems and ListOpsItemEvents, POST /)` — track operational issues, priority, resolution times, and changes throughout their lifecycle (medium)
+- [x] `Sessions (DescribeSessions, POST /)` — audit session activity, operators, target nodes, duration, and termination status (medium)
 
 Note: The official SDK model lists read operations, required inputs, and collection response fields. The inventory table explicitly requests only AWS:InstanceInformation; other inventory types are absent. Inventory, patches, associations, and automation steps need nested requests; sessions retain only the documented recent history. Parameter secrets, access tokens, settings, resource sync configuration, and write operations are excluded.
 
@@ -1353,10 +1353,10 @@ Today (4): `ip_sets`, `regex_pattern_sets`, `rule_groups`, `web_acls`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/wafv2/2019-07-29/service-2.json>
 
-- [ ] `Managed rule groups (ListAvailableManagedRuleGroups and DescribeManagedRuleGroup, POST /)` — resolve managed rule group references in web ACLs to vendor, rules, labels, and capacity (high)
-- [ ] `Protected resources (ListResourcesForWebACL, POST /)` — connect web ACLs to protected application resources and measure protection coverage (high)
-- [ ] `WAF request metrics (CloudWatch GetMetricData, POST /)` — measure allowed, blocked, and counted requests over time, which resource inventories cannot provide (high)
-- [ ] `Sampled requests (GetSampledRequests, POST /)` — analyze request actions, matching rules, client countries, and attack patterns from recent traffic samples (high)
+- [x] `Managed rule groups (ListAvailableManagedRuleGroups and DescribeManagedRuleGroup, POST /)` — resolve managed rule group references in web ACLs to vendor, rules, labels, and capacity (high)
+- [x] `Protected resources (ListResourcesForWebACL, POST /)` — connect web ACLs to protected application resources and measure protection coverage (high)
+- [x] `WAF request metrics (CloudWatch GetMetricData, POST /)` — measure allowed, blocked, and counted requests over time, which resource inventories cannot provide (high)
+- [x] `Sampled requests (GetSampledRequests, POST /)` — analyze request actions, matching rules, client countries, and attack patterns from recent traffic samples (high)
 - [ ] `Top paths by bot traffic (GetTopPathStatisticsByTraffic, POST /)` — identify application paths and bot categories that account for the most bot traffic (medium)
 - [ ] `Rate-based rule managed keys (GetRateBasedStatementManagedKeys, POST /)` — track IP addresses currently blocked by rate-based rules and compare rules across web ACLs (medium)
 - [ ] `Settlement records (ListSettlementRecords, POST /)` — analyze individual monetization payments for protected CloudFront resources (medium)
@@ -1564,14 +1564,14 @@ Today (5): `brands`, `categories`, `customers`, `orders`, `products`
 
 Diffed against: <https://raw.githubusercontent.com/bigcommerce/api-specs/master/reference/orders.v2.oas2.yml>
 
-- [ ] `Order statuses (GET /v2/order_statuses)` — resolve status_id on imported orders to status names and descriptions (high)
-- [ ] `Customer groups (GET /v2/customer_groups)` — resolve customer_group_id on imported customers and compare purchasing behavior across customer segments (high)
-- [ ] `Channels (GET /v3/channels)` — resolve channel_id on orders and channel references on customers to sales channel names and types (high)
-- [ ] `Order products (GET /v2/orders/{order_id}/products)` — measure item sales, quantities, discounts, and product revenue from order line details (high)
-- [ ] `Product variants (GET /v3/catalog/variants)` — analyze SKU prices and stock, and resolve variant IDs in order line records (high)
-- [ ] `Refunds (GET /v3/orders/payment_actions/refunds)` — calculate net sales and analyze refund amounts, reasons, and refunded items (high)
-- [ ] `Order transactions (GET /v3/orders/{order_id}/transactions)` — reconcile payments, captures, refunds, and payment provider outcomes against orders (high)
-- [ ] `Order shipments (GET /v2/orders/{order_id}/shipments)` — measure fulfillment and connect shipped quantities, tracking references, and shipping providers to orders (medium)
+- [x] `Order statuses (GET /v2/order_statuses)` — resolve status_id on imported orders to status names and descriptions (high)
+- [x] `Customer groups (GET /v2/customer_groups)` — resolve customer_group_id on imported customers and compare purchasing behavior across customer segments (high)
+- [x] `Channels (GET /v3/channels)` — resolve channel_id on orders and channel references on customers to sales channel names and types (high)
+- [x] `Order products (GET /v2/orders/{order_id}/products)` — measure item sales, quantities, discounts, and product revenue from order line details (high)
+- [x] `Product variants (GET /v3/catalog/variants)` — analyze SKU prices and stock, and resolve variant IDs in order line records (high)
+- [x] `Refunds (GET /v3/orders/payment_actions/refunds)` — calculate net sales and analyze refund amounts, reasons, and refunded items (high)
+- [x] `Order transactions (GET /v3/orders/{order_id}/transactions)` — reconcile payments, captures, refunds, and payment provider outcomes against orders (high)
+- [x] `Order shipments (GET /v2/orders/{order_id}/shipments)` — measure fulfillment and connect shipped quantities, tracking references, and shipping providers to orders (medium)
 - [ ] `Order coupons (GET /v2/orders/{order_id}/coupons)` — attribute discounts and order revenue to specific coupon codes (medium)
 - [ ] `Product reviews (GET /v3/catalog/products/{product_id}/reviews)` — compare product ratings and review activity with sales and repeat purchases (medium)
 
@@ -1806,18 +1806,18 @@ Note: Source uses the Braintree GraphQL API (payments.braintree-api.com/graphql)
 
 ## Braintrust — **thin**
 
-Today (5): `datasets`, `experiments`, `functions`, `projects`, `prompts`
+Today (9): `dataset_events`, `datasets`, `experiment_events`, `experiments`, `functions`, `project_logs`, `projects`, `prompts`, `users`
 
 Diffed against: <https://www.braintrust.dev/docs/openapi.json>
 
-- [ ] `Project log events (GET /v1/project_logs/{project_id}/fetch)` — analyze production traces, scores, token usage, latency, and model costs (high)
-- [ ] `Experiment events (GET /v1/experiment/{experiment_id}/fetch)` — compare evaluation results, scores, and model behavior for individual test cases (high)
-- [ ] `Dataset events (GET /v1/dataset/{dataset_id}/fetch)` — analyze evaluation inputs, expected outputs, and dataset contents beyond metadata (high)
-- [ ] `Users (GET /v1/user)` — resolve user_id in projects, experiments, and datasets to identify their creators (high)
+- [x] `Project log events (GET /v1/project_logs/{project_id}/fetch)` — analyze production traces, scores, token usage, latency, and model costs (high)
+- [x] `Experiment events (GET /v1/experiment/{experiment_id}/fetch)` — compare evaluation results, scores, and model behavior for individual test cases (high)
+- [x] `Dataset events (GET /v1/dataset/{dataset_id}/fetch)` — analyze evaluation inputs, expected outputs, and dataset contents beyond metadata (high)
+- [x] `Users (GET /v1/user)` — resolve user_id in projects, experiments, and datasets to identify their creators (high)
 - [ ] `Experiment summaries (GET /v1/experiment/{experiment_id}/summarize)` — report aggregate scores and metrics with comparisons against baseline experiments (medium)
 - [ ] `Dataset snapshots (GET /v1/dataset_snapshot)` — track named dataset versions and connect evaluations to reproducible test data (medium)
 
-Note: The OpenAPI specification lists metadata resources and separate event collections. The source imports only metadata. Event tables need calls for each parent and cursor pagination. API keys, secrets, permissions, and saved views are excluded.
+Note: The OpenAPI specification lists metadata resources and separate event collections. The event tables fan out over each parent and page through the POST form of fetch with its body cursor. API keys, secrets, permissions, and saved views are excluded.
 
 ## Braze — gaps
 
@@ -2635,10 +2635,10 @@ Today (4): `concepts`, `datasets`, `models`, `workflows`
 Diffed against: <https://raw.githubusercontent.com/Clarifai/clarifai-python-grpc/master/clarifai_grpc/grpc/api/service_pb2.py>
 
 - [ ] `Inputs (ListInputs, GET /v2/users/{user_id}/apps/{app_id}/inputs)` — analyze input volumes, metadata, and processing status within each app (high)
-- [ ] `Model versions (ListModelVersions, GET /v2/users/{user_id}/apps/{app_id}/models/{model_id}/versions)` — track training status and version history beyond each model's latest version (high)
-- [ ] `Evaluations (ListEvaluations, GET /v2/users/{user_id}/apps/{app_id}/evaluations)` — compare model accuracy and evaluation results across versions and datasets (high)
-- [ ] `Dataset inputs (ListDatasetInputs, GET /v2/users/{user_id}/apps/{app_id}/datasets/{dataset_id}/inputs)` — join datasets with their input memberships to compare data coverage and composition (high)
-- [ ] `Annotations (ListAnnotations, GET /v2/users/{user_id}/apps/{app_id}/annotations)` — analyze labels, annotation coverage, and review outcomes for stored inputs (high)
+- [x] `Model versions (ListModelVersions, GET /v2/users/{user_id}/apps/{app_id}/models/{model_id}/versions)` — track training status and version history beyond each model's latest version (high)
+- [x] `Evaluations (ListEvaluations, GET /v2/users/{user_id}/apps/{app_id}/evaluations)` — compare model accuracy and evaluation results across versions and datasets (high)
+- [x] `Dataset inputs (ListDatasetInputs, GET /v2/users/{user_id}/apps/{app_id}/datasets/{dataset_id}/inputs)` — join datasets with their input memberships to compare data coverage and composition (high)
+- [x] `Annotations (ListAnnotations, GET /v2/users/{user_id}/apps/{app_id}/annotations)` — analyze labels, annotation coverage, and review outcomes for stored inputs (high)
 - [ ] `Dataset versions (ListDatasetVersions, GET /v2/users/{user_id}/apps/{app_id}/datasets/{dataset_id}/versions)` — track dataset snapshots and connect evaluation outcomes with training data changes (medium)
 - [ ] `Workflow versions (ListWorkflowVersions, GET /v2/users/{user_id}/apps/{app_id}/workflows/{workflow_id}/versions)` — compare workflow revisions and their model dependencies over time (medium)
 - [ ] `Concept relations (ListConceptRelations, GET /v2/users/{user_id}/apps/{app_id}/concepts/{concept_id}/relations)` — analyze concept hierarchies and aggregate labels through parent relationships (medium)
@@ -2718,11 +2718,11 @@ Diffed against: <https://docs.api.cliniko.com/_bundle/openapi.json?download>
 - [x] `Billable items (GET /v1/billable_items)` — resolve invoice item links to service codes, catalog prices, and item categories (high)
 - [x] `Patient cases (GET /v1/patient_cases)` — resolve appointment case links and analyze treatment episodes, session limits, and case closure (high)
 - [x] `Contacts (GET /v1/contacts)` — resolve patient referring doctor links and compare referral performance (high)
-- [ ] `Concession types (GET /v1/concession_types)` — resolve patient concession links to discount categories (high)
-- [ ] `Product suppliers (GET /v1/product_suppliers)` — resolve product supplier IDs and analyze stock by supplier (high)
+- [x] `Concession types (GET /v1/concession_types)` — resolve patient concession links to discount categories (high)
+- [x] `Product suppliers (GET /v1/product_suppliers)` — resolve product supplier IDs and analyze stock by supplier (high)
 - [x] `Users (GET /v1/users)` — resolve practitioner user links and identify staff responsible for clinic activity (high)
-- [ ] `Referral source types (GET /v1/referral_source_types)` — resolve referral source type links to named acquisition categories (high)
-- [ ] `Daily availabilities (GET /v1/daily_availabilities)` — compare recurring practitioner capacity with booked appointments to measure utilization (high)
+- [x] `Referral source types (GET /v1/referral_source_types)` — resolve referral source type links to named acquisition categories (high)
+- [x] `Daily availabilities (GET /v1/daily_availabilities)` — compare recurring practitioner capacity with booked appointments to measure utilization (high)
 - [ ] `Stock adjustments (GET /v1/stock_adjustments)` — explain stock changes through sales, corrections, and replenishment activity (medium)
 - [ ] `Communications (GET /v1/communications)` — analyze patient messages, reminders, and communication outcomes (medium)
 
@@ -3087,7 +3087,7 @@ Note: coinmarketcap.com/api/documentation is a client-rendered zudoku app, but e
 
 ## Commercetools — gaps
 
-Today (16): `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `messages`, `orders`, `payments`, `product_projections`, `product_types`, `shopping_lists`, `standalone_prices`, `states`, `stores`
+Today (17): `carts`, `categories`, `channels`, `customer_groups`, `customers`, `discount_codes`, `inventory`, `messages`, `orders`, `payments`, `product_projections`, `product_types`, `shopping_lists`, `standalone_prices`, `states`, `stores`, `variants`
 
 Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-api-reference/main/oas/api/openapi.yaml>
 
@@ -3103,6 +3103,7 @@ Diffed against: <https://raw.githubusercontent.com/commercetools/commercetools-a
 - [ ] `/{projectKey}/product-discounts` — explains discounted prices appearing on product projections (medium)
 - [x] `/{projectKey}/standalone-prices` — prices held outside the product, so price analysis on product-projections alone is incomplete (medium)
 - [x] `/{projectKey}/shopping-lists` — wishlist and saved-cart behavior, a common pre-purchase funnel table (medium)
+- [x] `/{projectKey}/variants` — standalone Product Variants on Modular Catalog projects, whose product projections carry no variants (medium)
 
 Note: The full OpenAPI (292 paths) is published at commercetools/commercetools-api-reference under oas/api/openapi.yaml; the docs site itself is navigational only. Static endpoint config in sources/commercetools/settings.py, no dynamic discovery. Also uncovered but lower value: reviews, payment-methods, business-units and associate-roles (B2B), quotes/quote-requests/staged-quotes, recurring-orders and recurrence-policies, tax-categories, zones, orders/edits. Excluded as config or plumbing: subscriptions, extensions, api-clients, types, custom-objects, product-selections.
 
@@ -3924,15 +3925,15 @@ Note: Extracted every GET path from the official Python SDK operation index and 
 
 ## DoIt — **thin**
 
-Today: tables are discovered from the user's account at sync time, so there is no fixed list.
+Today: report tables are discovered from the user's account at sync time, alongside the fixed `Budgets`, `Insights`, `Anomalies`, and `Invoices` tables.
 
 Diffed against: <https://developer.doit.com/openapi/doit-api.yaml>
 
 - [ ] `Assets (GET /billing/v1/assets)` — identify billing accounts and licensed subscriptions referenced in saved cloud cost reports (high)
-- [ ] `Invoices (GET /billing/v1/invoices)` — reconcile cloud spending with actual invoices, outstanding balances, and payment status (high)
-- [ ] `Anomalies (GET /anomalies/v1)` — measure unexpected cloud spending, severity, and anomaly costs (high)
-- [ ] `Budgets (GET /analytics/v1/budgets)` — compare budget limits with current utilization, forecasts, and risk status (high)
-- [ ] `Insights (GET /insights/v1/results)` — track optimization opportunities, estimated savings, and operational risks (high)
+- [x] `Invoices (GET /billing/v1/invoices)` — reconcile cloud spending with actual invoices, outstanding balances, and payment status (high)
+- [x] `Anomalies (GET /anomalies/v1)` — measure unexpected cloud spending, severity, and anomaly costs (high)
+- [x] `Budgets (GET /analytics/v1/budgets)` — compare budget limits with current utilization, forecasts, and risk status (high)
+- [x] `Insights (GET /insights/v1/results)` — track optimization opportunities, estimated savings, and operational risks (high)
 - [ ] `Insight resource results (GET /insights/v1/results/source/{sourceID}/insight/{insightKey}/resource-results)` — identify cloud resources responsible for savings opportunities and risks (medium)
 - [ ] `Commitments (GET /analytics/v1/commitment-manager)` — compare contractual cloud commitments with current attainment and forecast spending (medium)
 - [ ] `Allocations (GET /analytics/v1/allocations)` — explain how cloud spending is assigned to teams, products, and cost centers (medium)
@@ -4167,7 +4168,7 @@ Note: The spec has only 35 operations and everything is promotion-scoped (the so
 
 ## EConomic — gaps
 
-Today (23): `accounting_year_entries`, `accounting_years`, `accounts`, `currencies`, `customer_groups`, `customers`, `departmental_distributions`, `departments`, `employees`, `invoices_booked`, `invoices_drafts`, `journal_entries`, `journals`, `orders_archived`, `orders_drafts`, `orders_sent`, `payment_terms`, `product_groups`, `products`, `supplier_groups`, `suppliers`, `units`, `vat_zones`
+Today (29): `accounting_period_totals`, `accounting_year_entries`, `accounting_year_totals`, `accounting_years`, `accounts`, `currencies`, `customer_groups`, `customers`, `departmental_distributions`, `departments`, `employees`, `invoices_booked`, `invoices_drafts`, `journal_entries`, `journal_vouchers`, `journals`, `orders_archived`, `orders_drafts`, `orders_sent`, `payment_terms`, `payment_types`, `product_groups`, `products`, `supplier_groups`, `suppliers`, `units`, `vat_accounts`, `vat_types`, `vat_zones`
 
 Diffed against: <https://restdocs.e-conomic.com/>
 
@@ -4175,13 +4176,13 @@ Diffed against: <https://restdocs.e-conomic.com/>
 - [x] `GET /accounting-years/{year}/entries` — full general-ledger entry stream for a financial year - the core fact table of the whole API (high)
 - [x] `GET /accounts/{accountNumber}/accounting-years/{year}/entries` — per-account ledger entries, letting you reconcile the accounts table already synced (high). Skipped: it returns a per-account subset of `/accounting-years/{year}/entries`, which is now synced as `accounting_year_entries` and carries `account` on every row, so a second table would only duplicate it.
 - [x] `GET /orders, /orders/drafts, /orders/sent, /orders/archived` — sales orders with their state slices - the pre-invoice half of the revenue pipeline is entirely missing (high)
-- [ ] `GET /vat-types and GET /vat-accounts` — VAT code lookup resolving the vatZone/vatAccount references already carried on accounts, products and invoice lines (high)
-- [ ] `GET /accounting-years/{year}/totals and /accounting-years/{year}/periods/{p}/totals` — account balances per year and per period - the trial-balance figures, without recomputing from entries (high)
+- [x] `GET /vat-types and GET /vat-accounts` — VAT code lookup resolving the vatZone/vatAccount references already carried on accounts, products and invoice lines (high)
+- [x] `GET /accounting-years/{year}/totals and /accounting-years/{year}/periods/{p}/totals` — account balances per year and per period - the trial-balance figures, without recomputing from entries (high)
 - [ ] `GET /accounting-years/{year}/periods` — accounting-period lookup that every entry and total is bucketed by (medium)
 - [ ] `GET /quotes, /quotes/drafts, /quotes/sent, /quotes/archived` — quotes and their lifecycle state, the top of the quote-to-cash funnel (medium)
 - [ ] `GET /customers/{customerNumber}/contacts` — customer contact records for joining people to the customers already synced (medium)
-- [ ] `GET /payment-types` — payment type lookup referenced by invoices and payment terms (medium)
-- [ ] `GET /journals/{journalNumber}/vouchers` — voucher records grouping entries, with attachment metadata (medium)
+- [x] `GET /payment-types` — payment type lookup referenced by invoices and payment terms (medium)
+- [x] `GET /journals/{journalNumber}/vouchers` — voucher records grouping entries, with attachment metadata (medium)
 - [ ] `GET /invoices/sent, /paid, /unpaid, /overdue, /not-due` — AR ageing state slices; derivable from booked invoices but these are the views finance actually asks for (medium)
 
 Note: Resource list derived from the JSON-schema filenames embedded in restdocs.e-conomic.com (they mirror the path tree exactly, e.g. journals.journalNumber.entries.get.schema.json). Also missing but below the cut: /customers/{n}/delivery-locations, /layouts, /products/{n}/pricing/currency-specific-sales-prices, /product-groups/{n}/sales-accounts, /invoices/totals/\*. app-roles and /self are config and were excluded.
@@ -7490,13 +7491,14 @@ Note: Fetched llms.txt, then parsed the linked Returns, Orders, Products, Custom
 
 ## Loops — gaps
 
-Today (13): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `event_patterns`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflows`
+Today (14): `audience_segments`, `campaign_groups`, `campaign_metrics`, `campaigns`, `components`, `contact_properties`, `event_patterns`, `mailing_lists`, `themes`, `transactional_email_metrics`, `transactional_emails`, `transactional_groups`, `workflow_node_metrics`, `workflows`
 
 Diffed against: <https://loops.so/docs/openapi.json>
 
 - [x] `GET /v1/event-patterns` — lookup of event definitions that workflows and campaigns trigger on (`event_patterns`)
 - [x] `GET /v1/campaigns/{campaignId}/metrics` — all-time engagement counters per sent campaign (`campaign_metrics`)
 - [x] `GET /v1/transactional-emails/{transactionalId}/metrics` — all-time delivery counters per transactional email (`transactional_email_metrics`)
+- [x] `GET /v1/workflows/{workflowId}/nodes/{nodeId}/metrics` — all-time engagement counters per workflow email node (`workflow_node_metrics`)
 
 Note: Coverage is close to complete — the spec has ~20 listable GET collections and 10 are already exposed. Loops has no bulk contacts list endpoint (only /v1/contacts/find by email or userId), so a contacts table is not implementable against this API; /v1/email-messages/{id} is likewise single-fetch only, and /v1/contacts/suppression only checks one contact by email or userId rather than listing suppressed contacts. Remaining unexposed paths are config/plumbing (api-key, dedicated-sending-ips, uploads) or per-node workflow mutations.
 
@@ -9076,6 +9078,7 @@ Diffed against: <https://raw.githubusercontent.com/PagerDuty/api-schema/main/ref
 - [ ] `/maintenance_windows` — suppression windows; without them uptime and alert-volume math is wrong (medium)
 - [ ] `/audit/records` — state/transition history across services, schedules, and policies (medium)
 - [ ] `/notifications` — notifications actually sent to responders, for pager fatigue analysis (low)
+- [ ] `/incidents/{id}/scribe_transcripts` — skipped: each row exists to carry a presigned transcript download link that expires after one hour, so a synced copy is stale by the next query; the rest is Scribe start and end times that cost one request per incident on every sync (low)
 
 Note: Diffed against the official PagerDuty OpenAPI 3.0.2 spec (~190 GET paths). Coverage of top-level config objects is good, but the incident sub-resources and membership/lookup tables that make incident analytics possible are missing. Note that PagerDuty's Analytics endpoints are POST-only (/analytics/raw/incidents, /analytics/metrics/incidents/\*), which is why they are easy to overlook.
 
@@ -11450,10 +11453,10 @@ Today (8): `contexts`, `managed_entities`, `modules`, `policies`, `runs`, `space
 
 Diffed against: <https://docs.spacelift.io/integrations/api>
 
-- [ ] `searchAuditTrailEntries` — full who-did-what-when history across stacks, runs and policies; the state-transition table for everything already synced (high)
-- [ ] `run.changesV (per-run resource changes)` — add/change/delete deltas per resource for each run - the core IaC change metric; runs are synced but their change breakdown is not (high)
-- [ ] `searchEvaluationRecords` — policy evaluation records per run; joins to the policies table we already sync and shows which decisions actually fired (high)
-- [ ] `searchModuleVersions` — module registry version history with test results and consumers; modules are synced but their versions are not (high)
+- [x] `searchAuditTrailEntries` — full who-did-what-when history across stacks, runs and policies; the state-transition table for everything already synced (high)
+- [x] `run.changesV (per-run resource changes)` — add/change/delete deltas per resource for each run - the core IaC change metric; runs are synced but their change breakdown is not (high)
+- [x] `searchEvaluationRecords` — policy evaluation records per run; joins to the policies table we already sync and shows which decisions actually fired (high)
+- [x] `searchModuleVersions` — module registry version history with test results and consumers; modules are synced but their versions are not (high)
 - [ ] `workerPool.workers (and busyWorkers)` — individual worker state and utilization behind the worker_pools already synced; capacity and queueing analysis (medium)
 - [ ] `stack.dependsOn / isDependedOnBy` — stack dependency graph edges; needed to model blast radius and deployment ordering (medium)
 - [ ] `stack.tasks` — one-off tasks executed against a stack, a run class not covered by the runs table (medium)
@@ -12624,7 +12627,7 @@ Note: No OpenAPI spec is published; the full endpoint inventory was read from th
 
 ## TwelveLabs — gaps
 
-Today (4): `asset_transcriptions`, `indexes`, `tasks`, `videos`
+Today (5): `asset_transcriptions`, `indexes`, `knowledge_store_item_tags`, `tasks`, `videos`
 
 Diffed against: <https://docs.twelvelabs.io/openapi.json>
 
@@ -12638,6 +12641,7 @@ Diffed against: <https://docs.twelvelabs.io/openapi.json>
 - [x] `asset transcriptions (GET /assets/{asset_id}/transcription)` — per-asset speech transcription with status and timestamped sentences and speaker turns (medium)
 - [ ] `knowledge-stores, item-collections, items (GET /knowledge-stores, .../item-collections, .../items)` — the retrieval corpus objects; items resolve ids used by search (medium)
 - [ ] `connection imports (GET /connections/{connection_id}/imports)` — per-import job records for bulk ingestion runs (low)
+- [x] `knowledge store item tags (GET /knowledge-stores/{knowledge_store_id}/items/{item_id}/tags)` — moment and range tags with custom metadata on knowledge store video items (medium)
 
 Note: Fetched the live OpenAPI (server https://api.twelvelabs.io/v1.3 — same version the PostHog source targets). The API has grown well past indexes/tasks/videos: assets, analysis tasks/batches, embeddings, entity collections and knowledge stores are all listable.
 
