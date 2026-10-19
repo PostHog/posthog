@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -6,21 +7,23 @@ from unittest import TestCase
 from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthFlagChangeKind,
 )
+from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run
 from products.experiments.backend.health.context import (
-    FlagHistory,
-    FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     HealthContext,
     SplitChange,
     parse_flag_state,
     parse_variants,
 )
+from products.experiments.backend.health.test.factories import ENDED, RUNNING, RUNNING_CONTEXT, Status, flag_history
 
 LAUNCHED_AT = datetime(2026, 9, 12, 10, 0, tzinfo=UTC)
 FIRST_CHANGE_AT = datetime(2026, 9, 12, 13, 4, tzinfo=UTC)
@@ -31,9 +34,6 @@ MIXED_ASSIGNMENTS = "A sample ratio mismatch or users in more than one variant c
 
 EVERYONE = [{"properties": [], "rollout_percentage": 100}]
 TARGETED = [{"properties": [{"key": "plan", "value": "pro", "type": "person"}], "rollout_percentage": 100}]
-
-RUNNING = {"is_launched": True, "is_running": True, "has_ended": False}
-ENDED = {"is_launched": True, "is_running": False, "has_ended": True}
 
 
 def _split(*variants: tuple[str, float]) -> list[dict[str, Any]]:
@@ -49,7 +49,7 @@ SHIPPED = _split(("control", 0), ("test", 100))
 
 def _context(
     *splits: list[dict[str, Any]],
-    status: dict[str, bool] = RUNNING,
+    status: Status = RUNNING,
     groups: list[dict[str, Any]] = EVERYONE,
     exposed_before_first: bool | None = True,
     exposed_between: bool | None = None,
@@ -59,44 +59,32 @@ def _context(
     deleted: bool = False,
     not_checked: FlagHistoryNotCheckedReason | None = None,
 ) -> HealthContext:
-    changes = tuple(
+    changes = [
         SplitChange(
             changed_at=first_change_at + timedelta(minutes=17 * index),
             before=parse_variants(before),
             after=parse_variants(after),
         )
         for index, (before, after) in enumerate(zip(splits, splits[1:]))
-    )
-    return HealthContext(
+    ]
+    return replace(
+        RUNNING_CONTEXT,
         **status,
-        is_paused=False,
         archived=archived,
         flag=parse_flag_state(active=True, deleted=deleted, groups=groups, variants=splits[-1]),
-        baseline_variant_key=None,
-        primary_metric_count=1,
-        secondary_metric_count=0,
-        exposures=None,
-        flag_history=FlagHistory(
+        flag_history=flag_history(
+            changes,
             launched_at=launched_at,
-            team_timezone="Europe/Berlin",
-            split_changes=changes,
-            bucketing_changes=(),
-            counted_since=changes[0].changed_at if changes else None,
             exposed_before_first=exposed_before_first,
-            split_exposed_between=exposed_between,
-            bucketing_exposed_between=None,
-        )
-        if not_checked is None
-        else FlagHistoryNotChecked(
-            reason=not_checked,
-            launched_at=launched_at,
-            team_timezone="Europe/Berlin",
-            split_changes=changes,
-            bucketing_changes=(),
+            exposed_between={ExperimentHealthFlagChangeKind.SPLIT: exposed_between},
+            not_checked=not_checked,
         ),
-        condition_set_traffic=None,
-        excluded_variant_keys=frozenset(),
     )
+
+
+def _split_code_finding(ctx: HealthContext) -> ExperimentHealthFinding | None:
+    # The registry runs both checks, and a history the reader can't view gets the split check's code.
+    return flag_history_not_readable(ctx) or split_changed_mid_run(ctx)
 
 
 class TestSplitChangedMidRun(TestCase):
@@ -274,7 +262,7 @@ class TestSplitChangedMidRun(TestCase):
         ]
     )
     def test_evidence(self, _name: str, ctx: HealthContext, expected: dict[str, Any]) -> None:
-        finding = split_changed_mid_run(ctx)
+        finding = _split_code_finding(ctx)
 
         assert finding is not None
         self.assertEqual(finding.evidence, expected)
@@ -335,7 +323,7 @@ class TestSplitChangedMidRun(TestCase):
         ),
         expected_title: str = "Variant split changes were not checked",
     ) -> None:
-        finding = split_changed_mid_run(ctx)
+        finding = _split_code_finding(ctx)
 
         assert finding is not None
         self.assertEqual(
@@ -365,7 +353,7 @@ class TestSplitChangedMidRun(TestCase):
         ]
     )
     def test_no_finding(self, _name: str, ctx: HealthContext) -> None:
-        self.assertIsNone(split_changed_mid_run(ctx))
+        self.assertIsNone(_split_code_finding(ctx))
 
     @parameterized.expand(
         [
