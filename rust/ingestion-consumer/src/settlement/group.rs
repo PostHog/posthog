@@ -87,153 +87,76 @@ mod tests {
     use std::collections::HashMap;
     use std::num::NonZeroU64;
 
-    use super::super::charge_offsets;
+    use common_kafka_consumer::{Held, LedgerError};
+
+    use super::super::fakes::{FakeAdmission, Settled};
     use super::*;
 
-    fn settlement() -> (Arc<TopicOffsetLedger>, GroupSettlement) {
-        let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement =
-            GroupSettlement::new(Arc::clone(&ledger), Duration::ZERO, BudgetLimits::unset());
-        (ledger, settlement)
+    fn p0() -> TopicPartition {
+        TopicPartition::new("events", 0)
+    }
+
+    fn settlement() -> GroupSettlement<FakeAdmission> {
+        GroupSettlement {
+            budget: FakeAdmission::default(),
+        }
     }
 
     #[test]
-    fn a_partition_commits_only_once_its_completed_prefix_is_contiguous() {
-        let (ledger, settlement) = settlement();
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10, 11, 12]);
-
-        settlement.settle_run(&p0, 0, &[Offset(12)]).unwrap();
-        assert!(
-            settlement.take_due(Instant::now()).is_none(),
-            "the window base is still incomplete"
-        );
+    fn a_run_reaches_the_admission_under_its_generation() {
+        let settlement = settlement();
 
         settlement
-            .settle_run(&p0, 0, &[Offset(10), Offset(11)])
+            .settle_run(&p0(), 3, &[Offset(10), Offset(11)])
             .unwrap();
+
         assert_eq!(
-            settlement
-                .take_due(Instant::now())
-                .map(|commit| commit.offsets),
-            Some(HashMap::from([(p0, Offset(13))])),
-            "the late completion releases the whole prefix"
+            settlement.budget.settled(),
+            vec![Settled {
+                topic_partition: p0(),
+                generation: 3,
+                offsets: vec![Offset(10), Offset(11)],
+            }]
+        );
+    }
+
+    struct RejectedRun {
+        rejection: Rejection,
+        expected_error: bool,
+    }
+
+    #[rstest::rstest]
+    #[case::stale(RejectedRun {
+        rejection: Rejection::Stale { stamp: 0, generation: 1 },
+        expected_error: false,
+    })]
+    #[case::violation(RejectedRun {
+        rejection: Rejection::Violation {
+            error: LedgerError::CompletedTwice { offset: Offset(10) },
+            stamp: 0,
+            generation: 0,
+            held: Held::default(),
+        },
+        expected_error: true,
+    })]
+    fn only_a_violating_run_fails(#[case] run: RejectedRun) {
+        let settlement = settlement();
+        settlement.budget.settle_returns(Err(run.rejection));
+
+        assert_eq!(
+            settlement.settle_run(&p0(), 0, &[Offset(10)]).is_err(),
+            run.expected_error
         );
     }
 
     #[test]
-    fn a_partition_with_a_held_prefix_does_not_hold_back_another() {
-        let (ledger, settlement) = settlement();
-        let p0 = TopicPartition::new("events", 0);
-        let p1 = TopicPartition::new("events", 1);
-        charge_offsets(&ledger, &p0, 0, &[10, 11]);
-        charge_offsets(&ledger, &p1, 0, &[20, 21]);
-
-        settlement
-            .settle_run(&p0, 0, &[Offset(10), Offset(11)])
-            .unwrap();
-        settlement.settle_run(&p1, 0, &[Offset(21)]).unwrap();
-
-        assert_eq!(
-            settlement
-                .take_due(Instant::now())
-                .map(|commit| commit.offsets),
-            Some(HashMap::from([(p0, Offset(12))])),
-            "partition 1 waits for offset 20"
-        );
-    }
-
-    #[test]
-    fn a_run_settled_twice_fails_and_keeps_the_frontier_taken_before_it() {
-        let (ledger, settlement) = settlement();
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10, 11]);
-        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
-
-        assert!(settlement.settle_run(&p0, 0, &[Offset(10)]).is_err());
-
-        assert_eq!(
-            settlement.take_all().map(|commit| commit.offsets),
-            Some(HashMap::from([(p0, Offset(11))])),
-            "offset 10 completed before the violation"
-        );
-    }
-
-    #[test]
-    fn a_stale_stamp_run_commits_nothing() {
-        let (ledger, settlement) = settlement();
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10]);
-
-        ledger.forget_partitions([("events", 0)]);
-        charge_offsets(&ledger, &p0, 1, &[10]);
-
-        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
-
-        assert!(settlement.take_due(Instant::now()).is_none());
-        assert_eq!(
-            ledger.held(&p0).offsets,
-            1,
-            "the redelivered offset stays uncompleted"
-        );
-    }
-
-    #[test]
-    fn a_frontier_within_the_interval_waits_for_it_unless_everything_is_taken() {
-        let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(
-            Arc::clone(&ledger),
-            Duration::from_secs(3600),
-            BudgetLimits::unset(),
-        );
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10, 11]);
-        let now = Instant::now();
-
-        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
-        assert_eq!(
-            settlement.take_due(now).map(|commit| commit.offsets),
-            Some(HashMap::from([(p0.clone(), Offset(11))]))
-        );
-
-        settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
-        assert!(settlement.take_due(now).is_none());
-        assert_eq!(
-            settlement.take_all().map(|commit| commit.offsets),
-            Some(HashMap::from([(p0, Offset(12))]))
-        );
-    }
-
-    #[test]
-    fn a_revoked_partitions_pending_frontier_is_not_committed() {
-        let ledger = Arc::new(TopicOffsetLedger::new());
-        let settlement = GroupSettlement::new(
-            Arc::clone(&ledger),
-            Duration::from_secs(3600),
-            BudgetLimits::unset(),
-        );
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10]);
-        settlement.settle_run(&p0, 0, &[Offset(10)]).unwrap();
-        assert!(settlement.take_due(Instant::now()).is_some());
-
-        charge_offsets(&ledger, &p0, 0, &[11]);
-        settlement.settle_run(&p0, 0, &[Offset(11)]).unwrap();
-        settlement.forget_partitions(&[p0]);
-
-        assert!(settlement.take_all().is_none());
-    }
-
-    #[test]
-    fn a_retired_poll_settles_nothing_more() {
-        let (ledger, settlement) = settlement();
-        let p0 = TopicPartition::new("events", 0);
-        charge_offsets(&ledger, &p0, 0, &[10]);
-        let charges = [(Offset(10), common_kafka_consumer::Charge::ZERO)];
+    fn a_retired_poll_settles_nothing() {
+        let settlement = settlement();
+        let charges = [(Offset(10), Charge::ZERO)];
 
         settlement
             .settle_poll(&[ChargedSlice {
-                topic_partition: &p0,
+                topic_partition: &p0(),
                 generation: 0,
                 span: OffsetSpan {
                     first: 10,
@@ -243,117 +166,74 @@ mod tests {
             }])
             .unwrap();
 
-        assert!(settlement.take_due(Instant::now()).is_none());
-        assert_eq!(ledger.held(&p0).offsets, 1);
+        assert!(settlement.budget.settled().is_empty());
     }
 
-    const HOUR: Duration = Duration::from_secs(3600);
+    #[test]
+    fn the_admissions_decisions_reach_the_consumer() {
+        let settlement = settlement();
+        settlement.budget.charge_returns(Ok(Some(Pause)));
+        settlement.budget.pauses(&[p0()]);
+        settlement.budget.take_hands_out(Commit {
+            offsets: HashMap::from([(p0(), Offset(11))]),
+            resume: vec![p0()],
+        });
 
-    fn p0() -> TopicPartition {
-        TopicPartition::new("events", 0)
+        assert_eq!(settlement.charge(&p0(), 0, &[]), Ok(Some(Pause)));
+        assert_eq!(settlement.paused(), vec![p0()]);
+        let commit = settlement.take_due(Instant::now()).expect("handed out");
+        assert_eq!(commit.offsets, HashMap::from([(p0(), Offset(11))]));
+        assert_eq!(commit.resume, vec![p0()]);
+        settlement.forget_partitions(&[p0()]);
+        assert_eq!(settlement.budget.forgotten(), vec![p0()]);
     }
 
-    fn budgeted_hourly_settlement_of_10_events_resuming_at_8() -> GroupSettlement {
-        GroupSettlement::new(
-            Arc::new(TopicOffsetLedger::new()),
-            HOUR,
-            BudgetLimits::new(NonZeroU64::new(10), None, 0.8).expect("valid limits"),
-        )
-    }
+    // Composition: the real budget, accounting, ledger and pacer together.
 
-    fn charge(
-        settlement: &GroupSettlement,
-        topic_partition: &TopicPartition,
-        offset: i64,
-        events: u64,
-    ) -> Option<Pause> {
-        settlement
-            .charge(
-                topic_partition,
-                0,
-                &[(Offset(offset), Charge { events, bytes: 0 })],
-            )
-            .expect("the ledger accepts the charge")
+    fn real_hourly_settlement(limits: BudgetLimits) -> (Arc<TopicOffsetLedger>, GroupSettlement) {
+        let ledger = Arc::new(TopicOffsetLedger::new());
+        let settlement =
+            GroupSettlement::new(Arc::clone(&ledger), Duration::from_secs(3600), limits);
+        (ledger, settlement)
     }
 
     #[test]
     fn a_take_the_interval_holds_counts_toward_the_pause() {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
-        charge(&settlement, &p0(), 10, 6);
-        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
+        let (_, settlement) = real_hourly_settlement(
+            BudgetLimits::new(NonZeroU64::new(10), None, 0.8).expect("valid limits"),
+        );
+        let first = [(
+            Offset(0),
+            Charge {
+                events: 6,
+                bytes: 0,
+            },
+        )];
+        settlement.charge(&p0(), 0, &first).unwrap();
+        settlement.settle_run(&p0(), 0, &[Offset(0)]).unwrap();
 
-        assert_eq!(charge(&settlement, &p0(), 11, 4), Some(Pause));
-    }
-
-    enum HandOut {
-        DueAfterTheInterval,
-        All,
-    }
-
-    #[rstest::rstest]
-    #[case::due_after_the_interval(HandOut::DueAfterTheInterval)]
-    #[case::all(HandOut::All)]
-    fn a_paused_partition_resumes_only_when_its_frontier_is_handed_out(#[case] hand_out: HandOut) {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
-        let now = Instant::now();
-        charge(&settlement, &p0(), 9, 1);
-        settlement.settle_run(&p0(), 0, &[Offset(9)]).unwrap();
-        settlement
-            .take_due(now)
-            .expect("the first frontier is due at once");
-        assert_eq!(charge(&settlement, &p0(), 10, 10), Some(Pause));
-
-        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
-        assert!(settlement.take_due(now).is_none());
-        assert_eq!(settlement.paused(), vec![p0()]);
-
-        let commit = match hand_out {
-            HandOut::DueAfterTheInterval => settlement.take_due(now + HOUR),
-            HandOut::All => settlement.take_all(),
-        }
-        .expect("the frontier is handed out");
-        assert_eq!(commit.resume, vec![p0()]);
-        assert!(settlement.paused().is_empty());
+        let next = [(
+            Offset(1),
+            Charge {
+                events: 4,
+                bytes: 0,
+            },
+        )];
+        assert_eq!(settlement.charge(&p0(), 0, &next), Ok(Some(Pause)));
     }
 
     #[test]
-    fn a_held_prefix_keeps_its_partition_paused_and_another_is_not_resumed() {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
-        let p1 = TopicPartition::new("events", 1);
-        charge(&settlement, &p0(), 10, 5);
-        assert_eq!(charge(&settlement, &p0(), 11, 5), Some(Pause));
-        charge(&settlement, &p1, 20, 1);
-
-        settlement.settle_run(&p0(), 0, &[Offset(11)]).unwrap();
-        settlement.settle_run(&p1, 0, &[Offset(20)]).unwrap();
-        let commit = settlement.take_all().expect("partition 1 is due");
-        assert_eq!(commit.offsets, HashMap::from([(p1, Offset(21))]));
-        assert!(
-            commit.resume.is_empty(),
-            "offset 10 still holds partition 0"
-        );
-
+    fn a_run_settled_twice_fails_and_keeps_the_frontier_taken_before_it() {
+        let (ledger, settlement) = real_hourly_settlement(BudgetLimits::unset());
+        super::super::charge_offsets(&ledger, &p0(), 0, &[10, 11]);
         settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
+
+        assert!(settlement.settle_run(&p0(), 0, &[Offset(10)]).is_err());
+
         assert_eq!(
-            settlement.take_all().expect("partition 0 is due").resume,
-            vec![p0()]
-        );
-    }
-
-    #[test]
-    fn a_revoked_paused_partition_is_never_resumed() {
-        let settlement = budgeted_hourly_settlement_of_10_events_resuming_at_8();
-        assert_eq!(charge(&settlement, &p0(), 10, 10), Some(Pause));
-        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
-
-        settlement.forget_partitions(&[p0()]);
-
-        assert!(settlement.paused().is_empty());
-        assert!(settlement.take_all().is_none());
-        settlement.settle_run(&p0(), 0, &[Offset(10)]).unwrap();
-        assert!(
-            settlement.take_all().is_none(),
-            "the stale run moves nothing"
+            settlement.take_all().map(|commit| commit.offsets),
+            Some(HashMap::from([(p0(), Offset(11))])),
+            "offset 10 completed before the violation"
         );
     }
 }

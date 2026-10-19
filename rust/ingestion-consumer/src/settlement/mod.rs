@@ -1,6 +1,8 @@
 //! When accepted offsets reach the ledger and the commit pacer: per poll or per group.
 
 mod budget;
+#[cfg(test)]
+mod fakes;
 mod group;
 mod poll;
 mod uncommitted;

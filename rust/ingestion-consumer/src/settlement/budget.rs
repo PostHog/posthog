@@ -143,86 +143,150 @@ fn log_transition(topic_partition: &TopicPartition, transition: &str, uncommitte
 mod tests {
     use std::num::NonZeroU64;
 
-    use common_kafka_consumer::TopicOffsetLedger;
+    use common_kafka_consumer::Held;
 
+    use super::super::fakes::FakeAccounting;
     use super::*;
-    use crate::commit_pacer::CommitPacer;
 
     fn p0() -> TopicPartition {
         TopicPartition::new("events", 0)
     }
 
-    fn events(events: u64) -> Charge {
-        Charge { events, bytes: 0 }
+    fn p1() -> TopicPartition {
+        TopicPartition::new("events", 1)
     }
 
-    fn budget_of_10_events_resuming_at_8() -> PartitionBudget {
+    fn uncommitted_events(events: u64) -> Held {
+        Held {
+            offsets: events as usize,
+            charge: Charge { events, bytes: 0 },
+        }
+    }
+
+    fn budget_of_10_events_resuming_at_8() -> PartitionBudget<FakeAccounting> {
         PartitionBudget::new(
-            Uncommitted::new(Arc::new(TopicOffsetLedger::new()), CommitPacer::immediate()),
+            FakeAccounting::default(),
             BudgetLimits::new(NonZeroU64::new(10), None, 0.8).expect("valid limits"),
         )
     }
 
-    fn charge(budget: &PartitionBudget, offset: i64, charge: Charge) -> Option<Pause> {
+    fn charge_reaching(
+        budget: &PartitionBudget<FakeAccounting>,
+        topic_partition: &TopicPartition,
+        uncommitted: u64,
+    ) -> Option<Pause> {
         budget
-            .charge(&p0(), 0, &[(Offset(offset), charge)])
-            .expect("the ledger accepts the charge")
+            .accounting
+            .charge_returns(Ok(uncommitted_events(uncommitted)));
+        budget
+            .charge(topic_partition, 0, &[])
+            .expect("the accounting accepts the charge")
     }
 
-    fn commit(budget: &PartitionBudget, offsets: &[i64]) -> Vec<TopicPartition> {
+    fn hand_out_leaving(
+        budget: &PartitionBudget<FakeAccounting>,
+        topic_partition: &TopicPartition,
+        remaining: u64,
+    ) -> Commit {
         budget
-            .settled(&p0(), 0, offsets.iter().map(|&o| Offset(o)))
-            .expect("the ledger settles");
-        budget.take_due(Instant::now()).expect("due").resume
+            .accounting
+            .take_hands_out(HashMap::from([(topic_partition.clone(), Offset(1))]));
+        budget
+            .accounting
+            .holds(topic_partition, uncommitted_events(remaining));
+        budget
+            .take_due(Instant::now())
+            .expect("the accounting hands it out")
+    }
+
+    #[rstest::rstest]
+    #[case::below_the_limit(9, None)]
+    #[case::at_the_limit(10, Some(Pause))]
+    fn a_charge_pauses_a_partition_that_reaches_its_limit(
+        #[case] uncommitted: u64,
+        #[case] expected: Option<Pause>,
+    ) {
+        assert_eq!(
+            charge_reaching(&budget_of_10_events_resuming_at_8(), &p0(), uncommitted),
+            expected
+        );
     }
 
     #[test]
     fn a_paused_partition_pauses_once() {
         let budget = budget_of_10_events_resuming_at_8();
-        assert_eq!(charge(&budget, 0, events(10)), Some(Pause));
+        assert_eq!(charge_reaching(&budget, &p0(), 10), Some(Pause));
 
-        assert_eq!(charge(&budget, 1, events(2)), None);
+        assert_eq!(charge_reaching(&budget, &p0(), 12), None);
     }
 
-    struct Committed {
-        remaining: Charge,
+    #[test]
+    fn a_rejected_charge_decides_nothing() {
+        let budget = budget_of_10_events_resuming_at_8();
+        let stale = Rejection::Stale {
+            stamp: 0,
+            generation: 1,
+        };
+        budget.accounting.charge_returns(Err(stale));
+
+        assert_eq!(budget.charge(&p0(), 0, &[]), Err(stale));
+        assert!(budget.paused().is_empty());
+    }
+
+    struct HandedOut {
+        remaining: u64,
         expected_resume: bool,
     }
 
     #[rstest::rstest]
-    #[case::still_above_the_watermark(Committed { remaining: events(9), expected_resume: false })]
-    #[case::at_the_watermark(Committed { remaining: events(8), expected_resume: true })]
-    fn a_commit_resumes_a_partition_it_brings_under_the_watermark(#[case] committed: Committed) {
+    #[case::above_the_watermark(HandedOut { remaining: 9, expected_resume: false })]
+    #[case::at_the_watermark(HandedOut { remaining: 8, expected_resume: true })]
+    fn a_hand_out_resumes_a_paused_partition_at_the_watermark(#[case] handed_out: HandedOut) {
         let budget = budget_of_10_events_resuming_at_8();
-        charge(&budget, 0, events(10));
-        charge(&budget, 1, committed.remaining);
+        charge_reaching(&budget, &p0(), 10);
 
-        let resume = commit(&budget, &[0]);
+        let commit = hand_out_leaving(&budget, &p0(), handed_out.remaining);
 
-        assert_eq!(resume.contains(&p0()), committed.expected_resume);
+        assert_eq!(commit.resume.contains(&p0()), handed_out.expected_resume);
+        assert_eq!(budget.paused().is_empty(), handed_out.expected_resume);
+    }
+
+    #[test]
+    fn a_hand_out_never_resumes_a_partition_that_is_not_paused() {
+        let budget = budget_of_10_events_resuming_at_8();
+
+        assert!(hand_out_leaving(&budget, &p1(), 0).resume.is_empty());
+    }
+
+    #[test]
+    fn take_all_resumes_like_take_due() {
+        let budget = budget_of_10_events_resuming_at_8();
+        charge_reaching(&budget, &p0(), 10);
+        budget
+            .accounting
+            .take_hands_out(HashMap::from([(p0(), Offset(1))]));
+
+        assert_eq!(budget.take_all().expect("handed out").resume, vec![p0()]);
     }
 
     #[test]
     fn a_resumed_partition_pauses_again_at_its_limit() {
         let budget = budget_of_10_events_resuming_at_8();
-        charge(&budget, 0, events(10));
-        assert_eq!(commit(&budget, &[0]), vec![p0()]);
+        charge_reaching(&budget, &p0(), 10);
+        hand_out_leaving(&budget, &p0(), 0);
 
-        assert_eq!(charge(&budget, 1, events(10)), Some(Pause));
+        assert_eq!(charge_reaching(&budget, &p0(), 10), Some(Pause));
     }
 
     #[test]
     fn a_forgotten_partition_starts_unpaused() {
         let budget = budget_of_10_events_resuming_at_8();
-        charge(&budget, 0, events(10));
+        charge_reaching(&budget, &p0(), 10);
 
         budget.forget_partitions(&[p0()]);
 
-        assert_eq!(
-            budget
-                .charge(&p0(), 1, &[(Offset(0), events(10))])
-                .expect("the new generation charges"),
-            Some(Pause)
-        );
+        assert_eq!(budget.accounting.forgotten(), vec![p0()]);
+        assert!(budget.paused().is_empty());
+        assert_eq!(charge_reaching(&budget, &p0(), 10), Some(Pause));
     }
 }
