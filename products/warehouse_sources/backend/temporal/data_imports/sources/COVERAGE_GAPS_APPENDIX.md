@@ -1182,11 +1182,12 @@ Note: Compared the official botocore operation model with the static table map a
 
 ## AWS Glue Data Catalog — **thin**
 
-Today (10): `crawlers`, `crawls`, `data_quality_results`, `databases`, `job_runs`, `jobs`, `partitions`, `table_versions`, `tables`, `workflow_runs`
+Today (11): `crawlers`, `crawls`, `data_quality_results`, `data_quality_results_v2`, `databases`, `job_runs`, `jobs`, `partitions`, `table_versions`, `tables`, `workflow_runs`
 
 Diffed against: <https://raw.githubusercontent.com/boto/botocore/develop/botocore/data/glue/2017-03-31/service-2.json>
 
 - [x] `Data quality results (ListDataQualityResults, POST /)` — links data quality scores and failed rules to synced tables and job runs (high)
+- [x] `Data quality results V2 (ListDataQualityResultsV2, POST /)` — lists data quality results published from any supported engine, not only Glue jobs (medium)
 - [x] `Table versions (GetTableVersions, POST /)` — preserves schema and metadata history for existing catalog tables (medium)
 - [x] `Crawler history (ListCrawls, POST /)` — tracks crawl duration, failures, catalog changes, and compute use beyond the latest crawler result (medium)
 - [x] `Workflow runs (GetWorkflowRuns, POST /)` — measures complete pipeline duration and failures across related jobs and crawlers (medium)
