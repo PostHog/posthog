@@ -32,6 +32,7 @@ from posthog.hogql.escape_sql import (
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
+from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.embed_text import resolve_embed_text
 from posthog.hogql.functions.prompt_jev import is_decision_call
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
@@ -139,10 +140,6 @@ ZONED_DATETIME_COERCIBLE_COMPARE_OPS = frozenset(
     }
 )
 
-JSON_FUNCTIONS_RETURNING_CONTAINERS = frozenset(
-    {"JSONExtractArrayRaw", "JSONExtractKeys", "JSONExtractKeysAndValues", "JSONExtractKeysAndValuesRaw"}
-)
-
 
 class ClickHousePrinter(BasePrinter):
     DIALECT_NAME: ClassVar[HogQLDialect] = "clickhouse"
@@ -215,7 +212,7 @@ class ClickHousePrinter(BasePrinter):
         elif node.name == "toJSONString":
             args = [self._visit_json_function_argument(arg) for arg in node_args]
         # ClickHouse has no Nullable(Array) or Nullable(Map), so a nullable JSON input must become '' first.
-        elif self._returns_json_container(node.name, node_args) and self._is_nullable(node_args[0]):
+        elif self._returns_json_container(node) and self._json_input_may_be_null(node_args[0]):
             args = [f"ifNull({self.visit(node_args[0])}, '')", *(self.visit(arg) for arg in node_args[1:])]
         else:
             args = [self.visit(arg) for arg in node_args]
@@ -341,19 +338,22 @@ class ClickHousePrinter(BasePrinter):
         return f"{relevant_clickhouse_name}{params_part}{args_part}{filter_part}"
 
     @staticmethod
-    def _returns_json_container(name: str, args: list[ast.Expr]) -> bool:
-        if not args:
-            return False
-        if name in JSON_FUNCTIONS_RETURNING_CONTAINERS:
-            return True
-        if name != "JSONExtract" or len(args) < 2:
-            return False
-        type_arg = args[-1]
+    def _returns_json_container(node: ast.Call) -> bool:
         return (
-            isinstance(type_arg, ast.Constant)
-            and isinstance(type_arg.value, str)
-            and parse_sql_runtime_type(type_arg.value).family in ("array", "map")
+            node.name in JSON_FUNCTIONS
+            and bool(node.args)
+            and isinstance(node.type, ast.CallType)
+            and isinstance(node.type.return_type, (ast.ArrayType, ast.MapType))
         )
+
+    def _json_input_may_be_null(self, node: ast.Expr) -> bool:
+        # A CTE column resolves through a rebuilt table that drops nullability. Assume NULL: an extra ifNull is free.
+        field_type = resolve_field_type(node)
+        if isinstance(field_type, ast.FieldType) and isinstance(
+            field_type.table_type, (ast.CTETableType, ast.CTETableAliasType)
+        ):
+            return True
+        return self._is_nullable(node)
 
     def _render_posthog_function_call(self, node: ast.Call, func_meta) -> str:
         args = [self.visit(arg) for arg in node.args]

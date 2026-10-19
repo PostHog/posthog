@@ -1065,10 +1065,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             ("extract_array", "JSONExtract(properties.list, 'Array(Int64)')", [1, 2], []),
             ("extract_map", "JSONExtract(properties.map, 'Map(String, String)')", {"k": "v"}, {}),
             ("extract_scalar_keeps_null", "JSONExtract(properties.num, 'Nullable(Int64)')", 7, None),
+            ("cte_column", "JSONExtractArrayRaw(list)", ["1", "2"], [], "t"),
         ]
     )
     def test_json_container_functions_accept_nullable_input(
-        self, _name: str, expression: str, expected_with: Any, expected_without: Any
+        self, _name: str, expression: str, expected_with: Any, expected_without: Any, source: str = "events"
     ) -> None:
         _create_event(
             distinct_id="d1",
@@ -1080,10 +1081,13 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         response = execute_hogql_query(
-            f"SELECT event, {expression} FROM events ORDER BY event", team=self.team, pretty=False
+            f"WITH t AS (SELECT event, properties.list AS list FROM events) SELECT event, {expression} FROM {source}",
+            team=self.team,
+            pretty=False,
         )
 
-        self.assertEqual(response.results, [("with", expected_with), ("without", expected_without)])
+        rows = sorted(response.results, key=lambda row: row[0])
+        self.assertEqual(rows, [("with", expected_with), ("without", expected_without)])
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_hogql_proper_ifnull(self):
