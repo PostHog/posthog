@@ -9314,7 +9314,7 @@ Note: Persona's own repo note (products/warehouse_sources/backend/temporal/data_
 
 ## Personio — **thin**
 
-Today (5): `absence_periods`, `attendance_periods`, `cost_centers`, `persons`, `salary_bands`
+Today (7): `absence_periods`, `attendance_periods`, `cost_centers`, `persons`, `recruiting_categories`, `recruiting_jobs`, `salary_bands`
 
 Diffed against: <https://developer.personio.de/llms.txt>
 
@@ -9331,8 +9331,10 @@ Diffed against: <https://developer.personio.de/llms.txt>
 - [ ] `GET /v2/recruiting/applications` — application pipeline records, the main recruiting funnel object (medium)
 - [ ] `GET /v2/recruiting/applications/{id}/stage-transitions` — stage transition history - exactly the state-change data needed for time-in-stage metrics (medium)
 - [ ] `GET /v2/recruiting/candidates` — candidate records joined to applications above (medium)
+- [x] `GET /v2/recruiting/jobs` — recruiting job postings that applications are submitted against; full refresh only, since updated_at is a date-time/timezone object (medium)
+- [x] `GET /v2/recruiting/categories` — recruiting category lookup with the ordered pipeline stages per category (medium)
 
-Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 5-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods, /v2/salary-bands, /v2/cost-centers) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is still a small fraction, and other organizational lookups that would let you group the synced persons and time data (org units, legal entities, jobs) are still missing. Salary bands and cost centers are dimension lookups with no updated_at/created_at field, so they sync full-refresh only. Exact paths confirmed from the individual reference .md pages. Recruiting endpoints are flagged beta by the vendor.
+Note: PERSONIO_ENDPOINTS in products/warehouse_sources/backend/temporal/data_imports/sources/personio/settings.py is a static 5-entry dict (/v2/persons, /v2/absence-periods, /v2/attendance-periods, /v2/salary-bands, /v2/cost-centers) - no dynamic discovery. The v2 API exposes roughly 20 listable resources, so this is still a small fraction, and other organizational lookups that would let you group the synced persons and time data (org units, legal entities, jobs) are still missing. Salary bands and cost centers are dimension lookups with no updated_at/created_at field, so they sync full-refresh only. Exact paths confirmed from the individual reference .md pages. The Recruiting API went GA on 2026-08-11 (no `Beta` header needed).
 
 ## Pexels — gaps
 
