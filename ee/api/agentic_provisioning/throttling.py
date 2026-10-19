@@ -43,6 +43,7 @@ from ee.api.agentic_provisioning.constants import (
     CLIENT_REGISTRATION_RATE_LIMIT_MAX,
     CLIENT_REGISTRATION_RATE_LIMIT_PREFIX,
     CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS,
+    DNS_HOSTNAME_MAX_LENGTH,
     REGION_PROXY_RATE_LIMIT,
 )
 
@@ -74,6 +75,15 @@ def _fixed_window_count(cache_key: str, window_seconds: int) -> int:
 
 def _window_retry_after(window_seconds: int) -> int:
     return window_seconds - (int(time.time()) % window_seconds)
+
+
+def _claimed_client_domain(client_id: str) -> str | None:
+    if not cimd.is_cimd_client_id(client_id):
+        return None
+    domain = urlparse(client_id).hostname
+    if not domain or len(domain) > DNS_HOSTNAME_MAX_LENGTH:
+        return None
+    return domain
 
 
 class RegionProxyThrottle(IPThrottle):
@@ -111,6 +121,10 @@ class ClientRegistrationThrottle(BaseThrottle):
     domain while a client is new, so without the second counter a caller could register a
     stack of client_ids and then spend a full per-client budget on each of them from one
     address, turning the per-client cap into an arbitrarily large total.
+
+    A refusal records the domain that the client_id claims, never the partner that owns that
+    client_id. The endpoint is unauthenticated, so any caller can send any client_id.
+    Attribution to the owner would let that caller make a real partner look rate limited.
     """
 
     # Not a ClassVar: the per-address refusal narrows the message on the instance, the same way
@@ -124,7 +138,12 @@ class ClientRegistrationThrottle(BaseThrottle):
         window_index = int(time.time()) // CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS
         key = f"{CLIENT_REGISTRATION_RATE_LIMIT_PREFIX}{sha256(client_id.encode()).hexdigest()}:{window_index}"
         if _fixed_window_count(key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > CLIENT_REGISTRATION_RATE_LIMIT_MAX:
-            capture_provisioning_event("rate_limited", "rate_limited", endpoint="client_registration")
+            capture_provisioning_event(
+                "rate_limited",
+                "rate_limited",
+                endpoint="client_registration",
+                claimed_client_domain=_claimed_client_domain(client_id),
+            )
             return False
 
         ident = self.get_ident(request)
@@ -134,7 +153,12 @@ class ClientRegistrationThrottle(BaseThrottle):
         if _fixed_window_count(ip_key, CLIENT_REGISTRATION_RATE_LIMIT_WINDOW_SECONDS) > (
             CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX
         ):
-            capture_provisioning_event("rate_limited", "rate_limited", endpoint="client_registration_ip")
+            capture_provisioning_event(
+                "rate_limited",
+                "rate_limited",
+                endpoint="client_registration_ip",
+                claimed_client_domain=_claimed_client_domain(client_id),
+            )
             self.error_message = "Too many registration checks from this address. Try again later."
             return False
         return True

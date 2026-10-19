@@ -3,7 +3,7 @@ import time
 from datetime import timedelta
 from ipaddress import ip_address
 
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 from django.core.cache import cache
 from django.test import override_settings
@@ -33,6 +33,8 @@ ACCOUNT_REQUESTS_URL = "/api/agentic/provisioning/account_requests"
 CIMD_URL = "https://newpartner.example.com/.well-known/oauth-client-metadata.json"
 JWKS_URI = "https://newpartner.example.com/.well-known/jwks.json"
 KID = "reg-key"
+PER_CLIENT_ID_LIMIT = "ee.api.agentic_provisioning.throttling.CLIENT_REGISTRATION_RATE_LIMIT_MAX"
+PER_ADDRESS_LIMIT = "ee.api.agentic_provisioning.throttling.CLIENT_REGISTRATION_IP_RATE_LIMIT_MAX"
 
 KEY = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
@@ -415,6 +417,33 @@ class TestClientRegistration(ProvisioningTestBase):
 
         assert res.status_code == 400
         assert res.json()["error"]["code"] == "invalid_request"
+
+    @parameterized.expand(
+        [
+            ("per_client_id", PER_CLIENT_ID_LIMIT, CIMD_URL, "client_registration", "newpartner.example.com"),
+            ("per_address", PER_ADDRESS_LIMIT, CIMD_URL, "client_registration_ip", "newpartner.example.com"),
+            ("non_url_client_id", PER_CLIENT_ID_LIMIT, "opaque-client-id", "client_registration", None),
+            ("oversized_host", PER_CLIENT_ID_LIMIT, f"https://{'a' * 254}.com/doc.json", "client_registration", None),
+        ]
+    )
+    def test_a_refusal_records_the_claimed_domain_and_not_the_partner(
+        self, _name: str, exhausted_limit: str, client_id: str, endpoint: str, claimed_client_domain: str | None
+    ) -> None:
+        self._make_partner()
+
+        with patch(exhausted_limit, 0), patch("posthoganalytics.capture") as capture:
+            res = self._post_api(REGISTRATION_URL, {"client_id": client_id})
+
+        assert res.status_code == 429
+        capture.assert_called_once_with(
+            "agentic_provisioning rate_limited",
+            distinct_id=ANY,
+            properties={
+                "outcome": "rate_limited",
+                "endpoint": endpoint,
+                "claimed_client_domain": claimed_client_domain,
+            },
+        )
 
 
 class TestUnregisteredClientsFailClosed(ProvisioningTestBase):
