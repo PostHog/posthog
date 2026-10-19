@@ -15,6 +15,7 @@ use tower::limit::ConcurrencyLimitLayer;
 use tower_http::cors::{AllowHeaders, AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
+use crate::error_tracking_ingestion::ErrorTrackingIngestionSwitch;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::otel;
@@ -121,6 +122,9 @@ pub struct State {
     /// (legacy and v1) so mode-specific policy — Import skips the global rate
     /// limiter and drops non-historical batches — lives with the pipeline.
     pub capture_mode: CaptureMode,
+    /// Projects that turned exception ingestion off in their error tracking
+    /// settings. `None` in deployments that never receive `$exception` events.
+    pub error_tracking_ingestion_switch: Option<Arc<ErrorTrackingIngestionSwitch>>,
 }
 
 #[derive(Clone, Copy)]
@@ -191,6 +195,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     capture_v1_scatter_gather_min_batch: usize,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
+    error_tracking_ingestion_switch: Option<Arc<ErrorTrackingIngestionSwitch>>,
 ) -> Router {
     let state = State {
         outputs,
@@ -221,6 +226,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_gateway_signing_secret,
         ingestion_warning_emitter,
         capture_mode,
+        error_tracking_ingestion_switch,
     };
 
     // Very permissive CORS policy, as old SDK versions

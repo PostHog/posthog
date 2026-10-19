@@ -7,6 +7,9 @@ use axum::Router;
 use axum_test_helper::TestClient;
 use capture::api::CaptureError;
 use capture::config::CaptureMode;
+use capture::error_tracking_ingestion::{
+    ErrorTrackingIngestionSwitch, INGESTION_DISABLED_TOKENS_KEY,
+};
 use capture::event_restrictions::{
     EventRestrictionService, Pipeline, Restriction, RestrictionManager, RestrictionScope,
     RestrictionType,
@@ -72,23 +75,6 @@ async fn setup_analytics_router_with_restriction(
     restriction_pipeline: Pipeline,
     token: &str,
 ) -> (Router, CapturingSink) {
-    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
-
-    let sink = CapturingSink::new();
-    let sink_clone = sink.clone();
-    let timesource = FixedTime {
-        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
-            .expect("Invalid fixed time format")
-            .with_timezone(&Utc),
-    };
-    let redis = Arc::new(MockRedisClient::new());
-
-    let mut cfg = DEFAULT_CONFIG.clone();
-    cfg.capture_mode = CaptureMode::Events;
-
-    let quota_limiter =
-        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
-
     let service = EventRestrictionService::new(
         Pipeline::for_capture_mode(CaptureMode::Events),
         Duration::from_secs(300),
@@ -106,6 +92,30 @@ async fn setup_analytics_router_with_restriction(
     );
     service.update(manager).await;
 
+    build_analytics_router(Some(service), None)
+}
+
+fn build_analytics_router(
+    event_restriction_service: Option<EventRestrictionService>,
+    error_tracking_ingestion_switch: Option<Arc<ErrorTrackingIngestionSwitch>>,
+) -> (Router, CapturingSink) {
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
+
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
     let router = router(
         timesource,
         readiness,
@@ -115,7 +125,7 @@ async fn setup_analytics_router_with_restriction(
         None, // global_rate_limiter_token_distinctid
         quota_limiter,
         TokenDropper::default(),
-        Some(service),
+        event_restriction_service,
         None, // recorder_handle
         CaptureMode::Events,
         None,
@@ -137,6 +147,7 @@ async fn setup_analytics_router_with_restriction(
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
+        error_tracking_ingestion_switch,
     );
 
     (router, sink_clone)
@@ -210,6 +221,44 @@ fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
             assert_eq!(actual_value, expected_value, "property '{key}' mismatch");
         }
     }
+}
+
+#[tokio::test]
+async fn test_error_tracking_ingestion_switch_drops_only_the_exceptions_of_a_disabled_project() {
+    let disabled_token = "phc_error_tracking_disabled_token";
+    let redis = MockRedisClient::new().zrangebyscore_ret(
+        INGESTION_DISABLED_TOKENS_KEY,
+        vec![disabled_token.to_string()],
+    );
+    let switch =
+        ErrorTrackingIngestionSwitch::new(Arc::new(redis), None, Duration::from_secs(3600)).await;
+    let (router, sink) = build_analytics_router(None, Some(Arc::new(switch)));
+    let test_client = TestClient::new(router);
+
+    for batch in [
+        json!([
+            {"event": "$exception", "distinct_id": "test_user"},
+            {"event": "$pageview", "distinct_id": "test_user"},
+        ]),
+        json!([{"event": "$exception", "distinct_id": "test_user"}]),
+    ] {
+        let response = test_client
+            .post("/batch")
+            .header("Content-Type", "application/json")
+            .header("X-Forwarded-For", "127.0.0.1")
+            .body(json!({"api_key": disabled_token, "batch": batch}).to_string())
+            .send()
+            .await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    let published: Vec<String> = sink
+        .get_events()
+        .await
+        .into_iter()
+        .map(|event| event.event.event)
+        .collect();
+    assert_eq!(published, vec!["$pageview"]);
 }
 
 #[tokio::test]
@@ -546,6 +595,7 @@ async fn setup_analytics_router_with_redirect_to_topic(
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
+        None,             // error_tracking_ingestion_switch
     );
 
     (router, sink_clone)

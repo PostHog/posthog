@@ -140,6 +140,7 @@ fn setup_router_for_mode(
         8,    // capture_v1_scatter_gather_min_batch
         None, // ai_gateway_signing_secret
         None, // ingestion_warning_emitter
+        None, // error_tracking_ingestion_switch
     );
 
     (router, sink_clone)

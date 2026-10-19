@@ -2,6 +2,7 @@ pub mod ai_endpoint;
 pub mod ai_rejection;
 pub mod api;
 pub mod config;
+pub mod error_tracking_ingestion;
 pub mod event_restrictions;
 pub mod events;
 pub mod extractors;

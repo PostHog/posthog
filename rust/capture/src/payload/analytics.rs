@@ -146,5 +146,13 @@ pub async fn handle_event_payload(
         .await?;
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "quota limits filter applied");
 
+    if let Some(switch) = &state.error_tracking_ingestion_switch {
+        switch.drop_exceptions(&context.token, &mut events);
+        // The endpoint answers EmptyPayloadFiltered with a 200, so SDKs do not retry the dropped exceptions.
+        if events.is_empty() {
+            return Err(CaptureError::EmptyPayloadFiltered);
+        }
+    }
+
     Ok((context, events))
 }

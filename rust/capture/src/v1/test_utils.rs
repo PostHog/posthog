@@ -560,6 +560,7 @@ use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 
 use crate::config::CaptureMode;
+use crate::error_tracking_ingestion::ErrorTrackingIngestionSwitch;
 use crate::event_restrictions::EventRestrictionService;
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::outputs::OutputRegistry;
@@ -587,6 +588,7 @@ pub struct TestStateBuilder {
     ai_events_overflow_limiter: Option<(NonZeroU32, NonZeroU32)>,
     historical_threshold_days: Option<i64>,
     restriction_service: Option<EventRestrictionService>,
+    error_tracking_ingestion_switch: Option<Arc<ErrorTrackingIngestionSwitch>>,
     global_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     mock_producer: Option<MockKafkaProducer>,
@@ -612,6 +614,7 @@ impl TestStateBuilder {
             ai_events_overflow_limiter: None,
             historical_threshold_days: None,
             restriction_service: None,
+            error_tracking_ingestion_switch: None,
             global_rate_limiter: None,
             ai_byte_rate_limiter: None,
             mock_producer: None,
@@ -674,6 +677,14 @@ impl TestStateBuilder {
     /// Add a restriction service.
     pub fn with_restriction_service(mut self, service: EventRestrictionService) -> Self {
         self.restriction_service = Some(service);
+        self
+    }
+
+    pub fn with_error_tracking_ingestion_switch(
+        mut self,
+        switch: Arc<ErrorTrackingIngestionSwitch>,
+    ) -> Self {
+        self.error_tracking_ingestion_switch = Some(switch);
         self
     }
 
@@ -812,6 +823,7 @@ impl TestStateBuilder {
             ai_gateway_signing_secret: self.ai_gateway_signing_secret,
             ingestion_warning_emitter: self.ingestion_warning_emitter,
             capture_mode: self.capture_mode,
+            error_tracking_ingestion_switch: self.error_tracking_ingestion_switch,
         };
 
         TestState {

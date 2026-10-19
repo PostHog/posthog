@@ -93,6 +93,8 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     event_restrictions_redis_url: None,
     event_restrictions_refresh_interval_secs: 30,
     event_restrictions_fail_open_after_secs: 300,
+    error_tracking_ingestion_switch_enabled: false,
+    error_tracking_ingestion_switch_refresh_secs: 30,
     overflow_enabled: false,
     ai_events_overflow_enabled: false,
     overflow_preserve_partition_locality: false,

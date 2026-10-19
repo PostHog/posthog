@@ -215,10 +215,6 @@ def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> contr
     return _to_settings(logic.update_settings(team_id=team_id, fields=fields))
 
 
-def list_ingestion_disabled_api_tokens() -> list[str]:
-    return logic.list_ingestion_disabled_api_tokens()
-
-
 def _to_spike_detection_config(config) -> contracts.ErrorTrackingSpikeDetectionConfig:
     return contracts.ErrorTrackingSpikeDetectionConfig(
         snooze_duration_minutes=config.snooze_duration_minutes,

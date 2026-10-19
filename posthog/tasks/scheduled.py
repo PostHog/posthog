@@ -101,6 +101,7 @@ from products.data_warehouse.backend.facade.tasks import (
 )
 from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
 from products.engineering_analytics.backend.facade.tasks import TEST_CENSUS_CRONTAB, emit_test_ownership_census
+from products.error_tracking.backend.facade.tasks import reconcile_error_tracking_ingestion_disabled_tokens
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
@@ -271,6 +272,12 @@ def add_periodic_task_with_expiry(
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
+    )
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        reconcile_error_tracking_ingestion_disabled_tokens.s(),
+        name="reconcile-error-tracking-ingestion-disabled-tokens",
     )
     if privacy_enabled():
         sender.add_periodic_task(30.0, process_ai_training_privacy_requests.s(), name="process-ai-training-privacy")

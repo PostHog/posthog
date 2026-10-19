@@ -1,36 +1,29 @@
-import json
-from typing import Any
-
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models.event_ingestion_restriction_config import (
-    DYNAMIC_CONFIG_REDIS_KEY_PREFIX,
-    EventIngestionRestrictionConfig,
-    RestrictionType,
-)
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
 
+from products.error_tracking.backend.logic.ingestion_switch import (
+    INGESTION_DISABLED_TOKENS_REDIS_KEY,
+    reconcile_ingestion_disabled_tokens,
+)
 from products.error_tracking.backend.models import ErrorTrackingSettings
-
-DROP_EVENT_REDIS_KEY = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{RestrictionType.DROP_EVENT_FROM_INGESTION}"
 
 
 class TestErrorTrackingSettingsAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
-        get_client().delete(DROP_EVENT_REDIS_KEY)
+        get_client().delete(INGESTION_DISABLED_TOKENS_REDIS_KEY)
 
     def _base_url(self) -> str:
         return f"/api/projects/{self.team.id}/error_tracking/settings"
 
-    def _drop_event_entries(self) -> list[dict[str, Any]]:
-        raw = get_client().get(DROP_EVENT_REDIS_KEY)
-        return json.loads(raw) if raw else []
+    def _disabled_tokens(self) -> set[str]:
+        return {member.decode() for member in get_client().zrange(INGESTION_DISABLED_TOKENS_REDIS_KEY, 0, -1)}
 
     def _set_ingestion_enabled(self, enabled: bool) -> None:
         with self.captureOnCommitCallbacks(execute=True):
@@ -135,51 +128,19 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         )
         self.assertEqual(response.status_code, expected_status)
 
-    def test_toggling_ingestion_updates_capture_drop_rules(self):
-        EventIngestionRestrictionConfig.objects.create(
-            token=self.team.api_token,
-            restriction_type=RestrictionType.DROP_EVENT_FROM_INGESTION,
-            distinct_ids=["blocked-user"],
-            pipelines=["analytics", "errortracking"],
-        )
-
+    def test_toggling_ingestion_updates_the_token_set_capture_reads(self):
         self._set_ingestion_enabled(False)
-
-        staff_entry, kill_switch_entry = self._drop_event_entries()
-        self.assertEqual(staff_entry["distinct_ids"], ["blocked-user"])
-        self.assertEqual(
-            kill_switch_entry,
-            {
-                "version": 2,
-                "index": 1,
-                "token": self.team.api_token,
-                "pipelines": ["errortracking"],
-                "distinct_ids": [],
-                "session_ids": [],
-                "event_names": [],
-                "event_uuids": [],
-                "args": None,
-            },
-        )
+        self.assertEqual(self._disabled_tokens(), {self.team.api_token})
 
         self._set_ingestion_enabled(True)
+        self.assertEqual(self._disabled_tokens(), set())
 
-        self.assertEqual([entry["distinct_ids"] for entry in self._drop_event_entries()], [["blocked-user"]])
-
-    def test_repeating_an_ingestion_write_repairs_capture_drop_rules_after_a_failed_rebuild(self):
-        ErrorTrackingSettings.objects.update_or_create(team=self.team, defaults={"ingestion_enabled": False})
-        self.assertEqual(self._drop_event_entries(), [])
-
-        self._set_ingestion_enabled(False)
-
-        self.assertEqual([entry["token"] for entry in self._drop_event_entries()], [self.team.api_token])
-
-    def test_capture_drop_rule_follows_api_token_rotation(self):
+    def test_reconcile_moves_a_disabled_project_to_its_rotated_api_token(self):
         self._set_ingestion_enabled(False)
         old_token = self.team.api_token
 
-        with self.captureOnCommitCallbacks(execute=True):
-            self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
+        self.team.reset_token_and_save(user=self.user, is_impersonated_session=False)
+        reconcile_ingestion_disabled_tokens()
 
         self.assertNotEqual(self.team.api_token, old_token)
-        self.assertEqual([entry["token"] for entry in self._drop_event_entries()], [self.team.api_token])
+        self.assertEqual(self._disabled_tokens(), {self.team.api_token})

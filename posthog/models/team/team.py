@@ -20,7 +20,6 @@ import pydantic
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
-from posthog.models.event_ingestion_restriction_config import RestrictionType
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
@@ -950,7 +949,6 @@ class Team(UUIDTClassicModel):
 
     def _persist_api_token_change(self, *, old_token: str, user: "User", is_impersonated_session: bool) -> None:
         from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-        from posthog.tasks.event_ingestion_restrictions import regenerate_restriction_type_in_redis
         from posthog.tasks.remote_config import update_team_remote_config
 
         self.save()
@@ -960,10 +958,6 @@ class Team(UUIDTClassicModel):
         transaction.on_commit(lambda: update_team_remote_config.delay(self.id, old_token=old_token))
         set_team_in_cache(old_token, None)
         set_team_in_cache(self.api_token, self)
-        # The error tracking kill switch drops events by token, so its drop rule must move to the new token.
-        transaction.on_commit(
-            lambda: regenerate_restriction_type_in_redis.delay(RestrictionType.DROP_EVENT_FROM_INGESTION.value)
-        )
         log_activity(
             organization_id=self.organization_id,
             team_id=self.pk,

@@ -16,6 +16,7 @@ use metrics::gauge;
 use tracing::{info, warn};
 
 use crate::config::{CaptureMode, Config};
+use crate::error_tracking_ingestion::ErrorTrackingIngestionSwitch;
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::{ai_byte_limit_window, GlobalRateLimiter};
 use crate::outputs::{Output, OutputRegistry};
@@ -203,6 +204,23 @@ pub async fn build_components(
             .add_scoped_limiter(QuotaResource::Surveys, is_survey_event)
             .add_scoped_limiter(QuotaResource::LLMEvents, is_llm_event);
 
+    let error_tracking_ingestion_switch = if config.error_tracking_ingestion_switch_enabled
+        && matches!(
+            config.capture_mode,
+            CaptureMode::Events | CaptureMode::Import
+        ) {
+        Some(Arc::new(
+            ErrorTrackingIngestionSwitch::new(
+                redis_client.clone(),
+                config.redis_key_prefix.clone(),
+                Duration::from_secs(config.error_tracking_ingestion_switch_refresh_secs),
+            )
+            .await,
+        ))
+    } else {
+        None
+    };
+
     // TODO: remove this once we have a billing limiter
     let token_dropper = config
         .drop_events_by_token_distinct_id
@@ -379,6 +397,7 @@ pub async fn build_components(
         config.capture_v1_scatter_gather_min_batch,
         config.ai_gateway_signing_secret.clone(),
         ingestion_warning_emitter,
+        error_tracking_ingestion_switch,
     );
 
     info!(

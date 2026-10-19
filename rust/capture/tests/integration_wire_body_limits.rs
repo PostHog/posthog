@@ -111,6 +111,7 @@ fn make_test_client(mode: CaptureMode) -> (TestClient, CapturingSink) {
         8,
         None,
         None,
+        None,
     );
 
     (TestClient::new(app), sink)

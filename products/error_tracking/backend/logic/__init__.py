@@ -6,9 +6,9 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Q, QuerySet
 
-from posthog.models.event_ingestion_restriction_config import RestrictionType
 from posthog.models.utils import UUIDT
 
+from products.error_tracking.backend.logic.ingestion_switch import sync_team_ingestion_disabled_token
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -237,24 +237,9 @@ def update_settings(team_id: int, fields: dict[str, int | bool | None]) -> Error
     if updates:
         settings.save(update_fields=list(updates))
     if "ingestion_enabled" in updates:
-        # posthog.tasks imports the error tracking facade, which imports this module, so a module-level import is circular.
-        from posthog.tasks.event_ingestion_restrictions import regenerate_restriction_type_in_redis  # noqa: PLC0415
-
-        # Capture reads the drop rules from Redis, so the kill switch only takes effect once they are rebuilt.
-        # Rebuild on every write of the field, also when the value is unchanged. If a rebuild fails after the save,
-        # the next write repairs the drop rules.
-        transaction.on_commit(
-            lambda: regenerate_restriction_type_in_redis.delay(RestrictionType.DROP_EVENT_FROM_INGESTION.value)
-        )
+        # Capture reads the switch from Redis, so it takes effect only once the token set is updated.
+        transaction.on_commit(lambda: sync_team_ingestion_disabled_token(team_id))
     return settings
-
-
-def list_ingestion_disabled_api_tokens() -> list[str]:
-    return list(
-        ErrorTrackingSettings.objects.filter(ingestion_enabled=False)
-        .order_by("team_id")
-        .values_list("team__api_token", flat=True)
-    )
 
 
 def get_or_create_spike_detection_config(team_id: int) -> ErrorTrackingSpikeDetectionConfig:

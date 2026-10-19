@@ -269,6 +269,7 @@ async fn run_v0(inputs: Inputs, distinct_ids: &[&str]) -> Batch {
         8,
         None,
         None,
+        None,
     );
 
     // v0 reads the customer's choice from the event property.

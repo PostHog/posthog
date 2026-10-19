@@ -1,5 +1,4 @@
 import json
-from typing import Any
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -11,9 +10,6 @@ from posthog.redis import get_client
 from posthog.settings import PLUGINS_RELOAD_REDIS_URL
 
 DYNAMIC_CONFIG_REDIS_KEY_PREFIX = "event_ingestion_restriction_dynamic_config"
-REBUILD_LOCK_REDIS_KEY_PREFIX = "event_ingestion_restriction_rebuild_lock"
-REBUILD_LOCK_TIMEOUT_SECONDS = 30
-REBUILD_LOCK_BLOCKING_TIMEOUT_SECONDS = 10
 
 # Pipeline configuration - first item is the default
 INGESTION_PIPELINES = [
@@ -151,66 +147,33 @@ def regenerate_redis_for_restriction_type(restriction_type: str):
     redis_client = get_client(PLUGINS_RELOAD_REDIS_URL)
     redis_key = f"{DYNAMIC_CONFIG_REDIS_KEY_PREFIX}:{restriction_type}"
 
-    # Each rebuild writes a full snapshot of one restriction type. The lock covers both the read and the write.
-    # Without it, a rebuild that reads before another commit can write after that commit's rebuild,
-    # and the stale snapshot stays in Redis until the next rebuild.
-    with redis_client.lock(
-        f"{REBUILD_LOCK_REDIS_KEY_PREFIX}:{restriction_type}",
-        timeout=REBUILD_LOCK_TIMEOUT_SECONDS,
-        blocking_timeout=REBUILD_LOCK_BLOCKING_TIMEOUT_SECONDS,
-    ):
-        # Fetch all restrictions of this type, ordered by id (UUIDT, time-sortable) ascending.
-        # The index field in the output reflects this order so consumers can determine
-        # which config was created most recently (highest index wins for redirect_to_topic).
-        configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type).order_by("id"))
+    # Fetch all restrictions of this type, ordered by id (UUIDT, time-sortable) ascending.
+    # The index field in the output reflects this order so consumers can determine
+    # which config was created most recently (highest index wins for redirect_to_topic).
+    configs = list(EventIngestionRestrictionConfig.objects.filter(restriction_type=restriction_type).order_by("id"))
 
-        # Build the new data array from all configs in the database (v2 format)
-        entries: list[dict[str, Any]] = [
-            {
-                "token": config.token,
-                "pipelines": config.pipelines or [],
-                "distinct_ids": config.distinct_ids or [],
-                "session_ids": config.session_ids or [],
-                "event_names": config.event_names or [],
-                "event_uuids": config.event_uuids or [],
-                "args": config.args,
-            }
-            for config in configs
-        ]
-        if restriction_type == RestrictionType.DROP_EVENT_FROM_INGESTION:
-            entries.extend(_error_tracking_ingestion_disabled_entries())
+    if not configs:
+        # No configs exist, delete the Redis key
+        redis_client.delete(redis_key)
+        return
 
-        if not entries:
-            # No configs exist, delete the Redis key
-            redis_client.delete(redis_key)
-            return
-
-        data = [{"version": 2, "index": index, **entry} for index, entry in enumerate(entries)]
-        redis_client.set(redis_key, json.dumps(data))
-
-
-def _error_tracking_ingestion_disabled_entries() -> list[dict[str, Any]]:
-    """
-    Drop entries for projects that turned off exception ingestion in their error tracking settings.
-
-    They live next to the staff-managed configs because a token can hold only one config per restriction type,
-    and capture applies every entry for a token.
-    """
-    # Error tracking logic imports this module, so a module-level import of its facade is circular.
-    from products.error_tracking.backend.facade.api import list_ingestion_disabled_api_tokens  # noqa: PLC0415
-
-    return [
-        {
-            "token": token,
-            "pipelines": [IngestionPipeline.ERRORTRACKING.value],
-            "distinct_ids": [],
-            "session_ids": [],
-            "event_names": [],
-            "event_uuids": [],
-            "args": None,
+    # Build the new data array from all configs in the database (v2 format)
+    data = []
+    for index, config in enumerate(configs):
+        entry = {
+            "version": 2,
+            "index": index,
+            "token": config.token,
+            "pipelines": config.pipelines or [],
+            "distinct_ids": config.distinct_ids or [],
+            "session_ids": config.session_ids or [],
+            "event_names": config.event_names or [],
+            "event_uuids": config.event_uuids or [],
+            "args": config.args,
         }
-        for token in list_ingestion_disabled_api_tokens()
-    ]
+        data.append(entry)
+
+    redis_client.set(redis_key, json.dumps(data))
 
 
 @receiver(pre_save, sender=EventIngestionRestrictionConfig)

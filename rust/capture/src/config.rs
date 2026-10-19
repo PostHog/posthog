@@ -269,6 +269,14 @@ pub struct Config {
     #[envconfig(default = "300")]
     pub event_restrictions_fail_open_after_secs: u64,
 
+    /// Drop `$exception` events from projects that turned exception ingestion off in their
+    /// error tracking settings. Reads a token set the error tracking product keeps in `redis_url`.
+    #[envconfig(default = "true")]
+    pub error_tracking_ingestion_switch_enabled: bool,
+
+    #[envconfig(default = "30")]
+    pub error_tracking_ingestion_switch_refresh_secs: u64,
+
     pub otel_url: Option<String>,
 
     #[envconfig(default = "false")]

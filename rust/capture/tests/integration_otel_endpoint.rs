@@ -203,6 +203,7 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
         8,    // capture_v1_scatter_gather_min_batch
         options.ai_gateway_signing_secret,
         options.ingestion_warning_emitter, // ingestion_warning_emitter
+        None,                              // error_tracking_ingestion_switch
     );
 
     TestClient::new(app)

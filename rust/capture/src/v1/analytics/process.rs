@@ -13,11 +13,13 @@ use super::constants::{
     CAPTURE_V1_EVENT_ADJUSTMENTS_APPLIED, CAPTURE_V1_MAX_EVENT_NAME_LENGTH,
     CAPTURE_V1_OVERFLOW_ROUTED, CAPTURE_V1_PARSED_EVENTS, CAPTURE_V1_PROCESSING_DURATION_SECONDS,
     CAPTURE_V1_RATE_LIMITER, DETAIL_AI_BYTE_RATE_LIMITED, DETAIL_AI_EVENT_TOO_BIG,
-    DETAIL_EVENT_RESTRICTION_DROP, DETAIL_MISROUTED_EVENT, DETAIL_NON_HISTORICAL_DROP,
-    DETAIL_PERSON_PROCESSING_DISABLED, FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
+    DETAIL_ERROR_TRACKING_INGESTION_DISABLED, DETAIL_EVENT_RESTRICTION_DROP,
+    DETAIL_MISROUTED_EVENT, DETAIL_NON_HISTORICAL_DROP, DETAIL_PERSON_PROCESSING_DISABLED,
+    FUTURE_EVENT_HOURS_CUTOFF_MS, ILLEGAL_DISTINCT_IDS,
 };
 use super::response::BatchResponse;
 use super::types::{Batch, Event, EventResult, OptionKeys, Options, ValidatedEvent, WrappedEvent};
+use crate::error_tracking_ingestion::ErrorTrackingIngestionSwitch;
 use crate::event_restrictions::{EventContext, EventRestrictionService};
 use crate::events::ai_byte_limit::charge_ai_bytes;
 use crate::global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter};
@@ -139,6 +141,10 @@ async fn run_pipeline(
         &mut events,
     )
     .await?;
+
+    if let Some(ref switch) = state.error_tracking_ingestion_switch {
+        apply_error_tracking_ingestion_switch(switch, &context.api_token, &mut events);
+    }
 
     if let Some(ref service) = state.event_restriction_service {
         apply_restrictions(
@@ -805,6 +811,25 @@ fn apply_overflow_stamping(
             }
             OverflowLimiterResult::NotLimited => {}
         }
+    }
+}
+
+fn apply_error_tracking_ingestion_switch(
+    switch: &ErrorTrackingIngestionSwitch,
+    token: &str,
+    events: &mut [WrappedEvent],
+) {
+    if !switch.is_disabled(token) {
+        return;
+    }
+    for event in events.iter_mut() {
+        if event.result != EventResult::Ok || event.destination != Destination::ErrorTrackingMain {
+            continue;
+        }
+        event.result = EventResult::Drop;
+        event.details = Some(DETAIL_ERROR_TRACKING_INGESTION_DISABLED);
+        metrics::counter!(CAPTURE_V1_EVENTS_DROPPED, "reason" => "error_tracking_ingestion_disabled")
+            .increment(1);
     }
 }
 
@@ -2499,6 +2524,51 @@ mod tests {
         // which has no restrictions configured here.
         assert_eq!(events[1].result, EventResult::Ok);
         assert_eq!(events[1].destination, Destination::ErrorTrackingMain);
+    }
+
+    #[tokio::test]
+    async fn error_tracking_ingestion_switch_drops_only_the_exceptions_of_a_disabled_project() {
+        let redis = common_redis::MockRedisClient::new().zrangebyscore_ret(
+            crate::error_tracking_ingestion::INGESTION_DISABLED_TOKENS_KEY,
+            vec!["phc_test_token".to_string()],
+        );
+        let switch =
+            ErrorTrackingIngestionSwitch::new(Arc::new(redis), None, StdDuration::from_secs(3600))
+                .await;
+        let ts = TestStateBuilder::new()
+            .with_error_tracking_ingestion_switch(Arc::new(switch))
+            .build();
+        let mut ctx = test_utils::test_analytics_context();
+        let batch = valid_batch(vec![
+            Event {
+                event: "$exception".to_string(),
+                ..valid_event()
+            },
+            valid_event(),
+        ]);
+
+        let resp = process_batch(&ts.state, &mut ctx, batch).await.unwrap();
+
+        let results: Vec<_> = resp
+            .entries()
+            .iter()
+            .map(|(_, entry)| (&entry.result, entry.details))
+            .collect();
+        assert_eq!(
+            results,
+            vec![
+                (
+                    &EventResult::Drop,
+                    Some(DETAIL_ERROR_TRACKING_INGESTION_DISABLED)
+                ),
+                (&EventResult::Ok, None),
+            ]
+        );
+        let records = ts.mock_producer.get_records();
+        assert_eq!(records.len(), 1);
+        assert!(std::str::from_utf8(&records[0].payload)
+            .unwrap()
+            .contains("$pageview"));
     }
 
     // --- errortracking pipeline restrictions ---

@@ -195,6 +195,7 @@ fn setup_ai_test_router() -> Router {
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
+        None,             // error_tracking_ingestion_switch
     )
 }
 
@@ -250,6 +251,7 @@ fn setup_ai_router_collecting_warnings() -> (Router, Arc<CollectingEmitter>) {
         8,
         None,
         warning_emitter,
+        None,
     );
 
     (app, emitter)
@@ -1295,6 +1297,7 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
+        None,             // error_tracking_ingestion_switch
     );
 
     (router, sink_clone)
@@ -1963,6 +1966,7 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
+        None,             // error_tracking_ingestion_switch
     );
 
     (router, sink_clone)
@@ -2028,6 +2032,7 @@ fn setup_ai_test_router_with_byte_limiter() -> (Router, CapturingSink) {
         8,    // capture_v1_scatter_gather_min_batch
         None, // ai_gateway_signing_secret
         None, // ingestion_warning_emitter
+        None, // error_tracking_ingestion_switch
     );
 
     (router, sink_clone)
@@ -2289,6 +2294,7 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
         8,                // capture_v1_scatter_gather_min_batch
         None,             // ai_gateway_signing_secret
         None,             // ingestion_warning_emitter
+        None,             // error_tracking_ingestion_switch
     );
 
     (router, sink_clone)
@@ -2436,6 +2442,7 @@ fn setup_ai_test_router_with_overflow_limiter(
         8,    // capture_v1_scatter_gather_min_batch
         None, // ai_gateway_signing_secret
         None, // ingestion_warning_emitter
+        None, // error_tracking_ingestion_switch
     );
 
     (router, sink_clone)
@@ -2567,6 +2574,7 @@ fn ai_router(
         8,
         Some(GW_SECRET.to_string()),
         None, // ingestion_warning_emitter
+        None, // error_tracking_ingestion_switch
     );
     (router, sink_clone)
 }
