@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { IconCheck } from '@posthog/icons'
+import { IconCheck, IconWarning } from '@posthog/icons'
 import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { DnsRecordRows } from '../components/DnsRecordRows'
@@ -14,10 +14,9 @@ import { HedgehogRocket } from '../hoggies'
 
 export function ReadyStep(): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
-    const { records, foundCount } = useValues(emailDomainStatusLogic)
+    const { records, foundCount, allRecordsFound } = useValues(emailDomainStatusLogic)
     const { hostName } = useValues(emailDomainAutoConfigureLogic)
     const host = hostName ?? 'your DNS host'
-    const allFound = foundCount === records.length
     return (
         <div className="flex flex-col gap-8">
             <div className="rounded-xl border border-success bg-success-highlight p-6 @md:p-8">
@@ -29,7 +28,7 @@ export function ReadyStep(): JSX.Element {
                         </>
                     }
                     lead={
-                        allFound
+                        allRecordsFound
                             ? `All ${records.length} settings are in place. Inboxes now know these emails really come from you.`
                             : `The email provider verified this domain. ${foundCount} of ${records.length} settings are in place, so add the rest at ${host}.`
                     }
@@ -37,20 +36,31 @@ export function ReadyStep(): JSX.Element {
             </div>
             <FirstSenderCard />
             <LemonCollapse
+                defaultActiveKey={allRecordsFound ? undefined : 'records'}
                 panels={[
                     {
                         key: 'records',
                         header: (
                             <span className="flex items-center gap-2">
-                                <IconCheck className="text-success" />
+                                {allRecordsFound ? (
+                                    <IconCheck className="text-success" />
+                                ) : (
+                                    <IconWarning className="text-warning" />
+                                )}
                                 <span>
-                                    {allFound
+                                    {allRecordsFound
                                         ? `${records.length} settings in place at ${host}`
                                         : `${foundCount} of ${records.length} settings in place at ${host}`}
                                 </span>
                             </span>
                         ),
-                        content: <DnsRecordRows records={records} showStatus />,
+                        content: (
+                            <DnsRecordRows
+                                records={records}
+                                missing={records.filter((record) => record.status === 'pending')}
+                                showStatus
+                            />
+                        ),
                     },
                 ]}
             />
