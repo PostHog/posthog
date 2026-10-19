@@ -12,13 +12,14 @@ from uuid import UUID
 
 from django.utils import timezone
 
-from products.alerts_platform.backend.facade.api import delete_owned_copy, update_owned_copy
+from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
     PlatformAlertConfigurationEdit,
     PlatformAlertNotEditable,
 )
 from products.logs.backend.alert_state_machine import apply_enabled
+from products.logs.backend.facade.api import close_incident_before_delete
 from products.logs.backend.models import LogsAlertConfiguration
 from products.logs.backend.platform_alert_backfill import CONDITION_FIELDS, SETTINGS_FIELDS, platform_upsert_of
 from products.logs.backend.platform_cutover import hand_over, has_begun_cutover, in_an_environment
@@ -95,3 +96,12 @@ def _write_logs_row(alert: LogsAlertConfiguration, edit: PlatformAlertConfigurat
             "updated_at",
         ]
     )
+
+
+def before_delete(alert: LogsAlertConfiguration) -> None:
+    """Closes the incident of a firing alert while its destinations still exist, on whichever stack
+    owns it."""
+    if alert.platform_owned:
+        close_owned_firings_now(team_id=alert.team_id, legacy_configuration_id=alert.id)
+    else:
+        close_incident_before_delete(team_id=alert.team_id, alert_id=str(alert.id), state=alert.state)

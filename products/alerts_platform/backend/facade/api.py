@@ -173,3 +173,9 @@ def update_owned_copy(
 
 def delete_owned_copy(*, team_id: int, legacy_configuration_id: UUID) -> None:
     platform_writes.delete_owned_copy(team_id=team_id, legacy_configuration_id=legacy_configuration_id)
+
+
+def close_owned_firings_now(*, team_id: int, legacy_configuration_id: UUID) -> None:
+    """Ends the firings of a copy the platform owns and sends their incident resolves before returning,
+    for a delete that is about to remove the destinations."""
+    platform_writes.close_owned_firings_now(team_id=team_id, legacy_configuration_id=legacy_configuration_id)

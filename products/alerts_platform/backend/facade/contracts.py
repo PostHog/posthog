@@ -875,6 +875,10 @@ class SourceConfigSpec:
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
     mirror: SourceEditMirror | None = None
+    # Where the source's incident destinations listen for a close, and the alert's page in the
+    # source's product. A control-plane close needs both to address its resolve.
+    incident_event_ids: Mapping[str, str] | None = None
+    alert_url: Callable[[int, UUID], str] | None = None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]

@@ -123,6 +123,11 @@ def delivery_parts(outcome: PlatformAlertOutcome, incident_grouping_keys: Collec
     )
     if outcome.failure is not None and outcome.failure.kind != AlertEventKind.CHECK:
         transitions += 1
+    return parts_for(transitions)
+
+
+def parts_for(transitions: int) -> int:
+    """How many delivery activities this many transitions need."""
     return max(1, math.ceil(transitions / MAX_TRANSITIONS_PER_DELIVERY))
 
 
