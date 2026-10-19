@@ -82,6 +82,20 @@ describe('playgroundPromptConfig', () => {
         })
     })
 
+    it.each([
+        [
+            'keeps a stored format the playground cannot edit',
+            { type: 'json_object' },
+            createPromptConfig(),
+            { type: 'json_object' },
+        ],
+        ['replaces it once the panel has a schema', { type: 'json_object' }, fullPrompt, responseFormat],
+        ['drops a supported format the user cleared', responseFormat, createPromptConfig(), undefined],
+    ])('%s when saving over an existing response format', (_, existing, prompt, expected) => {
+        const serialized = serializePlaygroundConfig(prompt, modelConfig, { response_format: existing })
+        expect(serialized?.response_format).toEqual(expected)
+    })
+
     it('carries the stored model selection forward when no model config is passed', () => {
         const existing = { model: 'gpt-5', provider: 'openai', provider_key_id: 'key-1', owner: 'api-user' }
         const serialized = serializePlaygroundConfig(createPromptConfig(), null, existing)

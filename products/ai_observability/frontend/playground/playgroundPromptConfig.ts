@@ -126,6 +126,14 @@ export function serializePlaygroundConfig(
     }
     if (prompt.responseFormat) {
         config.response_format = prompt.responseFormat
+    } else if (
+        isObject(existingConfig) &&
+        isObject(existingConfig.response_format) &&
+        normalizeResponseFormat(existingConfig.response_format) === null
+    ) {
+        // A format the playground cannot edit (such as `json_object`) never reached the panel,
+        // so the panel being empty is not the user clearing it. Keep it for SDK consumers.
+        config.response_format = existingConfig.response_format
     }
     if (prompt.messages.length > 0) {
         config.messages = prompt.messages.map((message) => ({
