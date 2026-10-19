@@ -20,6 +20,7 @@ from products.workflows.backend.services.batch_audience import audience_page_siz
 from products.workflows.backend.services.batch_audience_cohorts import (
     find_realtime_behavioral_cohort,
     realtime_audience_cohort,
+    realtime_cohort_can_finish,
     realtime_cohort_is_ready,
     realtime_cohort_status,
 )
@@ -102,6 +103,7 @@ def get_audience_size(
                 id=mixed_realtime_cohort.pk,
                 name=str(mixed_realtime_cohort.name),
                 ready=realtime_cohort_is_ready(mixed_realtime_cohort),
+                can_finish=realtime_cohort_can_finish(mixed_realtime_cohort),
             )
             if mixed_realtime_cohort is not None
             else None
