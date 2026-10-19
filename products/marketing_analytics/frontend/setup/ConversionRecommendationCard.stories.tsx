@@ -13,6 +13,7 @@ const meta: Meta<typeof ConversionRecommendationCard> = {
         ),
     ],
     args: {
+        onUseSuggestion: () => {},
         recommendation: {
             source_ref: 'action:1',
             name: 'Qualified requests',

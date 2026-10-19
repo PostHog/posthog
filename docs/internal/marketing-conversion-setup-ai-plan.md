@@ -22,7 +22,11 @@ A revenue suggestion must reference a numeric property observed in the source me
 A missing amount mapping downgrades the suggestion to a conversion and adds a question about the missing mapping.
 Numeric metadata alone does not prove that a value is money; the user still needs to confirm units, currency, payment status, and duplicate handling.
 The **Configure goals** button opens the existing goal editor.
-Recommendations do not create or modify goals, and do not depend on conversion previews or the new dashboard.
+Recommendations do not automatically create or modify goals, and do not depend on conversion previews or the new dashboard.
+In Setup, **Use suggestion** opens the existing goal editor with the proposed name and event or action.
+Revenue suggestions select the sum of the proposed amount property; customer suggestions select the customer flag.
+Business questions remain visible for review, and nothing is saved until the user clicks **Add conversion goal**.
+The form blocks duplicate submissions and keeps the draft after a failed save so the user can retry.
 
 ## Discovery and access
 
@@ -74,6 +78,7 @@ After changing model scope, regenerate that list with `python .github/scripts/ch
 
 Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
 Frontend tests cover the initial run, manual updates, polling, project isolation, and the setup feature flag.
+Draft tests cover event and action mapping, explicit saves, duplicate-click prevention, and retries after failed saves.
 Storybook covers analysis in progress, saved results, updates, failure, empty results, missing consent, and narrow layouts.
 
 The standalone recommendation evaluation uses eleven synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
