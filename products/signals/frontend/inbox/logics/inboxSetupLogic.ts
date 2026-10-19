@@ -857,7 +857,7 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     } catch (error) {
                         if (
                             !(error instanceof ApiError) ||
-                            ![403, 404].includes(error.status) ||
+                            (error.status !== 403 && error.status !== 404) ||
                             draft.scanner_ids.length ||
                             values.visionScanners?.length
                         ) {
