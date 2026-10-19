@@ -178,7 +178,10 @@ describe('focused Inbox setup', () => {
                 '/api/projects/:id/signals/source_configs/:source/': () => [200, sources[0]],
             },
         })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.SELF_DRIVING_UBP]: true,
+            [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
+        })
         logic = inboxSetupLogic()
         logic.mount()
     })
@@ -189,12 +192,23 @@ describe('focused Inbox setup', () => {
         jest.useRealTimers()
     })
 
-    it.each(['button', 'github_return'])(
-        'activates defaults through %s without setup steps or recommendation refreshes',
-        async (entry) => {
+    it.each([
+        ['button', true, null],
+        ['github_return', true, null],
+        ['button', false, null],
+        ['github_return', false, null],
+        ['button', true, true],
+        ['button', false, false],
+    ] as const)(
+        'activates through %s with usage-based pricing %s and saved implementation %s',
+        async (entry, usageBasedPricing, savedImplementation) => {
             variant = entry === 'github_return' ? 'test-github' : null
-            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github' })
-            savedDraft = null
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
+                [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-github',
+            })
+            savedDraft =
+                savedImplementation === null ? null : { ...draft, automatic_implementation: savedImplementation }
             failCompletion = false
             hasEvents = true
             canonicalScouts = [
@@ -209,6 +223,9 @@ describe('focused Inbox setup', () => {
             logic.actions.startSetup()
             await waitFor(() => expect(logic.values.quickSetupReady).toBe(true))
             expect(logic.values.isQuickSetup).toBe(true)
+            if (savedImplementation !== null) {
+                expect(logic.values.savedState?.draft?.automatic_implementation).toBe(savedImplementation)
+            }
             if (entry === 'github_return') {
                 router.actions.replace(router.values.location.pathname, { onboarding_step: 'quick' })
                 expect(logic.values.shouldResumeQuickSetup).toBe(true)
@@ -220,7 +237,7 @@ describe('focused Inbox setup', () => {
             }
             await waitFor(() => expect(logic.values.completed).toBe(true))
             expect(enabledScouts).toEqual(['signals-scout-general'])
-            expect(logic.values.savedState?.draft?.automatic_implementation).toBe(false)
+            expect(logic.values.savedState?.draft?.automatic_implementation).toBe(!usageBasedPricing)
             expect(logic.values.savedState?.draft?.suggestions.map((item) => item.skill_name)).toEqual([
                 'signals-scout-general',
             ])
@@ -237,10 +254,10 @@ describe('focused Inbox setup', () => {
         async (assignment) => {
             variant = assignment
             savedDraft = null
-            featureFlagLogic.actions.setFeatureFlags(
-                [],
-                assignment ? { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: assignment } : {}
-            )
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.SELF_DRIVING_UBP]: true,
+                ...(assignment ? { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: assignment } : {}),
+            })
             await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
             expect(logic.values.usesFocusedSetup).toBe(assignment === 'test-ui')
             expect(logic.values.inProgress).toBe(false)
@@ -295,7 +312,11 @@ describe('focused Inbox setup', () => {
         }
     )
 
-    it('keeps partially activated setup open and retries without creating another source', async () => {
+    it.each([true, false])('retries partial activation with usage-based pricing %s', async (usageBasedPricing) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.SELF_DRIVING_UBP]: usageBasedPricing,
+            [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui',
+        })
         const capture = jest.spyOn(posthog, 'capture')
         await expectLogic(logic, () => logic.actions.startSetup()).toFinishAllListeners()
         expect(logic.values.activationDisabledReason).toBeUndefined()
@@ -303,13 +324,13 @@ describe('focused Inbox setup', () => {
         await expectLogic(logic, () => logic.actions.activate()).toFinishAllListeners()
         expect(logic.values.completed).toBe(false)
         expect(logic.values.inProgress).toBe(true)
-        expect(logic.values.draft).toEqual(draft)
+        expect(logic.values.draft).toEqual({ ...draft, automatic_implementation: !usageBasedPricing })
         expect(logic.values.error).toBeTruthy()
         expect(createdSources).toBe(1)
 
         failCompletion = false
         await expectLogic(logic, () => logic.actions.retry()).toFinishAllListeners()
-        expect(savedDraft?.automatic_implementation).toBe(false)
+        expect(savedDraft?.automatic_implementation).toBe(!usageBasedPricing)
         expect(logic.values.completed).toBe(true)
         expect(logic.values.inProgress).toBe(false)
         expect(createdSources).toBe(1)

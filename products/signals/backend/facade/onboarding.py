@@ -127,13 +127,11 @@ class InboxOnboarding:
 
         if (config.onboarding or {}).get("variant") == "test-github":
             self.authorize_scouts(True)
-            if draft["automatic_implementation"] or not any(
+            if not any(
                 item["kind"] == "canonical" and item["skill_name"] == "signals-scout-general"
                 for item in draft["suggestions"]
             ):
-                raise InboxOnboardingValidationError(
-                    "Quick activation requires the general scout and manual implementation."
-                )
+                raise InboxOnboardingValidationError("Quick activation requires the general scout.")
 
         if any(
             draft.get(key) or ((config.onboarding or {}).get("draft") or {}).get(key)

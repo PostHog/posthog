@@ -232,7 +232,8 @@ export interface inboxSetupLogicMeta {
         quickSetupDraft: (
             sources: InboxSetupSource[],
             visionScanners: ReplayScannerApi[] | null,
-            scoutConfigs: SignalScoutConfigApi[] | null
+            scoutConfigs: SignalScoutConfigApi[] | null,
+            featureFlags: FeatureFlagsSet
         ) => InboxOnboardingDraftApi | null
         quickSetupReady: (
             ready: boolean,
@@ -263,7 +264,8 @@ export interface inboxSetupLogicMeta {
             editedDraft: InboxOnboardingDraftApi | null,
             sources: InboxSetupSource[],
             visionScanners: ReplayScannerApi[] | null,
-            scannerInventoryKnown: boolean
+            scannerInventoryKnown: boolean,
+            featureFlags: FeatureFlagsSet
         ) => InboxOnboardingDraftApi
         scoutsLoading: (
             scoutConfigsLoading: boolean,
@@ -443,12 +445,21 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 quick && ready && connected && params.onboarding_step === 'quick' && !saving && !error && !completed,
         ],
         quickSetupDraft: [
-            (s) => [s.sources, s.visionScanners, s.scoutConfigs],
+            (s) => [s.sources, s.visionScanners, s.scoutConfigs, s.featureFlags],
             (
                 sources: InboxSetupSource[],
                 scanners: ReplayScannerApi[] | null,
-                configs: SignalScoutConfigApi[] | null
-            ): InboxOnboardingDraftApi | null => quickInboxSetupDraft(sources, scanners ?? [], configs ?? []),
+                configs: SignalScoutConfigApi[] | null,
+                flags: FeatureFlagsSet
+            ): InboxOnboardingDraftApi | null => {
+                const quickDraft = quickInboxSetupDraft(sources, scanners ?? [], configs ?? [])
+                return quickDraft
+                    ? {
+                          ...quickDraft,
+                          automatic_implementation: !flags[FEATURE_FLAGS.SELF_DRIVING_UBP],
+                      }
+                    : null
+            },
         ],
         quickSetupReady: [
             (s) => [s.ready, s.quickSetupDraft, s.scoutConfigsLoading],
@@ -507,14 +518,15 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                 ),
         ],
         draft: [
-            (s) => [s.editedDraft, s.sources, s.visionScanners, s.scannerInventoryKnown],
+            (s) => [s.editedDraft, s.sources, s.visionScanners, s.scannerInventoryKnown, s.featureFlags],
             (
                 draft: InboxOnboardingDraftApi | null,
                 sources: InboxSetupSource[],
                 scanners: ReplayScannerApi[] | null,
-                scannerInventoryKnown: boolean
-            ): InboxOnboardingDraftApi =>
-                draft
+                scannerInventoryKnown: boolean,
+                flags: FeatureFlagsSet
+            ): InboxOnboardingDraftApi => {
+                const reconciled = draft
                     ? reconcileInboxSetupDraft(
                           draft,
                           sources,
@@ -523,7 +535,11 @@ export const inboxSetupLogic = kea<inboxSetupLogicType>([
                     : newInboxSetupDraft(
                           sources,
                           (scanners ?? []).map((scanner) => scanner.id)
-                      ),
+                      )
+                return flags[FEATURE_FLAGS.SELF_DRIVING_UBP]
+                    ? reconciled
+                    : { ...reconciled, automatic_implementation: true }
+            },
         ],
         scoutsLoading: [
             (s) => [s.scoutConfigsLoading, s.suggestionSetLoading, s.isRefreshing, s.scoutChoices],

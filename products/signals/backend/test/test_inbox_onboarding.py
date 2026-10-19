@@ -159,7 +159,6 @@ class TestInboxOnboarding(APIBaseTest):
             ("scanner",),
             ("empty",),
             ("quick_scout",),
-            ("quick_implementation",),
         ]
     )
     def test_incomplete_setup_never_converts(self, missing: str) -> None:
@@ -167,10 +166,6 @@ class TestInboxOnboarding(APIBaseTest):
             config = SignalTeamConfig.objects.get(team=self.team)
             config.onboarding = {"variant": "test-github"}
             config.save()
-        if missing == "quick_implementation":
-            self.draft["suggestions"] = [self.suggestion]
-            self.draft["automatic_implementation"] = True
-            SignalScoutConfig.objects.create(team=self.team, skill_name=self.scout_skill_name, enabled=True, emit=True)
         if missing == "source":
             self.source.enabled = False
             self.source.save()
@@ -190,8 +185,11 @@ class TestInboxOnboarding(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert not (SignalTeamConfig.objects.get(team=self.team).onboarding or {}).get("completed_at")
 
-    @parameterized.expand([(None,), ("control",), ("test-ui",), ("test-github",)])
-    def test_completion_is_durable_and_retry_safe(self, variant: str | None) -> None:
+    @parameterized.expand(
+        [(None, False), ("control", False), ("test-ui", False), ("test-github", False), ("test-github", True)]
+    )
+    def test_completion_is_durable_and_retry_safe(self, variant: str | None, automatic_implementation: bool) -> None:
+        self.draft["automatic_implementation"] = automatic_implementation
         if variant == "test-github":
             self.draft["suggestions"] = [self.suggestion]
             SignalScoutConfig.objects.create(team=self.team, skill_name=self.scout_skill_name, enabled=True, emit=True)
@@ -221,7 +219,7 @@ class TestInboxOnboarding(APIBaseTest):
             }
         else:
             launch.assert_not_called()
-        assert config.autostart_enabled is False
+        assert config.autostart_enabled is automatic_implementation
         assert config.default_autostart_priority == "P1"
         assert config.onboarding["activated_by"] == self.user.id
         assert capture.call_args.kwargs["properties"]["variant"] == variant
