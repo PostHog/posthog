@@ -16335,6 +16335,7 @@
         "summary": "Check messaging setup",
         "title": "Check messaging setup",
         "required_scopes": ["hog_flow:read"],
+        "api_operations": ["GET /api/projects/{project_id}/workflow_setup/status/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
