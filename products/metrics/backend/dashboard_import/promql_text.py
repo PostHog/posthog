@@ -207,6 +207,9 @@ def drop_match_all_matchers(expr: str) -> str:
                 previous = _previous_significant(tokens, index)
                 if not inner and previous is not None and previous.kind == "ident":
                     edits.append((token.start, tokens[end].end, ""))
+                elif not inner:
+                    # PromQL rejects `{}`, so a selector without a metric name keeps one matcher.
+                    edits.append((token.end, tokens[end].start, '__name__=~".+"'))
                 else:
                     edits.append((token.end, tokens[end].start, inner))
             index = end + 1
