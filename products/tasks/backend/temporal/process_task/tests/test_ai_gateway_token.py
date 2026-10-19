@@ -1370,10 +1370,9 @@ class TestWorkflowsMint:
         assert env["AI_GATEWAY_TOKEN"] == "phe_abc"
         mint.assert_called_once()
 
-    def test_team_out_of_ai_credits_does_not_mint(self, mint_settings):
-        env, mint = self._env(mint_settings, over_quota=True)
-        assert "AI_GATEWAY_TOKEN" not in env
-        mint.assert_not_called()
+    def test_team_out_of_ai_credits_fails_the_run_instead_of_degrading(self, mint_settings):
+        with pytest.raises(GatewayTokenUnavailableError, match="used its monthly PostHog AI credits"):
+            self._env(mint_settings, over_quota=True)
 
     def test_credit_lookup_failure_does_not_mint(self, mint_settings):
         with patch(_CREDIT_LOOKUP, side_effect=RuntimeError("billing is down")):
