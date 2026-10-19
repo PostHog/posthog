@@ -1,8 +1,8 @@
 # Conversion recommendations in Marketing analytics
 
 Conversion recommendations scan a project's custom events and existing actions and suggest up to three business outcomes to measure.
-The API and MCP tools expose saved recommendations independently of the frontend.
-The `marketing-analytics-conversion-setup-ai` feature flag gates the API and MCP tools.
+They appear in the existing Marketing analytics Setup, under Suggestions and Conversion goals.
+The `marketing-analytics-conversion-setup-ai` feature flag gates the UI, API, and MCP tools.
 The existing Marketing analytics setup flag must also be enabled.
 
 ## Analysis lifecycle
@@ -21,6 +21,7 @@ Count-only suggestions do not ask about revenue units, currency, or hypothetical
 A revenue suggestion must reference a numeric property observed in the source metadata.
 A missing amount mapping downgrades the suggestion to a conversion and adds a question about the missing mapping.
 Numeric metadata alone does not prove that a value is money; the user still needs to confirm units, currency, payment status, and duplicate handling.
+The **Configure goals** button opens the existing goal editor.
 Recommendations do not create or modify goals, and do not depend on conversion previews or the new dashboard.
 
 ## Discovery and access
@@ -72,7 +73,8 @@ The static IDOR coverage check verifies that recommendation runs appear in the g
 After changing model scope, regenerate that list with `python .github/scripts/check-idor-model-coverage.py --regenerate-environment-models`, then run the same command without the regeneration flag.
 
 Backend tests cover run reuse, refresh windows, permissions, consent, source filtering, output validation, and goal preservation.
-MCP tests cover tool schemas, feature flag gating, and access from read-only sessions.
+Frontend tests cover the initial run, manual updates, polling, project isolation, and the setup feature flag.
+Storybook covers analysis in progress, saved results, updates, failure, empty results, missing consent, and narrow layouts.
 
 The standalone recommendation evaluation uses eleven synthetic business cases and calls the same generator, gateway client, tool schema, and parser as production.
 It does not exercise discovery queries, permissions, persistence, or Celery; those have separate tests.

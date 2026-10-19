@@ -15,6 +15,8 @@ import { marketingAnalyticsSettingsLogic } from 'scenes/web-analytics/tabs/marke
 import type { Suggestion } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
 
+import { ConversionGoalRecommendations } from 'products/marketing_analytics/frontend/setup/ConversionGoalRecommendations'
+
 import { runNavigateOp } from './navigateOps'
 import { suggestionsForSection } from './sectionRouting'
 import { SectionSuggestions } from './SectionSuggestions'
@@ -121,6 +123,12 @@ export function SetupTab(): JSX.Element {
                 {/* Skipped for "Suggested setup", which renders the whole ranked list
                     itself and would otherwise show everything twice. */}
                 {active.key !== SetupSection.SUGGESTIONS && <SectionSuggestions section={active.key} />}
+                {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI] &&
+                    (active.key === SetupSection.SUGGESTIONS || active.key === SetupSection.CONVERSION_GOALS) && (
+                        <ConversionGoalRecommendations
+                            onConfigureGoals={() => setSetupSection(SetupSection.CONVERSION_GOALS)}
+                        />
+                    )}
                 {active.key === SetupSection.SOURCES && (
                     <LemonButton
                         size="small"
