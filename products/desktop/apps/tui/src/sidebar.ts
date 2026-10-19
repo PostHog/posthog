@@ -10,6 +10,7 @@ import {
   showToday,
 } from "./layout";
 import { LEGACY_PREFIX } from "./localChats";
+import type { PinnedChat } from "./prefs";
 
 // "waiting" is a chat whose turn ended while the reader was elsewhere.
 export type Indicator = "working" | "waiting" | "alive" | "failed" | "asleep";
@@ -170,8 +171,8 @@ export function sidebarRows({
   local?: LocalChatState;
   // Off from settings: no Today row, and the main view that showed the briefing counts as a new chat.
   showToday?: boolean;
-  // Task ids pinned with Ctrl+P, in the order they were pinned.
-  pinned?: string[];
+  // Chats pinned with Ctrl+P, in the order they were pinned, named so they show before the list loads.
+  pinned?: PinnedChat[];
 }): SidebarRow[] {
   const byId = new Map([
     ...known,
@@ -259,17 +260,12 @@ export function sidebarRows({
     });
     rows.push({ kind: "gap" });
   });
-  // Pinned chats sit above the workspaces instead of under All chats, once the tasks they name are loaded.
-  const pinnedRows = pinned.flatMap((taskId) =>
-    byId.has(taskId)
-      ? [
-          {
-            ...taskRow(taskId, singlePaneOf.get(taskId) ?? null, false),
-            pinned: true,
-          },
-        ]
-      : [],
-  );
+  // Pinned chats sit above the workspaces instead of under All chats, by their saved name until the list loads.
+  const pinnedIds = new Set(pinned.map((chat) => chat.id));
+  const pinnedRows = pinned.map((chat) => ({
+    ...taskRow(chat.id, singlePaneOf.get(chat.id) ?? null, false, chat.title),
+    pinned: true,
+  }));
   if (pinnedRows.length > 0) {
     rows.splice(
       showToday ? 3 : 1,
@@ -293,7 +289,7 @@ export function sidebarRows({
   else if (work.tasks === null) rows.push({ kind: "loading" });
   else if (tasks.length === 0) rows.push({ kind: "empty" });
   for (const task of tasks) {
-    if (pinned.includes(task.id)) continue;
+    if (pinnedIds.has(task.id)) continue;
     rows.push(taskRow(task.id, singlePaneOf.get(task.id) ?? null, false));
   }
   if (work.loadingMore) rows.push({ kind: "loading" });

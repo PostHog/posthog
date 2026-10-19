@@ -2,6 +2,7 @@ import type { Task } from "@posthog/shared";
 import { type Dispatch, type SetStateAction, useMemo, useState } from "react";
 import { focusSidebar, type LayoutState } from "../layout";
 import type { LocalAgent } from "../local";
+import type { PinnedChat } from "../prefs";
 import {
   activateRow,
   cursorIndex,
@@ -54,7 +55,7 @@ export function useSidebar({
   waiting: Set<string>;
   titles: Map<string, string>;
   showToday: boolean;
-  pinned: string[];
+  pinned: PinnedChat[];
 }): SidebarState {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   // The cursor follows a row's identity, since previewing a chat can move rows.

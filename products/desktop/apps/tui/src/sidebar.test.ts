@@ -179,7 +179,7 @@ describe("sidebarRows", () => {
     });
   });
 
-  it("lists pinned chats it knows above the workspaces instead of under All chats, and skips unloaded ones", () => {
+  it("lists pinned chats above the workspaces instead of under All chats, by saved name until loaded", () => {
     const layout = openTask(
       splitFocused(openTask(initialLayout(), "a"), "row"),
       "b",
@@ -189,7 +189,11 @@ describe("sidebarRows", () => {
       work: page({ tasks: [task("a"), task("b")] }),
       collapsed: new Set(),
       working: new Set(),
-      pinned: ["b", "gone", "a"],
+      pinned: [
+        { id: "b", title: "Old b" },
+        { id: "gone", title: "Saved gone" },
+        { id: "a", title: "Old a" },
+      ],
     });
     expect(labels(rows)).toEqual([
       "# Work",
@@ -197,6 +201,7 @@ describe("sidebarRows", () => {
       "",
       "## Pinned",
       "Task b",
+      "Saved gone",
       "Task a",
       "",
       "v Workspace #1",

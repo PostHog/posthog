@@ -6,6 +6,11 @@ import type { ModelChoice } from "./models";
 
 export type ChatPlace = "local" | "cloud";
 
+export interface PinnedChat {
+  id: string;
+  title: string;
+}
+
 export interface Prefs {
   // Where a pane's new chat runs when the pane has no /local or /cloud of its own.
   newChatPlace: ChatPlace;
@@ -27,8 +32,8 @@ export interface Prefs {
   welcomed: boolean;
   // Cloud Claude Code and Codex chats reach this machine's MCP servers through the TUI, from /mcp.
   relayLocalMcp: boolean;
-  // Chats pinned above the workspaces with Ctrl+P, by task id.
-  pinnedTaskIds: string[];
+  // Chats pinned above the workspaces with Ctrl+P, with the name they had so they show before the list loads.
+  pinnedChats: PinnedChat[];
 }
 
 const modelOf = (saved: unknown): ModelChoice | undefined => {
@@ -52,7 +57,7 @@ const DEFAULT_PREFS: Prefs = {
   showToday: true,
   welcomed: false,
   relayLocalMcp: false,
-  pinnedTaskIds: [],
+  pinnedChats: [],
 };
 
 const repositoriesOf = (saved: unknown): Record<string, string[]> =>
@@ -82,8 +87,11 @@ export function loadPrefs(path: string = PREFS_PATH): Prefs {
       showToday: saved.showToday !== false,
       welcomed: saved.welcomed === true,
       relayLocalMcp: saved.relayLocalMcp === true,
-      pinnedTaskIds: Array.isArray(saved.pinnedTaskIds)
-        ? saved.pinnedTaskIds.filter((id) => typeof id === "string")
+      pinnedChats: Array.isArray(saved.pinnedChats)
+        ? saved.pinnedChats.filter(
+            (chat): chat is PinnedChat =>
+              typeof chat?.id === "string" && typeof chat?.title === "string",
+          )
         : [],
     };
   } catch {
