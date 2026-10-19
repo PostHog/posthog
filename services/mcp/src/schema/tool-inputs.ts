@@ -6,6 +6,7 @@ import {
     aiObservabilityOfflineExperimentsUploadCreateBodyResultsMax,
 } from '../generated/ai_observability/api'
 import { BillingUsageRetrieveQueryParams } from '../generated/billing/api'
+import { MarketingAnalyticsConversionGoalsPreviewCreateBody } from '../generated/marketing_analytics/api'
 // Relative (not `@/`) imports: this module is loaded by the tsx schema-generation
 // script, and both modules are pure constants/functions — no `.md` imports to choke on.
 import { castStringToInt, normalizeParamAliases } from '../tools/cast-helpers'
@@ -22,6 +23,116 @@ export const SignalReportFeedbackNoteSchema = z
     .min(1)
     .max(4000)
     .describe("The person's context for why the report was or was not useful, up to 4000 characters.")
+
+const MarketingConversionPropertyFilterSchema = z.looseObject({
+    type: z.string().optional().describe('Property source, such as event, person, cohort, hogql, or data_warehouse.'),
+    key: z.string().optional().describe('Property name, cohort key, or HogQL expression for this filter type.'),
+    operator: z.string().nullable().optional().describe('Comparison operator, such as exact, is_not, gt, or is_set.'),
+    value: z.unknown().optional().describe('Comparison value or list of values. Preserve its original JSON type.'),
+    label: z.string().nullable().optional().describe('Optional display label for the filter.'),
+})
+
+// Inline property-filter unions exceed client schema limits. Keep every field through the
+// compact input, then use the generated schema for the full validation and default handling.
+export const MarketingConversionGoalSchema = z
+    .intersection(
+        z.looseObject({
+            conversion_goal_id: z
+                .string()
+                .describe('Draft ID, ignored by the server. Preserve the preview ID on apply.'),
+            conversion_goal_name: z.string().describe('Name of the conversion goal.'),
+            schema_map: z
+                .record(z.string(), z.unknown())
+                .describe('Source column mappings. Use an empty object for an event or action without mappings.'),
+            counts_as_customer: z
+                .boolean()
+                .nullable()
+                .optional()
+                .describe('Whether this conversion defines a customer. Repeat payments do not mean new customers.'),
+            counts_as_revenue: z
+                .boolean()
+                .nullable()
+                .optional()
+                .describe('Whether the conversion value is money. Revenue requires sum and an amount property.'),
+            math: z
+                .string()
+                .nullable()
+                .optional()
+                .describe('Aggregation. Preview supports total, dau (unique people), and sum (amounts).'),
+            math_property: z.string().nullable().optional().describe('Numeric property or column to sum.'),
+            math_property_revenue_currency: z
+                .looseObject({
+                    property: z
+                        .string()
+                        .nullable()
+                        .optional()
+                        .describe('Property or column containing currency codes.'),
+                    static: z.string().nullable().optional().describe('Fixed currency code, such as USD or EUR.'),
+                })
+                .nullable()
+                .optional()
+                .describe('Currency of the amount. Preserve the preview currency settings when applying.'),
+            properties: z
+                .array(MarketingConversionPropertyFilterSchema)
+                .nullable()
+                .optional()
+                .describe(
+                    'Conversion filters. Preserve all type-specific fields, including nested behavioral filters.'
+                ),
+            fixedProperties: z
+                .array(MarketingConversionPropertyFilterSchema)
+                .nullable()
+                .optional()
+                .describe('Fixed conversion filters. Preserve all type-specific fields from the draft or preview.'),
+            math_group_type_index: z
+                .number()
+                .nullable()
+                .optional()
+                .describe('Group aggregation index. Group aggregation is unsupported by preview.'),
+            math_multiplier: z
+                .number()
+                .nullable()
+                .optional()
+                .describe('Amount multiplier. Preview only supports an absent multiplier or 1.'),
+            math_hogql: z.string().nullable().optional().describe('Custom aggregation expression, when present.'),
+            math_property_type: z.string().nullable().optional().describe('Type of the amount property, when present.'),
+            custom_name: z.string().nullable().optional().describe('Optional custom display name.'),
+            name: z.string().nullable().optional().describe('Optional source display name.'),
+            optionalInFunnel: z.boolean().nullable().optional().describe('Existing query-node option, when present.'),
+            response: z
+                .record(z.string(), z.unknown())
+                .nullable()
+                .optional()
+                .describe('Existing query-node response metadata, when present.'),
+            version: z.number().nullable().optional().describe('Existing query-node schema version, when present.'),
+        }),
+        z.union([
+            z.looseObject({
+                kind: z.literal('EventsNode').optional().describe('An event conversion goal.'),
+                event: z.string().nullable().optional().describe('Conversion event name. Null selects all events.'),
+                limit: z.number().nullable().optional().describe('Existing event-query result limit, when present.'),
+                orderBy: z
+                    .array(z.string())
+                    .nullable()
+                    .optional()
+                    .describe('Existing event-query ordering, when present.'),
+            }),
+            z.looseObject({
+                kind: z.literal('ActionsNode').optional().describe('A conversion goal based on an existing action.'),
+                id: z.number().describe('ID of the existing action. Its saved filters remain in effect.'),
+            }),
+            z.looseObject({
+                kind: z.literal('DataWarehouseNode').optional().describe('A warehouse table or saved-view goal.'),
+                id: z.string().describe('Warehouse table or saved-view ID.'),
+                table_name: z.string().describe('Warehouse table or saved-view name.'),
+                id_field: z.string().describe('Column containing the unique conversion row ID.'),
+                distinct_id_field: z.string().describe('Column mapped to the person distinct ID.'),
+                timestamp_field: z.string().describe('Column containing the conversion timestamp.'),
+                dw_source_type: z.string().nullable().optional().describe('Warehouse source type, when present.'),
+            }),
+        ])
+    )
+    .pipe(z.lazy(() => MarketingAnalyticsConversionGoalsPreviewCreateBody().shape.goal))
 
 // Mirrors the Django serializer's `validate` rule so a continuation without the revision
 // fails here instead of at the API with a 400.
