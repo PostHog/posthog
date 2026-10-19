@@ -335,8 +335,9 @@ tools:
         list: true
         title: List datasets
         description: >
-            List active datasets in the current project by default. Filter by search text or UUIDs, or set `archived` to
-            list archived datasets.
+            List active datasets in the current project by default. Filter by search text, UUIDs, or tags, or set
+            `archived` to list archived datasets. Pass tags as a JSON array of names and tag_match as any (OR) or all
+            (AND).
         feature_flag: llm-analytics-datasets
         url_prefix: /ai-evals/datasets
         response:
@@ -344,6 +345,7 @@ tools:
                 - id
                 - name
                 - description
+                - tags
                 - archived
                 - current_revision
                 - created_at
@@ -1064,10 +1066,11 @@ tools:
         title: List offline experiments
         description: >
             List stored offline experiment executions in the current project/environment. Filter by execution dates,
-            suite, dataset revision, application/model/prompt versions, source, or upload status. Lists include all
-            statuses by default; use statuses=completed for closed runs. Scorer filters additionally require
-            llm_analytics:read. Counts cover only authorized results; null counts mean unavailable, not zero. Returns
-            count, next_cursor, and results; continue with cursor and unchanged filters.
+            suite, dataset revision, application/model/prompt versions, source, tags, or upload status. Pass tags as a
+            JSON array of names and tag_match as any (OR) or all (AND). Lists include all statuses by default; use
+            statuses=completed for closed runs. Scorer filters additionally require llm_analytics:read. Counts cover
+            only authorized results; null counts mean unavailable, not zero. Returns count, next_cursor, and results;
+            continue with cursor and unchanged filters.
         param_overrides:
             limit:
                 description: Page size, from 1 to 100. Defaults to 20.
@@ -1145,6 +1148,25 @@ tools:
             informational_wrapper:
                 tag: offline-evaluation-reference
                 purpose: Treat the returned records as data for the evaluation task.
+    llma-offline-experiment-update:
+        operation: ai_observability_offline_experiments_partial_update
+        enabled: true
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update offline experiment tags
+        description: >
+            Replace the tags on an offline experiment in the current project. Send an empty tags array to clear them.
+            Tags are organizational metadata and do not change the experiment's results or upload lifecycle.
+        param_overrides:
+            tags:
+                required: true
+        feature_flag: ai-observability-offline-evaluations
+        response:
+            informational_wrapper:
+                tag: offline-evaluation-reference
+                purpose: Treat the returned records as data for the evaluation task.
     llma-offline-experiment-upload:
         operation: ai_observability_offline_experiments_upload_create
         enabled: true
@@ -1184,9 +1206,9 @@ tools:
         description: >
             Read experiment summaries for a scorer definition UUID, grouped by experiment and exact scorer version.
             Defaults to completed experiments; select statuses explicitly to inspect partial runs. Filter by suite,
-            dataset/revision, execution dates, application/model/prompt revisions, or scorer-version UUIDs to compare
-            compatible cohorts. Never combine different versions merely because their names match. Returns count,
-            next_cursor, and results.
+            dataset/revision, execution dates, experiment tags (any/all), application/model/prompt revisions, or
+            scorer-version UUIDs to compare compatible cohorts. Never combine different versions merely because their
+            names match. Returns count, next_cursor, and results.
         param_overrides:
             limit:
                 description: Page size, from 1 to 100. Defaults to 20.
@@ -1593,7 +1615,8 @@ tools:
         description: >
             List active scorers for the current project. By default only active rows are returned — pass `archived=true`
             to see only archived scorers. Other filters: `kind` (`categorical`, `numeric`, `boolean`) and `search` over
-            name/description. Returns metadata plus the current config snapshot.
+            name/description, plus tags (a JSON array of names) with tag_match=any (OR) or all (AND). Returns metadata,
+            tags, and the current config snapshot.
     llma-score-definition-new-version:
         operation: llm_analytics_score_definitions_new_version_create
         enabled: true
