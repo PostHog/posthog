@@ -101,7 +101,7 @@ class TestFlagsForAppEvaluationContext(SimpleTestCase):
         [
             ("no_contexts_is_kept", None, True),
             ("empty_contexts_is_kept", [], True),
-            ("app_context_is_kept", ["posthog-app", "posthog-website"], True),
+            ("app_context_is_kept", ["posthog-web-app", "posthog-website"], True),
             ("other_context_is_dropped", ["posthog-website"], False),
         ]
     )

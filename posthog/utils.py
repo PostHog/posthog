@@ -486,14 +486,14 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
         return ("", (), "")
 
 
-APP_EVALUATION_CONTEXT = "posthog-app"
+APP_EVALUATION_CONTEXT = "posthog-web-app"
 
 
 def flags_for_app_evaluation_context(
     flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
 ) -> dict[str, Any] | None:
     """
-    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-app']`
+    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
     from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts.
     """
     # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
