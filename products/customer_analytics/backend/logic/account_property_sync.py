@@ -27,10 +27,7 @@ from products.customer_analytics.backend.logic.account_property_runs import (
     finalize_account_property_sync_runs,
     finish_account_property_sync_runs,
 )
-from products.customer_analytics.backend.logic.custom_property_values import (
-    InvalidCustomPropertyValue,
-    set_synced_custom_property_value,
-)
+from products.customer_analytics.backend.logic.custom_property_values import set_synced_custom_property_values
 from products.customer_analytics.backend.metrics import record_account_property_sync_phase_duration
 from products.customer_analytics.backend.models import Account, CustomPropertySource, TargetType
 from products.customer_analytics.backend.models.custom_property_sync_run import (
@@ -319,32 +316,25 @@ def _apply_source_values(
     changed: dict[str, Any],
     segment: AccountPropertySyncSegment,
 ) -> AppliedSourceValues:
-    written = 0
-    applied_hashes: dict[str, str] = {}
-    source_failed = False
-    for external_id, account_id in account_ids.items():
-        value = changed[external_id]
-        try:
-            did_write = set_synced_custom_property_value(
-                team_id=team_id,
-                account_id=account_id,
-                definition=source.definition,
-                value=value,
-            )
-        except InvalidCustomPropertyValue as error:
-            source_failed = True
-            logger.warning(
-                "account-property sync rejected a source value",
-                team_id=team_id,
-                source_id=str(source.id),
-                segment=segment.value,
-                error=str(error),
-            )
-            continue
-        if did_write:
-            written += 1
-        applied_hashes[external_id] = _value_hash(value)
-    return AppliedSourceValues(written=written, hashes=applied_hashes, failed=source_failed)
+    result = set_synced_custom_property_values(
+        team_id=team_id,
+        definition=source.definition,
+        values={account_id: changed[external_id] for external_id, account_id in account_ids.items()},
+    )
+    for error in result.rejected_values.values():
+        logger.warning(
+            "account-property sync rejected a source value",
+            team_id=team_id,
+            source_id=str(source.id),
+            segment=segment.value,
+            error=str(error),
+        )
+    applied_hashes = {
+        external_id: _value_hash(changed[external_id])
+        for external_id, account_id in account_ids.items()
+        if account_id in result.accepted_account_ids
+    }
+    return AppliedSourceValues(written=result.written, hashes=applied_hashes, failed=bool(result.rejected_values))
 
 
 def _enabled_sources_queryset(team_id: int, binding: WarehouseBinding) -> QuerySet[CustomPropertySource]:

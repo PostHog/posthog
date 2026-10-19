@@ -46,7 +46,7 @@ from products.customer_analytics.backend.logic.account_property_sync import (
     run_account_property_segment_sync,
     run_account_property_source_sync,
 )
-from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun
+from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, DisplayType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.warehouse_sources.backend.facade.hooks import WarehouseBinding, saved_query_binding
@@ -410,6 +410,31 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
 
         assert tracked_matches == {"tracked": tracked.id}
         assert ignored_matches == {"ignored": ignored.id}
+
+    def test_apply_values_hashes_only_accepted_values_and_reports_invalid_source(self) -> None:
+        source = self._create_source(name="Seats")
+        source.definition.display_type = DisplayType.NUMBER
+        source.definition.save(update_fields=["display_type"])
+        accepted = create_account(team_id=self.team.id, name="Accepted", external_id="accepted.example.com")
+        rejected = create_account(team_id=self.team.id, name="Rejected", external_id="rejected.example.com")
+        account_ids = {"accepted.example.com": accepted.id, "rejected.example.com": rejected.id}
+        changed = {"accepted.example.com": "6", "rejected.example.com": "not numeric"}
+        with patch("products.customer_analytics.backend.events.capture_batch_internal") as capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                result = aps._apply_source_values(
+                    self.team.id, source, account_ids, changed, AccountPropertySyncSegment.TRACKED
+                )
+            assert result == AppliedSourceValues(
+                written=1, hashes={"accepted.example.com": _value_hash("6")}, failed=True
+            )
+            assert capture.call_count == 1
+            capture.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                retry = aps._apply_source_values(
+                    self.team.id, source, account_ids, changed, AccountPropertySyncSegment.TRACKED
+                )
+            assert retry == AppliedSourceValues(written=0, hashes=result.hashes, failed=True)
+            capture.assert_not_called()
 
     def test_value_hash_is_stable_for_equivalent_values(self) -> None:
         assert _value_hash({"a": 1, "b": [2, 3]}) == _value_hash({"b": [2, 3], "a": 1})
