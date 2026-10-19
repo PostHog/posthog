@@ -4669,6 +4669,8 @@ export interface SharingConfigurationApi {
      * @nullable
      */
     readonly user_access_level: string | null
+    /** Whether the project has configured access controls for shared content or its underlying data. */
+    readonly has_relevant_access_controls: boolean
 }
 
 /**

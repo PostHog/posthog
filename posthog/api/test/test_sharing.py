@@ -29,7 +29,7 @@ from posthog.api.sharing_publish_gate import dashboard_filter_leaves
 from posthog.auth import SharingPasswordProtectedAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import ActivityLog, OrganizationMembership
+from posthog.models import ActivityLog, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.data_color_theme import DataColorTheme
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -39,6 +39,7 @@ from posthog.test.insight_queries import browser_filtered_pageview_query
 from posthog.test.warehouse_access import WAREHOUSE_ACCESS_CONTROL_FLAG, deny_warehouse_table_to_member
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -158,7 +159,59 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
+
+    @parameterized.expand(
+        [
+            ("dashboard", "dashboard", True, False, True),
+            ("notebook", "notebook", True, False, True),
+            ("insight", "insight", True, False, True),
+            ("project", "project", True, False, True),
+            ("source", "external_data_source", True, False, True),
+            ("warehouse_objects", "warehouse_objects", True, False, True),
+            ("table", "warehouse_table", True, False, True),
+            ("table_object", "warehouse_table", True, False, True),
+            ("view", "warehouse_view", True, False, True),
+            ("property", "property_definition", True, False, True),
+            ("no_rules", None, True, False, False),
+            ("unrelated_rules", "feature_flag", True, False, False),
+            ("unavailable_feature", "dashboard", False, False, False),
+            ("other_team", "dashboard", True, True, False),
+            ("other_team_property", "property_definition", True, True, False),
+        ]
+    )
+    def test_sharing_config_reports_relevant_access_controls(
+        self, _name: str, resource: str | None, entitled: bool, other_team: bool, expected: bool
+    ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}] if entitled else []
+        )
+        self.organization.save()
+        rule_team = Team.objects.create(organization=self.organization) if other_team else self.team
+        if resource == "property_definition":
+            definition = PropertyDefinition.objects.create(
+                team=rule_team, name="example_property", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(team=rule_team, property_definition=definition, access_level="none")
+        elif resource:
+            AccessControl.objects.create(
+                team=rule_team,
+                resource=resource,
+                resource_id="example-object" if _name == "table_object" else None,
+                access_level="viewer",
+            )
+
+        if _name == "notebook":
+            notebook = Notebook.objects.create(team=self.team, created_by=self.user)
+            url = f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/sharing"
+        else:
+            url = f"/api/projects/{self.team.id}/dashboards/{self.dashboard.id}/sharing"
+        response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["has_relevant_access_controls"] is expected
+        assert response.json()["enabled"] is False
 
     @parameterized.expand(
         [
@@ -233,6 +286,7 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
 
         response = self.client.patch(
@@ -247,6 +301,7 @@ class TestSharing(APIBaseTest):
             "settings": None,
             "share_passwords": [],
             "user_access_level": "editor",
+            "has_relevant_access_controls": False,
         }
 
     @patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow")

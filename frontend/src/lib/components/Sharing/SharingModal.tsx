@@ -237,6 +237,13 @@ export function SharingModalContent({
                         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-secondary">
                             Public sharing
                         </h4>
+                        {sharingAllowed &&
+                            accessControlAvailable &&
+                            sharingConfiguration.has_relevant_access_controls && (
+                                <LemonBanner type="warning" className="mb-3">
+                                    {`Anyone with the public link${sharingConfiguration.password_required ? ' and a sharing password' : ''} can view this ${resource} and its data, including people outside your organization. Access controls on this ${resource} and its underlying data do not apply to public sharing.`}
+                                </LemonBanner>
+                            )}
                         {!sharingAllowed ? (
                             <LemonBanner type="warning">Public sharing is disabled for this organization.</LemonBanner>
                         ) : (

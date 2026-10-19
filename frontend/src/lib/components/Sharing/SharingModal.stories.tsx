@@ -19,7 +19,12 @@ const fakeInsight: Partial<InsightModel> = {
     query: examples.InsightTrendsQuery,
 }
 
-type StoryArgs = SharingModalProps & { licensed?: boolean; passwordRequired?: boolean }
+type StoryArgs = SharingModalProps & {
+    licensed?: boolean
+    passwordRequired?: boolean
+    hasRelevantAccessControls?: boolean
+    sharingEnabled?: boolean
+}
 
 const meta: Meta<StoryArgs> = {
     title: 'Components/Sharing',
@@ -29,7 +34,13 @@ const meta: Meta<StoryArgs> = {
         viewMode: 'story',
     },
     render: (args) => {
-        const { licensed = false, passwordRequired = false, ...props } = args
+        const {
+            licensed = false,
+            passwordRequired = false,
+            hasRelevantAccessControls = false,
+            sharingEnabled = true,
+            ...props
+        } = args
         const [modalOpen, setModalOpen] = useState(false)
 
         useAvailableFeatures(licensed ? [AvailableFeature.WHITE_LABELLING, AvailableFeature.ACCESS_CONTROL] : [])
@@ -40,12 +51,14 @@ const meta: Meta<StoryArgs> = {
                     '/api/environments/:id/insights/:insight_id/sharing/',
                     '/api/environments/:id/dashboards/:dashboard_id/sharing/',
                     '/api/environments/:id/session_recordings/:recording_id/sharing/',
+                    '/api/environments/:id/notebooks/:notebook_id/sharing/',
                 ].reduce(
                     (acc, url) =>
                         Object.assign(acc, {
                             [url]: {
                                 created_at: '2022-06-28T12:30:51.459746Z',
-                                enabled: true,
+                                enabled: sharingEnabled,
+                                has_relevant_access_controls: hasRelevantAccessControls,
                                 access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
                                 password_required: passwordRequired,
                             },
@@ -58,6 +71,7 @@ const meta: Meta<StoryArgs> = {
                 '/api/environments/:id/insights/:insight_id/sharing/',
                 '/api/environments/:id/dashboards/:dashboard_id/sharing/',
                 '/api/environments/:id/session_recordings/:recording_id/sharing/',
+                '/api/environments/:id/notebooks/:notebook_id/sharing/',
             ].reduce(
                 (acc, url) =>
                     Object.assign(acc, {
@@ -67,7 +81,8 @@ const meta: Meta<StoryArgs> = {
                                 200,
                                 {
                                     created_at: '2022-06-28T12:30:51.459746Z',
-                                    enabled: true,
+                                    enabled: sharingEnabled,
+                                    has_relevant_access_controls: hasRelevantAccessControls,
                                     access_token: '1AEQjQ2xNLGoiyI0UnNlLzOiBZWWMQ',
                                     password_required: passwordRequired,
                                     ...body,
@@ -124,7 +139,13 @@ export const DashboardSharing: Story = {
 }
 
 export const DashboardSharingLicensed: Story = {
-    args: { title: 'Dashboard permissions', licensed: true, passwordRequired: true, dashboardId: 123 },
+    args: {
+        title: 'Dashboard permissions',
+        licensed: true,
+        passwordRequired: true,
+        hasRelevantAccessControls: true,
+        dashboardId: 123,
+    },
     decorators: [
         (Story) => (
             <BindLogic logic={dashboardLogic} props={{ id: 123 }}>
@@ -156,4 +177,14 @@ export const InsightSharingLicensed: Story = {
 
 export const RecordingSharingLicensed: Story = {
     args: { title: 'Share Recording', recordingId: 'fake-id', licensed: true, previewIframe: true },
+}
+
+export const NotebookSharingWithAccessControls: Story = {
+    args: {
+        title: 'Notebook permissions & sharing',
+        notebookShortId: 'example-notebook',
+        licensed: true,
+        hasRelevantAccessControls: true,
+        sharingEnabled: false,
+    },
 }

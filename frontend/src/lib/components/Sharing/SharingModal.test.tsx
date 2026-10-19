@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, within } from '@testing-library/react'
@@ -7,7 +9,7 @@ import { expectLogic } from 'kea-test-utils'
 import { themeLogic } from 'lib/logic/themeLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { useAvailableFeatures } from '~/mocks/features'
+import { getAvailableProductFeatures, useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -26,15 +28,18 @@ const defaultInsightId = 456
 function mockDashboardSharingConfiguration({
     enabled = true,
     passwordRequired = false,
+    hasRelevantAccessControls = false,
 }: {
     enabled?: boolean
     passwordRequired?: boolean
+    hasRelevantAccessControls?: boolean
 }): Record<string, any> {
     const sharingConfiguration = {
         created_at: createdAt,
         enabled,
         access_token: accessToken,
         password_required: passwordRequired,
+        has_relevant_access_controls: hasRelevantAccessControls,
     }
 
     return {
@@ -82,14 +87,40 @@ describe('SharingModal (dashboard)', () => {
     // consumer) can't commit a deferred render after a later file resets the kea store.
     afterEach(() => cleanup())
 
-    function DashboardSharingModalWrapper({ extraProps }: { extraProps?: Partial<SharingModalProps> }): JSX.Element {
+    function DashboardSharingModalWrapper({
+        extraProps,
+        accessControlAvailable = false,
+        hasRelevantAccessControls = false,
+        enabled = true,
+        passwordRequired = false,
+    }: {
+        extraProps?: Partial<SharingModalProps>
+        accessControlAvailable?: boolean
+        hasRelevantAccessControls?: boolean
+        enabled?: boolean
+        passwordRequired?: boolean
+    }): JSX.Element {
         // Render the dashboard sharing modal with `WHITE_LABELLING` so the UI shows
         // the branding option in the form.
-        useAvailableFeatures([AvailableFeature.WHITE_LABELLING])
-        initKeaTests()
+        useAvailableFeatures([
+            AvailableFeature.WHITE_LABELLING,
+            ...(accessControlAvailable ? [AvailableFeature.ACCESS_CONTROL] : []),
+        ])
+        initKeaTests(true, undefined, undefined, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            available_product_features: getAvailableProductFeatures(),
+        })
         themeLogic.mount()
         useMocks({
-            get: mockDashboardSharingConfiguration({}),
+            get: {
+                ...mockDashboardSharingConfiguration({ enabled, passwordRequired, hasRelevantAccessControls }),
+                '/api/environments/:team_id/notebooks/:notebook_id/sharing/': {
+                    created_at: createdAt,
+                    enabled,
+                    access_token: accessToken,
+                    has_relevant_access_controls: hasRelevantAccessControls,
+                },
+            },
         })
 
         const props: SharingModalProps = {
@@ -117,6 +148,41 @@ describe('SharingModal (dashboard)', () => {
         expect(document.querySelector('[data-attr="sharing-theme-dark"]')).toBeInTheDocument()
         expect(screen.queryByText(/Show insight details/i)).toBeNull()
     })
+
+    it.each([
+        { resource: 'dashboard', available: true, configured: true, enabled: false, password: false, warning: true },
+        { resource: 'dashboard', available: true, configured: true, enabled: true, password: true, warning: true },
+        { resource: 'notebook', available: true, configured: true, enabled: false, password: false, warning: true },
+        { resource: 'dashboard', available: false, configured: true, enabled: true, password: false, warning: false },
+        { resource: 'dashboard', available: true, configured: false, enabled: true, password: false, warning: false },
+    ])(
+        'warns about public $resource access with $available/$configured/$enabled/$password',
+        async ({ resource, available, configured, enabled, password, warning }) => {
+            render(
+                <DashboardSharingModalWrapper
+                    accessControlAvailable={available}
+                    hasRelevantAccessControls={configured}
+                    enabled={enabled}
+                    passwordRequired={password}
+                    extraProps={
+                        resource === 'notebook' ? { dashboardId: undefined, notebookShortId: 'example-notebook' } : {}
+                    }
+                />
+            )
+
+            await screen.findByText(`Share ${resource} publicly`)
+            const banner = screen.queryByText(
+                /Access controls on this .* and its underlying data do not apply to public sharing/
+            )
+            if (warning) {
+                expect(banner).toHaveTextContent(
+                    `Anyone with the public link${password ? ' and a sharing password' : ''} can view this ${resource}`
+                )
+            } else {
+                expect(banner).not.toBeInTheDocument()
+            }
+        }
+    )
 
     it('updates the shared dashboard theme', async () => {
         const user = userEvent.setup()
