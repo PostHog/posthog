@@ -554,7 +554,7 @@ async fn deployment_rollout_reassigns_partitions() {
     // gap previously escaped the suite).
     let store = test_store("deploy-rollout-k3s").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -750,7 +750,7 @@ async fn deployment_rollout_caps_first_new_pod_at_quota() {
 
     let store = test_store("deploy-quota-k3s").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -970,7 +970,7 @@ async fn statefulset_rollout_pod_skips_drain() {
 
     let store = test_store("ss-drain-skip-k3s").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1100,7 +1100,7 @@ async fn scale_down_pod_drains_normally() {
 
     let store = test_store("scale-down-k3s").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 

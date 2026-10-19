@@ -365,6 +365,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         topic_partitions, num_partitions,
         "changelog topic {changelog_topic} has {topic_partitions} partitions but the config says {num_partitions}"
     );
+    // Retirement settles marks on the writer group the config names, so it must be ours.
+    assert_eq!(
+        loaded.writer_group, config.writer_consumer_group,
+        "config/changelog names writer group {} but WRITER_CONSUMER_GROUP is {}",
+        loaded.writer_group, config.writer_consumer_group
+    );
     tracing::info!(
         num_partitions,
         topic = %changelog_topic,

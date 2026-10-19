@@ -41,7 +41,7 @@ async fn boot_polls_until_the_config_is_seeded() {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
         seeder
-            .seed_changelog_config("personhog_updates_64", 64, vec![])
+            .seed_changelog_config("personhog_updates_64", 64, "personhog-writer")
             .await
             .unwrap();
     });
@@ -74,7 +74,7 @@ async fn next_adopted(rx: &mut mpsc::UnboundedReceiver<ChangelogConfig>) -> Chan
 async fn the_watch_delivers_newer_epochs_and_retires_but_nothing_stale() {
     let store = test_store("changelog-watch").await;
     store
-        .seed_changelog_config("personhog_updates_64", 64, vec![])
+        .seed_changelog_config("personhog_updates_64", 64, "personhog-writer")
         .await
         .unwrap();
 
@@ -102,7 +102,7 @@ async fn the_watch_delivers_newer_epochs_and_retires_but_nothing_stale() {
         topic: "personhog_updates_128".into(),
         partitions: 128,
         epoch: 2,
-        gated_groups: vec![],
+        writer_group: String::new(),
         draining: Vec::new(),
     };
     store.put_changelog_config(&flipped).await.unwrap();
@@ -156,7 +156,7 @@ async fn a_severed_watch_still_adopts_the_flip_through_reconcile() {
     let watched = store_at(&proxy.endpoint, &prefix).await;
     let direct = store_at(ETCD_ENDPOINT, &prefix).await;
     direct
-        .seed_changelog_config("personhog_updates_64", 64, vec![])
+        .seed_changelog_config("personhog_updates_64", 64, "personhog-writer")
         .await
         .unwrap();
 
@@ -190,7 +190,7 @@ async fn a_severed_watch_still_adopts_the_flip_through_reconcile() {
             topic: "personhog_updates_128".into(),
             partitions: 128,
             epoch: 2,
-            gated_groups: vec![],
+            writer_group: String::new(),
             draining: Vec::new(),
         })
         .await

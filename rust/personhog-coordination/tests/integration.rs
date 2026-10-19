@@ -84,7 +84,7 @@ async fn single_pod_gets_all_partitions(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -129,7 +129,7 @@ async fn scale_up_triggers_handoff(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -263,7 +263,7 @@ async fn pod_crash_reassigns_partitions(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -335,7 +335,7 @@ async fn leader_failover(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -426,7 +426,7 @@ async fn multi_router_ack_quorum(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -529,7 +529,7 @@ async fn pod_crash_during_warming_restores_assignments(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -659,7 +659,7 @@ async fn scale_down_to_one_pod(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -745,7 +745,7 @@ async fn rapid_pod_joins(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -838,7 +838,7 @@ async fn rolling_update(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -968,7 +968,7 @@ async fn coordinator_starts_after_pods(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1036,7 +1036,7 @@ async fn debounce_batches_rapid_pod_changes(
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", MANY_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1138,7 +1138,7 @@ async fn graceful_drain_transfers_partitions(
 ) {
     let store = test_store(test_name).await;
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1236,7 +1236,7 @@ async fn graceful_drain_transfers_partitions(
 async fn drain_status_write_failure_exits_cleanly() {
     let store = test_store("drain-write-fail").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1299,7 +1299,7 @@ async fn initial_assignment_creates_handoff_with_no_old_owner() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1362,7 +1362,7 @@ async fn old_owner_retains_partition_through_warming() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1436,7 +1436,7 @@ async fn a_dead_new_owner_handoff_is_reaffirmed_to_the_current_owner() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1560,7 +1560,7 @@ async fn stale_handoff_address_never_overwrites_a_fresher_registration() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1640,7 +1640,7 @@ async fn pod_re_registration_refreshes_router_addresses_without_a_handoff() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1741,7 +1741,7 @@ async fn routing_table_updated_at_handoff_complete() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -1890,7 +1890,7 @@ async fn dead_old_owner_in_freezing_advances_to_completion() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2013,7 +2013,7 @@ async fn a_dead_new_owner_handoff_in_warming_is_reaffirmed() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2134,7 +2134,7 @@ async fn reconcile_advances_warming_with_pre_staged_warmed_ack() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2318,7 +2318,7 @@ async fn draining_old_owner_does_not_trigger_cleanup() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2394,7 +2394,7 @@ async fn a_handoff_that_can_never_reach_quorum_is_cancelled() {
     let store = test_store("handoff-deadline-cancels").await;
     let cancel = CancellationToken::new();
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2497,7 +2497,7 @@ async fn freezing_blocks_until_routers_ack_before_draining() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2618,7 +2618,7 @@ async fn initial_assignment_skips_draining_phase() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2687,7 +2687,7 @@ async fn dead_old_owner_in_draining_recovers() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2793,7 +2793,7 @@ async fn reconcile_advances_draining_with_pre_staged_drained_ack() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -2945,7 +2945,7 @@ async fn a_dead_new_owner_handoff_in_draining_is_reaffirmed() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -3133,7 +3133,7 @@ async fn stuck_handoff_defers_only_its_own_partition() {
     let store = test_store("stuck_handoff_defers_only_its_own_partition").await;
     let cancel = CancellationToken::new();
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -3441,7 +3441,7 @@ async fn rebalance_never_writes_assignment_records() {
     let store = test_store("rebalance_never_writes_assignment_records").await;
     let cancel = CancellationToken::new();
     assert!(store
-        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, vec![])
+        .seed_changelog_config("personhog_updates", NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 

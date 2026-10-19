@@ -23,7 +23,7 @@ pub async fn reset(
 ) -> Result<()> {
     store.delete_all().await.context("clearing etcd prefix")?;
     store
-        .seed_changelog_config(topic, partitions, vec![writer_group.to_string()])
+        .seed_changelog_config(topic, partitions, writer_group)
         .await
         .context("seeding config/changelog")?;
     Ok(())

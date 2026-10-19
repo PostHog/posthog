@@ -72,7 +72,7 @@ async fn service_accepts_requests_after_coordination_warmup() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, vec![])
+        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -704,7 +704,7 @@ async fn release_partition_stops_serving() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, vec![])
+        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 
@@ -825,7 +825,7 @@ async fn rewarm_after_pod_crash() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, vec![])
+        .seed_changelog_config(common::CHANGELOG_TOPIC, NUM_PARTITIONS, "personhog-writer")
         .await
         .unwrap());
 

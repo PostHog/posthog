@@ -125,7 +125,7 @@ Several failure modes are handled explicitly:
 
 ## Changelog config
 
-`config/changelog` (`{topic, partitions, epoch, gated_groups, draining}`) is the one live object every participant reads. Every service loads it at boot; the router and the identity service also follow it through a watch, so the partition count they hash under is the live one.
+`config/changelog` (`{topic, partitions, epoch, writer_group, draining}`) is the one live object every participant reads. Every service loads it at boot; the router and the identity service also follow it through a watch, so the partition count they hash under is the live one.
 
 ## Modules
 

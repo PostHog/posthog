@@ -980,7 +980,7 @@ async fn dead_old_owner_handoff_advances_in_place_not_cleaned_up() {
     let cancel = CancellationToken::new();
 
     assert!(store
-        .seed_changelog_config("personhog_updates", 1, vec![])
+        .seed_changelog_config("personhog_updates", 1, "personhog-writer")
         .await
         .expect("partitions"));
 
@@ -4554,7 +4554,7 @@ async fn a_replaced_handoff_reaches_the_old_owner_it_no_longer_names() {
 async fn a_plan_records_its_freeze_quorum_once_and_collects_it_after() {
     let store = test_store("freeze-quorum-by-reference").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", 2, vec![])
+        .seed_changelog_config("personhog_updates", 2, "personhog-writer")
         .await
         .expect("set partitions"));
     let cancel = CancellationToken::new();
@@ -4864,7 +4864,7 @@ async fn a_leader_that_goes_between_the_read_and_the_watch_is_still_delivered() 
 async fn the_sweep_spares_a_membership_a_live_handoff_refers_to() {
     let store = test_store("freeze-quorum-sweep-spares").await;
     assert!(store
-        .seed_changelog_config("personhog_updates", 2, vec![])
+        .seed_changelog_config("personhog_updates", 2, "personhog-writer")
         .await
         .expect("set partitions"));
     let cancel = CancellationToken::new();
