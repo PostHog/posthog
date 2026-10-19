@@ -14,6 +14,7 @@ from posthog.api.file_system.access_levels import FileSystemAccessLevelSerialize
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.models.file_system.constants import DEFAULT_SURFACE, RETIRED_FILE_SYSTEM_TYPES, surface_q
+from posthog.models.file_system.file_system import project_team_ids
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut, lock_user_shortcuts
 
 
@@ -165,7 +166,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return context
 
     def _scope_by_project(self, queryset):
-        return queryset.filter(surface_q(self.file_system_surface), team__project_id=self.team.project_id)
+        return queryset.filter(surface_q(self.file_system_surface), team_id__in=project_team_ids(self.team.project_id))
 
     def _scope_by_project_and_environment(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project(queryset)
