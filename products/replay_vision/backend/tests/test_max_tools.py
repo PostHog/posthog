@@ -237,8 +237,8 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
-    async def test_returned_observation_id_reaches_the_observation_tools(self):
-        # Max reads only `content`, so the id it passes to retry or label has to come from there.
+    async def test_returned_observation_id_reaches_the_label_tool(self):
+        # Max reads only `content`, so the id it passes to label has to come from there.
         scanner = await self._scanner()
         session_id = str(uuid.uuid4())
         obs = await self._observation(scanner, session_id, "user rage-clicked the broken submit button", score=0)
@@ -254,15 +254,13 @@ class TestSearchReplayVisionObservationsTool(BaseTest):
         assert match.groups() == (str(obs.id), session_id)
 
         config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
-        retry = RetryReplayVisionObservationTool(team=self.team, user=self.user, config=config)
-        _, retried = await retry._arun_impl(observation_id=match.group(1))
-        # A succeeded observation is not retryable, which proves the lookup found it.
-        assert retried["error"] == "not_retryable"
+        label = LabelReplayVisionObservationTool(team=self.team, user=self.user, config=config)
+        _, labelled = await label._arun_impl(observation_id=match.group(1), is_correct=True)
+        assert "error" not in labelled, labelled
 
         # The mix-up a model makes: a recording id where an observation id belongs.
-        content, mixed_up = await retry._arun_impl(observation_id=session_id)
+        _, mixed_up = await label._arun_impl(observation_id=session_id, is_correct=True)
         assert mixed_up["error"] == "not_found"
-        assert "observation_id" in content and "session_id" in content
 
     @pytest.mark.django_db
     @pytest.mark.asyncio

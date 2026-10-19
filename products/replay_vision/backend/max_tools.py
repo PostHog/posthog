@@ -853,7 +853,6 @@ Use this tool to scan a recording again after its observation failed or came bac
 
 # When to use
 - The user asks to retry, re-run, or try again on an observation that failed
-- A search result shows a failed observation and the user wants another attempt
 
 # What it does
 Deletes the failed result and starts a fresh scan of the same recording with the same scanner. This
