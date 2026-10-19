@@ -113,7 +113,7 @@ Use a mock destination or test transport for external delivery checks.
 | Concern                                             | Start here                                                  |
 | --------------------------------------------------- | ----------------------------------------------------------- |
 | API, serializers, validation, delivery history      | `products/subscriptions/backend/presentation/views.py`      |
-| Subscription and delivery models                    | `products/exports/backend/models/subscription.py`           |
+| Subscription and delivery models                    | `products/subscriptions/backend/models/`                    |
 | Delivery workflows and activities                   | `products/subscriptions/backend/temporal/`                  |
 | Destination delivery and automatic disable behavior | `products/subscriptions/backend/logic/`                     |
 | What core and other products may import             | `products/subscriptions/backend/facade/`                    |

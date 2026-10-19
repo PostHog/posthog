@@ -163,6 +163,9 @@ class TestSourceResponse:
             ("exchanges", ["id"]),
             ("exchanges_list", ["id"]),
             ("asset_platforms", ["id"]),
+            ("rwas_markets", ["id"]),
+            ("rwas_list", ["id"]),
+            ("rwas_issuers_list", ["id"]),
         ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
